@@ -48,7 +48,11 @@ class VoicevoxClient:
         try:
             resp = self.client.post(
                 "/audio_query",
-                params={"text": text, "speaker": speaker_id},
+                params={
+                    "text": text,
+                    "speaker": speaker_id,
+                    "enable_katakana_english": 1,
+                },
             )
             resp.raise_for_status()
             return resp.text
@@ -69,7 +73,10 @@ class VoicevoxClient:
         try:
             resp = self.client.post(
                 "/synthesis",
-                params={"speaker": speaker_id},
+                params={
+                    "speaker": speaker_id,
+                    "enable_interrogative_upspeak": 1,
+                },
                 content=audio_query,
                 headers={"content-type": "application/json"},
             )
