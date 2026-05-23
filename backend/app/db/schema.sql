@@ -1,0 +1,34 @@
+CREATE TABLE IF NOT EXISTS articles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    source TEXT,
+    url TEXT UNIQUE,
+    summary TEXT,
+    published_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS episodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    episode_date TEXT NOT NULL,
+    script_text TEXT,
+    audio_path TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS episode_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    episode_id INTEGER NOT NULL,
+    article_id INTEGER,
+    item_order INTEGER NOT NULL,
+    segment_text TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE,
+    FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_episodes_date ON episodes(episode_date);
+CREATE INDEX IF NOT EXISTS idx_episode_items_episode_id ON episode_items(episode_id);
+CREATE INDEX IF NOT EXISTS idx_episode_items_order ON episode_items(item_order);
