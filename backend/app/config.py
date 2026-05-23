@@ -13,10 +13,13 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen3.6:27b"
     voicevox_base_url: str = "http://127.0.0.1:50021"
+    voicevox_speaker_male: int = 0
+    voicevox_speaker_female: int = 1
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    model_config = {
+        "env_file": ".env",
+        "case_sensitive": False,
+    }
 
 
 @lru_cache(maxsize=1)
