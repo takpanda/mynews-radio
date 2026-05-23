@@ -9,12 +9,12 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:////app/data/mynews-radio.db"
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:3000"
-    dgx_host: str = "127.0.0.1"
-    ollama_base_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "qwen3.6:27b"
-    voicevox_base_url: str = "http://127.0.0.1:50021"
-    voicevox_speaker_male: int = 0
-    voicevox_speaker_female: int = 1
+    dgx_host: str = "192.168.1.103"
+    ollama_base_url: str = "http://192.168.1.103:11434"
+    ollama_model: str = "qwen3.6:35b"
+    voicevox_base_url: str = "http://192.168.1.102:50021"
+    voicevox_speaker_male: int = 11
+    voicevox_speaker_female: int = 2
 
     model_config = {
         "env_file": ".env",

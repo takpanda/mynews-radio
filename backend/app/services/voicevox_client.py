@@ -42,13 +42,13 @@ class VoicevoxClient:
         """
         POST /audio_query — audio queryをJSON文字列として取得する。
         failureの場合、None を返す。
+        
+        VOICEVOX API: POST with query params (text, speaker)
         """
         try:
             resp = self.client.post(
                 "/audio_query",
-                params={"speaker": speaker_id, "accent_phrase_speed": 1.0},
-                content=text,
-                headers={"content-type": "text/plain"},
+                params={"text": text, "speaker": speaker_id},
             )
             resp.raise_for_status()
             return resp.text
@@ -63,14 +63,13 @@ class VoicevoxClient:
     ) -> bool:
         """
         POST /synthesis — WAV bytes をファイルに保存する。
-        is_mono=true はモノラル出力を指定 (enable_interrogation=0).
-        VOICEVOXの疑問符制御です。trueの場合、疑問符を強調しません。
-        Return True on success.
+        
+        VOICEVOX API: POST with query param (speaker) and JSON body (query)
         """
         try:
             resp = self.client.post(
                 "/synthesis",
-                params={"speaker": speaker_id, "enable_interrogation": 0},
+                params={"speaker": speaker_id},
                 content=audio_query,
                 headers={"content-type": "application/json"},
             )
