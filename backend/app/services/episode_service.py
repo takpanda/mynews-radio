@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from app.db.connection import get_db_connection
@@ -107,3 +108,28 @@ class EpisodeService:
                 """,
                 (audio_path, episode_id),
             )
+
+    def get_expired_episodes(self, retention_days: int) -> list[dict[str, Any]]:
+        """保持期間を超過したエピソードの一覧を取得する"""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime("%Y-%m-%d")
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, episode_date, status
+                FROM episodes
+                WHERE episode_date < ?
+                ORDER BY episode_date ASC
+                """,
+                (cutoff,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def delete_episode(self, episode_id: int) -> bool:
+        """エピソードと関連するepisode_itemsを削除し、レコードが存在した場合はTrueを返す"""
+        with get_db_connection() as conn:
+            row = conn.execute("SELECT id FROM episodes WHERE id = ?", (episode_id,)).fetchone()
+            if row is None:
+                return False
+            conn.execute("DELETE FROM episode_items WHERE episode_id = ?", (episode_id,))
+            conn.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
+            return True
