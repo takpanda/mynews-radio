@@ -46,12 +46,17 @@ export interface Article {
   url: string | null
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://pi5-3.local:8000'
+const SERVER_API_BASE = process.env.API_BASE ?? 'http://api:8000'
+const CLIENT_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000'
+
+function getApiBase(): string {
+  return typeof window === 'undefined' ? SERVER_API_BASE : CLIENT_API_BASE
+}
 
 export function buildAudioUrl(audioPath: string): string {
   if (!audioPath) return ''
   if (audioPath.startsWith('http')) return audioPath
-  return `${API_BASE}${audioPath}`
+  return `${CLIENT_API_BASE}${audioPath}`
 }
 
 export function formatDate(dateStr: string): string {
@@ -64,34 +69,34 @@ export function formatDate(dateStr: string): string {
 }
 
 export async function fetchLatestEpisode(): Promise<Episode | null> {
-  const res = await fetch(`${API_BASE}/episodes/latest`, { cache: 'no-store' })
+  const res = await fetch(`${getApiBase()}/episodes/latest`, { cache: 'no-store' })
   if (res.status === 404) return null
   if (!res.ok) throw new Error(`Failed to fetch latest episode: ${res.status}`)
   return res.json() as Promise<Episode>
 }
 
 export async function fetchEpisodes(): Promise<EpisodeListItem[]> {
-  const res = await fetch(`${API_BASE}/episodes`, { cache: 'no-store' })
+  const res = await fetch(`${getApiBase()}/episodes`, { cache: 'no-store' })
   if (!res.ok) throw new Error(`Failed to fetch episodes: ${res.status}`)
   return res.json() as Promise<EpisodeListItem[]>
 }
 
 export async function fetchEpisode(id: number): Promise<Episode | null> {
-  const res = await fetch(`${API_BASE}/episodes/${id}`, { cache: 'no-store' })
+  const res = await fetch(`${getApiBase()}/episodes/${id}`, { cache: 'no-store' })
   if (res.status === 404) return null
   if (!res.ok) throw new Error(`Failed to fetch episode: ${res.status}`)
   return res.json() as Promise<Episode>
 }
 
 export async function fetchEpisodeScript(id: number): Promise<Script | null> {
-  const res = await fetch(`${API_BASE}/episodes/${id}/script`, { cache: 'no-store' })
+  const res = await fetch(`${getApiBase()}/episodes/${id}/script`, { cache: 'no-store' })
   if (res.status === 404) return null
   if (!res.ok) throw new Error(`Failed to fetch script: ${res.status}`)
   return res.json() as Promise<Script>
 }
 
 export async function fetchArticle(id: number): Promise<Article | null> {
-  const res = await fetch(`${API_BASE}/articles/${id}`, { cache: 'no-store' })
+  const res = await fetch(`${getApiBase()}/articles/${id}`, { cache: 'no-store' })
   if (res.status === 404) return null
   if (!res.ok) return null
   return res.json() as Promise<Article>
