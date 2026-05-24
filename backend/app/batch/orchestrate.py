@@ -141,9 +141,10 @@ def run(date_str: str | None = None) -> None:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    from app.logging_config import setup_daily_logging  # noqa: E402
+    setup_daily_logging(__name__, level=logging.INFO)
 
-    from datetime import date as _date
+    from datetime import date as _date  # noqa: E402
     default_date = str(_date.today())
     date_str = sys.argv[1] if len(sys.argv) > 1 else default_date
     run(date_str)

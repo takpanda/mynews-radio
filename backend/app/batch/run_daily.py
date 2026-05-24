@@ -2,12 +2,13 @@
 """ daily batch orchestration script
 
 Runs the full pipeline in order:
+    0. health_check   – Ollama / VOICEVOX connectivity check
     1. summarize_articles      – fetch new articles from DB, summarize via Ollama
-    2. generate_script          – draft a radio script from summaries
-    3. synthesize_voicevox      – convert lines to WAV with VoiceVox
-    4. build_episode            – combine WAVs -> episode.mp3 + metadata.json
+    2. generate_script         – draft a radio script from summaries
+    3. synthesize_voicevox     – convert lines to WAV with VoiceVox
+    4. build_episode           – combine WAVs -> episode.mp3 + metadata.json
 
-All steps write their logs to LOG_FILE so cron can pipe output there.
+All steps write their logs to data/logs/YYYY-MM-DD.log so cron can pipe output there.
 """
 import datetime as dt
 import json
@@ -21,26 +22,30 @@ from app.batch.summarize_articles import summarize_articles  # noqa: E402
 from app.batch.generate_script import generate_script        # noqa: E402
 from app.batch.synthesize_voicevox import synthesize_episode as synthesize_voicevox  # noqa: E402
 from app.batch.build_episode import build_episode           # noqa: E402
+from app.batch.health_check import run_health_checks         # noqa: E402
+from app.logging_config import setup_daily_logging           # noqa: E402
+from app.config import get_settings                          # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    # configure logging (also written to log file via cron)
-    LOG_DIR = os.environ.get("BATCH_LOG_DIR", "/app/data/logs/batch")
-    os.makedirs(LOG_DIR, exist_ok=True)
-    ts = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
-    LOG_FILE = os.path.join(LOG_DIR, f"batch-{ts}.log")
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler(LOG_FILE, encoding="utf-8"),
-        ],
-    )
+    # Shared daily log: data/logs/YYYY-MM-DD.log
+    setup_daily_logging(__name__, level=logging.INFO)
     logger.info("=== daily batch start (run_daily.py) ===")
+
+    settings = get_settings()
+
+    # Pre-flight health checks for Ollama, VOICEVOX
+    health_results = run_health_checks(
+        ollama_url=settings.ollama_base_url,
+        ollama_model=settings.ollama_model,
+        voicevox_url=settings.voicevox_base_url,
+    )
+
+    if not all(r.status == "ok" for r in health_results):
+        failed = [r.service for r in health_results if r.status != "ok"]
+        logger.error("Service(s) unhealthy: %s — continuing but risks failure", ", ".join(failed))
 
     # date for today's episode directory
     if os.environ.get("BATCH_DATE"):
