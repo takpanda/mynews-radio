@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     voicevox_base_url: str = "http://192.168.1.102:50021"
     voicevox_speaker_male: int = 11
     voicevox_speaker_female: int = 2
+    episode_retention_days: int = 30
 
     model_config = {
         "env_file": ".env",
