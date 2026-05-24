@@ -5,6 +5,9 @@ services:
     container_name: mynews-radio-api
     env_file:
       - .env
+    environment:
+      - TZ=Asia/Tokyo
+      - CRON_SCHEDULE=${CRON_SCHEDULE:-0 6 * * *}
     volumes:
       - ./backend:/app
       - ./data:/app/data

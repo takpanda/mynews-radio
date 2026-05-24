@@ -6,6 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 
+from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService
 
 router = APIRouter()
@@ -142,6 +143,19 @@ def _enrich_episode(episode: dict) -> None:
         with open(metadata_data, "r", encoding="utf-8") as f:
             data = json.load(f)
         episode["duration_seconds"] = data.get("duration_seconds", 0.0)
+
+
+@router.get("/articles/{article_id}", summary="記事詳細を取得")
+def get_article(article_id: int) -> dict:
+    """指定された記事のタイトル・URL・ソースを返す"""
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT id, title, source, url FROM articles WHERE id = ?",
+            (article_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Article not found")
+    return dict(row)
 
 
 def _load_articles_from_script(episode_id: int) -> list[dict]:
