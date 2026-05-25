@@ -54,7 +54,7 @@ class EpisodeService:
         with get_db_connection() as conn:
             rows = conn.execute(
                 """
-                SELECT id, episode_date, status
+                SELECT id, episode_date, audio_path, status
                 FROM episodes
                 ORDER BY episode_date DESC, id DESC
                 """

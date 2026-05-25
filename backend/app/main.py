@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.api.episodes import router as episodes_router
 from app.api.generate import router as generate_router
 from app.api.health import router as health_router
+from app.services.episode_service import EpisodeService
 settings = get_settings()
 app = FastAPI(title="MyNews Radio API", version="0.1.0")
 
@@ -80,6 +81,21 @@ def serve_audio_file(episode_path: str) -> FileResponse:
             media_type, _ = mimetypes.guess_type(candidate)
             media_type = media_type or "application/octet-stream"
             return FileResponse(candidate, media_type=media_type)
+
+        # id-based path fallback: episode_id may map to a date-based directory
+        if dir_name.isdigit():
+            try:
+                episode = EpisodeService().get_episode(int(dir_name))
+                if episode and episode.get("episode_date"):
+                    fallback_candidate = os.path.join(
+                        EPISODES_DIR, episode["episode_date"], filename
+                    )
+                    if os.path.isfile(fallback_candidate):
+                        media_type, _ = mimetypes.guess_type(fallback_candidate)
+                        media_type = media_type or "application/octet-stream"
+                        return FileResponse(fallback_candidate, media_type=media_type)
+            except Exception:
+                pass
 
     # 1パート（ディレクトリのみ）の場合: metadata.json から音声を探す
     episode_dir_name = parts[0] if parts else ""

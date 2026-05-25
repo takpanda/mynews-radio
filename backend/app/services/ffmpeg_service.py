@@ -36,18 +36,18 @@ def combine_wav_files(wav_paths: List[str], output_path: str) -> None:
         raise ValueError("wav_pathsは空にできません")
 
     with wave.open(wav_paths[0], "rb") as first:
+        params = first.getparams()
         n_channels = first.getnchannels()
         sampwidth = first.getsampwidth()
         framerate = first.getframerate()
-        params = (n_channels, sampwidth, framerate)
 
     combined_frames = b""
     for path in wav_paths:
         with wave.open(path, "rb") as wf:
-            if wf.getparams()[:3] != params:
+            if wf.getparams()[:3] != params[:3]:
                 raise ValueError(
                     f"WAVパラメータが一致しません: {path} "
-                    f"({wf.getparams()[:3]} vs {params})"
+                    f"({wf.getparams()[:3]} vs {params[:3]})"
                 )
             combined_frames += wf.readframes(wf.getnframes())
 

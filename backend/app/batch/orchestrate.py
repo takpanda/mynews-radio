@@ -23,6 +23,7 @@ from app.batch.summarize_articles import summarize_articles
 from app.batch.generate_script import generate_script
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
+from app.services.article_service import ArticleService
 from app.services.episode_service import EpisodeService
 
 logger = logging.getLogger(__name__)
@@ -67,11 +68,6 @@ def run(date_str: str | None = None) -> None:
     episode_dir = os.path.join(EPISODES_DIR, date_str)
     artifact_dir = os.path.join(episode_dir, "lines")
 
-    # Pre-flight check: articles.json must exist (non-existent is NOT a batch error, just SKIP)
-    if not os.path.isfile(ARTICLES_JSON):
-        logger.warning("articles.json not found at %s — stopping", ARTICLES_JSON)
-        return
-
     # Ensure output directories
     os.makedirs(episode_dir, exist_ok=True)
     os.makedirs(artifact_dir, exist_ok=True)
@@ -95,7 +91,19 @@ def run(date_str: str | None = None) -> None:
         summarized = summarize_articles(summaries_path)
         logger.info("summarize_articles completed: counted=%d", summarized)
         if summarized == 0:
-            raise RuntimeError("summarize_articles produced no results")
+            article_service = ArticleService()
+            max_articles = int(os.getenv("MAX_SCRIPT_ARTICLES", "10"))
+            min_score = int(os.getenv("MIN_IMPORTANCE_SCORE", "3"))
+            existing_summaries = article_service.fetch_summaries_for_script(
+                max_articles=max_articles,
+                min_importance_score=min_score,
+            )
+            if not existing_summaries:
+                raise RuntimeError("summarize_articles produced no results")
+            logger.info(
+                "No new articles to summarize, but %d existing summarized articles are available. Continuing.",
+                len(existing_summaries),
+            )
 
         # Step 3: generate_script
         logger.info("=== Step 3/5: generate_script ===")

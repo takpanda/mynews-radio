@@ -23,6 +23,25 @@ def _require_episode(episode_id: int) -> dict:
     return episode
 
 
+def _resolve_episode_directory(episode: dict) -> str:
+    episode_date = episode.get("episode_date") or episode.get("date") or ""
+    date_dir = os.path.join(EPISODES_BASE_DIR, episode_date)
+    id_dir = os.path.join(EPISODES_BASE_DIR, str(episode.get("id", "")))
+    if os.path.isdir(date_dir):
+        return date_dir
+    return id_dir
+
+
+def _build_audio_url(episode: dict) -> Optional[str]:
+    audio_path = episode.get("audio_path")
+    if not audio_path:
+        return None
+    episode_date = episode.get("episode_date") or episode.get("date")
+    if episode_date:
+        return f"/audio/{episode_date}/{audio_path}"
+    return f"/audio/{episode['id']}/{audio_path}"
+
+
 @router.get("/episodes", summary="エピソード一覧を取得")
 def list_episodes() -> list[dict]:
     """登録されているエピソードの一覧を返す"""
@@ -30,22 +49,27 @@ def list_episodes() -> list[dict]:
     items = service.get_episode_list()
     output: list[dict] = []
     for ep in items:
-        item_id = ep["id"]
-        audio_url = f"/audio/{item_id}/episode.mp3"
         output.append(
             {
-                "id": item_id,
+                "id": ep["id"],
                 "title": "",
                 "date": ep["episode_date"],
                 "duration": 0.0,
-                "audio_url": audio_url,
+                "audio_url": None,
                 "status": ep.get("status", "pending"),
+                "audio_path": ep.get("audio_path"),
             }
         )
 
     # title と duration を script/metadata から補完
     for entry in output:
+        audio = _build_audio_url(entry)
+        if audio:
+            entry["audio_url"] = audio
         _enrich_episode(entry)
+
+    for entry in output:
+        entry.pop("audio_path", None)
 
     return output
 
@@ -72,7 +96,7 @@ def get_latest_episode() -> dict:
     }
 
     if episode.get("audio_path"):
-        result["audio_url"] = f"/audio/{episode['id']}/{episode['audio_path']}"
+        result["audio_url"] = _build_audio_url(episode)
 
     # スクリプト・メディア情報で補完
     _enrich_episode(result)
@@ -80,7 +104,7 @@ def get_latest_episode() -> dict:
     # DB に items が存在しない場合は script.json から articles を構築
     db_items = service.get_episode_items(episode["id"])
     if not db_items:
-        result["articles"] = _load_articles_from_script(episode["id"])
+        result["articles"] = _load_articles_from_script(episode)
         result["article_count"] = len(result["articles"])
 
     return result
@@ -105,7 +129,7 @@ def get_episode(episode_id: int) -> dict:
     }
 
     if episode.get("audio_path"):
-        result["audio_url"] = f"/audio/{episode['id']}/{episode['audio_path']}"
+        result["audio_url"] = _build_audio_url(episode)
 
     _enrich_episode(result)
     return result
@@ -114,8 +138,9 @@ def get_episode(episode_id: int) -> dict:
 @router.get("/episodes/{episode_id}/script", summary="エピソードの台本JSONを取得")
 def get_episode_script(episode_id: int) -> dict:
     """script.json に基づく台本データを返す"""
-    _require_episode(episode_id)
-    script_path = os.path.join(EPISODES_BASE_DIR, str(episode_id), "script.json")
+    episode = _require_episode(episode_id)
+    base_dir = _resolve_episode_directory(episode)
+    script_path = os.path.join(base_dir, "script.json")
 
     if not os.path.isfile(script_path):
         raise HTTPException(status_code=404, detail="Script file not found")
@@ -128,21 +153,21 @@ def get_episode_script(episode_id: int) -> dict:
 
 def _enrich_episode(episode: dict) -> None:
     """script.json または metadata.json からtitle/durationを補完"""
-    script_data = os.path.join(
-        EPISODES_BASE_DIR, str(episode["id"]), "script.json"
-    )
+    base_dir = _resolve_episode_directory(episode)
+    script_data = os.path.join(base_dir, "script.json")
     if os.path.isfile(script_data):
         with open(script_data, "r", encoding="utf-8") as f:
             data = json.load(f)
         episode["title"] = data.get("title", "")
 
-    metadata_data = os.path.join(
-        EPISODES_BASE_DIR, str(episode["id"]), "metadata.json"
-    )
+    metadata_data = os.path.join(base_dir, "metadata.json")
     if os.path.isfile(metadata_data):
         with open(metadata_data, "r", encoding="utf-8") as f:
             data = json.load(f)
-        episode["duration_seconds"] = data.get("duration_seconds", 0.0)
+        duration = data.get("duration_seconds", 0.0)
+        episode["duration_seconds"] = duration
+        if "duration" in episode:
+            episode["duration"] = duration
 
 
 @router.get("/articles/{article_id}", summary="記事詳細を取得")
@@ -158,9 +183,10 @@ def get_article(article_id: int) -> dict:
     return dict(row)
 
 
-def _load_articles_from_script(episode_id: int) -> list[dict]:
+def _load_articles_from_script(episode: dict) -> list[dict]:
     """DB に items が存在しない場合に script.json から articles を構築して返す"""
-    script_path = os.path.join(EPISODES_BASE_DIR, str(episode_id), "script.json")
+    base_dir = _resolve_episode_directory(episode)
+    script_path = os.path.join(base_dir, "script.json")
     if not os.path.isfile(script_path):
         return []
 
