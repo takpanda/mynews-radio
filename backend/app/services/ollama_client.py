@@ -48,6 +48,9 @@ class OllamaClient:
                 resp.raise_for_status()
                 data = resp.json()
                 raw = data.get("response", "")
+                if not raw:
+                    raw = self._extract_text_from_thinking(data.get("thinking", ""))
+
                 parsed = self._parse_json(raw)
                 if parsed is not None:
                     return parsed
@@ -61,6 +64,37 @@ class OllamaClient:
                 logger.error("Ollama request failed (attempt=%d): %s", attempt, exc)
 
         return None
+
+    def _extract_text_from_thinking(self, thinking: Any) -> str:
+        if thinking is None:
+            return ""
+
+        if isinstance(thinking, str):
+            try:
+                parsed = json.loads(thinking)
+            except json.JSONDecodeError:
+                parsed = None
+        else:
+            parsed = thinking
+
+        if isinstance(parsed, dict):
+            if parsed.get("thought") is not None:
+                thinking = parsed.get("thought", "")
+            else:
+                # If the thinking payload itself is valid JSON output,
+                # return it directly.
+                return json.dumps(parsed, ensure_ascii=False)
+
+        if not isinstance(thinking, str):
+            return ""
+
+        thinking = thinking.strip()
+        start = thinking.find("<content>")
+        end = thinking.rfind("</content>")
+        if start != -1 and end != -1 and end > start:
+            thinking = thinking[start + len("<content>") : end]
+
+        return thinking.strip()
 
     def _parse_json(self, text: str) -> Optional[dict[str, Any]]:
         text = text.strip()
