@@ -25,7 +25,7 @@ services:
       - ./frontend:/app
       - /app/node_modules
     ports:
-      - "3000:3000"
+      - "3010:3010"
     command: npm run dev
     depends_on:
       - api
