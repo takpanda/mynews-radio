@@ -95,7 +95,7 @@ def _load_prompt_template() -> str:
     return prompt_path.read_text(encoding="utf-8")
 
 
-def generate_script(output_path: str) -> int:
+def generate_script(output_path: str, program_name: str = "ニュースのとなり") -> int:
     settings = get_settings()
     max_articles = int(os.getenv("MAX_SCRIPT_ARTICLES", "10"))
     min_score = int(os.getenv("MIN_IMPORTANCE_SCORE", "3"))
@@ -112,6 +112,8 @@ def generate_script(output_path: str) -> int:
     logger.info("Generating script from summaries: %s", article_urls)
 
     template = _load_prompt_template()
+    if program_name != "ニュースのとなり":
+        template = template.replace("ニュースのとなり", program_name)
     summaries_json = json.dumps(summaries, ensure_ascii=False, indent=2)
     prompt = template.format(summaries_json=summaries_json)
 
@@ -124,7 +126,7 @@ def generate_script(output_path: str) -> int:
 
     script = {
         "date": str(date.today()),
-        "title": str(response.get("title", "ニュースのとなり")),
+        "title": str(response.get("title", program_name)),
         "subtitle": str(response.get("subtitle", "")),
         "lines": [],
     }

@@ -67,6 +67,7 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
     Path(base_dir).mkdir(parents=True, exist_ok=True)
 
     news_source = body.news_source if body.news_source in NEWS_SOURCES else "hatena_bookmark"
+    program_name = "テックニュース" if news_source == "hatena_bookmark" else "ニュースのとなり"
 
     yield _format_sse("progress", {"phase": "start", "message": "エピソード生成を開始します。"})
 
@@ -104,7 +105,7 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
     try:
         yield _format_sse("progress", {"phase": "generate_script", "message": "台本を生成しています..."})
         script_path = os.path.join(base_dir, "script.json")
-        line_count = generate_script(script_path)
+        line_count = generate_script(script_path, program_name=program_name)
     finally:
         if old_max is None:
             os.environ.pop("MAX_SCRIPT_ARTICLES", None)
