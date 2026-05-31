@@ -253,6 +253,7 @@ export default function GenerateEpisodeButton() {
   const [showLogs, setShowLogs] = useState(false)
   const [newsSource, setNewsSource] = useState<'hatena_bookmark' | 'hatena_hotentry_all'>('hatena_bookmark')
   const [ttsEngine, setTtsEngine] = useState<'voicevox' | 'aivispeech'>('aivispeech')
+  const [enableReview, setEnableReview] = useState(true)
   const router = useRouter()
 
   const appendProgress = (entry: ProgressEntry) => {
@@ -280,7 +281,7 @@ export default function GenerateEpisodeButton() {
 
     try {
       const today = new Date().toISOString().slice(0, 10)
-      const response = await generateEpisodeStream(today, 10, newsSource, ttsEngine)
+      const response = await generateEpisodeStream(today, 10, newsSource, ttsEngine, enableReview)
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '')
@@ -469,6 +470,36 @@ export default function GenerateEpisodeButton() {
             </div>
           </fieldset>
 
+          <fieldset className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
+            <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+              Script Review
+            </legend>
+            <label className={`mt-3 block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(enableReview, isLoading)}`}>
+              <input
+                type="checkbox"
+                checked={enableReview}
+                onChange={(e) => setEnableReview(e.target.checked)}
+                disabled={isLoading}
+                className="sr-only"
+              />
+              <span className="flex items-start justify-between gap-3">
+                <span>
+                  <span className="block text-sm font-semibold text-slate-900">台本をレビューする</span>
+                  <span className="mt-1 block text-xs leading-6 text-slate-500">
+                    4人のディレクターが台本をチェックし、修正版を別エピソードとして生成します。処理時間が増えます。
+                  </span>
+                </span>
+                <span className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${enableReview ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`}>
+                  {enableReview && (
+                    <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 10 8" fill="none">
+                      <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </span>
+              </span>
+            </label>
+          </fieldset>
+
           <button
             type="button"
             onClick={handleClick}
@@ -493,6 +524,12 @@ export default function GenerateEpisodeButton() {
               <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">音声</dt>
               <dd className="mt-1 font-medium text-slate-900">
                 {ttsEngine === 'voicevox' ? 'VOICEVOX' : 'AivisSpeech'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">レビュー</dt>
+              <dd className="mt-1 font-medium text-slate-900">
+                {enableReview ? '有効（修正版も生成）' : '無効'}
               </dd>
             </div>
           </dl>

@@ -73,6 +73,7 @@ class GenerateRequest(BaseModel):
     duration_minutes: int | None = Field(default=None, ge=1, le=640)
     news_source: str = Field(default="hatena_bookmark", description="ニュースソース (hatena_bookmark | hatena_hotentry_all)")
     tts_engine: str = Field(default="aivispeech", description="TTSエンジン (voicevox | aivispeech)")
+    enable_review: bool = Field(default=True, description="レビューステップを有効にする")
 
 
 class GenerateResponse(BaseModel):
@@ -164,30 +165,32 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
         tts_speaker_female = settings.voicevox_speaker_female
         tts_engine_label = f"VOICEVOX ({settings.voicevox_base_url})"
 
-    yield _format_sse("progress", _build_progress_payload("review", "4人のディレクターが台本をレビューしています..."))
     reviewed_episode_id: int | None = None
     reviewed_episode_dir: str | None = None
     review_result: dict = {"revised": False, "review_count": 0, "revision_summary": "", "lines_count": 0}
-    try:
-        reviewed_episode_id = service.create_episode(episode_date=episode_date, status="generating")
-        reviewed_episode_dir = os.path.join(DEFAULT_EPISODES_DIR, str(reviewed_episode_id))
-        Path(reviewed_episode_dir).mkdir(parents=True, exist_ok=True)
-        Path(os.path.join(reviewed_episode_dir, "lines")).mkdir(exist_ok=True)
-        review_result = review_script(script_path, reviewed_episode_dir)
-        logger.info(
-            "review_script: revised=%s review_count=%d",
-            review_result["revised"],
-            review_result["review_count"],
-        )
-        review_msg = f"レビュー完了（{review_result['review_count']}人のディレクター）"
-        if review_result.get("revised"):
-            review_msg += " — 台本を修正しました"
-        yield _format_sse("progress", _build_progress_payload("review_done", review_msg, status="completed"))
-    except Exception as exc:
-        logger.warning("review_script failed (non-fatal): %s", exc)
-        if reviewed_episode_id is not None:
-            service.update_episode_status(reviewed_episode_id, "failed")
-        yield _format_sse("progress", _build_progress_payload("review_done", "レビューをスキップしました（エラー）", status="skipped"))
+
+    if body.enable_review:
+        yield _format_sse("progress", _build_progress_payload("review", "4人のディレクターが台本をレビューしています..."))
+        try:
+            reviewed_episode_id = service.create_episode(episode_date=episode_date, status="generating")
+            reviewed_episode_dir = os.path.join(DEFAULT_EPISODES_DIR, str(reviewed_episode_id))
+            Path(reviewed_episode_dir).mkdir(parents=True, exist_ok=True)
+            Path(os.path.join(reviewed_episode_dir, "lines")).mkdir(exist_ok=True)
+            review_result = review_script(script_path, reviewed_episode_dir)
+            logger.info(
+                "review_script: revised=%s review_count=%d",
+                review_result["revised"],
+                review_result["review_count"],
+            )
+            review_msg = f"レビュー完了（{review_result['review_count']}人のディレクター）"
+            if review_result.get("revised"):
+                review_msg += " — 台本を修正しました"
+            yield _format_sse("progress", _build_progress_payload("review_done", review_msg, status="completed"))
+        except Exception as exc:
+            logger.warning("review_script failed (non-fatal): %s", exc)
+            if reviewed_episode_id is not None:
+                service.update_episode_status(reviewed_episode_id, "failed")
+            yield _format_sse("progress", _build_progress_payload("review_done", "レビューをスキップしました（エラー）", status="skipped"))
 
     yield _format_sse("progress", _build_progress_payload("synthesize", f"音声を合成しています... ({tts_engine_label})", engine=tts_engine))
     try:
