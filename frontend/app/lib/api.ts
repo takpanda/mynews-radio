@@ -48,8 +48,8 @@ export interface Article {
   url: string | null
 }
 
-const SERVER_API_BASE = process.env.API_BASE ?? 'http://api:8000'
-const CLIENT_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000'
+const SERVER_API_BASE = process.env.API_BASE ?? 'http://api:8010'
+const CLIENT_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8010'
 
 function getApiBase(): string {
   return typeof window === 'undefined' ? SERVER_API_BASE : CLIENT_API_BASE

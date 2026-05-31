@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     app_env: str = "development"
-    api_port: int = 8000
+    api_port: int = 8010
     web_port: int = 3010
     database_url: str = "sqlite:////app/data/mynews-radio.db"
     log_level: str = "INFO"
