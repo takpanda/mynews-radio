@@ -254,6 +254,7 @@ export default function GenerateEpisodeButton() {
   const [newsSource, setNewsSource] = useState<'hatena_bookmark' | 'hatena_hotentry_all' | 'yahoo_news'>('hatena_bookmark')
   const [ttsEngine, setTtsEngine] = useState<'voicevox' | 'aivispeech'>('aivispeech')
   const [enableReview, setEnableReview] = useState(true)
+  const [maxArticles, setMaxArticles] = useState(10)
   const router = useRouter()
 
   const appendProgress = (entry: ProgressEntry) => {
@@ -281,7 +282,7 @@ export default function GenerateEpisodeButton() {
 
     try {
       const today = new Date().toISOString().slice(0, 10)
-      const response = await generateEpisodeStream(today, 10, newsSource, ttsEngine, enableReview)
+      const response = await generateEpisodeStream(today, maxArticles, newsSource, ttsEngine, enableReview)
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '')
@@ -493,6 +494,32 @@ export default function GenerateEpisodeButton() {
 
           <fieldset className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
             <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+              Article Count
+            </legend>
+            <div className="mt-3 px-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-500">台本に使う記事数</span>
+                <span className="min-w-[2rem] text-right text-sm font-semibold tabular-nums text-slate-900">{maxArticles} 件</span>
+              </div>
+              <input
+                type="range"
+                min={3}
+                max={30}
+                step={1}
+                value={maxArticles}
+                onChange={(e) => setMaxArticles(Number(e.target.value))}
+                disabled={isLoading}
+                className="mt-2 w-full accent-sky-500 disabled:opacity-50"
+              />
+              <div className="mt-1 flex justify-between text-[10px] text-slate-400">
+                <span>3</span>
+                <span>30</span>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
+            <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
               Script Review
             </legend>
             <label className={`mt-3 block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(enableReview, isLoading)}`}>
@@ -546,6 +573,10 @@ export default function GenerateEpisodeButton() {
               <dd className="mt-1 font-medium text-slate-900">
                 {ttsEngine === 'voicevox' ? 'VOICEVOX' : 'AivisSpeech'}
               </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">記事数</dt>
+              <dd className="mt-1 font-medium text-slate-900">{maxArticles} 件</dd>
             </div>
             <div>
               <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">レビュー</dt>
