@@ -32,6 +32,15 @@ app.add_middleware(
 )
 
 
+def _init_db() -> None:
+    """schema.sql を適用してテーブルを作成する（CREATE TABLE IF NOT EXISTS なので冪等）。"""
+    schema_path = os.path.join(os.path.dirname(__file__), "db", "schema.sql")
+    from app.db.connection import get_db_connection
+    with get_db_connection() as conn:
+        with open(schema_path, "r", encoding="utf-8") as f:
+            conn.executescript(f.read())
+
+
 def _apply_db_migrations() -> None:
     """既存DBへのスキーマ追加マイグレーションを安全に実行する。"""
     from app.db.connection import get_db_connection
@@ -42,6 +51,7 @@ def _apply_db_migrations() -> None:
             pass  # カラムが既に存在する場合は無視
 
 
+_init_db()
 _apply_db_migrations()
 
 
