@@ -104,7 +104,7 @@ export default function GenerateEpisodeButton() {
   const [message, setMessage] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
   const [newsSource, setNewsSource] = useState<'hatena_bookmark' | 'hatena_hotentry_all'>('hatena_bookmark')
-  const [ttsEngine, setTtsEngine] = useState<'voicevox' | 'aivispeech'>('voicevox')
+  const [ttsEngine, setTtsEngine] = useState<'voicevox' | 'aivispeech'>('aivispeech')
   const router = useRouter()
 
   const appendProgress = (entry: ProgressEntry) => {

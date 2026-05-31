@@ -101,9 +101,16 @@ def synthesize_episode(
     Returns total number of lines successfully synthesized.
     """
     settings = get_settings()
-    effective_base_url = base_url if base_url is not None else settings.voicevox_base_url
-    effective_speaker_male = speaker_male if speaker_male is not None else settings.voicevox_speaker_male
-    effective_speaker_female = speaker_female if speaker_female is not None else settings.voicevox_speaker_female
+    default_engine_is_aivispeech = settings.default_tts_engine == "aivispeech"
+    effective_base_url = base_url if base_url is not None else (
+        settings.aivispeech_base_url if default_engine_is_aivispeech else settings.voicevox_base_url
+    )
+    effective_speaker_male = speaker_male if speaker_male is not None else (
+        settings.aivispeech_speaker_male if default_engine_is_aivispeech else settings.voicevox_speaker_male
+    )
+    effective_speaker_female = speaker_female if speaker_female is not None else (
+        settings.aivispeech_speaker_female if default_engine_is_aivispeech else settings.voicevox_speaker_female
+    )
 
     script_path = os.path.join(directory, "script.json")
 

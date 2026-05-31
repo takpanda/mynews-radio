@@ -38,11 +38,12 @@ def main() -> None:
 
     settings = get_settings()
 
-    # Pre-flight health checks for Ollama, VOICEVOX
+    # Pre-flight health checks for Ollama and the default TTS engine
     health_results = run_health_checks(
         ollama_url=settings.ollama_base_url,
         ollama_model=settings.ollama_model,
-        voicevox_url=settings.voicevox_base_url,
+        tts_url=settings.aivispeech_base_url if settings.default_tts_engine == "aivispeech" else settings.voicevox_base_url,
+        tts_engine=settings.default_tts_engine,
     )
 
     if not all(r.status == "ok" for r in health_results):

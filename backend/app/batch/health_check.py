@@ -30,8 +30,8 @@ def health_check_ollama(base_url: str, model: str) -> Dict[str, str]:
     return {"service": "ollama", "status": status, "detail": detail}
 
 
-def health_check_voicevox(base_url: str) -> Dict[str, str]:
-    """VOICEVOX のヘルスチェックを実行して結果をログに記録する."""
+def health_check_tts(base_url: str, engine: str) -> Dict[str, str]:
+    """TTS エンジンのヘルスチェックを実行して結果をログに記録する."""
     with VoicevoxClient(base_url) as client:
         result = client.health_check()
 
@@ -39,24 +39,25 @@ def health_check_voicevox(base_url: str) -> Dict[str, str]:
     detail = result.get("detail", "unknown")
 
     if status == "ok":
-        logger.info("VOICEVOX health check OK (url=%s, version=%s)", base_url, detail)
+        logger.info("%s health check OK (url=%s, version=%s)", engine.upper(), base_url, detail)
     else:
-        logger.error("VOICEVOX health check failed (url=%s): %s", base_url, detail)
+        logger.error("%s health check failed (url=%s): %s", engine.upper(), base_url, detail)
 
-    return {"service": "voicevox", "status": status, "detail": detail}
+    return {"service": engine, "status": status, "detail": detail}
 
 
 def run_health_checks(
-    ollama_url: str, ollama_model: str, voicevox_url: str
+    ollama_url: str, ollama_model: str, tts_url: str, tts_engine: str
 ) -> List[Dict[str, str]]:
-    """Ollama と VOICEVOX の両方のヘルスチェックを実行する."""
+    """Ollama と TTS エンジンのヘルスチェックを実行する."""
     logger.info("=== Health checks start ===")
     logger.info("  Ollama base URL : %s", ollama_url)
-    logger.info("  VOICEVOX base URL : %s", voicevox_url)
+    logger.info("  TTS base URL : %s", tts_url)
+    logger.info("  Default TTS engine : %s", tts_engine)
 
     ollama_result = health_check_ollama(ollama_url, ollama_model)
-    voicevox_result = health_check_voicevox(voicevox_url)
-    results = [ollama_result, voicevox_result]
+    tts_result = health_check_tts(tts_url, tts_engine)
+    results = [ollama_result, tts_result]
 
     all_ok = all(r["status"] == "ok" for r in results)
     if all_ok:
@@ -76,6 +77,7 @@ if __name__ == "__main__":
     from app.config import get_settings  # noqa: E402
 
     settings = get_settings()
-    results = run_health_checks(settings.ollama_base_url, settings.ollama_model, settings.voicevox_base_url)
+    tts_url = settings.aivispeech_base_url if settings.default_tts_engine == "aivispeech" else settings.voicevox_base_url
+    results = run_health_checks(settings.ollama_base_url, settings.ollama_model, tts_url, settings.default_tts_engine)
     for r in results:
         print(f" {r['service']}: {r['status']} {r.get('detail', '')}")

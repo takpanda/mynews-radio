@@ -72,7 +72,7 @@ class GenerateRequest(BaseModel):
     max_articles: int = Field(default=10, ge=1, le=50)
     duration_minutes: int | None = Field(default=None, ge=1, le=640)
     news_source: str = Field(default="hatena_bookmark", description="ニュースソース (hatena_bookmark | hatena_hotentry_all)")
-    tts_engine: str = Field(default="voicevox", description="TTSエンジン (voicevox | aivispeech)")
+    tts_engine: str = Field(default="aivispeech", description="TTSエンジン (voicevox | aivispeech)")
 
 
 class GenerateResponse(BaseModel):
@@ -152,7 +152,7 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
 
     settings = get_settings()
     TTS_ENGINES = {"voicevox", "aivispeech"}
-    tts_engine = body.tts_engine if body.tts_engine in TTS_ENGINES else "voicevox"
+    tts_engine = body.tts_engine if body.tts_engine in TTS_ENGINES else settings.default_tts_engine
     if tts_engine == "aivispeech":
         tts_base_url = settings.aivispeech_base_url
         tts_speaker_male = settings.aivispeech_speaker_male
@@ -204,7 +204,7 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
             "error",
             _build_error_payload(
                 f"音声合成に失敗しました。{tts_engine_label} を確認してください。",
-                status="voicevox_error",
+                status="tts_error",
             ),
         )
         return
@@ -215,7 +215,7 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
             "error",
             _build_error_payload(
                 f"音声合成に失敗しました。{tts_engine_label} を確認してください。",
-                status="voicevox_error",
+                status="tts_error",
             ),
         )
         return
