@@ -48,7 +48,7 @@ def generate_script(output_path: str) -> int:
 
     script = {
         "date": str(date.today()),
-        "title": str(response.get("title", "MyNews Radio")),
+        "title": str(response.get("title", "ニュースのとなり")),
         "subtitle": str(response.get("subtitle", "")),
         "lines": [],
     }
