@@ -218,13 +218,13 @@ export default function GenerateEpisodeButton() {
         ニュースの種類と読み上げエンジンを選ぶと、取得から音声化までの進行をこの場で確認できます。
       </p>
 
-      <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_220px]">
+      <div className="mt-5 grid gap-4 2xl:grid-cols-[minmax(0,1fr)_220px]">
         <div className="space-y-4">
           <fieldset className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
             <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
               News Source
             </legend>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
               <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(newsSource === 'hatena_bookmark', isLoading)}`}>
                 <input
                   type="radio"
@@ -273,7 +273,7 @@ export default function GenerateEpisodeButton() {
             <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
               Voice Engine
             </legend>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
               <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(ttsEngine === 'voicevox', isLoading)}`}>
                 <input
                   type="radio"
