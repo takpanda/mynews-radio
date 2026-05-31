@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.batch.summarize_articles import summarize_articles  # noqa: E402
 from app.batch.generate_script import generate_script        # noqa: E402
+from app.batch.review_script import review_script            # noqa: E402
 from app.batch.synthesize_voicevox import synthesize_episode as synthesize_voicevox  # noqa: E402
 from app.batch.build_episode import build_episode           # noqa: E402
 from app.batch.health_check import run_health_checks         # noqa: E402
@@ -129,6 +130,50 @@ def main() -> None:
     )
     print(json.dumps(metadata, ensure_ascii=False, indent=2))
     _write_manifest(status="done", metadata=metadata)
+
+    # --- Reviewed episode (non-fatal; runs after main pipeline succeeds) ---
+    logger.info("=== review_script: creating reviewed episode ===")
+    reviewed_episode_id: int | None = None
+    try:
+        reviewed_episode_id = episode_service.create_episode(
+            episode_date=episode_date,
+            status="generating",
+        )
+        reviewed_episode_dir = os.path.join("data", "episodes", str(reviewed_episode_id))
+        os.makedirs(os.path.join(reviewed_episode_dir, "lines"), exist_ok=True)
+
+        review_result = review_script(script_path, reviewed_episode_dir)
+        logger.info(
+            "review_script: revised=%s review_count=%d",
+            review_result["revised"],
+            review_result["review_count"],
+        )
+
+        if review_result.get("revised") and review_result.get("lines_count", 0) > 0:
+            reviewed_wav = synthesize_voicevox(reviewed_episode_dir)
+            logger.info("reviewed synthesize: lines=%d", reviewed_wav)
+            if reviewed_wav == 0:
+                raise RuntimeError("reviewed synthesize produced 0 WAV files")
+
+            reviewed_meta = build_episode(reviewed_episode_dir)
+            if not reviewed_meta:
+                raise RuntimeError("reviewed build_episode returned empty metadata")
+
+            episode_service.update_episode_audio_path(reviewed_episode_id, reviewed_meta.get("audio_path", ""))
+            episode_service.update_episode_status(reviewed_episode_id, "completed")
+            logger.info(
+                "=== reviewed episode completed: id=%d duration=%.1fs ===",
+                reviewed_episode_id,
+                reviewed_meta.get("duration_seconds", 0),
+            )
+        else:
+            logger.warning("review_script did not produce a revised script; marking reviewed episode as failed")
+            episode_service.update_episode_status(reviewed_episode_id, "failed")
+
+    except Exception as _rev_exc:
+        logger.warning("Reviewed episode failed (non-fatal): %s", _rev_exc, exc_info=True)
+        if reviewed_episode_id is not None:
+            episode_service.update_episode_status(reviewed_episode_id, "failed")
 
 
 def _write_manifest(status: str = "", metadata: dict | None = None) -> None:

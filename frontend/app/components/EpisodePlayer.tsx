@@ -23,7 +23,7 @@ export default function EpisodePlayer({ episode, script, audioUrl }: Props) {
 
   return (
     <>
-      <section className="sticky top-0 z-20 -mx-4 px-4 pt-3 pb-2 mb-6 bg-gray-50/95 backdrop-blur-sm border-b border-gray-200">
+      <section id="player" className="sticky top-0 z-20 mb-8 scroll-mt-24 rounded-[1.75rem] border border-white/80 bg-white/70 p-3 shadow-[0_18px_40px_rgba(15,23,42,0.08)] backdrop-blur sm:p-4">
         <AudioPlayer
           src={audioUrl}
           title={episode.title || `エピソード #${episode.id}`}
@@ -33,8 +33,8 @@ export default function EpisodePlayer({ episode, script, audioUrl }: Props) {
       </section>
 
       {script && script.lines.length > 0 && (
-        <section className="mb-8">
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+        <section id="script" className="mb-8 scroll-mt-28">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">
             台本
           </h2>
           <ScriptViewer

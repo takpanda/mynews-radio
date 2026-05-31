@@ -6,7 +6,7 @@ interface Props {
   src: string
   title: string
   onTimeUpdate?: (currentTime: number) => void
-  externalAudioRef?: React.RefObject<HTMLAudioElement>
+  externalAudioRef?: React.RefObject<HTMLAudioElement | null>
 }
 
 const SPEEDS = [1.0, 1.25, 1.5]
