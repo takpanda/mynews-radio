@@ -134,3 +134,9 @@ import_articles
 ├── docker-compose.yml
 └── .env.example
 ```
+
+## システムドキュメント
+
+- HTML: `docs/system-documentation.html`
+- フロー図 (SVG): `docs/system-flow.svg`
+- ER図 (SVG): `docs/er-diagram.svg`
