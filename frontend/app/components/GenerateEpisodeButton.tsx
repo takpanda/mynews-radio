@@ -36,28 +36,169 @@ interface ProgressEntry {
   status?: string
 }
 
+interface PhasePresentation {
+  title: string
+  detail: string
+  logLabel: string
+  shortLabel: string
+  progressPercent: number
+}
+
 const STEP_DEFINITIONS = [
   {
     phases: ['start', 'import'] as const,
     title: '記事を集める',
     description: '選択したソースから対象記事を取得します。',
+    estimate: '20-40秒',
   },
   {
     phases: ['summarize'] as const,
     title: '内容を要約する',
     description: '番組向けに読みやすい要約へ整えます。',
+    estimate: '30-60秒',
   },
   {
     phases: ['generate_script', 'review', 'review_done'] as const,
     title: '台本を作る',
     description: '記事構成を会話形式の台本に変換します。',
+    estimate: '40-90秒',
   },
   {
     phases: ['synthesize', 'build', 'db', 'review_synthesize', 'review_build', 'review_complete', 'complete'] as const,
     title: '音声を合成する',
     description: '選択した音声エンジンで読み上げます。',
+    estimate: '1-3分',
   },
 ] as const
+
+const PHASE_PRESENTATION: Record<PhaseCode, PhasePresentation> = {
+  start: {
+    title: '生成を準備しています',
+    detail: '番組データの作成を開始しています。',
+    logLabel: '開始',
+    shortLabel: '準備',
+    progressPercent: 8,
+  },
+  import: {
+    title: '記事を集めています',
+    detail: '選択したニュースソースから候補を取得しています。',
+    logLabel: '記事取得',
+    shortLabel: '取得',
+    progressPercent: 22,
+  },
+  summarize: {
+    title: '要点を整理しています',
+    detail: '番組で扱いやすい要約へ変換しています。',
+    logLabel: '要約',
+    shortLabel: '要約',
+    progressPercent: 38,
+  },
+  generate_script: {
+    title: '台本を組み立てています',
+    detail: '記事構成を会話形式の流れに変換しています。',
+    logLabel: '台本生成',
+    shortLabel: '台本',
+    progressPercent: 56,
+  },
+  review: {
+    title: '台本を見直しています',
+    detail: 'レビュー結果を確認して仕上げています。',
+    logLabel: 'レビュー',
+    shortLabel: '確認',
+    progressPercent: 68,
+  },
+  review_done: {
+    title: '台本確認が終わりました',
+    detail: 'レビュー結果を反映して次の工程へ進みます。',
+    logLabel: 'レビュー完了',
+    shortLabel: '確認済み',
+    progressPercent: 76,
+  },
+  synthesize: {
+    title: '音声を作成しています',
+    detail: '選択した音声エンジンで読み上げ音声を生成しています。',
+    logLabel: '音声合成',
+    shortLabel: '音声',
+    progressPercent: 88,
+  },
+  build: {
+    title: '音声をまとめています',
+    detail: '番組として再生できる形に整えています。',
+    logLabel: '音声統合',
+    shortLabel: '統合',
+    progressPercent: 94,
+  },
+  db: {
+    title: '公開準備をしています',
+    detail: 'エピソード情報を保存しています。',
+    logLabel: '保存',
+    shortLabel: '保存',
+    progressPercent: 98,
+  },
+  review_synthesize: {
+    title: 'レビュー版の音声を作成しています',
+    detail: 'レビュー反映版もあわせて生成しています。',
+    logLabel: 'レビュー版音声',
+    shortLabel: '再音声',
+    progressPercent: 92,
+  },
+  review_build: {
+    title: 'レビュー版をまとめています',
+    detail: 'レビュー反映版の公開データを整えています。',
+    logLabel: 'レビュー版統合',
+    shortLabel: '再統合',
+    progressPercent: 96,
+  },
+  review_complete: {
+    title: 'レビュー版が完成しました',
+    detail: '本編の生成はそのまま継続または完了しています。',
+    logLabel: 'レビュー版完了',
+    shortLabel: '完了',
+    progressPercent: 100,
+  },
+  complete: {
+    title: '生成が完了しました',
+    detail: '最新エピソードに反映しています。',
+    logLabel: '完了',
+    shortLabel: '完了',
+    progressPercent: 100,
+  },
+  failed: {
+    title: '生成で問題が発生しました',
+    detail: '詳細はログを開いて確認できます。',
+    logLabel: '失敗',
+    shortLabel: '停止',
+    progressPercent: 100,
+  },
+}
+
+function getPhasePresentation(entry: ProgressEntry | undefined, hasFailure: boolean): PhasePresentation {
+  if (hasFailure) {
+    return PHASE_PRESENTATION.failed
+  }
+
+  if (!entry) {
+    return {
+      title: '開始を待っています',
+      detail: '設定を選ぶと生成を開始できます。',
+      logLabel: '待機',
+      shortLabel: '待機',
+      progressPercent: 0,
+    }
+  }
+
+  if (entry.phase === 'review_done' && entry.status === 'skipped') {
+    return {
+      title: 'レビューをスキップしました',
+      detail: '本編の生成は継続しています。',
+      logLabel: 'レビュー省略',
+      shortLabel: '省略',
+      progressPercent: 76,
+    }
+  }
+
+  return PHASE_PRESENTATION[entry.phase]
+}
 
 function resolveActiveStep(progress: ProgressEntry[]) {
   let activeIndex = -1
@@ -72,6 +213,13 @@ function resolveActiveStep(progress: ProgressEntry[]) {
   })
 
   return activeIndex
+}
+
+function getCurrentEstimate(activeStep: number, isSuccess: boolean, isFailure: boolean) {
+  if (isSuccess) return '完了しました'
+  if (isFailure) return 'ログを確認してください'
+  if (activeStep < 0) return '通常 2-5 分'
+  return STEP_DEFINITIONS[activeStep]?.estimate ?? '通常 2-5 分'
 }
 
 function optionCardClass(isSelected: boolean, isLoading: boolean) {
@@ -115,6 +263,9 @@ export default function GenerateEpisodeButton() {
   const latestProgress = progress.at(-1)
   const isSuccess = Boolean(progress.some((entry) => entry.phase === 'complete'))
   const isFailure = Boolean(message && !isLoading && !isSuccess)
+  const phasePresentation = getPhasePresentation(latestProgress, isFailure)
+  const currentEstimate = getCurrentEstimate(activeStep, isSuccess, isFailure)
+  const visualProgressPercent = isFailure ? phasePresentation.progressPercent : phasePresentation.progressPercent
   const statusTone = isSuccess
     ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
     : isFailure
@@ -361,14 +512,61 @@ export default function GenerateEpisodeButton() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Progress</p>
               <p className="mt-2 text-sm font-medium text-slate-900">
-                {latestProgress?.message || (message ? '処理結果を表示しています。' : '開始を待っています。')}
+                {phasePresentation.title}
               </p>
+              <p className="mt-1 text-xs leading-6 text-slate-500">{phasePresentation.detail}</p>
             </div>
-            {(isLoading || message) && (
-              <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${statusTone}`}>
-                {isLoading ? '生成中' : isSuccess ? '完了' : '確認が必要'}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                目安 {currentEstimate}
               </span>
-            )}
+              {(isLoading || message) && (
+                <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${statusTone}`}>
+                  {isLoading ? '生成中' : isSuccess ? '完了' : '確認が必要'}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-white/80 bg-white/90 p-3 shadow-sm">
+            <div className="flex items-center justify-between gap-3 text-xs font-medium text-slate-500">
+              <span className="inline-flex items-center gap-2">
+                <span className={`flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-[11px] font-semibold ${isSuccess ? 'bg-emerald-100 text-emerald-700' : isFailure ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700'}`}>
+                  {phasePresentation.shortLabel}
+                </span>
+                <span>{isFailure ? '進行が中断されました' : '工程の進み具合'}</span>
+              </span>
+              <span className="tabular-nums text-slate-700">{visualProgressPercent}%</span>
+            </div>
+
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+              <div
+                className={`relative h-full rounded-full transition-all duration-500 ${isSuccess ? 'bg-emerald-500' : isFailure ? 'bg-amber-500' : 'bg-[linear-gradient(90deg,#38bdf8,#14b8a6)] progress-shimmer'}`}
+                style={{ width: `${visualProgressPercent}%` }}
+              />
+            </div>
+
+            <div className="mt-3 grid grid-cols-4 gap-2">
+              {STEP_DEFINITIONS.map((step, index) => {
+                const isComplete = activeStep > index || isSuccess
+                const isCurrent = !isSuccess && activeStep === index
+                const markerTone = isComplete
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : isCurrent
+                    ? 'border-sky-200 bg-sky-50 text-sky-700'
+                    : 'border-slate-200 bg-white text-slate-400'
+
+                return (
+                  <div key={`summary-${step.title}`} className={`rounded-2xl border px-3 py-2 transition ${markerTone} ${isCurrent ? 'progress-breathe' : ''}`}>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] opacity-80">
+                      {index + 1}
+                    </p>
+                    <p className="mt-1 text-xs font-medium leading-5">{step.title}</p>
+                    <p className="mt-1 text-[11px] leading-5 opacity-75">{step.estimate}</p>
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
           <ol className="mt-4 space-y-3" aria-live="polite">
@@ -382,13 +580,14 @@ export default function GenerateEpisodeButton() {
                   : 'border-slate-200 bg-white text-slate-400'
 
               return (
-                <li key={step.title} className={`flex items-start gap-3 rounded-2xl border p-3 transition ${tone}`}>
-                  <span className={`mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${isComplete ? 'border-emerald-300 bg-emerald-500 text-white' : isCurrent ? 'border-sky-300 bg-sky-500 text-white' : 'border-slate-200 bg-slate-100 text-slate-500'}`}>
+                <li key={step.title} className={`flex items-start gap-3 rounded-2xl border p-3 transition ${tone} ${isCurrent ? 'shadow-[0_12px_24px_rgba(14,165,233,0.12)]' : ''}`}>
+                  <span className={`mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${isComplete ? 'border-emerald-300 bg-emerald-500 text-white' : isCurrent ? 'border-sky-300 bg-sky-500 text-white progress-breathe' : 'border-slate-200 bg-slate-100 text-slate-500'}`}>
                     {index + 1}
                   </span>
                   <span>
                     <span className="block text-sm font-semibold">{step.title}</span>
                     <span className="mt-1 block text-xs leading-6 opacity-80">{step.description}</span>
+                    <span className="mt-1 block text-[11px] leading-5 opacity-70">目安 {step.estimate}</span>
                   </span>
                 </li>
               )
@@ -419,7 +618,9 @@ export default function GenerateEpisodeButton() {
                   {progress.map((entry, index) => (
                     <div key={`${entry.phase}-${index}`} className="rounded-xl bg-slate-50 px-3 py-2.5 leading-6">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        {entry.phase}
+                        {entry.status === 'skipped' && entry.phase === 'review_done'
+                          ? 'レビュー省略'
+                          : PHASE_PRESENTATION[entry.phase].logLabel}
                       </p>
                       <p className="mt-1">{entry.message}</p>
                     </div>
@@ -431,7 +632,7 @@ export default function GenerateEpisodeButton() {
 
           {message ? (
             <div className={`mt-4 rounded-2xl border p-3 text-sm ${isSuccess ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
-              {message}
+              {isSuccess ? 'エピソードを更新しました。最新エピソードから再生できます。' : '生成を完了できませんでした。必要に応じてログを開いて詳細を確認してください。'}
             </div>
           ) : null}
         </div>
