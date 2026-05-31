@@ -281,7 +281,7 @@ export default function GenerateEpisodeButton() {
     setShowLogs(false)
 
     try {
-      const today = new Date().toISOString().slice(0, 10)
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
       const response = await generateEpisodeStream(today, maxArticles, newsSource, ttsEngine, enableReview)
 
       if (!response.ok) {
