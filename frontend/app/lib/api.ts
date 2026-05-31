@@ -57,8 +57,10 @@ function getApiBase(): string {
 
 export function buildAudioUrl(audioPath: string): string {
   if (!audioPath) return ''
+  // 絶対URLはそのまま返す（後方互換）
   if (audioPath.startsWith('http')) return audioPath
-  return `${CLIENT_API_BASE}${audioPath}`
+  // 相対パス（/audio/...）はNext.jsのrewriteでプロキシされるためそのまま返す
+  return audioPath
 }
 
 export function formatDate(dateStr: string): string {
