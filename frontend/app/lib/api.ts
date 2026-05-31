@@ -47,6 +47,7 @@ export interface Article {
   title: string
   source: string | null
   url: string | null
+  summary?: string | null
 }
 
 const SERVER_API_BASE = process.env.API_BASE ?? 'http://api:8010'

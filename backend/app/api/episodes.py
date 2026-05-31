@@ -186,10 +186,10 @@ def _enrich_episode(episode: dict) -> None:
 
 @router.get("/articles/{article_id}", summary="記事詳細を取得")
 def get_article(article_id: int) -> dict:
-    """指定された記事のタイトル・URL・ソースを返す"""
+    """指定された記事のタイトル・URL・ソース・要約を返す"""
     with get_db_connection() as conn:
         row = conn.execute(
-            "SELECT id, title, source, url FROM articles WHERE id = ?",
+            "SELECT id, title, source, url, summary FROM articles WHERE id = ?",
             (article_id,),
         ).fetchone()
     if row is None:

@@ -16,6 +16,75 @@ interface Props {
   params: { id: string }
 }
 
+interface EpisodeSummaryContent {
+  intro: string
+  topics: string[]
+}
+
+function normalizeSummaryText(text: string): string {
+  const compact = text.replace(/\s+/g, ' ').trim()
+  if (!compact) return ''
+  return /[。.!！?？]$/.test(compact) ? compact : `${compact}。`
+}
+
+function splitSummaryIntoTopics(summary: string): string[] {
+  const sentences = summary
+    .split(/(?<=[。.!！?？])/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+
+  const topics: string[] = []
+  for (let index = 0; index < sentences.length; index += 2) {
+    topics.push(sentences.slice(index, index + 2).join(' '))
+  }
+
+  return topics.slice(0, 3)
+}
+
+function buildEpisodeSummary(episodeSubtitle: string, articles: Article[]): EpisodeSummaryContent | null {
+  const titles = articles
+    .map((article) => article.title.trim())
+    .filter((title, index, list) => Boolean(title) && list.indexOf(title) === index)
+    .slice(0, 3)
+
+  const intro = episodeSubtitle
+    ? `今回は${episodeSubtitle}を軸に、背景と日々の暮らしへの影響を追えるようにまとめています。`
+    : '今回の主なトピックを、背景と日々の暮らしへの影響とあわせてまとめています。'
+
+  if (titles.length > 0) {
+    const topics = [...titles]
+    if (articles.length > titles.length) {
+      topics[topics.length - 1] = `${topics[topics.length - 1]} など`
+    }
+
+    return {
+      intro,
+      topics,
+    }
+  }
+
+  const summaries = articles
+    .map((article) => normalizeSummaryText(article.summary ?? ''))
+    .filter((summary, index, list) => Boolean(summary) && list.indexOf(summary) === index)
+    .slice(0, 1)
+
+  if (summaries.length > 0) {
+    return {
+      intro,
+      topics: splitSummaryIntoTopics(summaries[0]),
+    }
+  }
+
+  if (episodeSubtitle) {
+    return {
+      intro: `今回は${episodeSubtitle}を中心に、その日の主要トピックをまとめています。`,
+      topics: [],
+    }
+  }
+
+  return null
+}
+
 export default async function EpisodePage({ params }: Props) {
   const episodeId = parseInt(params.id, 10)
   if (isNaN(episodeId)) notFound()
@@ -52,6 +121,7 @@ export default async function EpisodePage({ params }: Props) {
 
   const hasScript = Boolean(script && script.lines.length > 0)
   const hasArticles = articles.length > 0
+  const episodeSummary = episode ? buildEpisodeSummary(episode.subtitle, articles) : null
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 pb-28 sm:px-6 lg:px-8 lg:py-10 lg:pb-32">
@@ -113,20 +183,34 @@ export default async function EpisodePage({ params }: Props) {
               </div>
             </div>
 
-            <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-white/80 bg-white/80 p-4 backdrop-blur">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Listen</p>
-                <p className="mt-2 text-sm font-medium text-slate-900">下部の固定操作からいつでも再生位置へ戻れます。</p>
+            {episodeSummary && (
+              <div className="mt-6 rounded-[1.75rem] border border-white/80 bg-white/80 p-5 backdrop-blur sm:p-6">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Episode Summary
+                </p>
+                <p className="mt-3 text-sm leading-7 text-slate-700 sm:text-[15px]">
+                  {episodeSummary.intro}
+                </p>
+                {episodeSummary.topics.length > 0 && (
+                  <div className="mt-3 space-y-0.5">
+                    {episodeSummary.topics.map((topic) => (
+                      <div
+                        key={topic}
+                        className="flex items-center gap-2 px-1 py-1"
+                      >
+                        <span aria-hidden="true" className="flex shrink-0 items-center gap-2">
+                          <span className="h-7 w-px rounded-full bg-slate-300" />
+                          <span className="h-2 w-2 rotate-45 rounded-[2px] bg-slate-900/80 shadow-[0_0_0_3px_rgba(255,255,255,0.9)]" />
+                        </span>
+                        <p className="flex-1 text-sm leading-[1.15rem] text-slate-700">
+                          {topic}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="rounded-2xl border border-white/80 bg-white/80 p-4 backdrop-blur">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Read</p>
-                <p className="mt-2 text-sm font-medium text-slate-900">長い台本でも、セクション移動の負担を減らしました。</p>
-              </div>
-              <div className="rounded-2xl border border-white/80 bg-white/80 p-4 backdrop-blur">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Source</p>
-                <p className="mt-2 text-sm font-medium text-slate-900">元記事への移動も固定操作からすぐ開けます。</p>
-              </div>
-            </div>
+            )}
           </header>
 
           {episode.audio_url ? (
