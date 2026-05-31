@@ -8,8 +8,7 @@ import {
   formatDate,
   type Article,
 } from '../../lib/api'
-import AudioPlayer from '../../components/AudioPlayer'
-import ScriptViewer from '../../components/ScriptViewer'
+import EpisodePlayer from '../../components/EpisodePlayer'
 import ArticleLinks from '../../components/ArticleLinks'
 
 interface Props {
@@ -80,12 +79,11 @@ export default async function EpisodePage({ params }: Props) {
           </header>
 
           {episode.audio_url ? (
-            <section className="mb-8">
-              <AudioPlayer
-                src={buildAudioUrl(episode.audio_url)}
-                title={episode.title || `エピソード #${episode.id}`}
-              />
-            </section>
+            <EpisodePlayer
+              episode={episode}
+              script={script}
+              audioUrl={buildAudioUrl(episode.audio_url)}
+            />
           ) : (
             <div className="bg-white rounded-2xl shadow-sm p-4 mb-8 text-sm text-gray-400 text-center">
               音声ファイルを準備中です
@@ -99,19 +97,6 @@ export default async function EpisodePage({ params }: Props) {
               </h2>
               <ArticleLinks articles={articles} />
             </section>
-          )}
-
-          {script && script.lines.length > 0 && (
-            <section className="mb-8">
-              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
-                台本
-              </h2>
-              <ScriptViewer lines={script.lines} />
-            </section>
-          )}
-
-          {(!script || script.lines.length === 0) && (
-            <div className="text-center text-gray-400 py-8 text-sm">台本がありません</div>
           )}
         </>
       )}

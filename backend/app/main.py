@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import mimetypes
 import sqlite3
 from typing import Optional
@@ -9,9 +10,9 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.config import get_settings
 from app.api.episodes import router as episodes_router
@@ -97,10 +98,69 @@ def _locate_audio_file(episode_path: str) -> str:
     raise FileNotFoundError("Audio file not found")
 
 
+def _range_response(file_path: str, media_type: str, range_header: Optional[str]):
+    """HTTP Range リクエスト対応のレスポンスを返す。"""
+    file_size = os.path.getsize(file_path)
+
+    if range_header:
+        m = re.match(r"bytes=(\d*)-(\d*)", range_header)
+        if m:
+            start = int(m.group(1)) if m.group(1) else 0
+            end = int(m.group(2)) if m.group(2) else file_size - 1
+            end = min(end, file_size - 1)
+            if start > end:
+                raise HTTPException(status_code=416, detail="Range Not Satisfiable")
+            content_length = end - start + 1
+
+            def _iter_range():
+                with open(file_path, "rb") as f:
+                    f.seek(start)
+                    remaining = content_length
+                    while remaining > 0:
+                        chunk = f.read(min(65536, remaining))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                        yield chunk
+
+            return StreamingResponse(
+                _iter_range(),
+                status_code=206,
+                media_type=media_type,
+                headers={
+                    "Content-Range": f"bytes {start}-{end}/{file_size}",
+                    "Accept-Ranges": "bytes",
+                    "Content-Length": str(content_length),
+                    "Cache-Control": "no-cache",
+                },
+            )
+
+    # Range なし: ファイル全体を返しつつ Accept-Ranges を宣言
+    def _iter_full():
+        with open(file_path, "rb") as f:
+            while True:
+                chunk = f.read(65536)
+                if not chunk:
+                    break
+                yield chunk
+
+    return StreamingResponse(
+        _iter_full(),
+        media_type=media_type,
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(file_size),
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
 @app.get("/audio/{episode_path:path}")
-def serve_audio_file(episode_path: str) -> FileResponse:
+def serve_audio_file(episode_path: str, request: Request):
     """/audio/<episode_id> または /audio/<episode_id>/<filename> で
-    音声ファイルをストリーミング配信する。"""
+    音声ファイルをストリーミング配信する（Range リクエスト対応）。"""
+
+    range_header = request.headers.get("range")
 
     # episode_path が "episode_id/filename" の2パート構成の場合は分割
     parts = episode_path.split("/")
@@ -110,7 +170,7 @@ def serve_audio_file(episode_path: str) -> FileResponse:
         if os.path.isfile(candidate):
             media_type, _ = mimetypes.guess_type(candidate)
             media_type = media_type or "application/octet-stream"
-            return FileResponse(candidate, media_type=media_type)
+            return _range_response(candidate, media_type, range_header)
 
         # id-based path fallback: episode_id may map to a date-based directory
         if dir_name.isdigit():
@@ -123,7 +183,7 @@ def serve_audio_file(episode_path: str) -> FileResponse:
                     if os.path.isfile(fallback_candidate):
                         media_type, _ = mimetypes.guess_type(fallback_candidate)
                         media_type = media_type or "application/octet-stream"
-                        return FileResponse(fallback_candidate, media_type=media_type)
+                        return _range_response(fallback_candidate, media_type, range_header)
             except Exception:
                 pass
 
@@ -136,4 +196,4 @@ def serve_audio_file(episode_path: str) -> FileResponse:
 
     media_type, _ = mimetypes.guess_type(audio_path)
     media_type = media_type or "application/octet-stream"
-    return FileResponse(audio_path, media_type=media_type)
+    return _range_response(audio_path, media_type, range_header)

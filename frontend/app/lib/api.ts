@@ -39,6 +39,7 @@ export interface ScriptLine {
   text: string
   article_id: number | null
   section: string
+  start_time?: number
 }
 
 export interface Article {

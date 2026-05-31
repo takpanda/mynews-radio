@@ -173,6 +173,7 @@ def synthesize_episode(
             # Store both display and spoken text back into line object
             line["display_text"] = original_text
             line["spoken_text"] = spoken_text
+            line["wav_file"] = filename
         else:
             logger.error("Failed to synthesize line %d", idx)
 

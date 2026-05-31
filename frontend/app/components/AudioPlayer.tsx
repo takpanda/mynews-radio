@@ -5,6 +5,8 @@ import { useState, useRef, useEffect } from 'react'
 interface Props {
   src: string
   title: string
+  onTimeUpdate?: (currentTime: number) => void
+  externalAudioRef?: React.RefObject<HTMLAudioElement>
 }
 
 const SPEEDS = [1.0, 1.25, 1.5]
@@ -16,8 +18,9 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-export default function AudioPlayer({ src, title }: Props) {
-  const audioRef = useRef<HTMLAudioElement>(null)
+export default function AudioPlayer({ src, title, onTimeUpdate, externalAudioRef }: Props) {
+  const internalRef = useRef<HTMLAudioElement>(null)
+  const audioRef = externalAudioRef ?? internalRef
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -27,17 +30,20 @@ export default function AudioPlayer({ src, title }: Props) {
     const audio = audioRef.current
     if (!audio) return
 
-    const onTimeUpdate = () => setCurrentTime(audio.currentTime)
+    const handleTimeUpdate = () => {
+      setCurrentTime(audio.currentTime)
+      onTimeUpdate?.(audio.currentTime)
+    }
     const onDurationChange = () => setDuration(audio.duration || 0)
     const onEnded = () => setIsPlaying(false)
 
-    audio.addEventListener('timeupdate', onTimeUpdate)
+    audio.addEventListener('timeupdate', handleTimeUpdate)
     audio.addEventListener('durationchange', onDurationChange)
     audio.addEventListener('loadedmetadata', onDurationChange)
     audio.addEventListener('ended', onEnded)
 
     return () => {
-      audio.removeEventListener('timeupdate', onTimeUpdate)
+      audio.removeEventListener('timeupdate', handleTimeUpdate)
       audio.removeEventListener('durationchange', onDurationChange)
       audio.removeEventListener('loadedmetadata', onDurationChange)
       audio.removeEventListener('ended', onEnded)

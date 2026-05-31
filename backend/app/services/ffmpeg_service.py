@@ -209,7 +209,8 @@ def add_jingles_and_encode(
 
     n_segments = len(concat_labels)
     concat_str = "".join(concat_labels)
-    filter_parts.append(f"{concat_str}concat=n={n_segments}:v=0:a=1[out]")
+    # aformat でフレームを再アロケートし libmp3lame に必要なパディングを確保する
+    filter_parts.append(f"{concat_str}concat=n={n_segments}:v=0:a=1,aformat=sample_fmts=s16p[out]")
 
     filter_complex = ";".join(filter_parts)
 
