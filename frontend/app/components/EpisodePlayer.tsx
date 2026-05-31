@@ -23,7 +23,7 @@ export default function EpisodePlayer({ episode, script, audioUrl }: Props) {
 
   return (
     <>
-      <section className="mb-8">
+      <section className="sticky top-0 z-20 -mx-4 px-4 pt-3 pb-2 mb-6 bg-gray-50/95 backdrop-blur-sm border-b border-gray-200">
         <AudioPlayer
           src={audioUrl}
           title={episode.title || `エピソード #${episode.id}`}
