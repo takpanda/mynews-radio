@@ -4,11 +4,15 @@ import json
 import logging
 import os
 from pathlib import Path
+from typing import Generator
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.batch.generate_script import generate_script
+from app.batch.import_articles import import_articles_by_source
+from app.batch.summarize_articles import summarize_articles
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
 from app.config import get_settings
@@ -22,23 +26,18 @@ router = APIRouter()
 DEFAULT_EPISODES_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
 
 
-def _enrich_with_script_data(episode_id: int, base_path: str) -> tuple[str, float]:
-    """script.json と metadata.json から番組タイトルと再生時間を取得する。"""
-    script_path = os.path.join(base_path, str(episode_id), "script.json")
-    title = ""
-    if os.path.isfile(script_path):
-        with open(script_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        title = data.get("title", "")
+def _format_sse(event: str, payload: dict) -> bytes:
+    return (
+        f"event: {event}\n"
+        f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    ).encode("utf-8")
 
-    duration = 0.0
-    metadata_path = os.path.join(base_path, str(episode_id), "metadata.json")
-    if os.path.isfile(metadata_path):
-        with open(metadata_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        duration = data.get("duration_seconds", 0.0)
 
-    return title, duration
+def _build_error_payload(message: str, status: str = "error") -> dict:
+    return {"phase": "failed", "status": status, "message": message}
+
+
+NEWS_SOURCES = {"hatena_bookmark", "hatena_hotentry_all"}
 
 
 class GenerateRequest(BaseModel):
@@ -46,6 +45,7 @@ class GenerateRequest(BaseModel):
     date: str = Field(description="放送日 (YYYY-MM-DD)")
     max_articles: int = Field(default=10, ge=1, le=50)
     duration_minutes: int | None = Field(default=None, ge=1, le=640)
+    news_source: str = Field(default="hatena_bookmark", description="ニュースソース (hatena_bookmark | hatena_hotentry_all)")
 
 
 class GenerateResponse(BaseModel):
@@ -55,66 +55,122 @@ class GenerateResponse(BaseModel):
     message: str
 
 
-@router.post("/generate", response_model=GenerateResponse, summary="番組を生成する")
-def generate_episode(body: GenerateRequest) -> dict:
-    """日付および記事数指定で番組を同期生成する。
-
-    MVPでは同期実行（生成完了まで待つ）。
-    """
+def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
     episode_date = body.date
-    base_dir = os.path.join(DEFAULT_EPISODES_DIR, episode_date)
-    Path(base_dir).mkdir(parents=True, exist_ok=True)
-
-    # Script generation に max_articles を伝える（env経由でbatch関数に渡す）
-    old_max = os.environ.get("MAX_SCRIPT_ARTICLES")
-    os.environ["MAX_SCRIPT_ARTICLES"] = str(body.max_articles)
-
-    script_path = os.path.join(base_dir, "script.json")
-    line_count = generate_script(script_path)
-    if old_max is None:
-        os.environ.pop("MAX_SCRIPT_ARTICLES", None)
-    else:
-        os.environ["MAX_SCRIPT_ARTICLES"] = old_max
-
-    if line_count <= 0:
-        return GenerateResponse(
-            episode_id=0,
-            status="no_content",
-            message="台本を生成する記事がありません。status='summarized'の記事を登録してください。",
-        ).model_dump()
-
-    # 音声合成（VOICEVOX）
-    settings = get_settings()
-    with VoicevoxClient(
-        settings.voicevox_base_url,
-        speaker_male=settings.voicevox_speaker_male,
-        speaker_female=settings.voicevox_speaker_female,
-    ) as client:
-        success_count = synthesize_episode(base_dir)
-
-    if success_count <= 0:
-        return GenerateResponse(
-            episode_id=0,
-            status="voicevox_error",
-            message=f"音声合成に失敗しました。VOICEVOXエンジン ({settings.voicevox_base_url}) を確認してください。",
-        ).model_dump()
-
-    # エピソード統合（WAV結合 + MP3エンコード + metadata.json）
-    ep_metadata = build_episode(base_dir)
-    if not ep_metadata:
-        raise HTTPException(
-            status_code=500, detail="番組生成完了したがメタデータ取得に失敗しました"
-        )
-
-    # DB登録（episodes + episode_items）
+    logger.info("UI generate request: date=%s max_articles=%d", episode_date, body.max_articles)
     service = EpisodeService()
     episode_id = service.create_episode(
         episode_date=episode_date,
-        script_text=json.dumps(ep_metadata.get("title", ""), ensure_ascii=False),
-        audio_path=ep_metadata.get("audio_path"),
-        status="completed",
+        status="generating",
     )
+    base_dir = os.path.join(DEFAULT_EPISODES_DIR, str(episode_id))
+    Path(base_dir).mkdir(parents=True, exist_ok=True)
 
+    news_source = body.news_source if body.news_source in NEWS_SOURCES else "hatena_bookmark"
+
+    yield _format_sse("progress", {"phase": "start", "message": "エピソード生成を開始します。"})
+
+    # 一般ニュース選択時はRSSから記事をインポートして要約する
+    if news_source == "hatena_hotentry_all":
+        yield _format_sse("progress", {"phase": "import", "message": "一般ニュース記事を取得しています..."})
+        try:
+            ins, dup = import_articles_by_source("hatena_hotentry_all")
+            logger.info("RSS import done: inserted=%d duplicated=%d", ins, dup)
+        except Exception as exc:
+            logger.exception("RSS import failed")
+            service.update_episode_status(episode_id, "failed")
+            yield _format_sse("error", _build_error_payload(f"記事の取得に失敗しました: {exc}"))
+            return
+
+        if ins == 0 and dup == 0:
+            service.update_episode_status(episode_id, "failed")
+            yield _format_sse("error", _build_error_payload("RSSから記事を取得できませんでした。", status="no_content"))
+            return
+
+        yield _format_sse("progress", {"phase": "summarize", "message": "記事を要約しています..."})
+        try:
+            summaries_path = os.path.join(base_dir, "summaries.json")
+            summarized = summarize_articles(summaries_path)
+            logger.info("summarize done: count=%d", summarized)
+        except Exception as exc:
+            logger.exception("summarize failed")
+            service.update_episode_status(episode_id, "failed")
+            yield _format_sse("error", _build_error_payload(f"記事の要約に失敗しました: {exc}"))
+            return
+
+    old_max = os.environ.get("MAX_SCRIPT_ARTICLES")
+    os.environ["MAX_SCRIPT_ARTICLES"] = str(body.max_articles)
+
+    try:
+        yield _format_sse("progress", {"phase": "generate_script", "message": "台本を生成しています..."})
+        script_path = os.path.join(base_dir, "script.json")
+        line_count = generate_script(script_path)
+    finally:
+        if old_max is None:
+            os.environ.pop("MAX_SCRIPT_ARTICLES", None)
+        else:
+            os.environ["MAX_SCRIPT_ARTICLES"] = old_max
+
+    if line_count <= 0:
+        service.update_episode_status(episode_id, "failed")
+        yield _format_sse(
+            "error",
+            _build_error_payload(
+                "台本を生成する記事がありません。status='summarized'の記事を登録してください。",
+                status="no_content",
+            ),
+        )
+        return
+
+    settings = get_settings()
+    yield _format_sse("progress", {"phase": "synthesize", "message": "音声を合成しています..."})
+    try:
+        with VoicevoxClient(
+            settings.voicevox_base_url,
+            speaker_male=settings.voicevox_speaker_male,
+            speaker_female=settings.voicevox_speaker_female,
+        ) as client:
+            success_count = synthesize_episode(base_dir)
+    except Exception as exc:
+        logger.exception("voicevox synthesis failed")
+        service.update_episode_status(episode_id, "failed")
+        yield _format_sse(
+            "error",
+            _build_error_payload(
+                f"音声合成に失敗しました。VOICEVOXエンジン ({settings.voicevox_base_url}) を確認してください。",
+                status="voicevox_error",
+            ),
+        )
+        return
+
+    if success_count <= 0:
+        service.update_episode_status(episode_id, "failed")
+        yield _format_sse(
+            "error",
+            _build_error_payload(
+                f"音声合成に失敗しました。VOICEVOXエンジン ({settings.voicevox_base_url}) を確認してください。",
+                status="voicevox_error",
+            ),
+        )
+        return
+
+    yield _format_sse("progress", {"phase": "build", "message": "音声ファイルを統合しています..."})
+    ep_metadata = build_episode(base_dir)
+    if not ep_metadata:
+        service.update_episode_status(episode_id, "failed")
+        yield _format_sse(
+            "error",
+            _build_error_payload(
+                "番組生成完了したがメタデータ取得に失敗しました",
+                status="build_error",
+            ),
+        )
+        return
+
+    service.update_episode_audio_path(episode_id, ep_metadata.get("audio_path") or "")
+    service.update_episode_status(episode_id, "completed")
+
+    yield _format_sse("progress", {"phase": "db", "message": "エピソードを保存しています..."})
     try:
         with open(script_path, "r", encoding="utf-8") as f:
             script = json.load(f)
@@ -129,11 +185,24 @@ def generate_episode(body: GenerateRequest) -> dict:
     except Exception:
         logger.exception("failed to persist episode items")
 
-    return GenerateResponse(
-        episode_id=episode_id,
-        status="completed",
-        message=f"Episode generated (id={episode_id}, lines={success_count})",
-    ).model_dump()
+    yield _format_sse(
+        "complete",
+        {
+            "phase": "complete",
+            "episode_id": episode_id,
+            "status": "completed",
+            "message": f"Episode generated (id={episode_id}, lines={success_count})",
+        },
+    )
+
+
+@router.post("/generate", summary="番組を生成する")
+def generate_episode(body: GenerateRequest) -> StreamingResponse:
+    return StreamingResponse(
+        _stream_generate(body),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 # ── file-based routes for /episodes and /health are mounted in main.py ──

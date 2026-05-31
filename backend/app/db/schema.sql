@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS articles (
     summary TEXT,
     category TEXT,
     importance_score INTEGER,
+    difficulty INTEGER,
     status TEXT NOT NULL DEFAULT 'new',
     published_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP

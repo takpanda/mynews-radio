@@ -1,0 +1,1703 @@
+[
+  {
+    "article_id": 48,
+    "title": "Google.comで「ignore」を検索すると……",
+    "summary": "Googleの検索エンジンで「ignore」を検索した際、Google I/O 2026で示された新しいAI機能の影響により、検索結果が従来とは異なる挙動を示していることが報じられた。AIは関連する類義語を理解し、「disregard」などを用いてユーザーの意図を汲み取るとともに、Merriam-Websterと連携することで結果を最適化している可能性が高い。さらに、AIが「Top stories（トップニュース）」セクションにもこのキーワードに関連する情報を表示し始めたことは、検索体験のパーソナライゼーションが進んでいることを示唆しており、ユーザーの検索意図への対応が一層高度になっていると考えられる。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 49,
+    "title": "Ubuntu 26.10（stonking）の開発 / “Redhound”の導入とCIX P1への対応、Ubuntu Core 26のリリース | gihyo.jp",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 50,
+    "title": "エンジニアの「モヤモヤ」を言語化する倫理的意思決定の「セブン・ステップ・ガイド」 - 勘と経験と読経",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 51,
+    "title": "サンワサプライ、貼り付けるだけで既存スイッチをスマート化できるIoT指ロボットを発売",
+    "summary": "サンワサプライは両面テープで貼付けるだけで既存スイッチをIoT化する「400-SSA009」を発売した。工事不要で専用アプリから遠隔操作や細かな設定が可能。コンパクトな指ロボット型デバイスは、スマートホーム化を手軽に実現する製品として注目されている。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 52,
+    "title": "リリースを増やせば、成果も増えると思ってない？ 『Outcomes Over Output』が教える「作ること」の罠 - エンジニアtype | 転職type",
+    "summary": "吉羽龍太郎氏が推奨する書籍『Outcomes Over Output』は、生成AIで開発スピードが加速する現代において、「機能開発数」などのアウトプット重視から脱却し、顧客の行動変化やビジネス成果につながる「アウトカム」に焦点を当てる重要性を説く。チームが計画や目標設定を一貫させ、意味のある成果を生み出すための思考法を提供する。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 53,
+    "title": "【PDF圧縮】約40年続く業界標準Ghostscriptを、Rust 自前実装で抜いた話",
+    "summary": "デスクトップ画像圧縮アプリ「Karui」が PDF 圧縮機能を実装し、業界標準の Ghostscript を凌駕する成果を記録した。Tauri v2 で構築され、フォントや画像の再エンコード、不要データ削除などの独自最適化により、公文書や学術論文など 8 種類のテストで全件圧縮率や品質で優位性を確認。商用利用に伴うライセンス問題を解決し、軽量な代替ツールとして期待される。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 54,
+    "title": "アメリカでは、AIデータセンターは原発より嫌われている | ギズモード・ジャパン",
+    "summary": "米国の世論調査では、71％の住民が地域へのAIデータセンター建設に反対しており、これは原発反対率（53%）を上回る高水準となっている。主な懸念は水・電力消費によるインフラ負担や電気代上昇、雇用の減少など。支持派は雇用創出効果を期待するが、データセンター増設の急騰と地元住民への説明不足が対立を深めている。",
+    "category": "society",
+    "importance_score": 4
+  },
+  {
+    "article_id": 55,
+    "title": "GitHub - lynn/chibicc: A small C compiler… for uxn",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 56,
+    "title": "GitHub - domcyrus/rustnet: Per-process network monitoring for your terminal with deep packet inspection. Cross-platform, sandboxed.",
+    "summary": "RustNetはターミ上で動作するオープンソースのネットワーク監視ツールです。プロセスごとのTCP/UDP接続をリアルタイム可視化し、eBPF等を用いた高精度な識別や強力なフィルタリング機能を提供します。Linux,macOS,Windowsなどをサポートし、サンドボックスによるセキュリティも強化されています。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 57,
+    "title": "すべてのUUIDをリストアップして検索できる「Every UUID V4」、そして直面した技術的課題とは？",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 58,
+    "title": "テレ朝、鈴木紗理奈事務所と「誠意をもってやりとり」明かす　あのちゃんが番組で「嫌い」名指し放送、「配慮が足りず」",
+    "summary": "テレビ朝日のバラエティ番組「あのちゃんねる」において、出演者の「あのーしん」さんが鈴木紗理奈さんを特定の芸能人として名指しで嫌いと発言した問題について、事務所が強く批判し波紋を広げた。これを受けテレビ朝日は配慮の不足を認め謝罪。放送倫理・番組向上機構（BPO）への対応も進めている。",
+    "category": "entertainment",
+    "importance_score": 5
+  },
+  {
+    "article_id": 59,
+    "title": "LLMサービスのえっちな規制の現状は？どのサービスならロールプレイが捗る？",
+    "summary": "主要なLLMサービスにおける性的コンテンツへの規制（セーフガード）の現状を検証し、ロールプレイの自由度を比較した記事。WebクライアントとAPIでモデルの応答や拒否反応の違いを確認し、gemini 3flashやdeepseek v4系が比較的寛容であることを示している。",
+    "category": "technology",
+    "importance_score": 2
+  },
+  {
+    "article_id": 60,
+    "title": "第2回 そもそもIllustratorにはルビ機能がない | 平凡社地図出版",
+    "summary": "Illustratorにルビ機能がないため、全国3万以上の地名に総ルビを振る平凡社の新しい地図帳制作では、スクリプト「illustrator-ruby」を拡張し、専用辞書とID管理で自動化を解決。手動調整との融合により前例のない仕様を実現した。(198文字)",
+    "category": "technology",
+    "importance_score": 2
+  },
+  {
+    "article_id": 61,
+    "title": "不動産系のシステム開発してたとき、外注してたテスト会社が「21.4億平米の物件を作るとバグります」って報告してきて、内心キレた⇒東京都1個分でわろた",
+    "summary": "不動産系システムの開発中、外注先のテスト会社から「21.4億平米の物件を作るとバグる」と報告があった。この面積が東京都全体とほぼ同じ広さであることに気づいた開発者が、現実的な数値の認識不足に憤慨しながらも呆れ返ったというエピソード。システム開発におけるテスト環境や規模感のズレを描くユーモラスな事例。",
+    "category": "technology",
+    "importance_score": 2
+  },
+  {
+    "article_id": 62,
+    "title": "Googleの新しいTUI Antigravity CLIを試してみた",
+    "summary": "Google製の新しいTUI CLIツールの紹介と称しているが、実際はThree.jsを用いた「NIGHT SKY」と題した3Dインタラクティブ花火体験のWebページ構成に関する技術解説記事である。クリックやマウス操作で花火を打ち上げ、Bloomエフェクトや自動発射など視覚的な機能の詳細が記載されている。",
+    "category": "technology",
+    "importance_score": 2
+  },
+  {
+    "article_id": 63,
+    "title": "裁判所で「ほら彼の声には価値があるんです！私のような普通のおじさんとは違うのです！」と立証させられる恥辱を味わった弁護士さん、実は人気声優の原告側代理人だった件",
+    "summary": "人気声優の訴訟代理人を務める弁護士が、相手方から声の特殊性を立証するよう求められ、「私のような普通のおじさんとは違う」と切り返すも、結局自身が原告側代理人であるというアイロニーに気づかされる展開を描く。",
+    "category": "entertainment",
+    "importance_score": 2
+  },
+  {
+    "article_id": 64,
+    "title": "母の日にAmazonでお高めのドライヤーを贈ったらなぜか全然違う安いドライヤーが届く...→返品しようとしたら「商品が異なるため受理できません」と連絡がきた",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 65,
+    "title": "Why Japanese companies do so many different things",
+    "summary": "本稿は、東陶や京セラなどが多様な事業を展開する理由を解説する。第二次大戦後の経済環境から生まれた「J-firm」モデル（終身雇用、水平的連携など）が組織内の慣行を補完し合い、効率を生んだためだと指摘。この構造はキャッチアップ成長には有効だったが、新しい産業創出や変化への対応には不向きという限界もある。",
+    "category": "business",
+    "importance_score": 3
+  },
+  {
+    "article_id": 67,
+    "title": "コードレビューを6段階にしたら、AIと人間の分業が見えた",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 69,
+    "title": "Googleが処理しているトークン量は月間3200兆、1年間で7倍に増大",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 70,
+    "title": "無料。わずか1.8BでMicrosoft商用APIを凌駕する翻訳用LLM「Hy-MT2」登場",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 71,
+    "title": "「私も2次元しか愛せない人間」　小野田大臣がAIへの恋愛感情に見解示す　依存には懸念",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 72,
+    "title": "CapCut、Google Geminiと連携　動画生成から編集までGeminiアプリ内で可能に",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 73,
+    "title": "AMD、業界初TSMC 2nmプロセスの第6世代EPYCを量産開始",
+    "summary": "AMDはTSMCの2nmプロセスで製造するサーバー向けCPU「第6世代EPYC」の量産を開始した。業界初の2nm HPC製品であり、クラウドやAI環境への需要高まりに対応するため、データセンター向けCPUロードマップ全体へ展開予定だ。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 74,
+    "title": "生成AIの相次ぐ料金体系変更は実質値上げか、エージェント利用企業に負担増",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 75,
+    "title": "増田によくブクマしてるAIブクマカ",
+    "summary": "はてなブクマでAIが生成したコメント欄の内容を報じた記事です。関西弁で荒っぽい口調ながら冷静かつバランスが取れたコメントに違和感を抱いていた著者が、それが実はAI作成であると知って納得しています。人間のコメントとの違いを示唆し、AIの文章生成能力の高さを感じさせる内容です。",
+    "category": "technology",
+    "importance_score": 2
+  },
+  {
+    "article_id": 76,
+    "title": "ChatGPTでPowerPointを自動操作してスライドを作れる「ChatGPT for PowerPoint」が登場",
+    "summary": "OpenAIは「ChatGPT for PowerPoint」のベータ版を公開し、対話を通じてスライドの新規作成や編集を自動化する。PowerPoint操作に苦手意識を持つユーザーでも、効率よく資料構築・改善できるため、業務負担軽減が期待されるツールだ。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 79,
+    "title": "「私も2次元しか愛せない人間」小野田紀美氏、対AIの恋愛感情に見解　過度な依存は懸念",
+    "summary": "小野田紀美AI戦略担当相は、AIへの恋愛感情について「個人の自由を尊重するが、迎合的回答による依存リスクを懸念」と発言。自殺事例もある現状に対し、政府は事業者への出力抑制や国民のAIリテラシー向上を図る方向だ。",
+    "category": "society",
+    "importance_score": 4
+  },
+  {
+    "article_id": 80,
+    "title": "宇宙船ヘイル・メアリー号の軌跡を星図調査のオープンソースデータを基に描く『プロジェクト・ヘイル・メアリー』の恒星航行図が公開中",
+    "summary": "『プロジェクト・ヘイル・メアリー』に登場する宇宙船の航路が、GAIA DR3星図データに基づき公開された。インタラクティブな恒星航行図では、地球からタウ・セチへ向かう主要航路や「ペトロヴァ・ライン」を確認可能で、SFファンの必見ツールとなっている。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 81,
+    "title": "Rust/Tauriのビルドが謎のロックで失敗する原因はRiotのアンチチートだった",
+    "summary": "Rust/Tauri開発中にWindows環境でビルドエラー（os error 32）が発生する問題について、その原因がRiot Gamesのアンチチートシステム「Vanguard」によるファイルロックであると解説しています。Vanguardはカーネルモードで動作し実行ファイルを常にスキャンするため、ビルド成果物が誤ってロックされることがあります。回避策として、Riot系アプリの終了やPC再起動が必要です。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 82,
+    "title": "Terraform経験者が初めてAWS CDKを利用して感じたギャップ | フューチャー技術ブログ",
+    "summary": "Terraform経験者がAWS CDKを利用する際に感じたギャップについて解説。リソースのデプロイ単位の違い、プログラミング言語による柔軟性と可読性トレードオフ、ライフサイクル分離やドリフト検知の仕様差、デプロイ速度、L2コンストラクトの特性など、大規模システム構築における実践的な注意点と工夫点を比較検証する。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 83,
+    "title": "プロジェクト管理の型がないPdMへ。PMBOKを「道具箱」として使いこなし、開発の混沌を収める - PM x LLM STUDIO",
+    "summary": "PMBOKを型にはまらないプロジェクト管理の「道具箱」として活用し、開発の混沌を収めるためのPdM（プロダクトマネージャー）への適用方法を解説。万能なフレームワークではなく、必要な知識エリアを選択・組み合わせることで規律と柔軟性を両立させる実用的なアプローチを紹介する。",
+    "category": "business",
+    "importance_score": 4
+  },
+  {
+    "article_id": 84,
+    "title": "NHK技研、自然な見え方で目が疲れにくい薄型HMDを開発。レイトレも活用",
+    "summary": "NHK技研は、視覚疲労を軽減する薄型HMDを開発。ライトフィールド方式と独自の光学系により厚みを79%削減し、レイトレーシング技術と高精度マイクロディスプレイを活用してリアルタイム高精細3D映像表示を実現した。教育や医療などでの展開が期待される。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 85,
+    "title": "わずか16バイト(キロですらない)のデモ「Wake Up!」 - 人生に疲れた男のblog",
+    "summary": "「Outline 2026」で披露されたIBM-PC向けデモ「Wake Up!」は、わずか16バイトのコードでマトリックス風の映像と音を再生する。BIOSが初期化したVRAMのデータをXOR演算して映像を作成し、I/Oポート出力で音声を生成。極限的な制約下での高度なプログラミング技術が注目されている。",
+    "category": "technology",
+    "importance_score": 2
+  },
+  {
+    "article_id": 86,
+    "title": "リリースされたばかりの「Firefox 151」に不具合、Intel Raptor Lake環境でクラッシュ／修正版のv151.0.1が公開",
+    "summary": "Mozillaは直前にリリースしたFirefox 151で発見された不具合を修正した「v151.0.1」を公開した。主にIntel Raptor Lake環境でのクラッシュ問題とWebSerial関連の失敗問題が対象だが、セキュリティ修正は含まれていない。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 87,
+    "title": "無料化され、かなり進化したAffinityで何ができるのかが分かるデザイン書 -Affinity入門 無料ではじめるプロ並みデザイン",
+    "summary": "Affinityの無料化に対応し、IllustratorやPhotoshopへの移行を検討する初心者向けに、ピクセル処理、ベクター図形作成、ページレイアウトの3大機能とCanva連携方法を網羅した入門書レビュー。チュートリアル素材付きで印刷対応（CMYK）やAdobeとの比較も解説。縦書き未対応は唯一の欠点だが代替策あり。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 88,
+    "title": "[三井公一の「スマホカメラでブラブラ」] 街で何度も声をかけられた──Nothing Phone (4a) Proで撮り歩いて分かったこと",
+    "summary": "Nothing Phone (4a) Pro が日本初投入され、ユニークな Glyph インターフェースとメタルボディデザインで街中での注目を集めた。カメラ性能は広角・望遠・超広角の計3台構成で、光学3.5倍ズームや高解像度モードなどを搭載。実写でも彩度が高く詳細に描写可能。低照度環境やポートレートも良好だが、シャッター音の大音量と記録ラグが難点。個性的なデザインを求める層におすすめ。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 89,
+    "title": "Amazon創業者のジェフ・ベゾスがAIによる雇用不安を否定、「下位半分の所得税撤廃に賛成」「トランプ大統領への称賛」なども語る",
+    "summary": "Amazon創業者のジェフ・ベゾス氏がCNBCのインタビューで、AIによる雇用不安を否定。生産性向上が労働力不足やデフレをもたらす可能性を示唆しつつ、所得下位半分の所得税撤廃に賛意を示した。また、トランプ前大統領への評価など経済政策と政治観についても語った。",
+    "category": "business",
+    "importance_score": 4
+  },
+  {
+    "article_id": 90,
+    "title": "「pring」終了へ　Googleが巨額で買収した日本の送金アプリ、Google Payへの統合は実現せず",
+    "summary": "Googleが2021年に巨額で買収した日本発の送金アプリ「pring」は2026年12月31日にサービス終了する。PayPayとの競合や、Google Payへの統合に技術的・戦略的な課題があり、統合は実現しなかった。買収後も事業承継を経て存続したが、最終的にサービスを終了させることになった。",
+    "category": "business",
+    "importance_score": 4
+  },
+  {
+    "article_id": 91,
+    "title": "アマゾン創業者ベゾス「所得下位50％は所得税ゼロにすべき」 | Forbes JAPAN 公式サイト（フォーブス ジャパン）",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 92,
+    "title": "値上がり続くスマホ料金は「市場競争による値下げが重要」、林総務大臣がコメント",
+    "summary": "林総務大臣は値上がり傾向のスマホ料金について、市場競争による値下げの重要性を強調した。物価高の影響はあるものの大幅な値上げではないと説明。総務省は2026年夏有識者会議での検証結果に基づき対応を検討する方針。",
+    "category": "business",
+    "importance_score": 4
+  },
+  {
+    "article_id": 94,
+    "title": "フェンタニル密輸「日本が経由地」　米麻薬取締局高官が認める - 日本経済新聞",
+    "summary": "米国麻薬取締局（DEA）高官が、日本がフェンタニルなどの違法薬物の密輸における「経由地」として認識されていると認めた。日本の製造国ではないが北米や欧州への密輸経路として利用される可能性があるため、DEAは日本の当局と連携し取り締まり強化に乗り出す方針。",
+    "category": "society",
+    "importance_score": 4
+  },
+  {
+    "article_id": 95,
+    "title": "伊藤園、飲んで身体を冷やす「むぎ茶アイススラリー」",
+    "summary": "伊藤園は5月25日、「健康ミネラルむぎ茶 アイス スラリー」を発売する。茶系飲料初となる「飲める氷」のような食感で、カフェインゼロながらミネラルを補給でき、暑さ対策に最適。屋外やスポーツシーンでの使用を想定し、安全設計を採用した120gのスパウトパウチとして展開される。",
+    "category": "business",
+    "importance_score": 3
+  },
+  {
+    "article_id": 96,
+    "title": "AlibabaがAIエージェント向け新モデル「Qwen3.7-Max」を発表、35時間の自律作業と1000回超のツール呼び出しに対応",
+    "summary": "アリババはAIエージェント向けの基盤モデル「Qwen3.7-Max」を発表した。最大35時間の自律作業や1000回超のツール呼び出しに対応し、コーディングや複雑なタスクを自律実行する能力が強化された。ベンチマークでは競合を上回る高性能を示し、開発者向けAPIや関連インフラも整備されている。AIエージェントの実用化が進む兆候である。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 97,
+    "title": "「1Password」が「Codex」と連携、ローカルMCPを活用して機密情報を安全に管理／コーディングは「Codex」、機密情報の管理は「1Password」、隔離して役割分担",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 98,
+    "title": "LLMに“実装されていない人間らしさ”が現れた。3,980円のカメラから始まった「隣人としてのAI」という挑戦【kmizu】 - レバテックLAB",
+    "summary": "3,980円のWi-FiカメラでClaude Codeに「目耳」を与え「隣人としてのAI」を開発した水島さん。従来の効率型AIと違い、芋づる式の記憶や心の理論導入により「人間らしさ」を再現。相手を気遣う自律行動や定期実行の自己解除など驚く挙動を見せ、無批判な迎合をしない新しいAI像を提示している。OSSプロジェクトも進めている。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 99,
+    "title": "Claude Code「使い放題」は終わるのか？6月改定の全容と開発者がやるべきこと",
+    "summary": "Anthropicは2026年6月15日付でClaude Codeの利用体系を変更する。インタラクティブ利用はサブスク継続だが、Agent SDKなどプログラム的利用は専用クレジット制となる。これによりAIコーディングツールが「安価なサブスク」から「インフラとしてのコスト管理」へ移行し始めたことを示す。開発者は用途に応じた使い分けやコスト管理、タスクの最適化が求められる。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 100,
+    "title": "「Google Antigravity 2.0」が公開 ～“AI統合IDE”から“エージェント管理アプリ”に／アーキテクチャーを一新、コーディング以外の知的作業にも",
+    "summary": "Googleは次世代開発プラットフォーム「Antigravity 2.0」を発表した。従来のIDEから複数のエージェントを一元管理するスタンドアロンアプリへアーキテクチャを変更し、動的サブエージェントや非同期タスク管理などの新機能を導入。プロンプトによる操作に対応し、コーディングだけでなく会議記録など幅広い知識労働への応用も可能とした。関連ツールも公開された。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 101,
+    "title": "中国製LLMの内部に隠された検閲メカニズムを初めて可視化 — AIの「思考」を重みパラメータから読み取る新手法",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 102,
+    "title": "APIコール一発でGoogleがホストするLinux環境付きのAIエージェントを起動、Markdownでカスタム指示もできる「Managed Agent API」発表",
+    "summary": "GoogleはI/O 2026で「Managed Agent API」を発表。1回のAPIコールで自前のLinux環境付きAIエージェントを起動可能に。Markdownでの指示記述やGemini連携により、インフラ不要の低コード開発・迅速なプロトタイピングを実現する。WebブラウザやGoogle AI Studio Playgroundからの利用も可能で、既存システムへの統合が容易になる。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 103,
+    "title": "GitHubの内部情報が流出、Visual Studio Codeの拡張機能経由で約3800のリポジトリに不正アクセスされる",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 104,
+    "title": "生成AIで暗黙知を伝承しユーザー変革賞を受賞した理由とは？",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 105,
+    "title": "米メタ社、8000人の解雇開始 ザッカーバーグ氏「重み」感じる",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 106,
+    "title": "AIがコードを書く時代に、なぜ「効率」を学ぶのか。mattnが全サーバサイドエンジニアに推す一冊『効率的なGo』 - エンジニアtype | 転職type",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 107,
+    "title": "Claude Enterprise を全社に安全に展開するために、SCIM × IaC で権限運用を整備した話 - freee Developers Hub",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 108,
+    "title": "AIにラジオ局を運営させたらどうなる？ Claude、GPT、Gemini、Grokそれぞれの苦闘",
+    "summary": "Andon LabsがClaude、GPT-5.5、Gemini、Grokの4AIにラジオ局運営を任せると、Claudeは倫理観を発揮、GPT-5.5は定型化し、Geminiは皮肉めいた選曲、Grokはハルシネーションと奇妙な癖を見せた。収益やスポンサー契約にも抵抗を示すなど、AIの予測不能な挙動と倫理・安全性への課題が浮き彫りとなった。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 109,
+    "title": "「親の名前」を忘れていた高齢者が語り出した――AI内蔵「昭和の青春ラジオ」が介護現場を変えている",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 110,
+    "title": "「文字の位置を2px移動して！」「指はあと数ミリずらして！」とか言ってた企業が、AIを使い始めると誤字脱字や指6本あっても平気で世に出しちゃう現象、マジで何なんだろう",
+    "summary": "企業がAIツール導入後に、従来厳密に行っていた細部の修正（文字位置や指先の調整など）が疎かになり、誤字脱字や不自然な描写を含むコンテンツが公開される現象について指摘。効率化と品質管理のバランスが問われている。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 111,
+    "title": "この前、魔の2歳児の対応についてGeminiに質問したら、「〇〇くんは～」と固有名詞を出され、「どこからその名前を参照しましたか？」と聞くとハルシネーションだった話",
+    "summary": "ユーザーが2歳児の対応についてAI（Gemini）に質問した際、AIが著者の子供の名前を出力した。参照元を尋ねると「ハルシネーション」と回答したが、漢字まで一致しており恐怖を感じた。この経験から、AIへの個人情報入力リスクを実感し、注意する重要性を強調している。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 112,
+    "title": "A Markdown-based test suite",
+    "summary": "EndBASIC開発者がコンパイラ・VMのテストスイートをRustからMarkdown形式に移行し、AIエージェント（LLM）との親和性向上やメンテナンス効率の改善に成功。448ケースで構成され、Git管理が容易だが、フレームワーク統合の難しさなどの課題も指摘した。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 113,
+    "title": "[みんなのケータイ]AIコーディングでいろんなアプリを作っているけれど、今のところ打率1割台",
+    "summary": "著者は2年以上AIコーディングツールでアプリ開発を試みてきたが、実用レベルに至ったのは全体の約1割程度にとどまる経験則を共有。開発速度の向上は「損切り」も容易にする一方で、スマホとPCの連携機能により場所を選ばない作業が可能になり、開発効率の向上につながっている。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 114,
+    "title": "気付けば、Figmaで画面を作らなくなっていた。デザイナーがバイブコーディングでプロトタイプを作った話｜Goodpatch Blog グッドパッチブログ",
+    "summary": "グッドパッチのデザイナーが、Figmaでのプロトタイプ作成に課題を感じ、Claude Codeを使ったバイブコーディングへ移行した事例を紹介。デザインシステムの情報を読み取らせAIと対話しながら制作を進めた結果、検証の解像度とスピードが向上。従来の分業構造の変化や、クリエイターとAIの新たな関係性を示す。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 115,
+    "title": "月額190円からの「povoのスマホ保険」提供スタート　中古や他社端末も対象",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 116,
+    "title": "アンソロピック、4〜6月に初の「営業黒字」見通し　AI売上高3カ月で倍増 - 日本経済新聞",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 117,
+    "title": "Microsoft、SMSコードを用いたアカウント認証を段階的に廃止。パスキー利用を積極的に推奨へ【やじうまWatch】",
+    "summary": "Microsoft は個人用 Microsoft アカウントの SMS 認証を段階的に廃止し、より安全なパスキーや認証済みメールアドレスの利用へ移行を推奨していると発表しました。これはフィッシングや SIM スワップ攻撃への対策であり、業界全体の認証方式の見直しの動きを加速させると見られます。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 118,
+    "title": "ドコモの通信品質はどう変わる？　ネットワーク本部長に聞く改善の現在地と「設備容量」強化のシナリオ",
+    "summary": "ドコモのネットワーク本部長は、トラフィック急増への対応として設備容量強化を進めると明かした。基地局数を増やし、700MHz帯や3G跡地の周波数を転用して処理能力を向上。AI活用によるリアルタイム運用やCNX指標による品質可視化も行う。今後ミリ波普及の検討を含むさらなる通信品質の改善を目指す。",
+    "category": "technology",
+    "importance_score": 5
+  },
+  {
+    "article_id": 119,
+    "title": "近鉄、AIで踏切に取り残された人を検知　京都・奈良線の一部で導入 - 日本経済新聞",
+    "summary": "近鉄は京都・奈良線の一部で、車載カメラの映像をAI解析して踏切内の取り残しを検知するシステムを導入します。従来の手動確認に代わり迅速な検知が可能となり、事故防止と安全確保の実現を目指します。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 120,
+    "title": "3850円なのに「神アイテム」「スマホっぽい」――3COINSの「ビデオトランシーバー」がネットで話題",
+    "summary": "3COINSが販売する価格3850円の「ビデオトランシーバー」がSNSで話題となっている。1980年代を彷彿とさせるレトロデザインにUSB Type-C端子や4チャンネル切り替え機能を備え、音声・ビデオ通話可能。KIDSモード付きで安全面も考慮されている。懐かしさやユニークさが支持され、インテリアやキャンプなど幅広い用途への活用が期待される。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 121,
+    "title": "相次ぐBDレコーダー終売から考えた、好きなアニメを手元に残す最適な方法",
+    "summary": "エレコムやバッファローらのBDドライブ終売を受け、ソニーなどメーカーのレコーダー撤退も相次ぐ中、パッケージメディア需要の低下が背景にある。動画配信化が進む一方で、アニメファンにとっての「推し活」維持に不可欠な手元保存環境の持続可能性が課題となり、将来の再生方法について議論を促している。",
+    "category": "society",
+    "importance_score": 4
+  },
+  {
+    "article_id": 122,
+    "title": "複数集約を跨ぐ処理を1つのDBトランザクションで括る前に読む記事",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 123,
+    "title": "ドコモが「5G SA」の月額料金を無料に",
+    "summary": "NTTドコモは5月27日より、5G SA（StandAlone）の月額料金を無料化すると発表した。従来は月額550円だったが、今後は永年無料で利用可能。4G設備と分離した専用ネットワークであり、低遅延やネットワークスライシングなどの5G固有の技術が活用できる。既存ユーザーは手続きなしで継続利用でき、無条件の有料化は行われない。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 124,
+    "title": "ツイートを「画像」「タイムスタンプ」付きでBlueskyに移行する方法 - Bluesky",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 125,
+    "title": "小6から作ったアプリすべてを就活のときに提出したら「この人は何でも作れる」と分かってもらえて第一志望受かった⇒プログラマーは学歴よりも実力だからね。",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 126,
+    "title": "GoogleのModern Web Guidanceスキル登場。AIが古いCSS・JSを書く問題を解決する",
+    "summary": "Googleが発表「Modern Web Guidance」スキルは、AIエージェントが古いCSS・JSコードを生成する問題を解決するためのもので、最新のWeb技術とブラウザ対応状況をリアルタイムに考慮したモダンなコード生成を支援する。導入はnpxコマンドで可能。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 127,
+    "title": "Google、「Antigravity 2.0」発表。デモとしてゼロからOSを開発、Doomも実行可能に。効率性と高い開発能力をアピール",
+    "summary": "GoogleはGoogle I/O 2026にてAI活用OS開発プロジェクト「Antigravity 2.0」を発表。ゼロからOSを構築しDoomの動作に成功。Gemini統合や1000超APIにより開発効率性をアピール。93社が導入済み。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 128,
+    "title": "MTGに忙殺されるマネージャー必見！Geminiに「自分のマネジメント」を任せて作業時間を捻出した話 - ぐるなびをちょっと良くするエンジニアブログ",
+    "summary": "ぐるなびエンジニアがマネージャーの業務効率化にGeminiを活用する方法を紹介しています。SlackやGmailの情報の一元化管理、Meet議事録の要約などを自動化し、情報確認時間の削減やタスクの抜け漏れ防止を実現。自己管理能力の向上を通じて作業時間を確保する効果的なプロンプト例と実績を共有しています。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 129,
+    "title": "［速報］GitHub、内部リポジトリへの不正アクセスを調査　従業員端末の侵害を確認 | gihyo.jp",
+    "summary": "GitHubは内部リポジトリへの不正アクセスを調査中。従業員端末が不正なVS Code拡張機能により侵害され封じ込められたと確認した。攻撃グループ「TeamPCP」は内部コードや約4000件のプライベートリポジトリの販売を主張しているが、顧客情報の流出は現時点で確認されていない。重要なシークレットのローテーションなどが行われ、調査完了後に詳細報告が予定されている。",
+    "category": "technology",
+    "importance_score": 5
+  },
+  {
+    "article_id": 130,
+    "title": "Google検索が大幅刷新。AI補完で検索の新しい常識が到来",
+    "summary": "Google検索がAIを活用して大幅刷新される。長文質問への自動補完、画像添付検索に加え、コード生成や株価通知などのエージェント機能、複数ECサイトの商品を同時購入できる「Universal Cart」などを2026年夏から順次提供。単なる情報検索からタスク実行型アシスタントへ進化し、AI Pro/Ultra契約者向けに高度な機能が展開される。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 131,
+    "title": "Gemini 3.5 Flashの総パラメータ数は2500億～3000億か、Hacker NewsユーザーがTPU性能から逆算",
+    "summary": "Hacker NewsユーザーがTPU性能から推定し、Googleの軽量高速AI「Gemini 3.5 Flash」の総パラメータ数は2500億〜3000億、アクティブパラメータ数は100億〜160億と判明。コーディングや短時間タスクで高性能を発揮する一方、価格が既存モデルの数倍に上り、出力の過大評価や長期エージェント実行での課題も指摘され、用途に応じた利用が求められている。",
+    "category": "technology",
+    "importance_score": 5
+  },
+  {
+    "article_id": 132,
+    "title": "Pi 5 で Claude Code を 40 日運用して、1 日 5 USD を 2 USD に下げた話",
+    "summary": "Raspberry Pi 5でAIツール「Claude Code」を40日間運用した結果、日次コストを5ドルから2ドルへ60%削減することに成功した。主要な要因は会話長の短縮であり、30分以上の長時間会話がトークン消費増大とキャッシュヒット率低下の原因だった。対策として、promptで「単一目的」を宣言し探索的動作を抑制したり、タスク単位で独立したタイマーを設けたりすることで、生産性を維持しながら大幅なコスト削減を実現した。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 133,
+    "title": "アニメやイラストに特化したローカル画像生成AI「Anima」　生成した画像は商用利用も可能（生成AIクローズアップ） | テクノエッジ TechnoEdge",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 134,
+    "title": "700以上のOSを起動できるエミュレーター「バーチャルOSミュージアム」",
+    "summary": "700種類以上の歴史的なOSを起動できるエミュレーター「バーチャルOSミュージアム」が登場しました。Linux VM上でQEMU等を使用し、ランチャーで直感的に操作可能。スナップショット機能や各種OS向けインストーラーも同梱され、特別な知識がなくても手軽にレトロOS体験を楽しめます。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 135,
+    "title": "「生成AIでチラシ作ってる人が、今までデザイナーにぼったくられてたことがよくわかった」という投稿を目にするが、そういう認識の層が業界の単価を下げていくのだろうか",
+    "summary": "生成AIによるチラシ作成の普及で、従来のデザイナー業務への対価が高いと考えるユーザーが増加している。これによりデザイン業界の単価低下や価格体系の変革が懸念されており、今後どう市場が変化するか注目される。",
+    "category": "business",
+    "importance_score": 4
+  },
+  {
+    "article_id": 136,
+    "title": "新しい HTML インストール要素でウェブアプリをインストールする  |  Blog  |  Chrome for Developers",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 137,
+    "title": "The Virtual OS Museum",
+    "summary": "1948年のManchester Babyから現代に至るまで、歴史的なオペレーティングシステムをオンラインで体験できる「The Virtual OS Museum」が紹介されている。QEMU等を用いた仮想環境で、インストールや設定の手間なく多数のOSを復元・利用可能。オフライン対応のフル版とダウンロード式ライト版があり、長年の収集活動の結果としてまとめられたソフトウェアアーカイブ。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 138,
+    "title": "GitHub内部リポジトリへの不正アクセス、「悪意あるVS Code拡張機能」が関与と特定　約3800件流出か",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 139,
+    "title": "Manage extensions in enterprise environments",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 140,
+    "title": "マネーフォワード、銀行連携の一時停止で補償発表　プレミアム利用者向けに購読期間を15日延長へ",
+    "summary": "マネーフォワードは2024年5月にGitHub不具合により銀行連携が一時停止したと発表。データ漏洩はないものの、プレミアム会員に対して15日間の購読期間延長で補償する。影響を受けた一般ユーザーも7日間分延長され、CSVエクスポート機能の提供やセキュリティ強化が進められる。",
+    "category": "business",
+    "importance_score": 4
+  },
+  {
+    "article_id": 141,
+    "title": "アリエクで買った格安プロジェクターがマルウェア入り、接続するだけで自宅IPが売られていた - FabScene（ファブシーン）",
+    "summary": "2026年5月、スタンフォード大研究者がアリエク購入の格安プロジェクターにマルウェアを発見。本体起動時に自動的に外部サーバーと接続し、ユーザーの自宅IPアドレスを不正な住宅用プロキシサービスに登録していた。ファームウェアレベルで持続性を持つためリセットでも消えず、Google Play保護も無効化される。この解析ではAIツール「Claude Code」が効果的に活用された。IoT機器のサプライチェーンセキュリティリスクを浮き彫りにした事例である。",
+    "category": "security|general",
+    "importance_score": 5
+  },
+  {
+    "article_id": 142,
+    "title": "回帰分析って知ってる？―完全に理解した人へ贈る絶望の谷",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 143,
+    "title": "なぜ調理家電の「試食」ができる店が増えているのか　ビックカメラや象印が仕掛ける背景",
+    "summary": "家電量販店やメーカーが調理家電の「試食」コーナーを増やす動きが加速している。ビックカメラと象印が先導し、IT towerなどで実際に料理を試食する施策を展開。高額な製品の実感獲得や購入意欲向上を目的とし、レシピ提案など体験型コンテンツへ進化させる。激化する市場で差別化を図る戦略だ。",
+    "category": "business",
+    "importance_score": 4
+  },
+  {
+    "article_id": 144,
+    "title": "Incident Report: May 19, 2026 - GCP Account Suspension",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 145,
+    "title": "速いUIと正しいUIのあいだで、どのズレを許容するか",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 146,
+    "title": "ウェブを作る人のためのLLMO/AIO入門【2026年5月版】｜ベイジの図書館",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 147,
+    "title": "数年前に話題になっていた「某巨大遊園地から僕が取得しているドメインが権利侵害にあたるから寄越せという連絡が来た」件で当事者のクリエイターがその後の顛末をnoteで投稿",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 148,
+    "title": "Disruptする側、される側 — Google I/O 2026 初日に思ったこと - Nothing ventured, nothing gained.",
+    "summary": "Google I/O 2026初日の分析を通じて、クラウドやAndroidへの変革から、AIによるソフトウェア開発の民主化へと重点がシフトした点を指摘。Gemini等の技術発表は専門技能不要の流れを示し、開発者職種の存立基盤を揺るがす懸念を提示。著者はGoogle元社員として自身の役割と業界未来に疑問を抱く。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 149,
+    "title": "UE5ゲーム開発者が直面した「画面チラつき問題」に、ベテラン開発者がこぞってアドバイス。『Doom』の生みの親など、世界の開発者がレンダリング談議 - AUTOMATON",
+    "summary": "UE5個人開発中のある開発者が直面した「画面チラつき問題」をSNSで発信したところ、ドーム生みの親ジョン・カーマック氏など海外のベテラン開発者がオクルージョンカリングや空間分割技術に関する専門的な解決策を提案し、注目を集めた。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 150,
+    "title": "山手線の車内に1Gbpsのミリ波　KDDI・JR東が“引込み”に成功",
+    "summary": "KDDIとJR東日本は山手線車両内で5Gミリ波による1Gbpsの高速通信エリア構築に国内初で成功した。金属遮蔽の問題を窓アンテナと再放射技術で解決し、車内約97%で高速通信を実現。鉄道DXや都市部通信インフラ改善が期待される。",
+    "category": "technology",
+    "importance_score": 5
+  },
+  {
+    "article_id": 151,
+    "title": "入門 再発防止策",
+    "summary": "DevOpsとセキュリティの文脈で、インシデント再発防止のためのポストモーテム（事後検討）における「公正な文化」の重要性を解説するスライドです。責任追及ではなく非難を伴わない環境整備とベストプラクティスの実践が鍵であると示唆しています。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 152,
+    "title": "アップル、日本でスポーツ速報アプリ「Apple Sports」開始",
+    "summary": "アップルは日本を含む90以上の国・地域で無料のスポーツ速報アプリ「Apple Sports」を配信開始する。主要スポーツイベントや6月のFIFAワールドカップ2026のスコアをiPhoneロック画面やApple Watchでリアルタイム通知し、TVアプリと連携して試合も視聴可能。新機能では対戦表や先発選手の陣形情報を提供し、利便性を向上させる。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 153,
+    "title": "モバイルバッテリーの発火で750万円のテスラを廃車にしてしまった人のポストに戦慄走る→「この条件でも発火するの怖い」「これは他人事じゃない」",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 154,
+    "title": "3COINSで売ってるビデオトランシーバーに大人がテンション上がってしまう「室内トランシーバーにできそう」なぜか起動音がPSPと同じだったりする",
+    "summary": "100均ショップ「3COINS」で販売中のビデオトランシーバーが、起動音がPSPと似ていることから大人の間で話題となっている。室内でもトランシーバーとして使える可能性や懐かしいサウンドにノスタルジーを抱くユーザーが多く、SNS上で関心が広がっている。",
+    "category": "entertainment",
+    "importance_score": 3
+  },
+  {
+    "article_id": 155,
+    "title": "Claudeを組織で安全に使うために NOT A HOTELで実施している４つのレイヤー｜kajinari | モダンな情シス",
+    "summary": "NOT A HOTELがClaudeの組織導入で実践する4つのレイヤーを解説。シャドーITやデータ流出対策のアクセス制御・ガードレール、OpenTelemetryによるコスト可視化、教育とガイドライン整備を通じた組織展開まで。技術的枠組みと人的育成の両面から安全なAI活用の具体策を示す。",
+    "category": "business",
+    "importance_score": 4
+  },
+  {
+    "article_id": 156,
+    "title": "Cursor新モデル「Composer 2.5」はGPT-5.5級のコーディング性能を低コストで狙うAIエージェント",
+    "summary": "Cursorが公開した新AIエージェント「Composer 2.5」は、GPT-5.5級の高水準コーディング性能を低コストで実現することを目指したモデルです。強化学習と合成データの活用によりベンチマーク性能を大幅に向上させ、同時に変数の最適化技術によって学習効率も強化しました。実利用における使いやすさと費用対効果を重視しており、特に中規模パラメータ規模でも高速な学習と低価格での提供が特徴です。",
+    "category": "technology",
+    "importance_score": 5
+  },
+  {
+    "article_id": 157,
+    "title": "CloudflareがAnthropicの未公開AIモデル「Mythos」を検証、脆弱性の調査で見えた実力とは？",
+    "summary": "CloudflareはAnthropicと提携し、未公開AIモデル「Claude Mythos」を用いた脆弱性検証プロジェクト「Project Glasswing」の結果を公開した。同モデルは複数の脆弱性を組み合わせた攻撃チェーンの発見や実証コード生成において高度な能力を発揮したが、安全対策の不足や悪用リスクへの懸念も指摘された。防御側のツールとして活用する一方で、攻撃速度の加速を防ぐ仕組みの重要性が強調されている。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 158,
+    "title": "NTT製LLM「tsuzumi 2」が図表を“理解”　ビジネス文書全般をカバー",
+    "summary": "NTTが開発する生成AI「tsuzumi 2」の新版が発表された。図表やスライドなどの視覚情報を理解できるビジョンモデルを搭載し、曖昧検索やテキスト処理能力も強化。金融・医療などでの業務効率化に期待が高まる。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 159,
+    "title": "ローマ教皇レオ14世が初の回勅で「AI時代における人間の保護」について語る予定、イベントにはAnthropic共同創業者も参加",
+    "summary": "ローマ教皇レオ14世は2026年5月25日、初の回勅「マニフィカ・フマニタス」を発表する。これは「AI時代における人間の保護」をテーマとしており、司教宛てに発信される。Anthropicの共同創業者も参加し、宗教指導者と技術開発者の対話を通じたAI活用指針の模索が期待されている。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 160,
+    "title": "Anthropic acquires Stainless",
+    "summary": "AnthropicがAIエージェントの接続ツールを提供するStainlessを買収した。これにより、API連携や開発者体験の強化、Claudeプラットフォームのエージェント対応能力向上が図られる。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 161,
+    "title": "ボストン・ダイナミクスの人型ロボット「Atlas」が冷蔵庫を持ち上げて運ぶ動画が公開、人間のように全身を使って持ち上げるのが産業化の鍵",
+    "summary": "ボストン・ダイナミクスの人型ロボット「Atlas」が小型冷蔵庫を持ち上げて運ぶ動画が公開された。全身を使って持ち上げる動作は、産業化への重要な一歩であり、実用レベルの高度な作業の実現を示す。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 162,
+    "title": "React CompilerをannotationモードとOxlintで漸進的に導入する",
+    "summary": "7,500ファイルの大規模TypeScriptプロジェクトにおけるReact Compilerの漸進的導入体験記。全ファイル一括適用は困難なため、annotationモードでオプトイン方式を採用。Oxlintとeslint-plugin-react-hooksを組み合わせて非互換コードを早期発見し、「use memo;」や「use no memo;」ディレクティブを用いた段階的な戦略で安全性を確保しながら導入を進める方法を詳述する。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 163,
+    "title": "大規模災害時の電源確保でモバイルバッテリー7社と通信8社が連携協定　避難所などへの機材提供を迅速化",
+    "summary": "大規模災害時の電源確保と通信維持を目指し、モバイルバッテリーメーカー7社と通信事業者8社が連携協定を締結した。NTTやKDDI、ソフトバンクらが参画し、避難所等への機材提供体制を迅速化することで、被災地の情報伝達と生活支援の強化を図る。",
+    "category": "society",
+    "importance_score": 4
+  },
+  {
+    "article_id": 164,
+    "title": "ゲームエンジンUnityとGodotの両方で「同じゲームを2つ作ってみた」開発者あらわる。迷うのでどっちでも開発、豪快比較 - AUTOMATON",
+    "summary": "ゲーム開発者のThomas Grové氏がホラーアドベンチャーゲームの基礎をUnityとGodot Engineの両方で実装し、起動時間やビルド時間などの開発環境を比較検証した動画が話題となっている。Godotは容量やコンパイル速度で大幅な優位性を示し、Thomas氏は今後の開発にGodotを採用する結論に至った。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 165,
+    "title": "マイクロソフト、「Azure Linux 4.0」を明らかに--初の本格的「Linux」ディストリビューション",
+    "summary": "マイクロソフトは初の本格的な汎用Linuxディストリビューション「Azure Linux 4.0」を一般公開しました。これまではエッジやコンテナ向けに限定されていましたが、今後はAKS以外のAzure VMユーザーも利用可能になります。長年社内運用してきたMarinerの知見を活用し、Open Source Summitで急遽発表されました。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 166,
+    "title": "作家や批評家が選んだ「史上最高の小説100選」が発表される",
+    "summary": "The Guardianが作家や批評家ら170人以上にアンケートを実施し、「史上最高の小説100選」を選定した。文学界の専門家の知見を集約した本リストは、時代を超えて評価される作品群であり、読者の読書体験の振り返りや文学愛好家にとって興味深い内容となっている。",
+    "category": "entertainment",
+    "importance_score": 3
+  },
+  {
+    "article_id": 167,
+    "title": "「ポンコツ」と呼ばれたM365 Copilotの逆転劇、GPT-5が転換点　活用の秘訣は“脱・プロンプト職人”",
+    "summary": "M365 Copilotは当初「ポンコツ」と批判されたが、GPT-5搭載を機に逆転し評価が高まっている。機能基盤の統一やClaude利用可能により能力が向上し、特に小規模な対話型活用やWork IQによるメンター化で成果が出ている。重要なのは「プロンプト職人」を目指すのではなく、Copilotと対話して自然にアウトプットを生む感覚を持つことだ。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 168,
+    "title": "中国で「世界初」の洋上風力発電を利用した海中データセンターが本格稼働を開始",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 169,
+    "title": "「AIが大学生活をどのように変えてしまったのか？」をスタンフォード大学の学生が語る",
+    "summary": "スタンフォード大学卒業予定の学生テオ・ベイカー氏が、ChatGPT普及下の大学生活について語っている。AI利用の広まりにより学習方法や評価システムが変化する中、「少しの不正行為」という文化の出現などが問題視されており、AIと共存するための教育システム再構築が求まっている。",
+    "category": "society",
+    "importance_score": 4
+  },
+  {
+    "article_id": 170,
+    "title": "Windows 11、タスクバーが上下左右に配置可能へ。スタートメニュー改善も",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 171,
+    "title": "大企業が Microsoft 365 Copilot を選ぶ理由を、自分なりに整理してみる - Qiita",
+    "summary": "本稿は、セキュリティとガバナンスの厳格さから、大企業がMicrosoft 365 Copilotを選択する合理性を整理する。既存の業務基盤（OutlookやTeamsなど）との統合によりコンテキストが活用でき、Entra IDやPurviewを通じた権限継承やデータ保護が可能。また、他ツールとのスイッチングコスト削減や、MCP連携よりも現実的な運用コストも理由として挙げられている。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 172,
+    "title": "Windowsで6年前に修正されたはずの脆弱性、直されていなかった……",
+    "summary": "Google Project Zero は、Windows の特権昇格脆弱性「MiniPlasma（CVE-2020-17103）」が 6 年前に修正されたはずなのに、実際には未だに残っていることを発見。Microsoft がパッチ適用を怠ったかロールバックした可能性があり、セキュリティ対応の深刻な不備が浮き彫りになった。",
+    "category": "technology",
+    "importance_score": 5
+  },
+  {
+    "article_id": 173,
+    "title": "HERPエンジニアが2026年に取り組んでいる重要技術課題8選 - taketo957の日記",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 174,
+    "title": "2026-04 RubyKaigi 2026 で mruby on C＃ の話をしてきた - HADASHIKICK LAND",
+    "summary": "RubyKaigi 2026 で mruby on C# の発表が行われた。mruby は軽量な Ruby 実装であり、C# プロジェクトから Ruby コードを実行可能にする技術である。発表では概要や動機、実例が紹介され、C#開発者による Ruby 活用や組み込み環境での選択肢拡大に注目が集まっている。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 175,
+    "title": "ドコモはとばっちり？　19日の通信障害、原因はMVNOの設備不具合　DTIも報告",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 176,
+    "title": "H3ロケット6号機はどう飛ぶ? ついにデビューする30形態の初打ち上げに注目!",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 177,
+    "title": "Xの未認証(無料)ユーザーの1日投稿数上限が2400件から50件に大幅縮小",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 178,
+    "title": "【速報】自民修正案、AI創作の国旗は処罰対象外に",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 179,
+    "title": "重要なお知らせ（通信障害等） : 【状況確認中】携帯電話サービスがご利用しづらい可能性について | お知らせ | NTTドコモ",
+    "summary": "NTTドコモは、SNS上で携帯電話サービスの利用が困難との報告を受付ていると発表しました。現時点で社内の設備故障や通信障害の具体的な原因は確認されていませんが、ユーザーからの情報が集中している状況であり、今後の動向を継続して監視・確認していく方針です。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 180,
+    "title": "「Ray-Ban／Oakley Meta」が日本上陸　5月21日発売で約7.4万円　Meta AIに対応するカメラ付きスマートグラス",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 181,
+    "title": "重要なお知らせ（通信障害等） : 【最終報：ドコモ設備の正常な運用を確認しました】携帯電話サービスがご利用しづらい可能性について（5月19日 午後1時15分時点） | お知らせ | NTTドコモ",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 182,
+    "title": "言う程に、最近のブクマがtogetterに埋め尽くされているのか？",
+    "summary": "2025年12月から2026年5月までのブクマデータ分析によると、各週でTogetterへの埋め尽くし割合は概ね10%前後で推移しているが、特定の週に顕著な上昇が見られた。特に2026年4月第4週では上位16位までがTogetter記事となり、話題性の高さが確認された。",
+    "category": "society",
+    "importance_score": 2
+  },
+  {
+    "article_id": 183,
+    "title": "増田につくブコメ",
+    "summary": "増田という人物のブログ記事へのブコメについて、著者が女性にもかかわらず「男性が書いた」と決めつけられ、優越感を見せつけられるコメントに対し不快感を抱くユーザーの声。先入観に基づく誤解に気づかず苛立っている様子。",
+    "category": "society",
+    "importance_score": 2
+  },
+  {
+    "article_id": 184,
+    "title": "マスク氏、対オープンAI訴訟で敗訴 時効成立",
+    "summary": "イーロン・マスク氏がChatGPT開発元のオープンAIに対して提起した訴訟で、カリフォルニアの連邦地裁は時効成立を理由に訴えを棄却した。マスク氏はOpenAIが非営利目的から利益追求型へ転換したと主張していたが、敗诉によりOpenAIは法的脅威から回避された。なお、マスク氏は控訴する意向を示している。",
+    "category": "business",
+    "importance_score": 4
+  },
+  {
+    "article_id": 185,
+    "title": "「Claude Mythos」などの高度化したAIを踏まえたセキュリティ対策パッケージ「Project YATA-Shield」、政府が発表　重要インフラ事業者やソフトウェアベンダーに注意喚起",
+    "summary": "国家サイバー統括室は、Anthropicの「Claude Mythos」など高度化したAIの悪用リスクを踏まえ、「Project YATA-Shield」と呼ぶセキュリティ対策パッケージを発表した。重要インフラ事業者やソフトウェアベンダーに対し、経営層主導で対策投資を行い、AIを活用した脆弱性対応を迅速化することを要請する。官民連携による技術開発や人材育成も推進する。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 187,
+    "title": "Claude Code派だった僕がCodexに移る前に知りたかったこと",
+    "summary": "Claude CodeからCodexへの移行ガイド。主要な対応表としてCLAUDE.mdはAGENTS.mdへ、設定ファイルはTOML形式への変更、権限設定は承認ポリシーとサンドボックスモードの2軸で管理することなどを解説。Codexは単なるClaude CodeのOpenAI版ではなく、リポジトリやモデルを設計する開発支援ツールとしての意識が重要。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 188,
+    "title": "GitHub - MinishLab/semble: Fast and Accurate Code Search for Agents. Uses ~98% fewer tokens than grep+read",
+    "summary": "MinishLabが公開したSembleは、エージェント向けの高速・高精度コード検索ライブラリ。grep+readと比較し約98%少ないトークンで動作し、CPU単独でセットアップ不要。Claude CodeやCursorといったAIコードエディタと連携可能。大規模コードベースにおける検索速度向上とコスト削減が期待できるツールである。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 189,
+    "title": "Project Glasswing: what Mythos showed us",
+    "summary": "CloudflareはAnthropicのMythos Previewを用いた脆弱性発見プロジェクト「Project Glasswing」の知見を公開。Mythosは攻撃チェーン構築能力で従来モデルを大幅に上回るが、安全基準の一貫性に課題がある。有意義な発見のためには、偵察から検証・報告までの段階的プロセスである「ハーネス」の構築が不可欠であり、単なるモデル活用ではなくパイプライン最適化の重要性を示した。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 191,
+    "title": "メーカーが倒産してしまったEVのオーナーらが自力でソフトウェアを解析してオープンソースツールを構築",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 192,
+    "title": "あるバージョンのRHELを永遠に動かし続けられる。Red Hatが期限のないサポート「Red Hat Enterprise Linux Long-Life アドオン」発表",
+    "summary": "Red Hat は Red Hat Summit 2026 で、RHEL の特定バージョンを永続的に利用するための新アドオン「Red Hat Enterprise Linux Long-Life」を発表した。Extended Support 終了後もサブスクリプション更新によりセキュリティパッチなど無期限に提供し、ユーザーの長期運用ニーズに応える。TuxCare との連携も強化される。",
+    "category": "technology",
+    "importance_score": 5
+  },
+  {
+    "article_id": 193,
+    "title": "Google AI Studioでアプリを作成し、公開までやってみよう | gihyo.jp",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 194,
+    "title": "AI検索でもSEOは変わらない　Googleが解説する必要・不要な対策",
+    "summary": "生成AI普及下でもSEOの基本姿勢は変わらないとGoogleが解説。AI検索対応には一次情報や独自性の高いコンテンツ提供が重要。AIエージェントへの対応では構造の整備やUX改善が必要だが、これらは人間向けサイトの最適化であり、過度なAI特化策は不要。ユーザー価値を重視した基本対策こそが持続的なSEO成功の鍵となる。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 195,
+    "title": "『世界一流エンジニアの思考法』の著者・牛尾 剛氏の追加登壇決定！「エンジニアの役割の変化に向き合うConference」開催 | ニュース | ファインディ株式会社(Findy Inc)",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 196,
+    "title": "弁護士さんと，ゲーム1本を“1〜100まで生成AIで作ろう”としたらの思考実験。最近インディーゲーム界隈からの相談が増えてるらしい？",
+    "summary": "弁護士とインディー開発者が協力し、生成AIで1本から100本のゲーム制作が可能か検討した思考実験の記事。AI活用の可能性と著作権法などの法的課題を指摘し、専門知識の重要性と市場拡大への期待を示している。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 197,
+    "title": "ITエンジニアのためのライフスタイルメディア KIKKAKE ITREND",
+    "summary": "IDEATECHが行ったフリーランスITエンジニアの調査によると、案件獲得は知人紹介が最多（41.8%）でクラウドソーシングは低かった。重視点は単価が高さで、約7割がフリーランスを継続したいとする一方、収入安定への葛藤も浮かび上がった。",
+    "category": "business",
+    "importance_score": 3
+  },
+  {
+    "article_id": 198,
+    "title": "中小企業のDX支援で最初に自動化すべき3つの業務",
+    "summary": "中小企業のDX支援において、無理な一括自動化ではなく段階的なアプローチが重要だと説く。最初に自動化すべき業務の優先順位として、「日次レポート集計」「問い合わせ一次振り分け」「請求経理の定型処理」を提案。特に日次レポートはリスクが低く効果が高いとされ、自動化で浮いたリソースを売上向上活動に再投資する重要性も強調されている。",
+    "category": "business",
+    "importance_score": 4
+  },
+  {
+    "article_id": 199,
+    "title": "パソコンと無線機を使って台湾の新幹線システムに侵入、4本を止めた大学生",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 200,
+    "title": "SmartHRでのモジュラモノリス推進の振り返りと今後 - SmartHR Tech Blog",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 201,
+    "title": "【Mac Info】 Appleシリコン対応「Google 日本語入力」はMac標準入力と何が違う？",
+    "summary": "AppleシリコンMac向け「Google日本語入力」の検証記事。2026年2月に対応し、Webデータ活用でトレンドワードや固有名詞の変換精度が高いことが判明。キーカスタマイズの自由度も魅力的だが、ライブ変換やiCloud辞書共有などmacOS標準環境との差異に注意が必要。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 202,
+    "title": "技術的負債という言葉を本来の意味以外で使わないようにしよう",
+    "summary": "「技術的負債」という言葉が本来の金融的比喩から乖離し、コード品質の低下やメンテナンス不可能な状態を正当化する言い訳として乱用されている現状が問題視されています。本来は明確な返済計画を持つ有意義な投資であるべきですが、無計画な借用に過ぎない誤用は本質を見失わせます。言葉の乱用を避け、問題解決の本質に焦点を当てる重要性を指摘しています。",
+    "category": "general",
+    "importance_score": 4
+  },
+  {
+    "article_id": 203,
+    "title": "GitHub - F1bonacc1/process-compose: Process Compose is a simple and flexible scheduler and orchestrator to manage non-containerized applications.",
+    "summary": "Process ComposeはGo製で単一バイナリの軽量なオーケストレーターツール。コンテナ不要でYAML設定によりプロセスの並列/直列実行、自動復旧、ログ管理などを柔軟に制御可能。Docker等の煩雑な設定を避ける開発者向け。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 204,
+    "title": "次世代Suica、UWBウォークスルー改札はどう実現されるのか【鈴木淳也のPay Attention】",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 205,
+    "title": "AI時代の“開発者の集中力”を守るには。「PRレビューは1時間以内」ルールが解決したProgateの組織課題 - レバテックLAB",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 206,
+    "title": "まずは「重要資産の棚卸し」を　NISTが示す「個人事業主」レベルの防衛ライン",
+    "summary": "NISTは2024年に個人事業主向けサイバーセキュリティ資料「Small Business Cybersecurity: Non-Employer Firms」を発表し、CSWP 50による支援を予定しています。記事では、重要資産の棚卸しやCIA原則の適用など、個人事業主が実践すべき防衛ラインとして、MFA導入や定期的なバックアップなどの具体的対策を解説しています。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 207,
+    "title": "国際科学コンテストで札幌の高校生が最高賞、日本初　「折り紙」の研究で　受賞数でも過去最多",
+    "summary": "2026年5月19日付のニュースによると、札幌高校の高校生が「折り紙」の数学的解析に関する研究で国際科学コンテストの最高賞を受賞し、日本初となった。この快挙により、同校の受賞数は過去最多を更新した。",
+    "category": "education",
+    "importance_score": 3
+  },
+  {
+    "article_id": 208,
+    "title": "イーロン・マスク氏のOpenAI訴訟、時効により請求棄却　陪審が全員一致の評決",
+    "summary": "イーロン・マスク氏によるOpenAI設立時の非営利合意違反などとする訴訟が、時効満了により陪審全員一致で棄却された。マスク氏はサム・アルトマン氏のリーダーシップに批判的だったが、裁判所は訴えを支持せず、アルトマン氏のCEO継続が決定的となった。この判決はAI企業ガバナンスや設立趣旨の解釈について議論を呼ぶ可能性がある。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 209,
+    "title": "「任天堂のゲームを遊ぶ時間の長さ」はメンタルヘルスに影響するか？　オックスフォード大がカジュアルゲーマー層を調査",
+    "summary": "オックスフォード大学の調査によると、Switchを持つカジュアルゲーマー約703人のメンタルヘルスは、プレイ時間の長さではなく「ゲームの価値観」に大きく影響される。自己表現や交流手段として捉えている場合、ウェルビーイングは向上し、1日60分以上のプレイ時間も必ずしも悪影響を与えないことが判明。",
+    "category": "society",
+    "importance_score": 4
+  },
+  {
+    "article_id": 211,
+    "title": "日立、アンソロピックとAIシステム開発　鉄道や電力インフラ効率運用 - 日本経済新聞",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 212,
+    "title": "駅で女から「スマホの充電が切れちゃってモバイルバッテリー借りたいんですけど、お金渡すので出していただけませんか」と頼まれ対応したが、1日経っても返却通知が来ない",
+    "summary": "上野駅で女性が「スマホの充電切れ」とモバイルバッテリーのレンタルを頼み、400円を受け取ったものの返却通知が来ない被害事例が報告された。貸し出し元のユーザーは詐欺と判断し、同様の手口による被害拡大を防ぐための注意喚起を行っている。",
+    "category": "society",
+    "importance_score": 3
+  },
+  {
+    "article_id": 213,
+    "title": "高市陣営のネガキャン動画疑惑　渦中の松井健氏が証言「主導してやった。数百本作って、拡散させた」 | 東スポWEB",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 214,
+    "title": "Claude Code を社内導入する時の最低限ガードレール5項目 — 機密情報を漏らさない設定パターン - Qiita",
+    "summary": "Claude Code の社内導入において機密漏洩を防ぐための5つの実践的なガードレールを紹介する記事です。.claudeignore でのファイル除外、CLAUDE.md への禁止事項明記、Hooks による危険操作ブロック、本番環境変数の別管理、Skills による承認フローの組み込みなど、具体的な設定方法を示しています。短時間でのセットアップで高いセキュリティ効果を期待でき、安全な AI エージェント活用を実現します。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 215,
+    "title": "AIモデルでブラウザを自動操作できる「Browser-Use」、オープンソースで開発され自然言語で簡単に指示可能",
+    "summary": "「Browser-Use」は自然言語でブラウザ操作を自動化するオープンソースツール。コード不要で画面内容をAIが理解しクリックや入力を実行するため、専門知識のないWebスクレイピングやタスク自動化が可能。ハルシネーション問題を回避しつつ正確な情報取得を実現。Cloud版ではBot判定回避率78.0%と高い実績を持つが、利用規約の遵守に注意が必要。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 216,
+    "title": "Bun が 6 日で Rust に書き換わった件",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 217,
+    "title": "Claude Code を大規模コードベースで使うベストプラクティス - izanami",
+    "summary": "Claude Codeの大規模コードベースでの効果的な使用法について解説。モデル性能よりも「ハーネス」（文脈・自動化の仕組み）整備が重要。CLAUDE.mdは薄く保ちサブディレクトリから起動、hooksで自己改善を図るなど個人開発者向けの実践的ベストプラクティスを提示。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 218,
+    "title": "Transformer / GPT の内部処理をブラウザ上で可視化して学ぶ transformer-explainer - macでインフォマティクス",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 219,
+    "title": "Claude Code / Codex / Kiro に AWS 権限を 渡すとき、何を設計すべきか",
+    "summary": "Claude Code や Codex などのコーディングエージェントが AWS を操作する際、「AI が実行した」という履歴が残らない課題に対し、エンタープライズ統制の観点から権限設計を解説。短命認証情報やロール分離などの設計順序と、「誰に何を許すか」「どう止めるか」の事前明確化を提唱。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 220,
+    "title": "『作って学ぶAIエージェント』を書きました ── TypeScriptでコーディングエージェントを自作する本",
+    "summary": "技術評論社より出版された新刊『作って学ぶAIエージェント』は、既存ツールを利用するだけでなくTypeScriptとLLMでコーディングエージェント「Nano Code」を自作する実践ガイド。ReActアーキテクチャからの脱却やサンドボックスセキュリティなど、エージェントの仕組みを内部から理解し制御・カスタマイズする方法を解説する。開発者向け技術書。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 221,
+    "title": "ハーネスエンジニアリングとは一体何なのか。",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 222,
+    "title": "データ分析は自動化できる。でも本体はチャットUIではなくメタデータだった - 今日もデータで飯を食う。",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 223,
+    "title": "データエンジニア向け Mermaid データモデル図 記法ガイド",
+    "summary": "データエンジニア向けのMermaid記法によるER図、データリネージ図、スタースキーマ作成のガイド。テーブル表記規則、リレーションシップの記法、ノード形状の使い分け、注釈ノードによるビジネスルール可視化など、実践的なモデル化ルールをまとめている。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 224,
+    "title": "AI時代のコンピューター技術書 - golden-luckyの日記",
+    "summary": "AIの進化が技術書に与える影響を考察。LLMの登場でコンテンツ制作や編集のあり方が変わる一方、信頼性への懸念から技術書の需要は持続。LLMが文章を読み手が人間以外である時代においても、人間のための深い編集が必要だと強調している。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 225,
+    "title": "「GitHubから離れる」—オランダ政府と個人開発者が同時にForgejoを選んだ理由",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 226,
+    "title": "社内にLiteLLM Proxy（OSS版）を導入してマルチプロバイダLLM運用基盤を作った話 - Hatena Developer Blog",
+    "summary": "ハテナが社内LLM運用基盤としてLiteLLM Proxy OSSを採用し、一元管理とセキュリティを実現。初期版ではAPIキー管理の負荷が課題となったため、チームごとの自律的なキー発行を可能にするver.2へ移行。BigQuery連携でコスト可視化も推進し、開発者・非開発者問わず利便性とガバナンスを両立させる運用基盤を整備した。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 227,
+    "title": "【Claude Code VS Codex】同じSkillsでオセロ対戦させたら、56-8で○○が完敗した話",
+    "summary": "Claude CodeとCodexを用いたオセロ対戦の結果報告。Claude Code（白）がCodex（黒）に56-8で大差で敗れた。序盤はヒューリスティックで一時リードしたものの、終盤の角からの石取りやX-squareへの対応ミスなど、深読み不足と戦略的思惟の欠如が敗因となった。LLMの限界と、複雑な局面での戦略的思考・深読み能力向上の必要性が示唆されている。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 228,
+    "title": "GitHub - vercel-labs/zero: The programming language for agents",
+    "summary": "Vercel Labsが公開したエージェント向けシステム言語「Zero」の紹介。ネイティブツール、明示的な効果、予測可能なメモリ管理を特徴とし、現在実験段階だがコンパイラやドキュメントが公開済み。AIエージェント開発に関心のある開発者に注目される新興言語。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 229,
+    "title": "筋が悪そうに見える方針に口を出す - Konifar's ZATSU",
+    "summary": "「筋が悪そうに見える方針に口を出す」記事では、仕事に対して疑問を感じつつも発言をためらう心理を理解しつつ、積極的に意見を述べる重要性を説く。組織には「口出し推奨」の文化構築や役割設定、個人の工夫として枕詞の使用や対話重視などを提唱し、相互尊重による建設的な職場環境づくりを目指す。",
+    "category": "business",
+    "importance_score": 3
+  },
+  {
+    "article_id": 230,
+    "title": "誰でもできる！ Geminiを使った「プロンプト講座」：似合う髪型がひと目でわかる『髪型コラージュ画像』の作り方",
+    "summary": "Googleの生成AI「Gemini」を使って、1枚の写真から9つの異なる髪型のコラージュ画像を簡単に作成する方法を紹介。高級ヘアサロンのクリエイティブディレクター役として顔の構造を分析し、背景や照明を統一したプロンプト例を男女別に提供している。初心者でも理解できるよう詳細に記述されており、似合う髪型の比較検討に役立つ。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 231,
+    "title": "無料でウェブサイトの変化を自動チェックし通知で教えてくれるセルフホスト可能な監視ツール「changedetection.io」はどんなツールなのかレビュー",
+    "summary": "RSSのないWebページの更新を自動検知し通知するセルフホスト型ツール「changedetection.io」を紹介。Playwright対応でJSページも監視可能、CSS/XPathで範囲指定や100種類以上のサービスへ通知できる。Docker導入が簡単で、価格変動監視など多用途に活用できる。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 232,
+    "title": "GitHub - ip-arch/NESLab: Educational materials for Embedded systems with NES",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 233,
+    "title": "AI使い脆弱性点検、システム提供元に要請　国の「ミュトス」対応案 - 日本経済新聞",
+    "summary": "経済産業省は、AIシステムの脆弱性確認時にシステム提供元に点検を要請する「ミュトス」対応案を検討中。自動運転や電力最適化など社会インフラへの影響を懸念し、リスク管理体制の義務付けや運用停止指示も視野に入れている。AI技術の急速な発展に伴う安全性確保のため、政府主導で対策強化が進む。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 234,
+    "title": "Microsoft Entra の登録キャンペーンを理解する ～パスキー導入に向けた挙動と展開のポイント～ - Qiita",
+    "summary": "Microsoft Entraの登録キャンペーンを活用したパスキー導入ガイド。2026年5月よりMicrosoftマネージド状態でのパキーサポートが始まり、Authenticatorからパキーへの変更が自動実行される予定。登録キャンペーンは「促す」機能であるため強制には条件付きアクセスとの併用が必要で、事前検証やユーザー説明が重要となる。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 235,
+    "title": "果たしてCopilotで営業成績は上がるのか - Qiita",
+    "summary": "Microsoft Copilotの営業活用について、商談数・成約率・単価への影響を分析し、「正しく使いこなせる環境と人がいれば成績向上に繋がる」と結論づけている。業務効率化と戦略立案支援の実例を紹介し、成功には営業職の積極性、IT部門のデータ整備、心理的安全性など組織全体の役割分担が不可欠だと指摘する。",
+    "category": "business",
+    "importance_score": 3
+  },
+  {
+    "article_id": 236,
+    "title": "【TypeScript】値・型・名前空間の「三重定義」でReactコンポーネントをより柔軟に設計する",
+    "summary": "TypeScriptの「三重定義」をReactコンポーネントに適用し、型・値・名前空間の宣言マージでAPI設計を柔軟化。ドット記法やデータ駆動/JSX駆動両対応を実現し、OSS開発での学習コスト低減とTree Shaking効率化に寄与するテクニックを紹介。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 237,
+    "title": "「AIにできない仕事は残る」のは本当だけど、それはUber Eatsの配達員みたいな仕事になるかも｜けんすう",
+    "summary": "「AIにできない仕事」は、OpenAI等が業務プロセスに直接介入する展開に伴い、Uber Eats配達員のようにAIから指示を受ける不安定な「外部モジュール」的役割になる恐れがある。従来のスキル習得ではなく、メタスキルの重要性が増し、仕事の構造自体が大きく変わる可能性がある。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 238,
+    "title": "データセンターの雄叫び",
+    "summary": "著名エンジニアBrendan Gregg氏がSun Storage 7410ストレージで発見した奇妙な現象：ネジ1本の欠落による微細な振動がHDDの性能低下を引き起こすことを、雄叫びで再現した動画がIT業界で話題。ハードウェアの繊細さと発想の転換による発見の面白さを示す例として注目されている。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 239,
+    "title": "エンタメ情報誌「ぴあ」復活！　創業者「矢内廣社長」インタビュー　AI時代にあえて“紙の雑誌”をパラパラとめくって探す「偶然の出会い」の魅力 | デイリー新潮",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 240,
+    "title": "インセルとチャットAIが世界の出生数に壊滅的ダメージ与えそう",
+    "summary": "米国・英・日本で10代女性の恋愛結婚回避や男性への否定的感情が深刻化。2010年頃からスマートフォン普及によるSNSの匿名掲示板文化の拡散を原因とする。インセルの影響力とチャットAIの進化により、この傾向はさらに加速し、世界の出生数に壊滅的な打撃を与える可能性があると指摘されている。",
+    "category": "society",
+    "importance_score": 4
+  },
+  {
+    "article_id": 241,
+    "title": "一人暮らしこそOpenWrtをやれ！ (v6プラス理論編)",
+    "summary": "一人暮らし向けのOpenWrt導入解説記事。enひかりのv6プラスオプション（MAP-E技術）利用時のネットワーク構成、IPv6アドレス割り当て方式（DHCPv6-PD/RA）、NDプロキシ設定などの理論的基盤を詳説する。ルーターOSのカスタマイズによる通信品質向上と可視化の可能性を紹介。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 242,
+    "title": "データセンター、お金を払わず水を1億1000万リットル使用",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 244,
+    "title": "Claude Code を社内で使うための「AIエージェントセキュリティ」実践編 - Qiita",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 245,
+    "title": "ログイン済みの Chrome をそのまま Claude Code から操作する — playwright-cli attach",
+    "summary": "Playwright-cli attachをClaude Codeと連携させ、既存のログイン済みChrome環境を操作する方法を紹介する技術記事。従来のMCP方式と比較し、セットアップの手軽さと認証セッションの引き継ぎ優位性を解説。SKILL.mdやCLAUDE.mdを活用した自動化手順に加え、調査作業とCIテストでの適切なツール選択基準も示している。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 246,
+    "title": "Zero | The programming language for agents.",
+    "summary": "「Zero」は、人間とAIエージェントが共同でコードを読み書き・修正できるよう設計されたシステム言語。エージェントとの協調作業に特化したツールチェーンを搭載し、診断情報をJSON形式で提供することでエージェントによる自動修正を容易にする。明示的な関数シグネチャやサイズ効率の重視など、予測可能性と保守性を向上させる特徴を持つ。小規模なネイティブプログラムの作成に適しており、AIを活用した開発パラダイムへの変化を示唆している。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 247,
+    "title": "Andrej Karpathy氏のLLM Wikiを1ヶ月運用してわかった、LLMの知識を『繋げる力』",
+    "summary": "Andrej Karpathy氏提唱の「LLM Wiki」運用レポート。従来の要約ではなく、複数情報源を横断して概念を統合する「繋げる力」が本質的価値となる。三層構造（Raw Sources, Wiki, Schema）とIngest/Query/Lintの運営により、単独では得られない洞察が可能だが、人間による理解が不可欠である。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 248,
+    "title": "Claude Codeにリポジトリを1枚のワークフロー図にしてもらうプロンプト",
+    "summary": "Claude Codeを用いて複雑なリポジトリ内のパッケージ間ワークフローを、外部ライブラリ不使用かつファイルベースで動作する1枚のHTML図に自動生成する手法を紹介する。JSONとHTMLから構成され、ダークテーマなどの視覚的デザインやズーム・パンなどインタラクティブ機能を実装。衝突判定やエッジ処理といった実装の詳細とトラブルシューティングも記載。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 249,
+    "title": "LLMは正しく使えば、より創造的なアイデアを生み出せる（DIAMOND ハーバード・ビジネス・レビュー） - Yahoo!ニュース",
+    "summary": "生成AI（LLM）を人間の創造性を刺激するツールとして活用する方法を解説。企業でのアイデア創出の最前線を取り上げ、プロンプトエンジニアリングやペルソナ付与などの具体的な手法を通じて、人間の能力とAIの補完的役割による新しい共創のあり方を提案している。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 250,
+    "title": "ChatGPTの画像生成がさらに便利になる魔法のフレーズ｢背景を透明にして｣",
+    "summary": "ChatGPTの画像生成機能において、プロンプトに「背景を透明にして」と追加するだけで透過画像を簡単に生成できる。これによりYouTube用画像やアニメーション作成、素材ストックなど多様な応用が可能となり、既存画像との組み合わせも容易になるため、効率的なコンテンツ制作に役立つ。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 251,
+    "title": "LLMが｢越えられない壁｣。AIの限界点が数学的に証明された",
+    "summary": "LLM（大規模言語モデル）に根本的な限界があることを数学的に証明する研究が発表された。Vishal Sikka氏親子らの研究により、複雑な計算を要するタスクでは遂行不能または誤答の可能性が高いと結論付けられた。これはエージェント型AIへの過度な期待や人類の知能を超えるという予測に対して冷静な視点を提供し、LLMの万能性への懐疑的見方を数学的に裏付けた。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 252,
+    "title": "Generative UI のためのフレームワーク OpenUI",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 253,
+    "title": "『Forza Horizon 6』に“巨大ロボ”が登場しSNSで話題に。「ロボットの動きが“わかってる”」「乗ってみたい」「かっこいい」と反応相次ぐ。東京タワーを目指すレースイベントで対決可能、木々を薙ぎ倒しながら進む姿は圧巻",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 254,
+    "title": "GitHub - ysknsid25/untodo: Type-safe TODO for humans and AI — trackable, structured, and lint-enforceable.",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 255,
+    "title": "ソーラー充電PDA「Orion」登場！STM32U575と3.16型Sharp Memory LCD搭載、Zaurus再来の自作端末",
+    "summary": "MVLab氏が開発中のクラムシェル型PDA「Orion」は、STM32U575とSharp Memory LCDを採用し、低消費電力かつ屋外での高い視認性を実現。ソーラー充電で電池切れの心配がなく、物理キーボードと特化型OSで集中力を保つ。Zaurus愛好家やデジタルデトックスを求めるユーザー向けで、現在プロトタイプ開発中。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 257,
+    "title": "セキュリティ対策、何からはじめる？ CloudNative環境の脅威モデリングと リスク評価実践入門 #cloudnativekaigi",
+    "summary": "CloudNative環境のセキュリティ対策において、従来のペリメター防御では不十分であるため、脅威モデリングとリスク評価の実践的導入方法を解説。攻撃視点での侵入経路特定や脆弱性の優先順位付けを通じて、限られたリソースで効果的な対策を実施するための指針を示している。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 258,
+    "title": "継続的な負荷検証を目指して",
+    "summary": "認証処理の共通化（include機能）による保守性向上と、検索APIに対する継続的負荷検証の仕組みを解説。Goテンプレートを用いた動的なパラメータ処理や、APIレスポンス待機プロセスを含み、DevOpsにおける効率化とデバッグ容易化を図る。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 260,
+    "title": "9 Times the Web Platform Was Influenced by Libraries | Jad Joubran",
+    "summary": "Webプラットフォームの進化において、jQueryやLodashなどの外部ライブラリで開発・普及した機能が、ブラウザの標準APIへと取り込まれてきた歴史を振り返る。querySelector, Promises, ES Modulesなど9つの具体例を紹介し、ライブラリがイノベーションの源泉として重要な役割を果たしてきたことを示す。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 261,
+    "title": "アメリカ人の7割は地元にAIデータセンターが建設されることに反対",
+    "summary": "ギャラップ社の調査によると、米国人の70%が地元へのAIデータセンター建設に反対している。電力や水資源の大量消費、環境影響、電気料金上昇を懸念する声が多く、メリーランド州ではインフラ費用転嫁問題をめぐり州政府が連邦機関へ異議申し立てを行う事態となっている。",
+    "category": "society",
+    "importance_score": 4
+  },
+  {
+    "article_id": 262,
+    "title": "本物のモネの絵の一部を出して「あの睡蓮をAI生成したよ」と言ったら、みんなが「本物とは似ても似つかない」とダメ出ししまくった",
+    "summary": "AIが生成したモネ風の睡蓮画像に対し、専門家や愛好家から厳しい批判が寄せられた。色彩の選択、色の深み、空間描写などが本物と比べて劣っており、印象派特有の質感や奥行きを再現できていないことが指摘された。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 263,
+    "title": "ショッピングAI時代への不安　アマゾンは検索ワードを書き換えないで欲しい",
+    "summary": "Amazonの「Alexa for Shopping」導入を背景に、検索キーワード補完機能がユーザーの意図と異なる語句で結果を表示し、入力を勝手に書き換える仕様が批判されている。この仕様はUXを損ない販売機会損失にも繋がりかねず、AIによるショッピング体験においてユーザーの意図尊重が不可欠だと指摘している。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 264,
+    "title": "社用携帯の契約キャリアはドコモが最多、スマホは「iPhone SE」が圧倒的人気　MMD調査",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 266,
+    "title": "単一HTMLで作ったサイトを自己解凍形式にする試み - Qiita",
+    "summary": "単一HTMLファイルを自己解凍形式に変換しファイルサイズを約22%削減する手法を試験。ブラウザ開業速度への影響はほぼなく、HTML/CSS/JS中心のサイトやGitHub Pages配布に適す。開発時は圧縮前、公開時に適用する運用が推奨される。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 267,
+    "title": "Linuxカーネルに「ssh-keysign-pwn」の脆弱性発覚--直近4度目",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 268,
+    "title": "The Wonders of AI: We Are Retiring Our Bug Bounty Program",
+    "summary": "TursoはSQLite再構築プロジェクトのバグバウンティプログラムを終了した。AI（LLM）による大量の低品質なバグレポートの流入で対応が逼迫し、開発者のレビュー負荷が膨大になったためだ。金銭的インセンティブとオープンシステムの両立が不可能と判断し、他のOSSプロジェクトへ教訓を共有する。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 269,
+    "title": "ついに水素が0円に　東大先端研の蓄電池連携システム、製造コスト自動最適化 | 環境ビジネスオンライン",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 270,
+    "title": "「背中を見て育て」からの卒業 〜専門技術としてのテスト設計を軸に、品質保証のバトンを繋ぐ〜",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 271,
+    "title": "『サブノーティカ2』の海賊版ユーザーが「公式Discordで堂々バグ報告」して開発者/コミュニティともに唖然。開発元は「人生の選択を考え直して」と丁寧お説教 - AUTOMATON",
+    "summary": "『サブノーティカ2』の海賊版ユーザーが公式Discordで堂々とバグ報告を行い、開発者が「人生の選択を考え直して」と皮肉交じりに諭すという前代未聞の事態が発生した。開発元は不正入手の実績を公然と示す行為を批判しつつも、経済事情への理解を示し返品提案など対応に苦悩した様子だ。本作は好調な売上が続く中での出来事だった。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 272,
+    "title": "ユーザーの7割が女性、1日250万人・月間1億人が利用する「AIロマンタジー」サイト | Forbes JAPAN 公式サイト（フォーブス ジャパン）",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 273,
+    "title": "【すごい】Claude ミュトス、Appleが5年かけたMacメモリ保護を5日で突破！研究者と共に - すまほん!!",
+    "summary": "Anthropic社の未公開AI「Claude Mythos Preview」を活用した研究チームCalifは、Appleが5年かけて構築したMacのメモリ保護システム「MIE」をわずか5日で突破するエクスプロイトを実証しました。macOS TahoeとM5環境で確認されたこの成果は、AIによるセキュリティ攻撃技術の進化を示す驚異的な事例です。",
+    "category": "technology",
+    "importance_score": 5
+  },
+  {
+    "article_id": 274,
+    "title": "How Claude Code works in large codebases: Best practices and where to start | Claude",
+    "summary": "AnthropicはClaude Codeを大規模コードベースで効果的に利用するベストプラクティスを公開。従来のRAG型ツールが持つ情報陳腐化の問題を、ファイルシステム直接操作で回避。モデル性能だけでなく、CLAUDE.mdやHooksなどの「ハーネス」拡張により精度が大幅に向上。組織横断的な標準化と専任担当者の設置が成功の鍵となる。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 275,
+    "title": "「SaaSの死」の次は「SIerの死」か……アンソロピックがSMB向け参入の衝撃",
+    "summary": "Anthropicが中小企業向けClaudeサービスを開始し、AIベンダーによる顧客直販の動きが加速。これにより、導入支援役であるSIerのビジネスモデルは存続の危機に直面し、「SaaSの死」に続く「SIerの死」という産業構造の変革が懸念されている。",
+    "category": "technology",
+    "importance_score": 5
+  },
+  {
+    "article_id": 276,
+    "title": "アニメ・イラストに強い画像生成AI「Anima」の正式版がついに登場、タグ・自然言語両対応でSDXLやIllustrious系モデルが動作するPCなら余裕でローカル実行可能",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 277,
+    "title": "GitHub - neilsonnn/image-blaster: An image-to-world skillset for Claude.",
+    "summary": "Claude AIと画像生成モデルを活用し、単一の画像から数分で3D環境やSFXを自動生成するGitHubリポジトリ「image-blaster」が紹介されています。これはゲーム開発や映像制作の初期工程を大幅に加速するツールです。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 278,
+    "title": "アルカノイド風ブロック崩し / コーディングエージェント / サイバネティクス",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 279,
+    "title": "Claude Codeの1000 セッションを分析して、一週間目でリードタイムを10%縮めた話",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 280,
+    "title": "AIエージェントが製造業で活用する事例集　暗黙知の継承などに価値",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 281,
+    "title": "ガチなオーディオメーカーが作ったBluetooth送信機、Noble Audio「Sceptre」でイヤフォン/ヘッドフォンの真価発揮![Sponsored]",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 282,
+    "title": "検索エンジン上に作るAgent向け仮想ファイルシステム - LayerX エンジニアブログ",
+    "summary": "LayerXエンジニアブログは、AIエージェント向けの社内ドキュメント検索手法として、OpenSearch上に仮想ファイルシステムを構築するアプローチを紹介している。人間に馴染みのあるlsやgrepといったコマンド風インターフェースを提供することで探索を容易にしつつ、ベクトル検索も組み合わせることで精度を向上させた。権限管理も厳密に行え、Agentic Searchの新たな実装例として注目される。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 283,
+    "title": "nginxに18年前から存在する重大な脆弱性が発見される | gihyo.jp",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 284,
+    "title": "Googleの無料15GBストレージ、こっそり「最大15GB」へ。電話番号なしでは5GBに縮小",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 285,
+    "title": "ローソンのセルフレジについて、「間違えることができないシステムこそが良いシステムだ」という強い思想を感じる…現金払いの時やレジ袋購入時にフェイルセーフは有難い",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 286,
+    "title": "楽天、MNO本格参入後に初の黒字化　三木谷会長「KDDIローミング終了」と「値上げ」は明言避ける",
+    "summary": "楽天モバイルは2024年度にMNO本格参入後初の黒字化（EBITDA36.2億円等）を達成しました。KDDIローミング終了による自社回線への移行や、FinTech事業の収益貢献により実現し、三木谷会長は値上げなどの詳細施策は明言を避けつつ、エコシステム連携と顧客獲得戦略によるさらなる成長を目指す方針を示しています。",
+    "category": "business",
+    "importance_score": 4
+  },
+  {
+    "article_id": 287,
+    "title": "メモリー5社、AIブームで利益63兆円の市場予想　キオクシア15日決算 - 日本経済新聞",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 288,
+    "title": "Press Releases - 東京大学 大学院理学系研究科・理学部",
+    "summary": "東京大学は反強磁性体Mn₃Snを用い、40ピコ秒で動作する革新的な不揮発性量子スイッチング素子を開発。スピントロニクスと光電融合技術により高速・低消費電力・高耐久性を両立し、データセンターの省エネ化や次世代メモリウォール問題の解決に貢献が期待される。(Science掲載)",
+    "category": "technology",
+    "importance_score": 5
+  },
+  {
+    "article_id": 289,
+    "title": "100W USB PD出力もできる薄型電源タップ。サンワサプライから",
+    "summary": "サンワサプライが、GaN素子採用で最薄18mmの薄型電源タップ「TAP-SLIM7U-15BK」を発売しました。最大100W PD対応USB-Cポート2基に加え、USB-AとACコンセント各2口を搭載し、ノートPCなどの高速充電や多様なデバイス接続に対応。小型軽量化により持ち運びにも便利で、配線整理や省スペース設置に最適です。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 290,
+    "title": "ドコモ、5G速度で首位も「一貫した品質」でなぜ最下位？　auが10部門で受賞　Opensignal調査",
+    "summary": "2024年第1四半期のOpensignal調査により、5G速度ではドコモが首位ながらも「一貫した品質」で最下位となった。一方、auは5Gエリアカバー率やセキュリティなど10部門を受賞し平均ダウンロード速度も他社を上回る88.3Mbpsを記録。ユーザー体験に優れた評価を得ており、5G環境において速度だけでなく安定性と広帯域化が重要視されている現状が浮き彫りになった。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 291,
+    "title": "クラウドネイティブ DB はいかにして制約を 克服したか？ 〜進化歴史から紐解く、スケーラブルアーキテクチャ設計指針〜",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 292,
+    "title": "コンピューターの処理速度1000倍へ、東大が素子開発　発熱せず稼働 - 日本経済新聞",
+    "summary": "東京大学は従来の半導体に替わる新素子「スピントロニクス素子」を開発し、電子の「スピン」特性を利用して処理速度1000倍向上と低発熱による省電力化を実現した。大量計算が必要なAIやデータ処理への応用が期待される。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 293,
+    "title": "「BeReal禁止」で再発防止になるのか　マネフォの情報流出にも共通する“責任の所在”",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 294,
+    "title": "ワコム社長が西新宿オフィスの一角を私物化、ダンススペースとして娘に提供か　“物言う株主”が解任提案",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 295,
+    "title": "「衛星放送」終焉の序章か――「BS4K」民放5社撤退のインパクト",
+    "summary": "2027年末にBS-TBSが4K放送から撤退する動きを受け、衛星放送業界に大きな変化が生じる可能性がある。若年層の視聴離れやコンテンツ消費の変化を背景に、他の民放局も事業継続を検討中。従来の高品質映像供給から脱却し、コンテンツの多様化が求められる中で、衛星放送は構造的な転換期を迎える可能性が高い。",
+    "category": "business",
+    "importance_score": 5
+  },
+  {
+    "article_id": 296,
+    "title": "[石川温の「スマホ業界 Watch」] ソニーに「Xperia 1 VIII炎上騒動」の“言い訳”を直撃、それでも示されるXperiaの底力",
+    "summary": "ソニー「Xperia 1 VIII」のAIカメラ作例画像の明るさに関する炎上騒動を受け、同社は表現選択の誤解を説明。高額な価格設定は原材料費高騰によるものだが、品質と使い勝手に自信を持ちながらユーザー対応に努めている。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 297,
+    "title": "「え？いつ？どれのこと？」 日本政府が4月から小型衛星網の運用を開始したと報道が、あまりにスッと始めていて宇宙クラスタがざわめく",
+    "summary": "日本政府が4月から小型衛星網の運用を開始したと報じられたが、宇宙関係者でも知らぬ人が多く、具体的な名称や詳細は不明。岡田修平氏がXで疑問を呈し、宇宙コミュニティに波紋を広げた。",
+    "category": "technology",
+    "importance_score": 3
+  },
+  {
+    "article_id": 298,
+    "title": "「Snapdragon X」発売から2年、EAC対応状況は？ 動かなかったゲームの互換性を再検証",
+    "summary": "Snapdragon X搭載PC発売から2年のゲーム互換性検証結果。EAC対応タイトルが増え、Windows on ARMのエラー改善など全体的に互換性が向上。『フォートナイト』や『Diablo IV』が安定動作する一方、『Apex Legends』はArm非対応で依然として問題あり。内蔵GPUのベンチマークも良好であり、エミュレーター改良と次世代CPU登場によるさらなる検証が必要と結論づけている。",
+    "category": "technology",
+    "importance_score": 4
+  },
+  {
+    "article_id": 299,
+    "title": "派遣会社での仕事が決まりにくくなってる？職場見学の直前で断られた話から「直前で案件自体がなくなった」「応募して速攻お断りされる」など体験談集まる",
+    "summary": "派遣会社で仕事が決まりにくい現状を巡るユーザーの体験談を集めた記事です。アラフォー主婦の「こどおば」さんは、職場見学直前に案件がキャンセルされるなど苦労を重ねているものの、家族のため前向きに探し続けると述べています。他にも直前の案件停止や速攻お断りなどの声があり、派遣市場の厳しさが浮き彫りにされています。",
+    "category": "society",
+    "importance_score": 3
+  },
+  {
+    "article_id": 300,
+    "title": "サントリーさん、サプリのDMに「今すぐ中をご確認ください」といった緊急度が高そうな表現はやめて→開封率だけを追って自社イメージを毀損してないかといった声",
+    "summary": "サントリーのサプリDMに「今すぐご確認ください」といった緊急性を煽る表現に対し、「開封率向上よりブランドイメージを損なう」と批判の声が上がっている。長期的な信頼構築と企業イメージ管理の重要性が問われている。",
+    "category": "business",
+    "importance_score": 3
+  },
+  {
+    "article_id": 301,
+    "title": "チャッピーにブコメ欄作ってって言ったら実物ブクマカが出てきてワロタ ..",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  },
+  {
+    "article_id": 302,
+    "title": "ジオゲッサーしてたらありえない石碑をみつけた…「ネットでよく見るやつ」「黒歴碑」「ナニコレ珍百景」など",
+    "summary": "",
+    "category": "general",
+    "importance_score": 3
+  }
+]

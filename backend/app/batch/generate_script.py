@@ -30,6 +30,11 @@ def generate_script(output_path: str) -> int:
         logger.warning("No summaries to generate script from")
         return 0
 
+    article_urls = ", ".join(
+        f"{article['id']}:{article.get('url', '<no-url>')}" for article in summaries
+    )
+    logger.info("Generating script from summaries: %s", article_urls)
+
     template = _load_prompt_template()
     summaries_json = json.dumps(summaries, ensure_ascii=False, indent=2)
     prompt = template.format(summaries_json=summaries_json)
@@ -44,6 +49,7 @@ def generate_script(output_path: str) -> int:
     script = {
         "date": str(date.today()),
         "title": str(response.get("title", "MyNews Radio")),
+        "subtitle": str(response.get("subtitle", "")),
         "lines": [],
     }
 
@@ -53,12 +59,15 @@ def generate_script(output_path: str) -> int:
         speaker = str(line.get("speaker", "male"))
         if speaker not in {"male", "female"}:
             speaker = "male"
+        section = str(line.get("section", "news"))
+        if section not in {"intro", "news", "transition", "discussion", "outro"}:
+            section = "news"
         script["lines"].append(
             {
                 "speaker": speaker,
                 "text": str(line.get("text", "")).strip(),
                 "article_id": line.get("article_id"),
-                "section": str(line.get("section", "news")),
+                "section": section,
             }
         )
 

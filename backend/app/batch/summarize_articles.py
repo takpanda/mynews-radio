@@ -53,8 +53,13 @@ def summarize_articles(output_path: str) -> int:
             except (TypeError, ValueError):
                 importance_score = 3
             importance_score = max(1, min(5, importance_score))
+            try:
+                difficulty = int(response.get("difficulty", 1))
+            except (TypeError, ValueError):
+                difficulty = 1
+            difficulty = max(1, min(3, difficulty))
 
-            service.update_summary(article["id"], summary, category, importance_score, "summarized")
+            service.update_summary(article["id"], summary, category, importance_score, "summarized", difficulty)
             results.append(
                 {
                     "article_id": article["id"],
@@ -62,6 +67,7 @@ def summarize_articles(output_path: str) -> int:
                     "summary": summary,
                     "category": category,
                     "importance_score": importance_score,
+                    "difficulty": difficulty,
                 }
             )
 

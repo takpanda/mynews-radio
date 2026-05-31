@@ -99,6 +99,156 @@ def wav_to_mp3(
         raise
 
 
+def convert_to_wav(
+    input_path: str,
+    output_path: str,
+    sample_rate: int = 24000,
+    channels: int = 1,
+    sample_format: str = "s16",
+) -> bool:
+    """Convert an audio file to WAV with fixed params using ffmpeg."""
+    ffmpeg_bin = find_ffmpeg()
+    try:
+        result = subprocess.run(
+            [
+                ffmpeg_bin,
+                "-y",
+                "-i",
+                input_path,
+                "-ar",
+                str(sample_rate),
+                "-ac",
+                str(channels),
+                "-c:a",
+                f"pcm_{sample_format}le",
+                output_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            logger.error(
+                "ffmpeg WAV変換失敗: %s -> %s: %s",
+                input_path,
+                output_path,
+                result.stderr,
+            )
+            return False
+        return True
+    except FileNotFoundError:
+        logger.error("ffmpegが見つかりません")
+        return False
+    except subprocess.TimeoutExpired:
+        logger.error("ffmpeg WAV変換がタイムアウトしました")
+        return False
+
+
+def add_jingles_and_encode(
+    main_wav_path: str,
+    output_mp3_path: str,
+    opening_path: Optional[str] = None,
+    ending_path: Optional[str] = None,
+    jingle_duration: float = 10.0,
+    fade_duration: float = 1.0,
+    bitrate: str = "128k",
+) -> Optional[tuple[float, str]]:
+    """
+    メインWAVの前後にジングルMP3を付けてMP3エンコードする。
+    opening_path / ending_path が None またはファイル不在の場合はスキップ。
+    フェードイン/アウト（fade_duration秒）付きで jingle_duration 秒分だけ使用。
+
+    Returns (duration_seconds, output_mp3_path) or None on error.
+    """
+    ffmpeg_bin = find_ffmpeg()
+
+    has_opening = bool(opening_path and os.path.isfile(opening_path))
+    has_ending = bool(ending_path and os.path.isfile(ending_path))
+
+    if not has_opening and not has_ending:
+        # ジングルなし → 従来の wav_to_mp3 にフォールバック
+        return wav_to_mp3(main_wav_path, output_mp3_path, bitrate=bitrate)
+
+    # --- ffmpeg 入力リストを構築 ---
+    inputs: list[str] = []
+    if has_opening:
+        inputs += ["-i", opening_path]
+    inputs += ["-i", main_wav_path]
+    if has_ending:
+        inputs += ["-i", ending_path]
+
+    # --- filter_complex を構築 ---
+    idx = 0
+    filter_parts: list[str] = []
+    concat_labels: list[str] = []
+
+    if has_opening:
+        fade_out_start = max(0.0, jingle_duration - fade_duration)
+        filter_parts.append(
+            f"[{idx}:a]atrim=end={jingle_duration},"
+            f"afade=t=in:st=0:d={fade_duration},"
+            f"afade=t=out:st={fade_out_start}:d={fade_duration}"
+            f"[open]"
+        )
+        concat_labels.append("[open]")
+        idx += 1
+
+    # メイン（WAV）はフィルターなし
+    concat_labels.append(f"[{idx}:a]")
+    idx += 1
+
+    if has_ending:
+        fade_out_start = max(0.0, jingle_duration - fade_duration)
+        filter_parts.append(
+            f"[{idx}:a]atrim=end={jingle_duration},"
+            f"afade=t=in:st=0:d={fade_duration},"
+            f"afade=t=out:st={fade_out_start}:d={fade_duration}"
+            f"[end]"
+        )
+        concat_labels.append("[end]")
+
+    n_segments = len(concat_labels)
+    concat_str = "".join(concat_labels)
+    filter_parts.append(f"{concat_str}concat=n={n_segments}:v=0:a=1[out]")
+
+    filter_complex = ";".join(filter_parts)
+
+    cmd = (
+        [ffmpeg_bin, "-y"]
+        + inputs
+        + [
+            "-filter_complex", filter_complex,
+            "-map", "[out]",
+            "-codec:a", "libmp3lame",
+            "-b:a", bitrate,
+            output_mp3_path,
+        ]
+    )
+
+    logger.info("ffmpeg jingle concat: %s", " ".join(cmd))
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if result.returncode != 0:
+            logger.error("ffmpeg jingle concat 失敗: %s", result.stderr)
+            return None
+
+        duration = _parse_ffmpeg_duration(result.stderr)
+        return (duration or 0.0, output_mp3_path)
+
+    except FileNotFoundError:
+        logger.error("ffmpegが見つかりません")
+        return None
+    except subprocess.TimeoutExpired:
+        logger.error("ffmpeg jingle concat がタイムアウトしました")
+        raise
+
+
 def _parse_ffmpeg_duration(stderr_text: str) -> Optional[float]:
     """stderrからMP3のduration(sec)を抽出"""
     if not stderr_text:

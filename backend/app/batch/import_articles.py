@@ -1,7 +1,7 @@
-"""Article import module — now uses hatena_bookmark API as the data source.
+"""Article import module — supports hatena_bookmark API and hotentry/all RSS.
 
 Replaces the former file-based import (data/articles/articles.json) with
-live fetching from news.beeworks.cc API.
+live fetching from news.beeworks.cc API (tech news) or Hatena RSS (general news).
 """
 
 import json
@@ -11,17 +11,33 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from app.services.hatena_fetcher import auto_fetch_hatena_articles  # noqa: E402
+from app.services.hatena_fetcher import auto_fetch_hatena_articles, import_hotentry_all_articles  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 
 def import_articles(file_path: str | None = None) -> tuple[int, int]:
-    """Legacy shim — just delegates to the hatena API fetcher.
+    """Legacy shim — delegates to the hatena API fetcher (tech news).
 
     The old `file_path` parameter (local JSON file) is no longer used.
     """
     logger.info("import_articles: using hatena_bookmark API (file_path ignored)")
+    return auto_fetch_hatena_articles()
+
+
+def import_articles_by_source(news_source: str = "hatena_bookmark") -> tuple[int, int]:
+    """Import articles from the specified news source.
+
+    Args:
+        news_source: "hatena_bookmark" (tech news via API) or
+                     "hatena_hotentry_all" (general news via RSS).
+    Returns:
+        (inserted, duplicated) counts.
+    """
+    if news_source == "hatena_hotentry_all":
+        logger.info("import_articles_by_source: using hotentry/all RSS")
+        return import_hotentry_all_articles()
+    logger.info("import_articles_by_source: using hatena_bookmark API")
     return auto_fetch_hatena_articles()
 
 

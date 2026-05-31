@@ -24,11 +24,15 @@ def _require_episode(episode_id: int) -> dict:
 
 
 def _resolve_episode_directory(episode: dict) -> str:
+    id_dir = os.path.join(EPISODES_BASE_DIR, str(episode.get("id", "")))
+    if os.path.isdir(id_dir):
+        return id_dir
+
     episode_date = episode.get("episode_date") or episode.get("date") or ""
     date_dir = os.path.join(EPISODES_BASE_DIR, episode_date)
-    id_dir = os.path.join(EPISODES_BASE_DIR, str(episode.get("id", "")))
     if os.path.isdir(date_dir):
         return date_dir
+
     return id_dir
 
 
@@ -36,10 +40,16 @@ def _build_audio_url(episode: dict) -> Optional[str]:
     audio_path = episode.get("audio_path")
     if not audio_path:
         return None
-    episode_date = episode.get("episode_date") or episode.get("date")
-    if episode_date:
-        return f"/audio/{episode_date}/{audio_path}"
-    return f"/audio/{episode['id']}/{audio_path}"
+
+    base_dir = _resolve_episode_directory(episode)
+    if not os.path.isdir(base_dir):
+        return None
+
+    dir_name = os.path.basename(base_dir)
+    if not dir_name:
+        return None
+
+    return f"/audio/{dir_name}/{audio_path}"
 
 
 @router.get("/episodes", summary="エピソード一覧を取得")
@@ -53,6 +63,7 @@ def list_episodes() -> list[dict]:
             {
                 "id": ep["id"],
                 "title": "",
+                "subtitle": "",
                 "date": ep["episode_date"],
                 "duration": 0.0,
                 "audio_url": None,
@@ -87,6 +98,7 @@ def get_latest_episode() -> dict:
     result: dict = {
         "id": episode["id"],
         "title": "",
+        "subtitle": "",
         "date": episode["episode_date"],
         "duration_seconds": 0.0,
         "status": episode.get("status", "pending"),
@@ -120,6 +132,7 @@ def get_episode(episode_id: int) -> dict:
     result: dict = {
         "id": episode["id"],
         "title": "",
+        "subtitle": "",
         "date": episode["episode_date"],
         "duration_seconds": 0.0,
         "status": episode.get("status", "pending"),
@@ -152,13 +165,14 @@ def get_episode_script(episode_id: int) -> dict:
 
 
 def _enrich_episode(episode: dict) -> None:
-    """script.json または metadata.json からtitle/durationを補完"""
+    """script.json または metadata.json からtitle/subtitle/durationを補完"""
     base_dir = _resolve_episode_directory(episode)
     script_data = os.path.join(base_dir, "script.json")
     if os.path.isfile(script_data):
         with open(script_data, "r", encoding="utf-8") as f:
             data = json.load(f)
         episode["title"] = data.get("title", "")
+        episode["subtitle"] = data.get("subtitle", "")
 
     metadata_data = os.path.join(base_dir, "metadata.json")
     if os.path.isfile(metadata_data):

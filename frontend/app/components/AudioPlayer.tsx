@@ -99,20 +99,30 @@ export default function AudioPlayer({ src, title }: Props) {
         aria-label="シーク"
       />
 
-      <div className="flex gap-2">
-        {SPEEDS.map((s) => (
-          <button
-            key={s}
-            onClick={() => handleSpeedChange(s)}
-            className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
-              speed === s
-                ? 'bg-blue-500 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 active:bg-gray-300'
-            }`}
-          >
-            {s}x
-          </button>
-        ))}
+      <div className="flex items-center justify-between">
+        <div className="flex gap-2">
+          {SPEEDS.map((s) => (
+            <button
+              key={s}
+              onClick={() => handleSpeedChange(s)}
+              className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                speed === s
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 active:bg-gray-300'
+              }`}
+            >
+              {s}x
+            </button>
+          ))}
+        </div>
+        <a
+          href={src}
+          download={`${title}.mp3`}
+          className="flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 active:bg-gray-300 transition-colors"
+          aria-label="音声をダウンロード"
+        >
+          ↓ DL
+        </a>
       </div>
     </div>
   )

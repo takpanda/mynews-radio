@@ -73,6 +73,9 @@ export default async function EpisodePage({ params }: Props) {
             <h1 className="text-xl font-bold text-gray-900">
               {episode.title || `エピソード #${episode.id}`}
             </h1>
+            {episode.subtitle && (
+              <p className="text-sm text-blue-500 mt-0.5">{episode.subtitle}</p>
+            )}
             <p className="text-sm text-gray-500 mt-1">{formatDate(episode.date)}</p>
           </header>
 

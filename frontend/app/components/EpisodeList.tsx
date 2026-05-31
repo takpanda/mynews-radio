@@ -35,6 +35,9 @@ export default function EpisodeList({ episodes }: Props) {
               <p className="font-medium text-gray-900 truncate">
                 {ep.title || `エピソード #${ep.id}`}
               </p>
+              {ep.subtitle && (
+                <p className="text-xs text-blue-500 mt-0.5 truncate">{ep.subtitle}</p>
+              )}
               <p className="text-sm text-gray-500 mt-1">{formatDate(ep.date)}</p>
             </div>
             {ep.duration > 0 && (

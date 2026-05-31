@@ -29,5 +29,10 @@ crontab -l
 cron
 echo "[entrypoint] cron started (pid=$(pgrep cron))"
 
+# Ensure the cron log file exists and stream it to Docker logs.
+mkdir -p /app/data/logs
+touch /app/data/logs/crontab.log
+tail -F /app/data/logs/crontab.log &
+
 # Start uvicorn
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

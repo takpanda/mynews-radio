@@ -7,7 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from app.services.ffmpeg_service import combine_wav_files, wav_to_mp3
+from app.services.ffmpeg_service import combine_wav_files, wav_to_mp3, add_jingles_and_encode
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +45,18 @@ def build_episode(directory: str) -> dict:
         logger.error("WAV combine failed: %s", exc)
         return {}
 
-    # Step 2: MP3 encode
+    # Step 2: MP3 encode（ジングルがあれば前後に追加）
     mp3_path = os.path.join(directory, "episode.mp3")
-    result = wav_to_mp3(combined_wav, mp3_path, bitrate="128k")
+    settings = get_settings()
+    result = add_jingles_and_encode(
+        main_wav_path=combined_wav,
+        output_mp3_path=mp3_path,
+        opening_path=settings.jingle_opening_path,
+        ending_path=settings.jingle_ending_path,
+        jingle_duration=settings.jingle_duration,
+        fade_duration=settings.jingle_fade_duration,
+        bitrate="128k",
+    )
     if result is None:
         logger.error("wav_to_mp3 returned None for %s", combined_wav)
         return {}

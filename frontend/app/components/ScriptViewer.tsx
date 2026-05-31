@@ -7,6 +7,7 @@ interface Props {
 const SECTION_LABEL: Record<string, string> = {
   intro: 'オープニング',
   news: 'ニュース',
+  discussion: '注目トピック討論',
   outro: 'エンディング',
 }
 

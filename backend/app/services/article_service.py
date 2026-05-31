@@ -41,6 +41,7 @@ class ArticleService:
         category: str,
         importance_score: int,
         status: str,
+        difficulty: int = 1,
     ) -> None:
         with get_db_connection() as conn:
             conn.execute(
@@ -49,10 +50,11 @@ class ArticleService:
                 SET summary = ?,
                     category = ?,
                     importance_score = ?,
+                    difficulty = ?,
                     status = ?
                 WHERE id = ?
                 """,
-                (summary, category, importance_score, status, article_id),
+                (summary, category, importance_score, difficulty, status, article_id),
             )
 
     def fetch_summaries_for_script(
@@ -63,7 +65,7 @@ class ArticleService:
         with get_db_connection() as conn:
             rows = conn.execute(
                 """
-                SELECT id, title, source, url, summary, category, importance_score
+                SELECT id, title, source, url, summary, category, importance_score, difficulty
                 FROM articles
                 WHERE status = 'summarized'
                   AND summary IS NOT NULL

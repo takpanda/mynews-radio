@@ -25,6 +25,7 @@ from app.batch.build_episode import build_episode           # noqa: E402
 from app.batch.health_check import run_health_checks         # noqa: E402
 from app.logging_config import setup_daily_logging           # noqa: E402
 from app.config import get_settings                          # noqa: E402
+from app.services.episode_service import EpisodeService      # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -47,15 +48,20 @@ def main() -> None:
         failed = [r.service for r in health_results if r.status != "ok"]
         logger.error("Service(s) unhealthy: %s — continuing but risks failure", ", ".join(failed))
 
-    # date for today's episode directory
+    # date for today's episode record
     if os.environ.get("BATCH_DATE"):
         episode_date = os.environ["BATCH_DATE"]  # allow override for testing
     else:
         episode_date = dt.date.today().isoformat()  # YYYY-MM-DD
 
-    episodes_dir = os.path.join("data", "episodes", episode_date)
-    os.makedirs(episodes_dir, exist_ok=True)
-    summaries_path = os.path.join("data", "summaries", "summaries.json")
+    episode_service = EpisodeService()
+    episode_id = episode_service.create_episode(
+        episode_date=episode_date,
+        status="generating",
+    )
+    episode_dir = os.path.join("data", "episodes", str(episode_id))
+    os.makedirs(episode_dir, exist_ok=True)
+    summaries_path = os.path.join(episode_dir, "summaries.json")
 
     # Step 1: summarize articles
     try:
@@ -67,16 +73,18 @@ def main() -> None:
             sys.exit(0)
     except Exception as exc:
         logger.error("summarize failed: %s", exc, exc_info=True)
+        episode_service.update_episode_status(episode_id, "failed")
         _write_manifest(status=f"error_summarize: {exc}")
         sys.exit(1)
 
     # Step 2: generate script
-    script_path = os.path.join(episodes_dir, "script.json")
+    script_path = os.path.join(episode_dir, "script.json")
     try:
         line_count = generate_script(script_path)
         logger.info("generated script with %d lines", line_count)
         if line_count == 0:
             logger.warning("Script generation returned 0 lines - aborting pipeline")
+            episode_service.update_episode_status(episode_id, "failed")
             _write_manifest(status="skipped_no_scripts")
             sys.exit(0)
     except Exception as exc:
@@ -86,10 +94,11 @@ def main() -> None:
 
     # Step 3: synthesize voice
     try:
-        wav_count = synthesize_voicevox(episodes_dir)
+        wav_count = synthesize_voicevox(episode_dir)
         logger.info("synthesized %d lines", wav_count)
         if wav_count == 0:
             logger.warning("Voice synthesis returned 0 lines - aborting pipeline")
+            episode_service.update_episode_status(episode_id, "failed")
             _write_manifest(status="skipped_no_synthesis")
             sys.exit(0)
     except Exception as exc:
@@ -99,20 +108,24 @@ def main() -> None:
 
     # Step 4: build episode (combine + mp3)
     try:
-        metadata = build_episode(episodes_dir)
+        metadata = build_episode(episode_dir)
         if not metadata:
             logger.error("build_episode returned empty metadata - pipeline failed")
+            episode_service.update_episode_status(episode_id, "failed")
             _write_manifest(status="error_build")
             sys.exit(1)
     except Exception as exc:
         logger.error("build_episode failed: %s", exc, exc_info=True)
+        episode_service.update_episode_status(episode_id, "failed")
         _write_manifest(status=f"error_build: {exc}")
         sys.exit(1)
 
     # done
+    episode_service.update_episode_audio_path(episode_id, metadata.get("audio_path", ""))
+    episode_service.update_episode_status(episode_id, "completed")
     logger.info(
         "=== daily batch complete - %s ===",
-        metadata.get("title", episodes_dir),
+        metadata.get("title", episode_dir),
     )
     print(json.dumps(metadata, ensure_ascii=False, indent=2))
     _write_manifest(status="done", metadata=metadata)

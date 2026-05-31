@@ -83,8 +83,10 @@ def cleanup_episodes() -> dict:
 
         logger.info("Cleanup target: id=%d, date=%s", episode_id, episode_date)
 
-        # Delete files first (directory structure)
-        files_count = _delete_episode_directory(episode_date)
+        # Delete both possible directories (date-based legacy and id-based current)
+        files_count = 0
+        files_count += _delete_episode_directory(str(episode_id))
+        files_count += _delete_episode_directory(episode_date)
         total_files_deleted += files_count
 
         # Then delete DB records

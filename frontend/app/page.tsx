@@ -1,6 +1,7 @@
 import { fetchLatestEpisode, fetchEpisodes, buildAudioUrl, formatDate } from './lib/api'
 import AudioPlayer from './components/AudioPlayer'
 import EpisodeList from './components/EpisodeList'
+import GenerateEpisodeButton from './components/GenerateEpisodeButton'
 
 export default async function Home() {
   let latestEpisode = null
@@ -19,6 +20,8 @@ export default async function Home() {
         <h1 className="text-2xl font-bold text-gray-900">MyNews Radio</h1>
         <p className="text-sm text-gray-500 mt-1">あなた専用のニュース番組</p>
       </header>
+
+      <GenerateEpisodeButton />
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-6 text-sm">
@@ -42,6 +45,9 @@ export default async function Home() {
             <p className="font-semibold text-gray-900">
               {latestEpisode.title || `エピソード #${latestEpisode.id}`}
             </p>
+            {latestEpisode.subtitle && (
+              <p className="text-xs text-blue-500 mt-0.5">{latestEpisode.subtitle}</p>
+            )}
             <p className="text-xs text-gray-500 mt-1">{formatDate(latestEpisode.date)}</p>
           </div>
           {latestEpisode.audio_url ? (

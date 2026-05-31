@@ -18,7 +18,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.db.connection import get_db_connection
-from app.batch.import_articles import import_articles
+from app.batch.import_articles import import_articles, import_articles_by_source
 from app.batch.summarize_articles import summarize_articles
 from app.batch.generate_script import generate_script
 from app.batch.synthesize_voicevox import synthesize_episode
@@ -60,34 +60,34 @@ def _update_episode_audio(episode_id: int, audio_path: str) -> None:
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
-def run(date_str: str | None = None) -> None:
+def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> None:
     if date_str is None:
         from datetime import date as _date
         date_str = str(_date.today())
-
-    episode_dir = os.path.join(EPISODES_DIR, date_str)
-    artifact_dir = os.path.join(episode_dir, "lines")
-
-    # Ensure output directories
-    os.makedirs(episode_dir, exist_ok=True)
-    os.makedirs(artifact_dir, exist_ok=True)
 
     # Create episode DB record with status=generating
     ep_service = EpisodeService()
     episode_id = _create_episode_record(date_str)
     logger.info("Episode record created: id=%d, date=%s", episode_id, date_str)
 
+    episode_dir = os.path.join(EPISODES_DIR, str(episode_id))
+    artifact_dir = os.path.join(episode_dir, "lines")
+
+    # Ensure output directories
+    os.makedirs(episode_dir, exist_ok=True)
+    os.makedirs(artifact_dir, exist_ok=True)
+
     try:
         # Step 1: import_articles
-        logger.info("=== Step 1/5: import_articles ===")
-        ins, dup = import_articles(ARTICLES_JSON)
+        logger.info("=== Step 1/5: import_articles (source=%s) ===", news_source)
+        ins, dup = import_articles_by_source(news_source)
         logger.info("import_articles completed: inserted=%d duplicated=%d", ins, dup)
         if ins == 0 and dup == 0:
             raise RuntimeError("import_articles processed 0 articles")
 
         # Step 2: summarize_articles
         logger.info("=== Step 2/5: summarize_articles ===")
-        summaries_path = os.path.join(EPISODES_DIR, date_str, "summaries.json")
+        summaries_path = os.path.join(episode_dir, "summaries.json")
         summarized = summarize_articles(summaries_path)
         logger.info("summarize_articles completed: counted=%d", summarized)
         if summarized == 0:
@@ -155,7 +155,8 @@ def main() -> None:
     from datetime import date as _date  # noqa: E402
     default_date = str(_date.today())
     date_str = sys.argv[1] if len(sys.argv) > 1 else default_date
-    run(date_str)
+    news_source = sys.argv[2] if len(sys.argv) > 2 else "hatena_bookmark"
+    run(date_str, news_source=news_source)
 
 
 if __name__ == "__main__":

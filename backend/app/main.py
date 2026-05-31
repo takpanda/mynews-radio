@@ -1,6 +1,13 @@
+import logging
 import os
 import mimetypes
+import sqlite3
 from typing import Optional
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +30,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _apply_db_migrations() -> None:
+    """既存DBへのスキーマ追加マイグレーションを安全に実行する。"""
+    from app.db.connection import get_db_connection
+    with get_db_connection() as conn:
+        try:
+            conn.execute("ALTER TABLE articles ADD COLUMN difficulty INTEGER")
+        except sqlite3.OperationalError:
+            pass  # カラムが既に存在する場合は無視
+
+
+_apply_db_migrations()
 
 
 @app.get("/health")

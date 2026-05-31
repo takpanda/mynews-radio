@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     voicevox_speaker_male: int = 11
     voicevox_speaker_female: int = 2
     episode_retention_days: int = 30
+    jingle_opening_path: str = "/app/data/jingles/opening.mp3"
+    jingle_ending_path: str = "/app/data/jingles/ending.mp3"
+    jingle_transition_path: str = "/app/data/jingles/transition.mp3"
+    jingle_duration: float = 10.0
+    jingle_fade_duration: float = 1.0
 
     model_config = {
         "env_file": ".env",

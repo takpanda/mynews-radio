@@ -1,6 +1,7 @@
 export interface EpisodeListItem {
   id: number
   title: string
+  subtitle: string
   date: string
   duration: number
   audio_url: string
@@ -10,6 +11,7 @@ export interface EpisodeListItem {
 export interface Episode {
   id: number
   title: string
+  subtitle: string
   date: string
   duration_seconds: number
   status: string
@@ -100,4 +102,33 @@ export async function fetchArticle(id: number): Promise<Article | null> {
   if (res.status === 404) return null
   if (!res.ok) return null
   return res.json() as Promise<Article>
+}
+
+export async function generateEpisode(date: string, maxArticles = 10, newsSource = 'hatena_bookmark'): Promise<Response> {
+  return fetch(`${getApiBase()}/generate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      date,
+      max_articles: maxArticles,
+      news_source: newsSource,
+    }),
+  })
+}
+
+export async function generateEpisodeStream(date: string, maxArticles = 10, newsSource = 'hatena_bookmark'): Promise<Response> {
+  return fetch(`${getApiBase()}/generate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    },
+    body: JSON.stringify({
+      date,
+      max_articles: maxArticles,
+      news_source: newsSource,
+    }),
+  })
 }
