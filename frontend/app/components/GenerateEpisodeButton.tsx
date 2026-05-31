@@ -23,6 +23,7 @@ export default function GenerateEpisodeButton() {
   const [progress, setProgress] = useState<string[]>([])
   const [message, setMessage] = useState<string | null>(null)
   const [newsSource, setNewsSource] = useState<'hatena_bookmark' | 'hatena_hotentry_all'>('hatena_bookmark')
+  const [ttsEngine, setTtsEngine] = useState<'voicevox' | 'aivispeech'>('voicevox')
   const router = useRouter()
 
   const appendProgress = (text: string) => {
@@ -36,7 +37,7 @@ export default function GenerateEpisodeButton() {
 
     try {
       const today = new Date().toISOString().slice(0, 10)
-      const response = await generateEpisodeStream(today, 10, newsSource)
+      const response = await generateEpisodeStream(today, 10, newsSource, ttsEngine)
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '')
@@ -119,6 +120,32 @@ export default function GenerateEpisodeButton() {
             className="accent-blue-600"
           />
           <span>一般ニュース</span>
+        </label>
+      </div>
+      <div className="mb-3 flex gap-4 text-sm">
+        <label className="flex cursor-pointer items-center gap-1.5">
+          <input
+            type="radio"
+            name="ttsEngine"
+            value="voicevox"
+            checked={ttsEngine === 'voicevox'}
+            onChange={() => setTtsEngine('voicevox')}
+            disabled={isLoading}
+            className="accent-blue-600"
+          />
+          <span>VOICEVOX</span>
+        </label>
+        <label className="flex cursor-pointer items-center gap-1.5">
+          <input
+            type="radio"
+            name="ttsEngine"
+            value="aivispeech"
+            checked={ttsEngine === 'aivispeech'}
+            onChange={() => setTtsEngine('aivispeech')}
+            disabled={isLoading}
+            className="accent-blue-600"
+          />
+          <span>AivisSpeech</span>
         </label>
       </div>
       <button

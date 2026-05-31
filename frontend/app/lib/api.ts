@@ -118,7 +118,7 @@ export async function generateEpisode(date: string, maxArticles = 10, newsSource
   })
 }
 
-export async function generateEpisodeStream(date: string, maxArticles = 10, newsSource = 'hatena_bookmark'): Promise<Response> {
+export async function generateEpisodeStream(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'voicevox'): Promise<Response> {
   return fetch(`${getApiBase()}/generate`, {
     method: 'POST',
     headers: {
@@ -129,6 +129,7 @@ export async function generateEpisodeStream(date: string, maxArticles = 10, news
       date,
       max_articles: maxArticles,
       news_source: newsSource,
+      tts_engine: ttsEngine,
     }),
   })
 }

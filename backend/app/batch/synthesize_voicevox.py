@@ -1,6 +1,5 @@
 import json
 import os
-import shutil
 import struct
 import sys
 import wave
@@ -23,14 +22,18 @@ _SILENCE_CHANNELS = 1
 _SILENCE_SAMPLE_WIDTH = 2  # 16-bit
 
 
-def _create_silence_wav(path: str, duration_seconds: float = 1.0) -> bool:
+def _create_silence_wav(
+    path: str,
+    duration_seconds: float = 1.0,
+    sample_rate: int = _SILENCE_SAMPLE_RATE,
+) -> bool:
     """指定した長さの無音 WAV ファイルを生成する。"""
     try:
-        n_frames = int(_SILENCE_SAMPLE_RATE * duration_seconds)
+        n_frames = int(sample_rate * duration_seconds)
         with wave.open(path, "w") as wf:
             wf.setnchannels(_SILENCE_CHANNELS)
             wf.setsampwidth(_SILENCE_SAMPLE_WIDTH)
-            wf.setframerate(_SILENCE_SAMPLE_RATE)
+            wf.setframerate(sample_rate)
             wf.writeframes(struct.pack(f"<{n_frames}h", *([0] * n_frames)))
         return True
     except Exception as exc:
@@ -38,14 +41,70 @@ def _create_silence_wav(path: str, duration_seconds: float = 1.0) -> bool:
         return False
 
 
-def synthesize_episode(directory: str) -> int:
+def _normalize_wavs_to_speech_rate(wav_dir: str) -> None:
+    """lines/ 以下の全 WAV を TTS 出力のサンプリングレートに統一する。
+
+    TTS エンジン（VOICEVOX: 24000Hz / AivisSpeech: 44100Hz 等）によって
+    出力レートが異なり、手動生成した silence/jingle と不一致になる場合がある。
+    最多数のレートを「正解」とし、異なるファイルを ffmpeg でリサンプルする。
+    """
+    import collections
+    wav_files = sorted(
+        [os.path.join(wav_dir, f) for f in os.listdir(wav_dir) if f.endswith(".wav")]
+    )
+    if len(wav_files) < 2:
+        return
+
+    rates: dict[str, int] = {}
+    for p in wav_files:
+        try:
+            with wave.open(p, "rb") as wf:
+                rates[p] = wf.getframerate()
+        except Exception:
+            pass
+
+    if not rates:
+        return
+
+    # 最多数のレートをターゲットとする
+    target_rate: int = collections.Counter(rates.values()).most_common(1)[0][0]
+
+    for path, rate in rates.items():
+        if rate == target_rate:
+            continue
+        tmp = path + "._norm.wav"
+        if convert_to_wav(path, tmp, sample_rate=target_rate):
+            os.replace(tmp, path)
+            logger.info(
+                "WAV リサンプル: %s (%dHz -> %dHz)",
+                os.path.basename(path), rate, target_rate,
+            )
+        else:
+            logger.warning("WAV リサンプル失敗: %s", os.path.basename(path))
+            if os.path.isfile(tmp):
+                os.remove(tmp)
+
+
+def synthesize_episode(
+    directory: str,
+    base_url: str | None = None,
+    speaker_male: int | None = None,
+    speaker_female: int | None = None,
+) -> int:
     """
     Read script.json from *directory*, generate a WAV for each line,
     and write both display_text and spoken_text back into the lines.
 
+    base_url / speaker_male / speaker_female override the settings values
+    (useful for switching between VOICEVOX and AivisSpeech at runtime).
+
     Returns total number of lines successfully synthesized.
     """
     settings = get_settings()
+    effective_base_url = base_url if base_url is not None else settings.voicevox_base_url
+    effective_speaker_male = speaker_male if speaker_male is not None else settings.voicevox_speaker_male
+    effective_speaker_female = speaker_female if speaker_female is not None else settings.voicevox_speaker_female
+
     script_path = os.path.join(directory, "script.json")
 
     if not os.path.isfile(script_path):
@@ -64,9 +123,9 @@ def synthesize_episode(directory: str) -> int:
     os.makedirs(wav_dir, exist_ok=True)
 
     client = VoicevoxClient(
-        settings.voicevox_base_url,
-        speaker_male=settings.voicevox_speaker_male,
-        speaker_female=settings.voicevox_speaker_female,
+        effective_base_url,
+        speaker_male=effective_speaker_male,
+        speaker_female=effective_speaker_female,
     )
     success_count = 0
     file_counter = 1  # WAV ファイルの通し番号（無音挿入分も含む）
@@ -79,11 +138,10 @@ def synthesize_episode(directory: str) -> int:
             insert_path = os.path.join(wav_dir, f"{file_counter:03d}.wav")
             transition_wav = settings.jingle_transition_path
             if transition_wav and os.path.isfile(transition_wav):
-                if transition_wav.lower().endswith(".wav"):
-                    shutil.copy2(transition_wav, insert_path)
-                    logger.info("ケルトジングルを挿入: %s", insert_path)
-                    file_counter += 1
-                elif convert_to_wav(transition_wav, insert_path):
+                # 拡張子に関わらず ffmpeg で 24000Hz/mono/s16 に正規化してからコピーする
+                # （shutil.copy2 では元ファイルのサンプリングレートがそのまま使われ、
+                #   VOICEVOX 出力の 24000Hz と不一致になる場合がある）
+                if convert_to_wav(transition_wav, insert_path):
                     logger.info("ケルトジングルを WAV に変換して挿入: %s", insert_path)
                     file_counter += 1
                 elif _create_silence_wav(insert_path, duration_seconds=1.0):
@@ -119,6 +177,9 @@ def synthesize_episode(directory: str) -> int:
             logger.error("Failed to synthesize line %d", idx)
 
         file_counter += 1
+
+    # すべての WAV を同一サンプリングレートに正規化（TTS エンジン切替時のレート不一致を解消）
+    _normalize_wavs_to_speech_rate(wav_dir)
 
     # Write updated script.json with display/spoken separation
     script["lines"] = lines

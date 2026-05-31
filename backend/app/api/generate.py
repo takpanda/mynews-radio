@@ -17,7 +17,6 @@ from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
 from app.config import get_settings
 from app.services.episode_service import EpisodeService
-from app.services.voicevox_client import VoicevoxClient
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +45,7 @@ class GenerateRequest(BaseModel):
     max_articles: int = Field(default=10, ge=1, le=50)
     duration_minutes: int | None = Field(default=None, ge=1, le=640)
     news_source: str = Field(default="hatena_bookmark", description="ニュースソース (hatena_bookmark | hatena_hotentry_all)")
+    tts_engine: str = Field(default="voicevox", description="TTSエンジン (voicevox | aivispeech)")
 
 
 class GenerateResponse(BaseModel):
@@ -123,21 +123,34 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
         return
 
     settings = get_settings()
-    yield _format_sse("progress", {"phase": "synthesize", "message": "音声を合成しています..."})
+    TTS_ENGINES = {"voicevox", "aivispeech"}
+    tts_engine = body.tts_engine if body.tts_engine in TTS_ENGINES else "voicevox"
+    if tts_engine == "aivispeech":
+        tts_base_url = settings.aivispeech_base_url
+        tts_speaker_male = settings.aivispeech_speaker_male
+        tts_speaker_female = settings.aivispeech_speaker_female
+        tts_engine_label = f"AivisSpeech ({settings.aivispeech_base_url})"
+    else:
+        tts_base_url = settings.voicevox_base_url
+        tts_speaker_male = settings.voicevox_speaker_male
+        tts_speaker_female = settings.voicevox_speaker_female
+        tts_engine_label = f"VOICEVOX ({settings.voicevox_base_url})"
+
+    yield _format_sse("progress", {"phase": "synthesize", "message": f"音声を合成しています... ({tts_engine_label})"})
     try:
-        with VoicevoxClient(
-            settings.voicevox_base_url,
-            speaker_male=settings.voicevox_speaker_male,
-            speaker_female=settings.voicevox_speaker_female,
-        ) as client:
-            success_count = synthesize_episode(base_dir)
+        success_count = synthesize_episode(
+            base_dir,
+            base_url=tts_base_url,
+            speaker_male=tts_speaker_male,
+            speaker_female=tts_speaker_female,
+        )
     except Exception as exc:
-        logger.exception("voicevox synthesis failed")
+        logger.exception("tts synthesis failed")
         service.update_episode_status(episode_id, "failed")
         yield _format_sse(
             "error",
             _build_error_payload(
-                f"音声合成に失敗しました。VOICEVOXエンジン ({settings.voicevox_base_url}) を確認してください。",
+                f"音声合成に失敗しました。{tts_engine_label} を確認してください。",
                 status="voicevox_error",
             ),
         )
@@ -148,7 +161,7 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
         yield _format_sse(
             "error",
             _build_error_payload(
-                f"音声合成に失敗しました。VOICEVOXエンジン ({settings.voicevox_base_url}) を確認してください。",
+                f"音声合成に失敗しました。{tts_engine_label} を確認してください。",
                 status="voicevox_error",
             ),
         )
