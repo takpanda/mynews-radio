@@ -158,6 +158,12 @@ def generate_script(output_path: str, program_name: str = "ニュースのとな
         encoding="utf-8",
     )
     logger.info("script generated lines=%d output=%s", len(script["lines"]), output_path)
+
+    # 使用した記事を 'used' にマーク → 次エピソードで重複使用されないようにする
+    used_ids = [a["id"] for a in summaries]
+    service.mark_articles_used(used_ids)
+    logger.info("marked %d articles as used", len(used_ids))
+
     return len(script["lines"])
 
 

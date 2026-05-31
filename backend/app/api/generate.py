@@ -63,7 +63,7 @@ def _build_progress_payload(phase: str, message: str, status: str = "running", *
     return payload
 
 
-NEWS_SOURCES = {"hatena_bookmark", "hatena_hotentry_all"}
+NEWS_SOURCES = {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news"}
 
 
 class GenerateRequest(BaseModel):
@@ -71,7 +71,7 @@ class GenerateRequest(BaseModel):
     date: str = Field(description="放送日 (YYYY-MM-DD)")
     max_articles: int = Field(default=10, ge=1, le=50)
     duration_minutes: int | None = Field(default=None, ge=1, le=640)
-    news_source: str = Field(default="hatena_bookmark", description="ニュースソース (hatena_bookmark | hatena_hotentry_all)")
+    news_source: str = Field(default="hatena_bookmark", description="ニュースソース (hatena_bookmark | hatena_hotentry_all | yahoo_news)")
     tts_engine: str = Field(default="aivispeech", description="TTSエンジン (voicevox | aivispeech)")
     enable_review: bool = Field(default=True, description="レビューステップを有効にする")
 
@@ -100,10 +100,10 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
     yield _format_sse("progress", _build_progress_payload("start", "エピソード生成を開始します。"))
 
     # 一般ニュース選択時はRSSから記事をインポートして要約する
-    if news_source == "hatena_hotentry_all":
+    if news_source in {"hatena_hotentry_all", "yahoo_news"}:
         yield _format_sse("progress", _build_progress_payload("import", "一般ニュース記事を取得しています..."))
         try:
-            ins, dup = import_articles_by_source("hatena_hotentry_all")
+            ins, dup = import_articles_by_source(news_source)
             logger.info("RSS import done: inserted=%d duplicated=%d", ins, dup)
         except Exception as exc:
             logger.exception("RSS import failed")

@@ -69,10 +69,22 @@ class ArticleService:
                 FROM articles
                 WHERE status = 'summarized'
                   AND summary IS NOT NULL
+                  AND summary != ''
                   AND importance_score >= ?
-                ORDER BY importance_score DESC, published_at DESC, id ASC
+                ORDER BY importance_score DESC, published_at DESC, id DESC
                 LIMIT ?
                 """,
                 (min_importance_score, max_articles),
             ).fetchall()
             return [dict(row) for row in rows]
+
+    def mark_articles_used(self, article_ids: list[int]) -> None:
+        """Mark articles as 'used' so they are not reused in future episode scripts."""
+        if not article_ids:
+            return
+        placeholders = ",".join("?" * len(article_ids))
+        with get_db_connection() as conn:
+            conn.execute(
+                f"UPDATE articles SET status = 'used' WHERE id IN ({placeholders}) AND status = 'summarized'",
+                article_ids,
+            )

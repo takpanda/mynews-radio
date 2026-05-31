@@ -11,7 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from app.services.hatena_fetcher import auto_fetch_hatena_articles, import_hotentry_all_articles  # noqa: E402
+from app.services.hatena_fetcher import auto_fetch_hatena_articles, import_hotentry_all_articles, import_yahoo_news_articles  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -29,14 +29,18 @@ def import_articles_by_source(news_source: str = "hatena_bookmark") -> tuple[int
     """Import articles from the specified news source.
 
     Args:
-        news_source: "hatena_bookmark" (tech news via API) or
-                     "hatena_hotentry_all" (general news via RSS).
+        news_source: "hatena_bookmark" (tech news via API),
+                     "hatena_hotentry_all" (general news via Hatena RSS), or
+                     "yahoo_news" (general news via Yahoo! Japan RSS).
     Returns:
         (inserted, duplicated) counts.
     """
     if news_source == "hatena_hotentry_all":
         logger.info("import_articles_by_source: using hotentry/all RSS")
         return import_hotentry_all_articles()
+    if news_source == "yahoo_news":
+        logger.info("import_articles_by_source: using Yahoo! News RSS")
+        return import_yahoo_news_articles()
     logger.info("import_articles_by_source: using hatena_bookmark API")
     return auto_fetch_hatena_articles()
 

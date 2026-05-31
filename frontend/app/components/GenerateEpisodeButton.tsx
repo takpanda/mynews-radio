@@ -251,7 +251,7 @@ export default function GenerateEpisodeButton() {
   const [progress, setProgress] = useState<ProgressEntry[]>([])
   const [message, setMessage] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
-  const [newsSource, setNewsSource] = useState<'hatena_bookmark' | 'hatena_hotentry_all'>('hatena_bookmark')
+  const [newsSource, setNewsSource] = useState<'hatena_bookmark' | 'hatena_hotentry_all' | 'yahoo_news'>('hatena_bookmark')
   const [ttsEngine, setTtsEngine] = useState<'voicevox' | 'aivispeech'>('aivispeech')
   const [enableReview, setEnableReview] = useState(true)
   const router = useRouter()
@@ -376,7 +376,7 @@ export default function GenerateEpisodeButton() {
             <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
               News Source
             </legend>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
               <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(newsSource === 'hatena_bookmark', isLoading)}`}>
                 <input
                   type="radio"
@@ -416,6 +416,27 @@ export default function GenerateEpisodeButton() {
                     </span>
                   </span>
                   <span className={`mt-1 h-4 w-4 rounded-full border ${newsSource === 'hatena_hotentry_all' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
+                </span>
+              </label>
+
+              <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(newsSource === 'yahoo_news', isLoading)}`}>
+                <input
+                  type="radio"
+                  name="newsSource"
+                  value="yahoo_news"
+                  checked={newsSource === 'yahoo_news'}
+                  onChange={() => setNewsSource('yahoo_news')}
+                  disabled={isLoading}
+                  className="sr-only"
+                />
+                <span className="flex items-start justify-between gap-3">
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-900">Yahoo!ニュース</span>
+                    <span className="mt-1 block text-xs leading-6 text-slate-500">
+                      Yahoo!ニュース・トピックスの主要ニュースをお届けします。
+                    </span>
+                  </span>
+                  <span className={`mt-1 h-4 w-4 rounded-full border ${newsSource === 'yahoo_news' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
                 </span>
               </label>
             </div>
