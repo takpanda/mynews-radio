@@ -1,6 +1,10 @@
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from app.db.connection import get_db_connection
+
+
+JST = timezone(timedelta(hours=9))
 
 
 class ArticleService:
@@ -62,6 +66,7 @@ class ArticleService:
         max_articles: int,
         min_importance_score: int,
     ) -> list[dict[str, Any]]:
+        today_jst = datetime.now(JST).date().isoformat()
         with get_db_connection() as conn:
             rows = conn.execute(
                 """
@@ -71,10 +76,11 @@ class ArticleService:
                   AND summary IS NOT NULL
                   AND summary != ''
                   AND importance_score >= ?
+                  AND published_at = ?
                 ORDER BY importance_score DESC, published_at DESC, id DESC
                 LIMIT ?
                 """,
-                (min_importance_score, max_articles),
+                (min_importance_score, today_jst, max_articles),
             ).fetchall()
             return [dict(row) for row in rows]
 
