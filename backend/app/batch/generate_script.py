@@ -95,13 +95,16 @@ def _load_prompt_template() -> str:
     return prompt_path.read_text(encoding="utf-8")
 
 
-def generate_script(output_path: str, program_name: str = "ニュースのとなり") -> int:
+def generate_script(output_path: str, program_name: str = "ニュースのとなり", news_source: str | None = None) -> int:
     settings = get_settings()
     max_articles = int(os.getenv("MAX_SCRIPT_ARTICLES", "10"))
     min_score = int(os.getenv("MIN_IMPORTANCE_SCORE", "3"))
 
+    if news_source is None and program_name == "テックニュース":
+        news_source = "hatena_bookmark"
+
     service = ArticleService()
-    summaries = service.fetch_summaries_for_script(max_articles=max_articles, min_importance_score=min_score)
+    summaries = service.fetch_summaries_for_script(max_articles=max_articles, min_importance_score=min_score, source=news_source)
     if not summaries:
         logger.warning("No summaries to generate script from")
         return 0

@@ -98,6 +98,7 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
             existing_summaries = article_service.fetch_summaries_for_script(
                 max_articles=max_articles,
                 min_importance_score=min_score,
+                source=news_source,
             )
             if not existing_summaries:
                 raise RuntimeError("summarize_articles produced no results")
@@ -107,9 +108,9 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
             )
 
         # Step 3: generate_script
-        logger.info("=== Step 3/5: generate_script ===")
+        logger.info("=== Step 3/5: generate_script (source=%s) ===", news_source)
         script_path = os.path.join(episode_dir, "script.json")
-        lines_count = generate_script(script_path)
+        lines_count = generate_script(script_path, news_source=news_source)
         logger.info("generate_script completed: lines=%d", lines_count)
         if lines_count == 0:
             raise RuntimeError("generate_script produced no lines")

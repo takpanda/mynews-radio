@@ -65,23 +65,41 @@ class ArticleService:
         self,
         max_articles: int,
         min_importance_score: int,
+        source: str | None = None,
     ) -> list[dict[str, Any]]:
         today_jst = datetime.now(JST).date().isoformat()
         with get_db_connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT id, title, source, url, summary, category, importance_score, difficulty
-                FROM articles
-                WHERE status = 'summarized'
-                  AND summary IS NOT NULL
-                  AND summary != ''
-                  AND importance_score >= ?
-                  AND published_at = ?
-                ORDER BY importance_score DESC, published_at DESC, id DESC
-                LIMIT ?
-                """,
-                (min_importance_score, today_jst, max_articles),
-            ).fetchall()
+            if source is not None:
+                rows = conn.execute(
+                    """
+                    SELECT id, title, source, url, summary, category, importance_score, difficulty
+                    FROM articles
+                    WHERE status = 'summarized'
+                      AND summary IS NOT NULL
+                      AND summary != ''
+                      AND importance_score >= ?
+                      AND published_at = ?
+                      AND source = ?
+                    ORDER BY importance_score DESC, published_at DESC, id DESC
+                    LIMIT ?
+                    """,
+                    (min_importance_score, today_jst, source, max_articles),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id, title, source, url, summary, category, importance_score, difficulty
+                    FROM articles
+                    WHERE status = 'summarized'
+                      AND summary IS NOT NULL
+                      AND summary != ''
+                      AND importance_score >= ?
+                      AND published_at = ?
+                    ORDER BY importance_score DESC, published_at DESC, id DESC
+                    LIMIT ?
+                    """,
+                    (min_importance_score, today_jst, max_articles),
+                ).fetchall()
             return [dict(row) for row in rows]
 
     def mark_articles_used(self, article_ids: list[int]) -> None:
