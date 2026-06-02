@@ -99,33 +99,32 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
 
     yield _format_sse("progress", _build_progress_payload("start", "エピソード生成を開始します。"))
 
-    # 一般ニュース選択時はRSSから記事をインポートして要約する
-    if news_source in {"hatena_hotentry_all", "yahoo_news"}:
-        yield _format_sse("progress", _build_progress_payload("import", "一般ニュース記事を取得しています..."))
-        try:
-            ins, dup = import_articles_by_source(news_source)
-            logger.info("RSS import done: inserted=%d duplicated=%d", ins, dup)
-        except Exception as exc:
-            logger.exception("RSS import failed")
-            service.update_episode_status(episode_id, "failed")
-            yield _format_sse("error", _build_error_payload(f"記事の取得に失敗しました: {exc}"))
-            return
+    # RSSから記事をインポートして要約する（全ニュースソース共通）
+    yield _format_sse("progress", _build_progress_payload("import", "記事を取得しています..."))
+    try:
+        ins, dup = import_articles_by_source(news_source)
+        logger.info("RSS import done: inserted=%d duplicated=%d", ins, dup)
+    except Exception as exc:
+        logger.exception("RSS import failed")
+        service.update_episode_status(episode_id, "failed")
+        yield _format_sse("error", _build_error_payload(f"記事の取得に失敗しました: {exc}"))
+        return
 
-        if ins == 0 and dup == 0:
-            service.update_episode_status(episode_id, "failed")
-            yield _format_sse("error", _build_error_payload("RSSから記事を取得できませんでした。", status="no_content"))
-            return
+    if ins == 0 and dup == 0:
+        service.update_episode_status(episode_id, "failed")
+        yield _format_sse("error", _build_error_payload("RSSから記事を取得できませんでした。", status="no_content"))
+        return
 
-        yield _format_sse("progress", _build_progress_payload("summarize", "記事を要約しています..."))
-        try:
-            summaries_path = os.path.join(base_dir, "summaries.json")
-            summarized = summarize_articles(summaries_path)
-            logger.info("summarize done: count=%d", summarized)
-        except Exception as exc:
-            logger.exception("summarize failed")
-            service.update_episode_status(episode_id, "failed")
-            yield _format_sse("error", _build_error_payload(f"記事の要約に失敗しました: {exc}"))
-            return
+    yield _format_sse("progress", _build_progress_payload("summarize", "記事を要約しています..."))
+    try:
+        summaries_path = os.path.join(base_dir, "summaries.json")
+        summarized = summarize_articles(summaries_path)
+        logger.info("summarize done: count=%d", summarized)
+    except Exception as exc:
+        logger.exception("summarize failed")
+        service.update_episode_status(episode_id, "failed")
+        yield _format_sse("error", _build_error_payload(f"記事の要約に失敗しました: {exc}"))
+        return
 
     old_max = os.environ.get("MAX_SCRIPT_ARTICLES")
     os.environ["MAX_SCRIPT_ARTICLES"] = str(body.max_articles)
