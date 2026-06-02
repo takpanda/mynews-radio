@@ -133,7 +133,7 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
     try:
         yield _format_sse("progress", _build_progress_payload("generate_script", "台本を生成しています..."))
         script_path = os.path.join(base_dir, "script.json")
-        line_count = generate_script(script_path, program_name=program_name)
+        line_count = generate_script(script_path, program_name=program_name, news_source=news_source)
     finally:
         if old_max is None:
             os.environ.pop("MAX_SCRIPT_ARTICLES", None)
