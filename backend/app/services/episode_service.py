@@ -34,6 +34,17 @@ class EpisodeService:
                 (status, episode_id),
             )
 
+    def update_episode_phase(self, episode_id: int, phase: str) -> None:
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                UPDATE episodes
+                SET phase = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (phase, episode_id),
+            )
+
     def add_episode_item(
         self,
         episode_id: int,

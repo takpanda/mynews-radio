@@ -136,6 +136,7 @@ def get_episode(episode_id: int) -> dict:
         "date": episode["episode_date"],
         "duration_seconds": 0.0,
         "status": episode.get("status", "pending"),
+        "phase": episode.get("phase", ""),
         "article_count": len(items),
         "audio_url": None,
         "articles": items,

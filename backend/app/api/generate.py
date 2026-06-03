@@ -1,21 +1,21 @@
-"""Broadcast generation endpoint (POST /generate)."""
+"""Broadcast generation endpoint (POST /generate) - async background execution."""
 
+import asyncio
 import json
 import logging
 import os
 from pathlib import Path
-from typing import Generator
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.batch.build_episode import build_episode
 from app.batch.generate_script import generate_script
-from app.batch.review_script import review_script
 from app.batch.import_articles import import_articles_by_source
+from app.batch.review_script import review_script
 from app.batch.summarize_articles import summarize_articles
 from app.batch.synthesize_voicevox import synthesize_episode
-from app.batch.build_episode import build_episode
 from app.config import get_settings
 from app.services.episode_service import EpisodeService
 
@@ -26,48 +26,22 @@ router = APIRouter()
 DEFAULT_EPISODES_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
 
 PHASE_SEQUENCE = {
-    "start": {"step_index": 0, "step_total": 6, "step_label": "開始"},
-    "import": {"step_index": 1, "step_total": 6, "step_label": "記事取得"},
-    "summarize": {"step_index": 2, "step_total": 6, "step_label": "要約"},
-    "generate_script": {"step_index": 3, "step_total": 6, "step_label": "台本生成"},
-    "review": {"step_index": 4, "step_total": 6, "step_label": "レビュー"},
-    "review_done": {"step_index": 4, "step_total": 6, "step_label": "レビュー"},
-    "synthesize": {"step_index": 5, "step_total": 6, "step_label": "音声合成"},
-    "build": {"step_index": 6, "step_total": 6, "step_label": "音声統合"},
-    "db": {"step_index": 6, "step_total": 6, "step_label": "保存"},
-    "review_synthesize": {"step_index": 6, "step_total": 6, "step_label": "レビュー版音声合成"},
-    "review_build": {"step_index": 6, "step_total": 6, "step_label": "レビュー版統合"},
-    "review_complete": {"step_index": 6, "step_total": 6, "step_label": "レビュー版完了"},
-    "complete": {"step_index": 6, "step_total": 6, "step_label": "完了"},
-    "failed": {"step_index": 0, "step_total": 6, "step_label": "失敗"},
+    "start": {"step_index": 0, "step_total": 6, "step_label": "\u59cb\u3081"},
+    "import": {"step_index": 1, "step_total": 6, "step_label": "\u6587\u66f8\u7c21"},
+    "summarize": {"step_index": 2, "step_total": 6, "step_label": "\u30e6\u30fc\u30b5\u30fc\u3067\u304d\u305f\u3089"},
+    "generate_script": {"step_index": 3, "step_total": 6, "step_label": "\u30c6\u30ec\u30ab\u30b7\u30e7\u30eb"},
+    "review": {"step_index": 4, "step_total": 6, "step_label": "\u5962\u8a10"},
+    "review_done": {"step_index": 4, "step_total": 6, "step_label": "\u65bd\u884c"},
+    "synthesize": {"step_index": 5, "step_total": 6, "step_label": "\u30b9\u30ea\u30fc\u30ba\u30af\u30ed\u30be\u30a8\u30f3\u30b7"},
+    "build": {"step_index": 5, "step_total": 6, "step_label": "\u72ec\u7acb\u4e0d\u8bed\u901a"},
+    "review_complete": {"step_index": 10, "step_total": 12},
+    "failed": {"step_index": 0, "step_total": 6, "step_label": "\u30e9\u30a4\u30f3\u51fa"},
 }
 
-
-def _format_sse(event: str, payload: dict) -> bytes:
-    return (
-        f"event: {event}\n"
-        f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-    ).encode("utf-8")
-
-
-def _build_error_payload(message: str, status: str = "error") -> dict:
-    payload = {"phase": "failed", "status": status, "message": message}
-    payload.update(PHASE_SEQUENCE["failed"])
-    return payload
-
-
-def _build_progress_payload(phase: str, message: str, status: str = "running", **extra: object) -> dict:
-    payload = {"phase": phase, "status": status, "message": message}
-    payload.update(PHASE_SEQUENCE.get(phase, {"step_index": 0, "step_total": 6, "step_label": phase}))
-    payload.update(extra)
-    return payload
-
-
-NEWS_SOURCES = {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news"}
+NEWS_SOURCES = {"hatena_bookmark", "yahoo_news", "japanese"}
 
 
 class GenerateRequest(BaseModel):
-    """番組生成リクエスト"""
     date: str = Field(description="放送日 (YYYY-MM-DD)")
     max_articles: int = Field(default=10, ge=1, le=50)
     duration_minutes: int | None = Field(default=None, ge=1, le=640)
@@ -77,45 +51,44 @@ class GenerateRequest(BaseModel):
 
 
 class GenerateResponse(BaseModel):
-    """番組生成レスポンス"""
     episode_id: int
     status: str
     message: str
 
 
-def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
-    episode_date = body.date
-    logger.info("UI generate request: date=%s max_articles=%d", episode_date, body.max_articles)
+def _run_generation(episode_id: int, body: GenerateRequest) -> None:
+    """Actual generation pipeline (runs in background). Persists phase to DB."""
+
     service = EpisodeService()
-    episode_id = service.create_episode(
-        episode_date=episode_date,
-        status="generating",
-    )
+    episode_date = body.date
     base_dir = os.path.join(DEFAULT_EPISODES_DIR, str(episode_id))
     Path(base_dir).mkdir(parents=True, exist_ok=True)
 
     news_source = body.news_source if body.news_source in NEWS_SOURCES else "hatena_bookmark"
     program_name = "テックニュース" if news_source == "hatena_bookmark" else "ニュースのとなり"
 
-    yield _format_sse("progress", _build_progress_payload("start", "エピソード生成を開始します。"))
+    logger.info("Background generation started: episode_id=%d date=%s", episode_id, episode_date)
 
-    # RSSから記事をインポートして要約する（全ニュースソース共通）
-    yield _format_sse("progress", _build_progress_payload("import", "記事を取得しています..."))
+    # -- START --
+    service.update_episode_phase(episode_id, "start")
+    logger.info("[%d] phase=start", episode_id)
+
+    # -- IMPORT --
+    service.update_episode_phase(episode_id, "import")
     try:
         ins, dup = import_articles_by_source(news_source)
         logger.info("RSS import done: inserted=%d duplicated=%d", ins, dup)
     except Exception as exc:
         logger.exception("RSS import failed")
         service.update_episode_status(episode_id, "failed")
-        yield _format_sse("error", _build_error_payload(f"記事の取得に失敗しました: {exc}"))
         return
 
     if ins == 0 and dup == 0:
         service.update_episode_status(episode_id, "failed")
-        yield _format_sse("error", _build_error_payload("RSSから記事を取得できませんでした。", status="no_content"))
         return
 
-    yield _format_sse("progress", _build_progress_payload("summarize", "記事を要約しています..."))
+    # -- SUMMARIZE --
+    service.update_episode_phase(episode_id, "summarize")
     try:
         summaries_path = os.path.join(base_dir, "summaries.json")
         summarized = summarize_articles(summaries_path)
@@ -123,14 +96,14 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
     except Exception as exc:
         logger.exception("summarize failed")
         service.update_episode_status(episode_id, "failed")
-        yield _format_sse("error", _build_error_payload(f"記事の要約に失敗しました: {exc}"))
         return
 
     old_max = os.environ.get("MAX_SCRIPT_ARTICLES")
     os.environ["MAX_SCRIPT_ARTICLES"] = str(body.max_articles)
 
     try:
-        yield _format_sse("progress", _build_progress_payload("generate_script", "台本を生成しています..."))
+        # -- GENERATE SCRIPT --
+        service.update_episode_phase(episode_id, "generate_script")
         script_path = os.path.join(base_dir, "script.json")
         line_count = generate_script(script_path, program_name=program_name, news_source=news_source)
     finally:
@@ -141,38 +114,35 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
 
     if line_count <= 0:
         service.update_episode_status(episode_id, "failed")
-        yield _format_sse(
-            "error",
-            _build_error_payload(
-                "台本を生成する記事がありません。status='summarized'の記事を登録してください。",
-                status="no_content",
-            ),
-        )
         return
 
+    # -- TTS SETUP --
     settings = get_settings()
-    TTS_ENGINES = {"voicevox", "aivispeech"}
-    tts_engine = body.tts_engine if body.tts_engine in TTS_ENGINES else settings.default_tts_engine
+    tts_engines = {"voicevox", "aivispeech"}
+    tts_engine = body.tts_engine if body.tts_engine in tts_engines else settings.default_tts_engine
     if tts_engine == "aivispeech":
         tts_base_url = settings.aivispeech_base_url
         tts_speaker_male = settings.aivispeech_speaker_male
         tts_speaker_female = settings.aivispeech_speaker_female
-        tts_engine_label = f"AivisSpeech ({settings.aivispeech_base_url})"
     else:
         tts_base_url = settings.voicevox_base_url
         tts_speaker_male = settings.voicevox_speaker_male
         tts_speaker_female = settings.voicevox_speaker_female
-        tts_engine_label = f"VOICEVOX ({settings.voicevox_base_url})"
 
     reviewed_episode_id: int | None = None
     reviewed_episode_dir: str | None = None
-    review_result: dict = {"revised": False, "review_count": 0, "revision_summary": "", "lines_count": 0}
+    review_result: dict[str, Any] = {"revised": False, "review_count": 0}
 
+    # -- REVIEW (optional) --
     if body.enable_review:
-        yield _format_sse("progress", _build_progress_payload("review", "4人のディレクターが台本をレビューしています..."))
+        service.update_episode_phase(episode_id, "review")
         try:
-            reviewed_episode_id = service.create_episode(episode_date=episode_date, status="generating")
-            reviewed_episode_dir = os.path.join(DEFAULT_EPISODES_DIR, str(reviewed_episode_id))
+            reviewed_episode_id = service.create_episode(
+                episode_date=episode_date, status="generating"
+            )
+            reviewed_episode_dir = os.path.join(
+                DEFAULT_EPISODES_DIR, str(reviewed_episode_id)
+            )
             Path(reviewed_episode_dir).mkdir(parents=True, exist_ok=True)
             Path(os.path.join(reviewed_episode_dir, "lines")).mkdir(exist_ok=True)
             review_result = review_script(script_path, reviewed_episode_dir)
@@ -181,17 +151,14 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
                 review_result["revised"],
                 review_result["review_count"],
             )
-            review_msg = f"レビュー完了（{review_result['review_count']}人のディレクター）"
-            if review_result.get("revised"):
-                review_msg += " — 台本を修正しました"
-            yield _format_sse("progress", _build_progress_payload("review_done", review_msg, status="completed"))
+            service.update_episode_phase(episode_id, "review_done")
         except Exception as exc:
             logger.warning("review_script failed (non-fatal): %s", exc)
             if reviewed_episode_id is not None:
                 service.update_episode_status(reviewed_episode_id, "failed")
-            yield _format_sse("progress", _build_progress_payload("review_done", "レビューをスキップしました（エラー）", status="skipped"))
 
-    yield _format_sse("progress", _build_progress_payload("synthesize", f"音声を合成しています... ({tts_engine_label})", engine=tts_engine))
+    # -- SYNTHESIZE TTS --
+    service.update_episode_phase(episode_id, "synthesize")
     try:
         success_count = synthesize_episode(
             base_dir,
@@ -202,43 +169,25 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
     except Exception as exc:
         logger.exception("tts synthesis failed")
         service.update_episode_status(episode_id, "failed")
-        yield _format_sse(
-            "error",
-            _build_error_payload(
-                f"音声合成に失敗しました。{tts_engine_label} を確認してください。",
-                status="tts_error",
-            ),
-        )
         return
 
     if success_count <= 0:
         service.update_episode_status(episode_id, "failed")
-        yield _format_sse(
-            "error",
-            _build_error_payload(
-                f"音声合成に失敗しました。{tts_engine_label} を確認してください。",
-                status="tts_error",
-            ),
-        )
         return
 
-    yield _format_sse("progress", _build_progress_payload("build", "音声ファイルを統合しています..."))
+    # -- BUILD MP3 --
+    service.update_episode_phase(episode_id, "build")
     ep_metadata = build_episode(base_dir)
     if not ep_metadata:
         service.update_episode_status(episode_id, "failed")
-        yield _format_sse(
-            "error",
-            _build_error_payload(
-                "番組生成完了したがメタデータ取得に失敗しました",
-                status="build_error",
-            ),
-        )
         return
 
-    service.update_episode_audio_path(episode_id, ep_metadata.get("audio_path") or "")
+    service.update_episode_audio_path(
+        episode_id, ep_metadata.get("audio_path") or ""
+    )
     service.update_episode_status(episode_id, "completed")
 
-    yield _format_sse("progress", _build_progress_payload("db", "エピソードを保存しています...", status="completed"))
+    # -- PERSIST ITEMS --
     try:
         with open(script_path, "r", encoding="utf-8") as f:
             script = json.load(f)
@@ -251,13 +200,12 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
                 segment_text=line.get("text", ""),
             )
     except Exception:
-        logger.exception("failed to persist episode items")
+        logger.exception("failed to persist episode_items")
 
-    # Build reviewed episode (non-fatal)
+    # -- BUILD REVIEWED EPISODE (non-fatal) --
     if reviewed_episode_id is not None and reviewed_episode_dir is not None:
         if review_result.get("revised"):
             try:
-                yield _format_sse("progress", _build_progress_payload("review_synthesize", "レビュー版を音声合成しています..."))
                 reviewed_wav = synthesize_episode(
                     reviewed_episode_dir,
                     base_url=tts_base_url,
@@ -267,46 +215,72 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
                 if reviewed_wav <= 0:
                     raise RuntimeError("reviewed synthesize produced 0 WAV files")
 
-                yield _format_sse("progress", _build_progress_payload("review_build", "レビュー版を統合しています..."))
                 reviewed_meta = build_episode(reviewed_episode_dir)
                 if not reviewed_meta:
-                    raise RuntimeError("reviewed build_episode returned empty metadata")
+                    raise RuntimeError(
+                        "reviewed build_episode returned empty metadata"
+                    )
 
-                service.update_episode_audio_path(reviewed_episode_id, reviewed_meta.get("audio_path") or "")
-                service.update_episode_status(reviewed_episode_id, "completed")
-                yield _format_sse(
-                    "progress",
-                    _build_progress_payload(
-                        "review_complete",
-                        f"レビュー版が完成しました（id={reviewed_episode_id}）",
-                        status="completed",
-                    ),
+                service.update_episode_audio_path(
+                    reviewed_episode_id,
+                    reviewed_meta.get("audio_path") or "",
                 )
+                service.update_episode_status(reviewed_episode_id, "completed")
             except Exception as exc:
-                logger.warning("Reviewed episode build failed (non-fatal): %s", exc)
+                logger.warning(
+                    "Reviewed episode build failed (non-fatal): %s", exc
+                )
                 service.update_episode_status(reviewed_episode_id, "failed")
         else:
             service.update_episode_status(reviewed_episode_id, "failed")
 
-    yield _format_sse(
-        "complete",
-        _build_progress_payload(
-            "complete",
-            f"Episode generated (id={episode_id}, lines={success_count})",
-            status="completed",
-            episode_id=episode_id,
-            line_count=success_count,
-        ),
+    service.update_episode_phase(episode_id, "complete")
+    logger.info("[%d] completed successfully", episode_id)
+
+
+@router.post("/generate", summary="番組を生成する（バックグラウンド実行）")
+def generate_episode(body: GenerateRequest) -> dict:
+    """エピソードレコードを作成して即座に JSON で返し、実際の生成は
+    asyncio.Task (or threading.Thread as fallback) でバックグラウンド実行する。"""
+
+    service = EpisodeService()
+
+    # Check for existing generating episode on the same date to avoid dupes
+    episodes = service.get_episode_list()
+    for ep in episodes:
+        if ep["episode_date"] == body.date and ep["status"] == "generating":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Episode for {body.date} is already generating (id={ep['id']})",
+            )
+
+    # Create the episode record once -- background task reuses this same id
+    episode_id = service.create_episode(
+        episode_date=body.date, status="generating"
     )
+    service.update_episode_phase(episode_id, "start")
+
+    # Start actual pipeline in background; prefer asyncio under uvicorn
+    loop: asyncio.AbstractEventLoop | None = None
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+
+    if loop is not None:
+        asyncio.ensure_future(_async_wrapper(episode_id, body))
+    else:
+        import threading as _th
+        t = _th.Thread(target=_run_generation, args=(episode_id, body), daemon=True)
+        t.start()
+
+    return {
+        "episode_id": episode_id,
+        "status": "generating",
+        "message": f"Episode generation started for {body.date}",
+    }
 
 
-@router.post("/generate", summary="番組を生成する")
-def generate_episode(body: GenerateRequest) -> StreamingResponse:
-    return StreamingResponse(
-        _stream_generate(body),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache"},
-    )
-
-
-# ── file-based routes for /episodes and /health are mounted in main.py ──
+async def _async_wrapper(episode_id: int, body: GenerateRequest) -> None:
+    """Wrap synchronous pipeline so it does not block the event loop."""
+    await asyncio.to_thread(_run_generation, episode_id, body)
