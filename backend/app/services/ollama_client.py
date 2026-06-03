@@ -48,8 +48,37 @@ class OllamaClient:
                 resp.raise_for_status()
                 data = resp.json()
                 raw = data.get("response", "")
+
+                # Qwen3.6+ returns empty 'response' with JSON in 'thinking'
                 if not raw:
-                    raw = self._extract_text_from_thinking(data.get("thinking", ""))
+                    thinking = data.get("thinking", "")
+                    if thinking:
+                        # Try extracting content between <content> tags first
+                        thinking_stripped = str(thinking).strip()
+                        start = thinking_stripped.find("<content>")
+                        end = thinking_stripped.rfind("</content>")
+                        if start != -1 and end != -1 and end > start:
+                            raw = thinking_stripped[start + len("<content>"):end].strip()
+                        else:
+                            # Parse the thinking as-is
+                            parsed = self._parse_json(thinking_stripped)
+                            if parsed is not None:
+                                return parsed
+                    
+                    # Retry once with a more explicit JSON prompt when response is empty
+                    if attempt == 1:
+                        payload["prompt"] = (
+                            "Answer with ONLY valid JSON (no markdown, no backticks, no extra text):\n"
+                            + prompt
+                        )
+                        logger.warning(
+                            "Empty 'response' field detected, retrying with forced-json prompt (attempt=%d)",
+                            attempt,
+                        )
+                        continue
+                else:
+                    # Normal case: response contains text, try to extract JSON
+                    raw = self._extract_text_from_thinking(raw)
 
                 parsed = self._parse_json(raw)
                 if parsed is not None:

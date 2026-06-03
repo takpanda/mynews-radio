@@ -33,12 +33,23 @@ def summarize_articles(output_path: str) -> int:
 
     with OllamaClient(settings.ollama_base_url, settings.ollama_model) as client:
         for article in articles:
+            # Skip articles with too short text (not enough content to summarize)
+            article_text = article.get("text", "") or ""
+            if len(article_text) < 100:
+                logger.warning(
+                    "Skip article id=%s: text too short (%d chars)",
+                    article["id"],
+                    len(article_text),
+                )
+                service.update_summary(article["id"], "", "general", 3, "error")
+                continue
+
             prompt = template.format(
                 title=article.get("title", ""),
                 source=article.get("source", ""),
                 url=article.get("url", ""),
                 published_at=article.get("published_at", ""),
-                text=article.get("text", ""),
+                text=article_text,
             )
             response = client.generate_json(prompt)
             if response is None:
