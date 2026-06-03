@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import random
 import sys
 from datetime import date
 from pathlib import Path
@@ -24,6 +25,30 @@ _TRANSITION_PHRASES = [
     "では次は{topic}の話題をご紹介します。",
     "{topic}についても最新の情報が入ってきました。",
     "ここで{topic}のニュースもご紹介しましょう。",
+    "さて、次のトピックです。{topic}についてお伝えします。",
+    "ここからは{topic}の話題に入っていきましょう。",
+    "続いてお届けするのは{topic}のニュースです。",
+    "次の項目は{topic}のお話です。",
+    "では、{topic}の最新の動きをご報告します。",
+    "ここで視点を変えて、{topic}を見てみましょう。",
+    "{topic}についても触れておきましょう。",
+    "次は{topic}の話題です。ご注眼ください。",
+    "さて、みんなが注目している{topic}の情報ですよ。",
+    "少し話題を変えて、{topic}について紹介しましょう。",
+    "{topic}に関して気になるニュースが届いていますね。",
+    "では、次のコーナーへ。{topic}の最新情報をどうぞ。",
+    "ここでは{topic}のお伝えできない情報をまとめました。",
+    "お次は{topic}です。どうなっているのでしょうか。",
+    "ここからが本題。{topic}に迫ります。",
+    "{topic}には次のような動きがあるようです。",
+    "引き続き、{topic}の話題をお届けします。",
+    "そのほか、{topic}についての情報も集まりました。",
+    "さてさて、{topic}はどう動いているのでしょうか。",
+    "次にご紹介する{topic}も要チェックです。",
+    "ここからはちょっと違う切り口で、{topic}を考えます。",
+    "{topic}についても忘れてはいけないニュースがありますよ。",
+    "では、もう少し先を見てみましょうか。{topic}の話題でございます。",
+    "さあ、次にしましょうか。{topic}についてです。",
 ]
 
 _DISCUSSION_TRANSITIONS = [
@@ -31,7 +56,48 @@ _DISCUSSION_TRANSITIONS = [
     "{topic}、少し深堀りして話し合ってみましょう。",
     "ちょっとここで{topic}について、ふたりで語ってみたいと思います。",
     "せっかくなので{topic}、じっくり話してみましょうか。",
+    "{topic}についてはお互いの意見を交ぜてみましょう。",
+    "ちょっと待ってくださいね。{topic}はもう少していなくちゃ。",
+    "{topic}、私も気になっているんですよ。どう思います？",
+    "ここで一旦立ち止まって{topic}を議論しましょうか。",
+    "{topic}について、二人で頭を絞ってみますよ。",
 ]
+
+
+def _pick_phrase(phrases: list, used_indices: dict):
+    """乱択でフレーズを選んで返す。直前に使用した同じプレースホルダー位置のものを回避する。"""
+    n = len(phrases)
+    last_idx = used_indices.get("last")
+    cands = list(range(n))
+    if last_idx is not None and n > 1:
+        cands = [i for i in cands if i != last_idx]
+    chosen = random.choice(cands)
+    used_indices["last"] = chosen
+    return phrases[chosen]
+
+
+def _pick_speaker(result: list, section: str):
+    """遷移行の話者を選ぶ。直前のコンテンツ話者と交互にし、discussion セクションでは
+    前後のセクション内容(情報量・話者分散)を見て調整する。"""
+    if not result:
+        return "male"
+
+    prev_speaker = result[-1].get("speaker", "male")
+    # discussion セクションでは前回の transition が女性の場合は男性を、そうでなければ
+    # 直前のコンテンツ行(ニュース)の speak を意識する
+    if section == "discussion":
+        # 直前にすでに複数の news 行がある場合、その最後の話者を参考にする
+        last_news_speaker = None
+        for prev_line in reversed(result):
+            if prev_line.get("section") in ("news", "discussion"):
+                last_news_speaker = prev_line.get("speaker")
+                break
+        if last_news_speaker:
+            # 直前のニュース担当とは違う側がトランジションを言うことで自然な流れに
+            return "female" if last_news_speaker == "male" else "male"
+
+    # 通常の news transition: コメントの最終話者を切り替え
+    return "female" if prev_speaker == "male" else "male"
 
 
 def _ensure_transitions(lines: list, summaries: list) -> list:
@@ -51,8 +117,7 @@ def _ensure_transitions(lines: list, summaries: list) -> list:
 
     result: list = []
     last_content_aid = None   # 直前の news/discussion の article_id
-    trans_count = 0
-    disc_trans_count = 0
+    trans_phrase_used = {"last": None}  # 乱択重複回避用状態
 
     for line in lines:
         section = line.get("section", "news")
@@ -63,15 +128,9 @@ def _ensure_transitions(lines: list, summaries: list) -> list:
 
             # article_id が変わった（または intro→news）かつ直前が transition でない場合に挿入
             if not prev_is_transition and article_id != last_content_aid:
-                speaker = "female" if (result and result[-1].get("speaker") == "male") else "male"
-                if section == "discussion":
-                    phrases = _DISCUSSION_TRANSITIONS
-                    text = phrases[disc_trans_count % len(phrases)].format(topic=_topic(article_id))
-                    disc_trans_count += 1
-                else:
-                    phrases = _TRANSITION_PHRASES
-                    text = phrases[trans_count % len(phrases)].format(topic=_topic(article_id))
-                    trans_count += 1
+                speaker = _pick_speaker(result, section)
+                phrases = _DISCUSSION_TRANSITIONS if section == "discussion" else _TRANSITION_PHRASES
+                text = _pick_phrase(phrases, trans_phrase_used).format(topic=_topic(article_id))
                 result.append({
                     "speaker": speaker,
                     "text": text,
