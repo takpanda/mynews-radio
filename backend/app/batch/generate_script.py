@@ -37,7 +37,7 @@ _TRANSITION_PHRASES = [
     "少し話題を変えて、{topic}について紹介しましょう。",
     "{topic}に関して気になるニュースが届いていますね。",
     "では、次のコーナーへ。{topic}の最新情報をどうぞ。",
-    "ここでは{topic}のお伝えできない情報をまとめました。",
+
     "お次は{topic}です。どうなっているのでしょうか。",
     "ここからが本題。{topic}に迫ります。",
     "{topic}には次のような動きがあるようです。",
@@ -56,8 +56,7 @@ _DISCUSSION_TRANSITIONS = [
     "{topic}、少し深堀りして話し合ってみましょう。",
     "ちょっとここで{topic}について、ふたりで語ってみたいと思います。",
     "せっかくなので{topic}、じっくり話してみましょうか。",
-    "{topic}についてはお互いの意見を交ぜてみましょう。",
-    "ちょっと待ってくださいね。{topic}はもう少していなくちゃ。",
+
     "{topic}、私も気になっているんですよ。どう思います？",
     "ここで一旦立ち止まって{topic}を議論しましょうか。",
     "{topic}について、二人で頭を絞ってみますよ。",
@@ -77,27 +76,53 @@ def _pick_phrase(phrases: list, used_indices: dict):
 
 
 def _pick_speaker(result: list, section: str):
-    """遷移行の話者を選ぶ。直前のコンテンツ話者と交互にし、discussion セクションでは
-    前後のセクション内容(情報量・話者分散)を見て調整する。"""
+    """遷移行の話者を選ぶ。直前のコンテンツ行の話者パターンを確認し、
+    同一話者の連続が3回以上にならないよう調整する。"""
     if not result:
         return "male"
 
-    prev_speaker = result[-1].get("speaker", "male")
-    # discussion セクションでは前回の transition が女性の場合は男性を、そうでなければ
-    # 直前のコンテンツ行(ニュース)の speak を意識する
-    if section == "discussion":
-        # 直前にすでに複数の news 行がある場合、その最後の話者を参考にする
-        last_news_speaker = None
-        for prev_line in reversed(result):
-            if prev_line.get("section") in ("news", "discussion"):
-                last_news_speaker = prev_line.get("speaker")
-                break
-        if last_news_speaker:
-            # 直前のニュース担当とは違う側がトランジションを言うことで自然な流れに
-            return "female" if last_news_speaker == "male" else "male"
+    # 直後のcontent行(N個)の話者順列を取り出し、同じ話者が何回連続しているか判定する
+    content_speakers = []
+    for prev_line in reversed(result):
+        if prev_line.get("section") in ("news", "discussion", "transition"):
+            content_speakers.append(prev_line.get("speaker"))
+        if len(content_speakers) >= 3:
+            break
 
-    # 通常の news transition: コメントの最終話者を切り替え
-    return "female" if prev_speaker == "male" else "male"
+    if not content_speakers:
+        return "male"
+
+    # 末尾の話者(直前のもの)
+    last_spk = content_speakers[0]
+
+    # 同じ話者が2分以上連続している場合は強制的に相手側を選ぶ
+    run = 1
+    for sp in content_speakers[1:]:
+        if sp == last_spk:
+            run += 1
+        else:
+            break
+
+    alternate = "female" if last_spk == "male" else "male"
+    if run >= 2:
+        return alternate
+
+    # news遷移では直後のcontentの話者と交互にする(自然な受け答え)
+    if section == "news":
+        # 直後に行こうとしているニュース記事の担当話者が予測できればそれとは違うものを選ぶが、
+        # ここでは単純に「2回連続していない」という条件だけで十分なので交互で返す
+        return alternate
+
+    # discussion遷移では同じく交互にするが、前回の議論終了時の担当とは逆側にする
+    last_content_spk = None
+    for sp in content_speakers:
+        if sp is not None:
+            last_content_spk = sp
+            break
+    if last_content_spk:
+        return "female" if last_content_spk == "male" else "male"
+
+    return alternate
 
 
 def _ensure_transitions(lines: list, summaries: list) -> list:
