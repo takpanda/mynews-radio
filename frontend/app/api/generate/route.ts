@@ -1,25 +1,40 @@
-import { NextRequest } from 'next/server'
+import { NextRequest } from "next/server"
 
-const API_BASE = process.env.API_BASE ?? 'http://api:8010'
+const API_BASE = process.env.API_BASE ?? "http://api:8010"
+const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS) || 360_000 // 6分
 
 export async function POST(request: NextRequest) {
   const body = await request.json()
 
-  const upstream = await fetch(`${API_BASE}/generate`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-    },
-    body: JSON.stringify(body),
-  })
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
-  return new Response(upstream.body, {
-    status: upstream.status,
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'X-Accel-Buffering': 'no',
-    },
-  })
+  try {
+    const upstream = await fetch(`${API_BASE}/generate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+      },
+    })
+  } catch (err) {
+    console.error("upstream fetch error:", err)
+    return new Response(JSON.stringify({ error: "upstream timeout or error" }), {
+      status: 504,
+      headers: { "Content-Type": "application/json" },
+    })
+  } finally {
+    clearTimeout(timer)
+  }
 }
