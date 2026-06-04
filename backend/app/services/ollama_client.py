@@ -17,7 +17,7 @@ class OllamaClient:
     @property
     def client(self) -> httpx.Client:
         if self._client is None:
-            self._client = httpx.Client(base_url=self._base_url, timeout=httpx.Timeout(120.0))
+            self._client = httpx.Client(base_url=self._base_url, timeout=httpx.Timeout(300.0))  # 5分
         return self._client
 
     def close(self) -> None:
