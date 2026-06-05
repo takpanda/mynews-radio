@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
@@ -67,7 +68,8 @@ class ArticleService:
         min_importance_score: int,
         source: str | None = None,
     ) -> list[dict[str, Any]]:
-        today_jst = datetime.now(JST).date().isoformat()
+        lookback_days = int(os.getenv("SUMMARY_LOOKBACK_DAYS", "3"))
+        since_date = (datetime.now(JST).date() - timedelta(days=lookback_days)).isoformat()
         with get_db_connection() as conn:
             if source is not None:
                 rows = conn.execute(
@@ -78,12 +80,12 @@ class ArticleService:
                       AND summary IS NOT NULL
                       AND summary != ''
                       AND importance_score >= ?
-                      AND published_at = ?
+                      AND published_at >= ?
                       AND source = ?
                     ORDER BY importance_score DESC, published_at DESC, id DESC
                     LIMIT ?
                     """,
-                    (min_importance_score, today_jst, source, max_articles),
+                    (min_importance_score, since_date, source, max_articles),
                 ).fetchall()
             else:
                 rows = conn.execute(
@@ -94,11 +96,11 @@ class ArticleService:
                       AND summary IS NOT NULL
                       AND summary != ''
                       AND importance_score >= ?
-                      AND published_at = ?
+                      AND published_at >= ?
                     ORDER BY importance_score DESC, published_at DESC, id DESC
                     LIMIT ?
                     """,
-                    (min_importance_score, today_jst, max_articles),
+                    (min_importance_score, since_date, max_articles),
                 ).fetchall()
             return [dict(row) for row in rows]
 
