@@ -68,7 +68,13 @@ class ArticleService:
         min_importance_score: int,
         source: str | None = None,
     ) -> list[dict[str, Any]]:
-        lookback_days = int(os.getenv("SUMMARY_LOOKBACK_DAYS", "3"))
+        _raw_lookback = os.getenv("SUMMARY_LOOKBACK_DAYS")
+        try:
+            lookback_days = int(_raw_lookback) if _raw_lookback else 3
+            if lookback_days < 1:
+                lookback_days = 3
+        except (ValueError, TypeError):
+            lookback_days = 3
         since_date = (datetime.now(JST).date() - timedelta(days=lookback_days)).isoformat()
         with get_db_connection() as conn:
             if source is not None:

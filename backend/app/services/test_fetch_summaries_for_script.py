@@ -1,4 +1,4 @@
-"""Test fetch_summaries_for_script with source filtering."""
+"""Tests for fetch_summaries_for_script: source filtering and lookback days."""
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -70,9 +70,15 @@ class TestFetchSummariesForScriptLookbackDays:
         conn_instance.execute.return_value.fetchall.return_value = []
         return conn_instance
 
+    def _get_since_from_params(self, conn):
+        args = conn.execute.call_args[0]
+        params = args[1] if len(args) > 1 else ()
+        sql = str(args[0]) if len(args) > 0 else ""
+        return sql, [str(p) for p in params]
+
     def test_default_lookback_days_is_3(self, article_service):
-        from datetime import timezone, timedelta as td
-        jst = timezone(td(hours=9))
+        from datetime import timezone as tz
+        jst = tz(timedelta(hours=9))
         expected_since = (datetime.now(jst).date() - timedelta(days=3)).isoformat()
 
         with patch("app.services.article_service.get_db_connection") as mock_conn:
@@ -82,15 +88,14 @@ class TestFetchSummariesForScriptLookbackDays:
                 max_articles=10, min_importance_score=3, source=None
             )
 
-            query_call_args = conn_instance.execute.call_args[0]
-            params = query_call_args[1] if len(query_call_args) > 1 else ()
-            assert expected_since in [str(p) for p in params], (
-                f"Expected {expected_since} in params: {[str(p) for p in params]}"
+            sql, params_str = self._get_since_from_params(conn_instance)
+            assert expected_since in params_str, (
+                f"Expected {expected_since} in params: {params_str}"
             )
 
     def test_custom_lookback_days(self, article_service):
-        from datetime import timezone, timedelta as td
-        jst = timezone(td(hours=9))
+        from datetime import timezone as tz
+        jst = tz(timedelta(hours=9))
         expected_since = (datetime.now(jst).date() - timedelta(days=7)).isoformat()
 
         with patch("app.services.article_service.get_db_connection") as mock_conn:
@@ -100,11 +105,10 @@ class TestFetchSummariesForScriptLookbackDays:
                     max_articles=10, min_importance_score=3, source=None
                 )
 
-            query_call_args = conn_instance.execute.call_args[0]
-            params = query_call_args[1] if len(query_call_args) > 1 else ()
-            assert expected_since in [str(p) for p in params], (
-                f"Expected {expected_since} in params: {[str(p) for p in params]}"
-            )
+        sql, params_str = self._get_since_from_params(conn_instance)
+        assert expected_since in params_str, (
+            f"Expected {expected_since} in params: {params_str}"
+        )
 
     def test_uses_greater_equal_instead_of_equality(self, article_service):
         with patch("app.services.article_service.get_db_connection") as mock_conn:
@@ -114,15 +118,14 @@ class TestFetchSummariesForScriptLookbackDays:
                 max_articles=10, min_importance_score=3, source=None
             )
 
-            query_call_args = conn_instance.execute.call_args[0]
-            sql = str(query_call_args[0]) if len(query_call_args) > 0 else ""
+            sql, _ = self._get_since_from_params(conn_instance)
             assert "published_at >=" in sql, (
                 f"SQL should use 'published_at >=' instead of '=': {sql}"
             )
 
     def test_lookback_with_source_filter(self, article_service):
-        from datetime import timezone, timedelta as td
-        jst = timezone(td(hours=9))
+        from datetime import timezone as tz
+        jst = tz(timedelta(hours=9))
         expected_since = (datetime.now(jst).date() - timedelta(days=5)).isoformat()
 
         with patch("app.services.article_service.get_db_connection") as mock_conn:
@@ -132,16 +135,13 @@ class TestFetchSummariesForScriptLookbackDays:
                     max_articles=10, min_importance_score=3, source="hatena_bookmark"
                 )
 
-            query_call_args = conn_instance.execute.call_args[0]
-            sql = str(query_call_args[0]) if len(query_call_args) > 0 else ""
-            params = query_call_args[1] if len(query_call_args) > 1 else ()
-
-            assert "published_at >=" in sql, (
-                f"SQL should use 'published_at '>=': {sql}"
-            )
-            assert expected_since in [str(p) for p in params], (
-                f"Expected {expected_since} in params: {[str(p) for p in params]}"
-            )
+        sql, params_str = self._get_since_from_params(conn_instance)
+        assert "published_at >=" in sql, (
+            f"SQL should use 'published_at'>=': {sql}"
+        )
+        assert expected_since in params_str, (
+            f"Expected {expected_since} in params: {params_str}"
+        )
 
     def test_sort_order_preserved(self, article_service):
         with patch("app.services.article_service.get_db_connection") as mock_conn:
@@ -151,8 +151,7 @@ class TestFetchSummariesForScriptLookbackDays:
                 max_articles=10, min_importance_score=3, source=None
             )
 
-            query_call_args = conn_instance.execute.call_args[0]
-            sql = str(query_call_args[0]) if len(query_call_args) > 0 else ""
+            sql, _ = self._get_since_from_params(conn_instance)
             assert "ORDER BY importance_score DESC" in sql, (
                 f"Sort order must be preserved: {sql}"
             )
@@ -160,5 +159,22 @@ class TestFetchSummariesForScriptLookbackDays:
                 f"Sort order must include published_at DESC: {sql}"
             )
 
- 
+    @pytest.mark.parametrize(
+        "env_value", ["", "abc", "-1", "0", "  ", "3.5"]
+    )
+    def test_invalid_lookback_falls_back_to_default(self, article_service, env_value):
+        from datetime import timezone as tz
+        jst = tz(timedelta(hours=9))
+        expected_since = (datetime.now(jst).date() - timedelta(days=3)).isoformat()
 
+        with patch("app.services.article_service.get_db_connection") as mock_conn:
+            conn_instance = self._mock_conn(mock_conn)
+            with patch.dict("os.environ", {"SUMMARY_LOOKBACK_DAYS": env_value}):
+                article_service.fetch_summaries_for_script(
+                    max_articles=10, min_importance_score=3, source=None
+                )
+
+        sql, params_str = self._get_since_from_params(conn_instance)
+        assert expected_since in params_str, (
+            f"Expected fallback to default 3 days for env value {env_value!r}: {params_str}"
+        )
