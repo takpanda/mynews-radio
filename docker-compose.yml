@@ -7,7 +7,7 @@ services:
       - .env
     environment:
       - TZ=Asia/Tokyo
-      - CRON_SCHEDULE=${CRON_SCHEDULE:-0 6 * * *}
+      - CRON_SCHEDULE=0 6 * * *
     volumes:
       - ./backend:/app
       - ./data:/app/data
@@ -24,6 +24,7 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+      - ./data:/app/data
     ports:
       - "3010:3010"
     command: npm run dev
