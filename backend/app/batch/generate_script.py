@@ -14,11 +14,6 @@ from app.services.ollama_client import OllamaClient
 
 logger = logging.getLogger(__name__)
 
-_DAILY_VARIATIONS = {
-    "suffixes": ["ですね。", "ですよね。", "かな。", "といったところです。", "といった内容です。"],
-    "conjunctions": ["さて、", "それでは、", "ところで、", "続いて、"]
-}
-
 _TRANSITION_PHRASES = [
     "続いては{topic}のニュースです。",
     "次のニュースに移りましょう。{topic}についてです。",
@@ -180,9 +175,187 @@ def _ensure_transitions(lines: list, summaries: list) -> list:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Auto-Linter
+# ---------------------------------------------------------------------------
+
+# 禁止フレーズ（プロンプトの Forbidden Phrases と同期すること）
+_FORBIDDEN_PHRASES = [
+    "ここで大事なのは、背景ですよね",
+    "ここで大事なのは背景ですよね",
+    "といったところです。",
+    "といった内容です。",
+]
+
+# 数字なしで使うと問題になる表現（単体検出用）
+_REQUIRES_DIGITS = [
+    "数字で見ると",
+    "数字だけ見ると分かるんですけど",
+]
+
+
+def _has_digits(text: str) -> bool:
+    """テキスト中に数字（全角・半角）または具体的な量を示す単語が含まれるか。"""
+    import re
+    return bool(re.search(r"[0-9０-９]|[一二三四五六七八九十百千万億兆](?:人|件|回|社|倍|円|割|%|パーセント)", text))
+
+
+def lint_script(lines: list) -> list[str]:
+    """生成済み lines に対して品質チェックを行い、問題点のリストを返す。
+    返値が空リストなら合格。"""
+    errors: list[str] = []
+
+    seen_texts: set[str] = set()
+    phrase_counts: dict[str, int] = {}
+
+    # discussion が全 news の後に来ているか確認
+    sections = [line.get("section") for line in lines]
+    discussion_indices = [i for i, s in enumerate(sections) if s == "discussion"]
+    news_indices = [i for i, s in enumerate(sections) if s == "news"]
+    if discussion_indices and news_indices:
+        last_news = max(news_indices)
+        first_discussion = min(discussion_indices)
+        if first_discussion < last_news:
+            errors.append(
+                f"discussion が全 news より前に挿入されています "
+                f"(discussion 最初の行インデックス={first_discussion}, 最後の news インデックス={last_news})"
+            )
+
+    for i, line in enumerate(lines):
+        text = line.get("text", "").strip()
+        section = line.get("section", "")
+        speaker = line.get("speaker", "")
+
+        # 重複テキスト検出
+        if text and text in seen_texts:
+            errors.append(f"行 {i}: テキストが重複しています: 「{text[:40]}...」")
+        if text:
+            seen_texts.add(text)
+
+        # 禁止フレーズ検出
+        for phrase in _FORBIDDEN_PHRASES:
+            if phrase in text:
+                errors.append(f"行 {i} ({speaker}): 禁止フレーズ「{phrase}」が含まれています")
+
+        # 口癖フレーズの出現回数カウント（1回超でエラー）
+        all_catchphrases = [
+            "一見シンプルに見えますが、実は構造的な問題があります",
+            "これは感情論だけでは片づけられません",
+            "これ、普通に暮らしている人からするとかなり大きいですよね",
+            "正直、そこが一番気になります",
+            "視聴者の方も、ここはモヤっとすると思います",
+        ]
+        for cp in all_catchphrases:
+            if cp in text:
+                phrase_counts[cp] = phrase_counts.get(cp, 0) + 1
+                if phrase_counts[cp] > 1:
+                    errors.append(f"行 {i}: 口癖「{cp[:20]}...」が2回以上使われています")
+
+        # 「数字で見ると」系フレーズで数字がない場合
+        for req in _REQUIRES_DIGITS:
+            if req in text and not _has_digits(text):
+                errors.append(
+                    f"行 {i} ({speaker}): 「{req}」を使っているが具体的な数字・データが含まれていません"
+                )
+
+    return errors
+
+
+def _build_correction_prompt(original_prompt: str, lines: list, errors: list[str]) -> str:
+    """Linter エラーに基づいて修正指示付きプロンプトを生成する。"""
+    errors_text = "\n".join(f"- {e}" for e in errors)
+    lines_json = json.dumps(lines, ensure_ascii=False, indent=2)
+    return (
+        f"{original_prompt}\n\n"
+        "# ⚠️ 前回の生成で以下の品質問題が検出されました。これらをすべて修正して再生成してください。\n\n"
+        f"{errors_text}\n\n"
+        "## 前回生成した lines（修正対象）:\n"
+        f"```json\n{lines_json}\n```\n\n"
+        "上記の問題を修正した完全な台本 JSON を出力してください。"
+    )
+
+
 def _load_prompt_template() -> str:
     prompt_path = Path(__file__).resolve().parents[1] / "prompts" / "generate_radio_script.md"
     return prompt_path.read_text(encoding="utf-8")
+
+
+def _load_arc_prompt_template() -> str:
+    prompt_path = Path(__file__).resolve().parents[1] / "prompts" / "generate_narrative_arc.md"
+    return prompt_path.read_text(encoding="utf-8")
+
+
+def _build_narrative_arc_section(arc: dict, summaries: list) -> str:
+    """Narrative Arc の情報をプロンプトに注入するセクション文字列を生成する。"""
+    id_to_title = {s["id"]: (s.get("title") or s.get("url", ""))[:40] for s in summaries}
+
+    lines = [
+        "# 今回のエピソード設計（Narrative Arc）\n",
+        f"**共通テーマ**: {arc.get('theme', '')}",
+        f"**テーマ概要**: {arc.get('theme_description', '')}",
+        "",
+        "**記事の紹介順序**（この順番で全記事を紹介すること）:",
+    ]
+    for i, aid in enumerate(arc.get("article_order", []), 1):
+        title = id_to_title.get(aid, f"記事{aid}")
+        lines.append(f"  {i}. 記事ID={aid}：{title}")
+
+    bridges = arc.get("bridges", [])
+    if bridges:
+        lines.append("")
+        lines.append("**記事間の橋渡し（Contextual Bridge）**（transition行でこの文脈を活かすこと）:")
+        for b in bridges:
+            from_id = b.get("from_article_id")
+            to_id = b.get("to_article_id")
+            bridge = b.get("bridge_text", "")
+            lines.append(f"  - 記事{from_id} → 記事{to_id}: {bridge}")
+
+    disc_id = arc.get("discussion_article_id")
+    disc_reason = arc.get("discussion_reason", "")
+    if disc_id:
+        lines.append("")
+        lines.append(f"**discussion で深掘りする記事**: 記事ID={disc_id}（{id_to_title.get(disc_id, '')}）")
+        lines.append(f"  理由: {disc_reason}")
+
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Step 1: Architect — Narrative Arc 生成
+# ---------------------------------------------------------------------------
+
+def _generate_arc(client: OllamaClient, summaries: list) -> dict | None:
+    """Narrative Arc を生成して返す。失敗時は None。"""
+    template = _load_arc_prompt_template()
+    summaries_json = json.dumps(summaries, ensure_ascii=False, indent=2)
+    prompt = template.format(summaries_json=summaries_json)
+
+    arc = client.generate_json(prompt)
+    if not arc or not isinstance(arc.get("article_order"), list):
+        logger.warning("Narrative Arc generation failed or returned invalid structure; skipping arc")
+        return None
+
+    logger.info(
+        "Narrative Arc generated: theme=%s order=%s discussion=%s",
+        arc.get("theme", ""),
+        arc.get("article_order", []),
+        arc.get("discussion_article_id"),
+    )
+    return arc
+
+
+# ---------------------------------------------------------------------------
+# Step 2: Writer — 台本生成
+# ---------------------------------------------------------------------------
+
+def _reorder_summaries(summaries: list, article_order: list) -> list:
+    """arc の article_order に従って summaries を並べ替える。未収録 ID はそのまま末尾に追加。"""
+    id_map = {s["id"]: s for s in summaries}
+    reordered = [id_map[aid] for aid in article_order if aid in id_map]
+    seen = set(article_order)
+    reordered += [s for s in summaries if s["id"] not in seen]
+    return reordered
 
 
 def generate_script(output_path: str, program_name: str = "ニュースのとなり", news_source: str | None = None) -> int:
@@ -204,14 +377,57 @@ def generate_script(output_path: str, program_name: str = "ニュースのとな
     )
     logger.info("Generating script from summaries: %s", article_urls)
 
-    template = _load_prompt_template()
-    if program_name != "ニュースのとなり":
-        template = template.replace("ニュースのとなり", program_name)
-    summaries_json = json.dumps(summaries, ensure_ascii=False, indent=2)
-    prompt = template.format(summaries_json=summaries_json)
+    response = None
+    ordered_summaries = summaries  # デフォルトは元の順序
 
     with OllamaClient(settings.ollama_base_url, settings.ollama_model) as client:
-        response = client.generate_json(prompt)
+
+        # --- Step 1: Architect — Narrative Arc 生成 ---
+        logger.info("=== Script Step 1/2: Narrative Arc (Architect) ===")
+        arc = _generate_arc(client, summaries)
+
+        # Arc に基づいて記事の順序を確定
+        if arc and arc.get("article_order"):
+            ordered_summaries = _reorder_summaries(summaries, arc["article_order"])
+            narrative_arc_section = _build_narrative_arc_section(arc, summaries)
+        else:
+            narrative_arc_section = ""
+
+        # --- Step 2: Writer — 台本生成 + Auto-Lint 再生成ループ ---
+        logger.info("=== Script Step 2/2: Script generation (Writer) ===")
+        template = _load_prompt_template()
+        if program_name != "ニュースのとなり":
+            template = template.replace("ニュースのとなり", program_name)
+        summaries_json = json.dumps(ordered_summaries, ensure_ascii=False, indent=2)
+        base_prompt = template.format(
+            narrative_arc_section=narrative_arc_section,
+            summaries_json=summaries_json,
+        )
+
+        _MAX_LINT_RETRIES = int(os.getenv("SCRIPT_LINT_RETRIES", "3"))
+        current_prompt = base_prompt
+
+        for lint_attempt in range(1, _MAX_LINT_RETRIES + 1):
+            response = client.generate_json(current_prompt)
+            if response is None or not isinstance(response.get("lines"), list):
+                logger.error("Invalid script JSON generated (attempt=%d). Raw response: %s", lint_attempt, response)
+                break
+
+            lint_errors = lint_script(response["lines"])
+            if not lint_errors:
+                logger.info("Auto-Lint PASSED (attempt=%d)", lint_attempt)
+                break
+
+            logger.warning(
+                "Auto-Lint FAILED (attempt=%d/%d): %d issues found:\n%s",
+                lint_attempt,
+                _MAX_LINT_RETRIES,
+                len(lint_errors),
+                "\n".join(f"  - {e}" for e in lint_errors),
+            )
+            if lint_attempt < _MAX_LINT_RETRIES:
+                current_prompt = _build_correction_prompt(base_prompt, response["lines"], lint_errors)
+            # 最終試行で失敗してもそのまま使用（最善の結果を保持）
 
     if response is None or not isinstance(response.get("lines"), list):
         logger.error("Invalid script JSON generated")
@@ -235,17 +451,6 @@ def generate_script(output_path: str, program_name: str = "ニュースのとな
             section = "news"
         
         text = str(line.get("text", "")).strip()
-        
-        # 日次バリエーション注入 (語尾・接続詞レベル)
-        if section in ("news", "discussion"):
-            if random.random() < 0.3 and not text.startswith(("さて、", "それでは、", "ところで、", "続いて、")):
-                conj = random.choice(_DAILY_VARIATIONS["conjunctions"])
-                text = conj + text
-            
-            suffixes = _DAILY_VARIATIONS["suffixes"]
-            if not any(text.endswith(s) for s in suffixes):
-                if random.random() < 0.4:
-                    text += random.choice(suffixes)
 
         script["lines"].append(
             {
@@ -257,7 +462,7 @@ def generate_script(output_path: str, program_name: str = "ニュースのとな
         )
 
     # LLM が transition を省略した場合に備えてプログラム側で補完する
-    script["lines"] = _ensure_transitions(script["lines"], summaries)
+    script["lines"] = _ensure_transitions(script["lines"], ordered_summaries)
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     Path(output_path).write_text(

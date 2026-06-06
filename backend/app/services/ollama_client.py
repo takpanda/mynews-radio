@@ -17,7 +17,7 @@ class OllamaClient:
     @property
     def client(self) -> httpx.Client:
         if self._client is None:
-            self._client = httpx.Client(base_url=self._base_url, timeout=httpx.Timeout(300.0))  # 5分
+            self._client = httpx.Client(base_url=self._base_url, timeout=httpx.Timeout(600.0))  # 10分
         return self._client
 
     def close(self) -> None:
@@ -85,9 +85,9 @@ class OllamaClient:
                     return parsed
 
                 logger.error(
-                    "Ollama response JSON parse failed (attempt=%d, response_head=%s)",
+                    "Ollama response JSON parse failed (attempt=%d, full_response=%s)",
                     attempt,
-                    raw[:200],
+                    raw
                 )
             except Exception as exc:
                 logger.error("Ollama request failed (attempt=%d): %s", attempt, exc)
