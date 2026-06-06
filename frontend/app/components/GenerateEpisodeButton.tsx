@@ -281,6 +281,14 @@ export default function GenerateEpisodeButton() {
     setMessage(null)
     setShowLogs(false)
 
+    // Progressセクションまでスクロール
+    setTimeout(() => {
+      const progressSection = document.getElementById('progress-section')
+      if (progressSection) {
+        progressSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }, 100)
+
     try {
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
       const response = await generateEpisodeStream(today, maxArticles, newsSource, ttsEngine, enableReview, recreateSummary)
@@ -628,7 +636,7 @@ export default function GenerateEpisodeButton() {
       </div>
 
       {(progress.length > 0 || message) && (
-        <div className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50/80 p-4">
+        <div id="progress-section" className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50/80 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Progress</p>
