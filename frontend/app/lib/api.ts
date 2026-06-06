@@ -122,7 +122,7 @@ export async function generateEpisode(date: string, maxArticles = 10, newsSource
   })
 }
 
-export async function generateEpisodeStream(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', enableReview = true): Promise<Response> {
+export async function generateEpisodeStream(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', enableReview = true, recreateSummary = false): Promise<Response> {
   // 相対 URL を使うことで、別端末からアクセスした場合でも
   // Next.js サーバー経由でバックエンドへ転送される
   return fetch('/api/generate', {
@@ -137,6 +137,7 @@ export async function generateEpisodeStream(date: string, maxArticles = 10, news
       news_source: newsSource,
       tts_engine: ttsEngine,
       enable_review: enableReview,
+      recreate_summary: recreateSummary,
     }),
   })
 }

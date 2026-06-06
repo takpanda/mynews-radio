@@ -252,8 +252,9 @@ export default function GenerateEpisodeButton() {
   const [message, setMessage] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
   const [newsSource, setNewsSource] = useState<'hatena_bookmark' | 'hatena_hotentry_all' | 'yahoo_news'>('hatena_bookmark')
+  const [recreateSummary, setRecreateSummary] = useState(false)
   const [ttsEngine, setTtsEngine] = useState<'voicevox' | 'aivispeech'>('aivispeech')
-  const [enableReview, setEnableReview] = useState(true)
+  const [enableReview, setEnableReview] = useState(false)
   const [maxArticles, setMaxArticles] = useState(10)
   const router = useRouter()
 
@@ -282,7 +283,7 @@ export default function GenerateEpisodeButton() {
 
     try {
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
-      const response = await generateEpisodeStream(today, maxArticles, newsSource, ttsEngine, enableReview)
+      const response = await generateEpisodeStream(today, maxArticles, newsSource, ttsEngine, enableReview, recreateSummary)
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '')
@@ -546,7 +547,32 @@ export default function GenerateEpisodeButton() {
                 </span>
               </span>
             </label>
-          </fieldset>
+
+              <label className={`mt-3 block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(recreateSummary, isLoading)}`}>
+                <input
+                  type="checkbox"
+                  checked={recreateSummary}
+                  onChange={(e) => setRecreateSummary(e.target.checked)}
+                  disabled={isLoading}
+                  className="sr-only"
+                />
+                <span className="flex items-start justify-between gap-3">
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-900">要約を再作成する</span>
+                    <span className="mt-1 block text-xs leading-6 text-slate-500">
+                      既存の要約を破棄して、再度生成します。
+                    </span>
+                  </span>
+                  <span className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${recreateSummary ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`}>
+                    {recreateSummary && (
+                      <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 10 8" fill="none">
+                        <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </span>
+                </span>
+              </label>
+            </fieldset>
 
           <button
             type="button"
@@ -582,6 +608,12 @@ export default function GenerateEpisodeButton() {
               <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">レビュー</dt>
               <dd className="mt-1 font-medium text-slate-900">
                 {enableReview ? '有効（修正版も生成）' : '無効'}
+              </dd>
+            </div>
+            <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+              <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">要約の再作成</dt>
+              <dd className="mt-1 font-medium text-slate-900">
+                {recreateSummary ? '有効' : '無効'}
               </dd>
             </div>
           </dl>

@@ -74,6 +74,8 @@ class GenerateRequest(BaseModel):
     news_source: str = Field(default="hatena_bookmark", description="ニュースソース (hatena_bookmark | hatena_hotentry_all | yahoo_news)")
     tts_engine: str = Field(default="aivispeech", description="TTSエンジン (voicevox | aivispeech)")
     enable_review: bool = Field(default=True, description="レビューステップを有効にする")
+    recreate_summary: bool = Field(default=False, description="既存の要約を再作成するかどうか")
+    recreate_summary: bool = Field(default=False, description="既存の要約を再作成するかどうか")
 
 
 class GenerateResponse(BaseModel):
@@ -115,16 +117,20 @@ def _stream_generate(body: GenerateRequest) -> Generator[bytes, None, None]:
         yield _format_sse("error", _build_error_payload("RSSから記事を取得できませんでした。", status="no_content"))
         return
 
-    yield _format_sse("progress", _build_progress_payload("summarize", "記事を要約しています..."))
-    try:
-        summaries_path = os.path.join(base_dir, "summaries.json")
-        summarized = summarize_articles(summaries_path)
-        logger.info("summarize done: count=%d", summarized)
-    except Exception as exc:
-        logger.exception("summarize failed")
-        service.update_episode_status(episode_id, "failed")
-        yield _format_sse("error", _build_error_payload(f"記事の要約に失敗しました: {exc}"))
-        return
+    summarize = not body.recreate_summary
+    if summarize:
+        yield _format_sse("progress", _build_progress_payload("summarize", "記事を要約しています..."))
+        try:
+            summaries_path = os.path.join(base_dir, "summaries.json")
+            summarized = summarize_articles(summaries_path)
+            logger.info("summarize done: count=%d", summarized)
+        except Exception as exc:
+            logger.exception("summarize failed")
+            service.update_episode_status(episode_id, "failed")
+            yield _format_sse("error", _build_error_payload(f"記事の要約に失敗しました: {exc}"))
+            return
+    else:
+        logger.info("Skipping summarization step (recreate_summary=True)")
 
     old_max = os.environ.get("MAX_SCRIPT_ARTICLES")
     os.environ["MAX_SCRIPT_ARTICLES"] = str(body.max_articles)
