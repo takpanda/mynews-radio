@@ -14,6 +14,11 @@ from app.services.ollama_client import OllamaClient
 
 logger = logging.getLogger(__name__)
 
+_DAILY_VARIATIONS = {
+    "suffixes": ["ですね。", "ですよね。", "かな。", "といったところです。", "といった内容です。"],
+    "conjunctions": ["さて、", "それでは、", "ところで、", "続いて、"]
+}
+
 _TRANSITION_PHRASES = [
     "続いては{topic}のニュースです。",
     "次のニュースに移りましょう。{topic}についてです。",
@@ -228,10 +233,24 @@ def generate_script(output_path: str, program_name: str = "ニュースのとな
         section = str(line.get("section", "news"))
         if section not in {"intro", "news", "transition", "discussion", "outro"}:
             section = "news"
+        
+        text = str(line.get("text", "")).strip()
+        
+        # 日次バリエーション注入 (語尾・接続詞レベル)
+        if section in ("news", "discussion"):
+            if random.random() < 0.3 and not text.startswith(("さて、", "それでは、", "ところで、", "続いて、")):
+                conj = random.choice(_DAILY_VARIATIONS["conjunctions"])
+                text = conj + text
+            
+            suffixes = _DAILY_VARIATIONS["suffixes"]
+            if not any(text.endswith(s) for s in suffixes):
+                if random.random() < 0.4:
+                    text += random.choice(suffixes)
+
         script["lines"].append(
             {
                 "speaker": speaker,
-                "text": str(line.get("text", "")).strip(),
+                "text": text,
                 "article_id": line.get("article_id"),
                 "section": section,
             }
