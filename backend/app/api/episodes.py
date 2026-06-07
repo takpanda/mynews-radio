@@ -81,6 +81,7 @@ def list_episodes() -> list[dict]:
 
     for entry in output:
         entry.pop("audio_path", None)
+        entry.setdefault("has_script", False)
 
     return output
 
@@ -173,6 +174,7 @@ def _enrich_episode(episode: dict) -> None:
             data = json.load(f)
         episode["title"] = data.get("title", "")
         episode["subtitle"] = data.get("subtitle", "")
+        episode["has_script"] = True
 
     metadata_data = os.path.join(base_dir, "metadata.json")
     if os.path.isfile(metadata_data):
