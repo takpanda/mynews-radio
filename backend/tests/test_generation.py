@@ -5,7 +5,6 @@ from unittest.mock import patch, MagicMock
 
 class TestGenerateEndpoint:
     def test_post_generate_returns_json_not_sse(self, client):
-        """POST /generate must return JSON immediately with episode_id and status."""
         resp = client.post("/generate", json={
             "date": "2099-01-01",
             "max_articles": 5,
@@ -18,15 +17,12 @@ class TestGenerateEndpoint:
         assert isinstance(data["episode_id"], int)
 
     def test_post_generate_returns_under_1s(self, client):
-        """The endpoint must be fast (< 1 s) because the pipeline runs in background."""
         start = time.time()
         resp = client.post("/generate", json={"date": "2099-02-02"})
         elapsed = time.time() - start
         assert resp.status_code == 200 and elapsed < 1.0
 
-
     def test_duplicate_date_returns_409(self, client):
-        """Two requests for the same date: first succeeds, second gets 409."""
         r1 = client.post("/generate", json={"date": "2099-03-03"})
         assert r1.status_code == 200
         r2 = client.post("/generate", json={"date": "2099-03-03"})
@@ -35,7 +31,6 @@ class TestGenerateEndpoint:
 
 class TestEpisodePhase:
     def test_get_episode_returns_phase(self, client):
-        """GET /episodes/{id} must include the new 'phase' field."""
         from app.services.episode_service import EpisodeService
 
         eid = EpisodeService().create_episode(episode_date="2099-06-01", status="generating")
@@ -47,7 +42,6 @@ class TestEpisodePhase:
 
 class TestEpisodeServicePhase:
     def test_update_episode_phase(self, client):
-        """update_episode_phase persists to DB and is readable on next select."""
         from app.services.episode_service import EpisodeService
 
         svc = EpisodeService()
@@ -65,7 +59,6 @@ class TestBatchPipelineUnaffected:
         from app.batch import orchestrate  # noqa
 
     def test_batch_api_still_works(self, client):
-        """Create + update_episode_status still work (what batch pipelines use)."""
         from app.services.episode_service import EpisodeService
 
         svc = EpisodeService()
@@ -74,12 +67,18 @@ class TestBatchPipelineUnaffected:
         assert svc.get_episode(eid)["status"] == "completed"
 
 
+def _make_fake_open(script_json: str):
+    """Return a mock `open` context manager that reads from a string."""
+    def _open(*args, **kwargs):
+        m = MagicMock()
+        m.__enter__.return_value.read.return_value = script_json
+        return m
+    return _open
+
+
 class TestRunGenerationPipeline:
-    @patch(
-        "app.api.generate.import_articles_by_source", return_value=(3, 0)
-    )
+    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
     def test_fails_gracefully_on_summarize_error(self, mock_import):
-        """If summarize fails, status becomes 'failed' promptly."""
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
 
@@ -87,11 +86,32 @@ class TestRunGenerationPipeline:
         ep_id = svc.create_episode(episode_date="2099-05-01", status="generating")
         body = GenerateRequest(date="2099-05-01")
 
-        with patch(
-            "app.api.generate.summarize_articles", side_effect=RuntimeError("no ollama")
-        ):
+        with patch("app.api.generate.summarize_articles", side_effect=RuntimeError("no ollama")):
+            _run_generation(ep_id, body)
+
+        mock_import.assert_called_once()
+        assert svc.get_episode(ep_id)["status"] == "failed"
+
+    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    def test_success_path_persists_phase(self, mock_import):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode(episode_date="2099-06-01", status="generating")
+        body = GenerateRequest(date="2099-06-01", enable_review=False)
+
+        fake_script = '{"lines": [{"article_id": "1", "text": "Hello world"}]}'
+
+        with patch("app.api.generate.summarize_articles", return_value=5), \
+             patch("app.api.generate.generate_script", return_value=1), \
+             patch("app.api.generate.synthesize_episode", return_value=1), \
+             patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}), \
+             patch("builtins.open", _make_fake_open(fake_script)):
+
             _run_generation(ep_id, body)
 
         mock_import.assert_called_once()
         ep = svc.get_episode(ep_id)
-        assert ep["status"] == "failed"
+        assert ep["status"] == "completed"
+        assert ep["phase"] == "complete"

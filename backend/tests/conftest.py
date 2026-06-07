@@ -1,52 +1,49 @@
 import os
 from pathlib import Path
+import sqlite3
 
 import pytest
-import sqlite3 as _sqlite3
 
 
-@pytest.fixture(scope="session")
-def app_env(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("data")
-    db_file = str(tmp / "test.db")
-    ep_dir = str(tmp / "episodes")
-    os.makedirs(ep_dir, exist_ok=True)
+def _fresh_db(tmp_path):
+    """Create a fresh DB file with schema + phase column migration."""
+    db_file = tmp_path / "test.db"
+    ep_dir = tmp_path / "episodes"
+    ep_dir.mkdir()
 
-    try:
-        from app import config as cfg_mod
-        if hasattr(cfg_mod.get_settings, "cache_clear"):
-            cfg_mod.get_settings.cache_clear()
-    except ImportError:
-        pass
-
-    os.environ["DATABASE_URL"] = f"sqlite:///{db_file}"
-    os.environ["EPISODES_DIR"] = ep_dir
-
-
-@pytest.fixture(scope="session")
-def app(app_env):
+    conn = sqlite3.connect(str(db_file))
+    conn.row_factory = sqlite3.Row
     schema_path = str(Path(__file__).parent.parent / "app" / "db" / "schema.sql")
-
-    from urllib.parse import urlparse
-    parsed = urlparse(os.environ["DATABASE_URL"])
-    db_path = parsed.path
-
-    conn = _sqlite3.connect(db_path)
-    conn.row_factory = _sqlite3.Row
     with open(schema_path, encoding="utf-8") as f:
         conn.executescript(f.read())
     try:
         conn.execute("ALTER TABLE episodes ADD COLUMN phase TEXT DEFAULT ''")
-    except Exception:
+    except sqlite3.OperationalError:
         pass
     conn.commit()
     conn.close()
 
-    from app import main as _main_mod
-    yield _main_mod.app
+    return db_file, ep_dir
 
 
-@pytest.fixture(scope="session")
-def client(app):
+@pytest.fixture(autouse=True)
+def test_env(tmp_path, monkeypatch):
+    """Set up fresh DB + env vars for each test function."""
+    db_file, ep_dir = _fresh_db(tmp_path)
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_file}")
+    monkeypatch.setenv("EPISODES_DIR", str(ep_dir))
+
+    # Clear lru_cache on get_settings so lazy access picks up the new env vars
+    from app import config as cfg_mod
+    if hasattr(cfg_mod.get_settings, "cache_clear"):
+        cfg_mod.get_settings.cache_clear()
+
+    yield
+
+
+@pytest.fixture
+def client():
+    from app.main import app
     from fastapi.testclient import TestClient
     return TestClient(app)

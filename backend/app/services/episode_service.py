@@ -1,10 +1,29 @@
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+import sqlite3
 
 from app.db.connection import get_db_connection
 
+def retry_on_busy(max_retries: int = 5, initial_delay: float = 0.1):
+    """Retries a database operation on sqlite3.OperationalError (database is locked)."""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            retries = 0
+            while True:
+                try:
+                    return func(*args, **kwargs)
+                except sqlite3.OperationalError as e:
+                    if "locked" in str(e).lower() and retries < max_retries:
+                        time.sleep(initial_delay * (2**retries))
+                        retries += 1
+                    else:
+                        raise
+        return wrapper
+    return decorator
 
 class EpisodeService:
+    @retry_on_busy()
     def create_episode(
         self,
         episode_date: str,
@@ -23,6 +42,7 @@ class EpisodeService:
             )
             return cursor.lastrowid
 
+    @retry_on_busy()
     def update_episode_status(self, episode_id: int, status: str) -> None:
         with get_db_connection() as conn:
             conn.execute(
@@ -34,7 +54,9 @@ class EpisodeService:
                 (status, episode_id),
             )
 
+    @retry_on_busy()
     def update_episode_phase(self, episode_id: int, phase: str) -> None:
+        """Updates the progress phase for an episode."""
         with get_db_connection() as conn:
             conn.execute(
                 """
@@ -45,6 +67,7 @@ class EpisodeService:
                 (phase, episode_id),
             )
 
+    @retry_on_busy()
     def add_episode_item(
         self,
         episode_id: int,
@@ -109,6 +132,7 @@ class EpisodeService:
             ).fetchone()
             return row["audio_path"] if row else None
 
+    @retry_on_busy()
     def update_episode_audio_path(self, episode_id: int, audio_path: str) -> None:
         with get_db_connection() as conn:
             conn.execute(
@@ -135,6 +159,7 @@ class EpisodeService:
             ).fetchall()
             return [dict(row) for row in rows]
 
+    @retry_on_busy()
     def delete_episode(self, episode_id: int) -> bool:
         """エピソードと関連するepisode_itemsを削除し、レコードが存在した場合はTrueを返す"""
         with get_db_connection() as conn:
@@ -144,3 +169,4 @@ class EpisodeService:
             conn.execute("DELETE FROM episode_items WHERE episode_id = ?", (episode_id,))
             conn.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
             return True
+

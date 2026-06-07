@@ -25,21 +25,6 @@ router = APIRouter()
 
 DEFAULT_EPISODES_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
 
-PHASE_SEQUENCE = {
-    "start": {"step_index": 0, "step_total": 6, "step_label": "\u59cb\u3081"},
-    "import": {"step_index": 1, "step_total": 6, "step_label": "\u6587\u66f8\u7c21"},
-    "summarize": {"step_index": 2, "step_total": 6, "step_label": "\u30e6\u30fc\u30b5\u30fc\u3067\u304d\u305f\u3089"},
-    "generate_script": {"step_index": 3, "step_total": 6, "step_label": "\u30c6\u30ec\u30ab\u30b7\u30e7\u30eb"},
-    "review": {"step_index": 4, "step_total": 6, "step_label": "\u5962\u8a10"},
-    "review_done": {"step_index": 4, "step_total": 6, "step_label": "\u65bd\u884c"},
-    "synthesize": {"step_index": 5, "step_total": 6, "step_label": "\u30b9\u30ea\u30fc\u30ba\u30af\u30ed\u30be\u30a8\u30f3\u30b7"},
-    "build": {"step_index": 5, "step_total": 6, "step_label": "\u72ec\u7acb\u4e0d\u8bed\u901a"},
-    "review_complete": {"step_index": 10, "step_total": 12},
-    "failed": {"step_index": 0, "step_total": 6, "step_label": "\u30e9\u30a4\u30f3\u51fa"},
-}
-
-NEWS_SOURCES = {"hatena_bookmark", "yahoo_news", "japanese"}
-
 
 class GenerateRequest(BaseModel):
     date: str = Field(description="放送日 (YYYY-MM-DD)")
@@ -51,21 +36,16 @@ class GenerateRequest(BaseModel):
     recreate_summary: bool = Field(default=False, description="既存の要約を再作成するかどうか")
 
 
-class GenerateResponse(BaseModel):
-    episode_id: int
-    status: str
-    message: str
-
-
 def _run_generation(episode_id: int, body: GenerateRequest) -> None:
-    """Actual generation pipeline (runs in background). Persists phase to DB."""
+    """Background pipeline that persists DB records and status transitions synchronously."""
 
     service = EpisodeService()
     episode_date = body.date
     base_dir = os.path.join(DEFAULT_EPISODES_DIR, str(episode_id))
+
     Path(base_dir).mkdir(parents=True, exist_ok=True)
 
-    news_source = body.news_source if body.news_source in NEWS_SOURCES else "hatena_bookmark"
+    news_source = body.news_source if body.news_source in {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news"} else "hatena_bookmark"
     program_name = "テックニュース" if news_source == "hatena_bookmark" else "ニュースのとなり"
 
     logger.info("Background generation started: episode_id=%d date=%s", episode_id, episode_date)
@@ -254,12 +234,11 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
 
 @router.post("/generate", summary="番組を生成する（バックグラウンド実行）")
 def generate_episode(body: GenerateRequest) -> dict:
-    """エピソードレコードを作成して即座に JSON で返し、実際の生成は
-    asyncio.Task (or threading.Thread as fallback) でバックグラウンド実行する。"""
+    """Creates episode record and returns JSON immediately; actual generation runs in background."""
 
     service = EpisodeService()
 
-    # Check for existing generating episode on the same date to avoid dupes
+    # Check for existing generating episode on the same date to avoid duplicates
     episodes = service.get_episode_list()
     for ep in episodes:
         if ep["episode_date"] == body.date and ep["status"] == "generating":
@@ -268,7 +247,7 @@ def generate_episode(body: GenerateRequest) -> dict:
                 detail=f"Episode for {body.date} is already generating (id={ep['id']})",
             )
 
-    # Create the episode record once -- background task reuses this same id
+    # Create the episode record once - background task reuses this same id
     episode_id = service.create_episode(
         episode_date=body.date, status="generating"
     )
@@ -296,5 +275,6 @@ def generate_episode(body: GenerateRequest) -> dict:
 
 
 async def _async_wrapper(episode_id: int, body: GenerateRequest) -> None:
-    """Wrap synchronous pipeline so it does not block the event loop."""
+    """Run synchronous pipeline in a thread to not block the event loop."""
     await asyncio.to_thread(_run_generation, episode_id, body)
+
