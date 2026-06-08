@@ -19,6 +19,8 @@ export interface Episode {
   article_count: number
   audio_url: string | null
   articles: EpisodeItem[]
+  generation_phase?: string
+  generation_message?: string
 }
 
 export interface EpisodeItem {
@@ -109,8 +111,12 @@ export async function fetchArticle(id: number): Promise<Article | null> {
   return res.json() as Promise<Article>
 }
 
-export async function generateEpisode(date: string, maxArticles = 10, newsSource = 'hatena_bookmark'): Promise<Response> {
-  return fetch(`${getApiBase()}/generate`, {
+export interface GenerateResponse {
+  episode_id: number
+}
+
+export async function generateEpisode(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', enableReview = true, recreateSummary = false): Promise<GenerateResponse> {
+  const res = await fetch('/api/generate', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -119,8 +125,25 @@ export async function generateEpisode(date: string, maxArticles = 10, newsSource
       date,
       max_articles: maxArticles,
       news_source: newsSource,
+      tts_engine: ttsEngine,
+      enable_review: enableReview,
+      recreate_summary: recreateSummary,
     }),
   })
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => '')
+    if (res.status === 409) {
+      throw new Error('既に生成中のタスクがあります')
+    }
+    throw new Error(errorText || `Generate failed: ${res.status}`)
+  }
+  return res.json() as Promise<GenerateResponse>
+}
+
+export async function fetchEpisodeStatus(id: number): Promise<Episode> {
+  const res = await fetch(`${getApiBase()}/episodes/${id}`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Failed to fetch episode status: ${res.status}`)
+  return res.json() as Promise<Episode>
 }
 
 export async function synthesizeEpisodeStream(episodeId: number, ttsEngine = 'aivispeech'): Promise<Response> {
@@ -131,25 +154,5 @@ export async function synthesizeEpisodeStream(episodeId: number, ttsEngine = 'ai
       Accept: 'text/event-stream',
     },
     body: JSON.stringify({ tts_engine: ttsEngine }),
-  })
-}
-
-export async function generateEpisodeStream(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', enableReview = true, recreateSummary = false): Promise<Response> {
-  // 相対 URL を使うことで、別端末からアクセスした場合でも
-  // Next.js サーバー経由でバックエンドへ転送される
-  return fetch('/api/generate', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-    },
-    body: JSON.stringify({
-      date,
-      max_articles: maxArticles,
-      news_source: newsSource,
-      tts_engine: ttsEngine,
-      enable_review: enableReview,
-      recreate_summary: recreateSummary,
-    }),
   })
 }

@@ -41,11 +41,19 @@ export default function EpisodeList({ episodes }: Props) {
                 )}
                 <p className="text-sm text-gray-500 mt-1">{formatDate(ep.date)}</p>
               </div>
+              <div className="flex items-center gap-2 flex-shrink-0 mt-1">
+              {ep.status === 'generating' && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  生成中
+                </span>
+              )}
               {ep.duration > 0 && (
                 <span className="text-xs text-gray-400 flex-shrink-0 mt-1">
                   {formatDuration(ep.duration)}
                 </span>
               )}
+            </div>
             </div>
           </Link>
           {ep.has_script && !ep.audio_url && (
