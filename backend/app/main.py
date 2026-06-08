@@ -51,6 +51,16 @@ def _apply_db_migrations() -> None:
         except sqlite3.OperationalError:
             pass  # カラムが既に存在する場合は無視
 
+        try:
+            conn.execute("ALTER TABLE episodes ADD COLUMN phase TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # カラムが既に存在する場合は無視
+
+        try:
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_episodes_generating_date ON episodes(episode_date) WHERE status = 'generating'")
+        except sqlite3.OperationalError:
+            pass  # 既に存在する場合は無視
+
 
 _init_db()
 _apply_db_migrations()
