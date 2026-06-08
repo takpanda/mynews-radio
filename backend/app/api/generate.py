@@ -119,7 +119,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
         service.update_episode_phase(episode_id, "review")
         try:
             reviewed_episode_id = service.create_episode(
-                episode_date=episode_date, status="generating"
+                episode_date=episode_date, status="pending"
             )
             reviewed_episode_dir = os.path.join(
                 DEFAULT_EPISODES_DIR, str(reviewed_episode_id)

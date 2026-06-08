@@ -115,3 +115,34 @@ class TestRunGenerationPipeline:
         ep = svc.get_episode(ep_id)
         assert ep["status"] == "completed"
         assert ep["phase"] == "complete"
+
+    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    def test_success_with_review_creates_reviewed_episode(self, mock_import):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode(episode_date="2099-08-01", status="generating")
+        body = GenerateRequest(date="2099-08-01", enable_review=True)
+
+        fake_script = '{"lines": [{"article_id": "1", "text": "Hello world"}]}'
+
+        with patch("app.api.generate.summarize_articles", return_value=5), \
+             patch("app.api.generate.generate_script", return_value=1), \
+             patch("app.api.generate.synthesize_episode", return_value=1), \
+             patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}), \
+             patch("app.api.generate.review_script",
+                   return_value={"revised": False, "review_count": 0}), \
+             patch("builtins.open", _make_fake_open(fake_script)):
+
+            _run_generation(ep_id, body)
+
+        mock_import.assert_called_once()
+        ep = svc.get_episode(ep_id)
+        assert ep["status"] == "completed"
+        assert ep["phase"] == "complete"
+
+        episodes = svc.get_episode_list()
+        reviewed = [e for e in episodes if e["id"] != ep_id]
+        assert len(reviewed) == 1
+        assert reviewed[0]["status"] == "failed"
