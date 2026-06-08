@@ -76,7 +76,7 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
           if (!payload) continue
 
           if (event === 'progress') {
-            setStatusMessage(payload.message ?? statusMessage)
+            setStatusMessage((prev) => payload.message ?? prev)
           } else if (event === 'complete') {
             setState('success')
             setStatusMessage('音声が完成しました')
