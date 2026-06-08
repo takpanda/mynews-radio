@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +34,6 @@ class GenerateRequest(BaseModel):
     news_source: str = Field(default="hatena_bookmark", description="ニュースソース (hatena_bookmark | hatena_hotentry_all | yahoo_news)")
     tts_engine: str = Field(default="aivispeech", description="TTSエンジン (voicevox | aivispeech)")
     enable_review: bool = Field(default=True, description="レビューステップを有効にする")
-    recreate_summary: bool = Field(default=False, description="既存の要約を再作成するかどうか")
 
 
 def _run_generation(episode_id: int, body: GenerateRequest) -> None:
@@ -68,29 +68,16 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
         service.update_episode_status(episode_id, "failed")
         return
 
-    summarize = body.recreate_summary
-    if not summarize:
-        # 明示的に再作成しない場合でも、new状態の記事があれば要約を実行する
-        from app.services.article_service import ArticleService
-        check_service = ArticleService()
-        new_articles = check_service.fetch_new_articles()
-        if new_articles:
-            logger.info("Found %d new articles, auto-summarizing", len(new_articles))
-            summarize = True
-
-    if summarize:
-        yield _format_sse("progress", _build_progress_payload("summarize", "記事を要約しています..."))
-        try:
-            summaries_path = os.path.join(base_dir, "summaries.json")
-            summarized = summarize_articles(summaries_path)
-            logger.info("summarize done: count=%d", summarized)
-        except Exception as exc:
-            logger.exception("summarize failed")
-            service.update_episode_status(episode_id, "failed")
-            yield _format_sse("error", _build_error_payload(f"記事の要約に失敗しました: {exc}"))
-            return
-    else:
-        logger.info("Skipping summarization step (no new articles)")
+    # -- SUMMARIZE --
+    service.update_episode_phase(episode_id, "summarize")
+    try:
+        summaries_path = os.path.join(base_dir, "summaries.json")
+        summarized = summarize_articles(summaries_path)
+        logger.info("summarize done: count=%d", summarized)
+    except Exception as exc:
+        logger.exception("summarize failed")
+        service.update_episode_status(episode_id, "failed")
+        return
 
     old_max = os.environ.get("MAX_SCRIPT_ARTICLES")
     os.environ["MAX_SCRIPT_ARTICLES"] = str(body.max_articles)
@@ -237,20 +224,15 @@ def generate_episode(body: GenerateRequest) -> dict:
     """Creates episode record and returns JSON immediately; actual generation runs in background."""
 
     service = EpisodeService()
-
-    # Check for existing generating episode on the same date to avoid duplicates
-    episodes = service.get_episode_list()
-    for ep in episodes:
-        if ep["episode_date"] == body.date and ep["status"] == "generating":
-            raise HTTPException(
-                status_code=409,
-                detail=f"Episode for {body.date} is already generating (id={ep['id']})",
-            )
-
-    # Create the episode record once - background task reuses this same id
-    episode_id = service.create_episode(
-        episode_date=body.date, status="generating"
-    )
+    try:
+        episode_id = service.create_episode(
+            episode_date=body.date, status="generating"
+        )
+    except sqlite3.IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Episode for {body.date} is already being generated",
+        )
     service.update_episode_phase(episode_id, "start")
 
     # Start actual pipeline in background; prefer asyncio under uvicorn
@@ -277,4 +259,3 @@ def generate_episode(body: GenerateRequest) -> dict:
 async def _async_wrapper(episode_id: int, body: GenerateRequest) -> None:
     """Run synchronous pipeline in a thread to not block the event loop."""
     await asyncio.to_thread(_run_generation, episode_id, body)
-
