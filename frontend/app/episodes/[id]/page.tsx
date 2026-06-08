@@ -11,6 +11,7 @@ import {
 import EpisodePlayer from '../../components/EpisodePlayer'
 import ArticleLinks from '../../components/ArticleLinks'
 import EpisodeQuickActions from '../../components/EpisodeQuickActions'
+import SynthesizeAudioButton from '../../components/SynthesizeAudioButton'
 
 interface Props {
   params: { id: string }
@@ -219,6 +220,10 @@ export default async function EpisodePage({ params }: Props) {
               script={script}
               audioUrl={buildAudioUrl(episode.audio_url)}
             />
+          ) : hasScript ? (
+            <div id="player" className="mb-8 scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <SynthesizeAudioButton episodeId={episode.id} />
+            </div>
           ) : (
             <div className="bg-white rounded-2xl shadow-sm p-4 mb-8 text-sm text-gray-400 text-center">
               音声ファイルを準備中です

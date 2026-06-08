@@ -6,6 +6,7 @@ export interface EpisodeListItem {
   duration: number
   audio_url: string
   status: string
+  has_script?: boolean
 }
 
 export interface Episode {
@@ -119,6 +120,17 @@ export async function generateEpisode(date: string, maxArticles = 10, newsSource
       max_articles: maxArticles,
       news_source: newsSource,
     }),
+  })
+}
+
+export async function synthesizeEpisodeStream(episodeId: number, ttsEngine = 'aivispeech'): Promise<Response> {
+  return fetch(`/api/episodes/${episodeId}/synthesize`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    },
+    body: JSON.stringify({ tts_engine: ttsEngine }),
   })
 }
 
