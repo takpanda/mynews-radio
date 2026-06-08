@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { generateEpisodeStream } from '../lib/api'
+import { generateEpisode, fetchEpisode, type EpisodeListItem } from '../lib/api'
 
 type PhaseCode =
   | 'start'
@@ -20,16 +20,6 @@ type PhaseCode =
   | 'complete'
   | 'failed'
 
-interface ProgressPayload {
-  phase?: PhaseCode
-  message?: string
-  status?: string
-  step_index?: number
-  step_total?: number
-  step_label?: string
-  episode_id?: number
-}
-
 interface ProgressEntry {
   phase: PhaseCode
   message: string
@@ -42,6 +32,43 @@ interface PhasePresentation {
   logLabel: string
   shortLabel: string
   progressPercent: number
+}
+
+const STATUS_TO_PHASE: Record<string, PhaseCode> = {
+  pending: 'start',
+  importing: 'import',
+  summarizing: 'summarize',
+  generating_script: 'generate_script',
+  reviewing: 'review',
+  review_done: 'review_done',
+  synthesizing: 'synthesize',
+  building: 'build',
+  saving: 'db',
+  review_synthesizing: 'review_synthesize',
+  review_building: 'review_build',
+  review_complete: 'review_complete',
+  completed: 'complete',
+  failed: 'failed',
+}
+
+function mapStatusToPhase(episode: { status: string; generation_phase?: string }): PhaseCode {
+  if (episode.generation_phase && episode.generation_phase in STATUS_TO_PHASE) {
+    return STATUS_TO_PHASE[episode.generation_phase]
+  }
+  return STATUS_TO_PHASE[episode.status] || 'start'
+}
+
+const MESSAGE_BY_STATUS: Record<string, string> = {
+  pending: '生成を開始しています…',
+  importing: 'ニュース記事を取得しています…',
+  summarizing: '記事を要約しています…',
+  generating_script: '台本を生成しています…',
+  reviewing: '台本をレビューしています…',
+  synthesizing: '音声を合成しています…',
+  building: '番組データを組み立てています…',
+  saving: '保存しています…',
+  completed: '生成が完了しました',
+  failed: '生成に失敗しました',
 }
 
 const STEP_DEFINITIONS = [
@@ -232,21 +259,13 @@ function optionCardClass(isSelected: boolean, isLoading: boolean) {
     : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
 }
 
-function parseSseChunk(chunk: string) {
-  const lines = chunk.split('\n')
-  const eventLine = lines.find((line) => line.startsWith('event:'))
-  const dataLines = lines.filter((line) => line.startsWith('data:'))
-  const event = eventLine ? eventLine.slice('event:'.length).trim() : 'message'
-  const data = dataLines.map((line) => line.slice('data:'.length)).join('\n')
+const STORAGE_KEY = 'generating_episode_id'
 
-  try {
-    return { event, payload: JSON.parse(data) as ProgressPayload }
-  } catch {
-    return { event, payload: null }
-  }
+interface Props {
+  episodes?: EpisodeListItem[]
 }
 
-export default function GenerateEpisodeButton() {
+export default function GenerateEpisodeButton({ episodes }: Props) {
   const [isLoading, setIsLoading] = useState(false)
   const [progress, setProgress] = useState<ProgressEntry[]>([])
   const [message, setMessage] = useState<string | null>(null)
@@ -256,32 +275,107 @@ export default function GenerateEpisodeButton() {
   const [ttsEngine, setTtsEngine] = useState<'voicevox' | 'aivispeech'>('aivispeech')
   const [enableReview, setEnableReview] = useState(false)
   const [maxArticles, setMaxArticles] = useState(10)
+  const [episodeId, setEpisodeId] = useState<number | null>(null)
+  const [hasError, setHasError] = useState(false)
   const router = useRouter()
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const isLoadingRef = useRef(false)
+
+  useEffect(() => {
+    isLoadingRef.current = isLoading
+  }, [isLoading])
+
+  useEffect(() => {
+    const storedId = localStorage.getItem(STORAGE_KEY)
+    if (storedId) {
+      const id = Number(storedId)
+      if (!isNaN(id) && id > 0) {
+        setEpisodeId(id)
+        setIsLoading(true)
+        setProgress([{ phase: 'start', message: '前回の生成を再開しています…' }])
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current)
+        pollingRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!episodeId || !isLoading) return
+
+    const poll = async () => {
+      try {
+        const episode = await fetchEpisode(episodeId)
+        if (!episode) return
+
+        const phase = mapStatusToPhase(episode)
+        const pollMessage = episode.generation_message || MESSAGE_BY_STATUS[episode.status] || phase
+        setProgress((current) => {
+          const last = current.at(-1)
+          if (last && last.phase === phase) return current
+          return [...current, { phase, message: pollMessage, status: episode.status }]
+        })
+
+        if (episode.status === 'completed') {
+          localStorage.removeItem(STORAGE_KEY)
+          setMessage('生成が完了しました。')
+          setIsLoading(false)
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current)
+            pollingRef.current = null
+          }
+          router.refresh()
+        } else if (episode.status === 'failed') {
+          localStorage.removeItem(STORAGE_KEY)
+          setMessage('生成に失敗しました。')
+          setHasError(true)
+          setIsLoading(false)
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current)
+            pollingRef.current = null
+          }
+        }
+      } catch {
+        // 一時的な通信エラーは無視してポーリング継続
+      }
+    }
+
+    poll()
+    pollingRef.current = setInterval(poll, 3000)
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current)
+        pollingRef.current = null
+      }
+    }
+  }, [episodeId, isLoading, router])
 
   const appendProgress = (entry: ProgressEntry) => {
     setProgress((current) => [...current, entry])
   }
 
-  const activeStep = resolveActiveStep(progress)
-  const latestProgress = progress.at(-1)
-  const isSuccess = Boolean(progress.some((entry) => entry.phase === 'complete'))
-  const isFailure = Boolean(message && !isLoading && !isSuccess)
-  const phasePresentation = getPhasePresentation(latestProgress, isFailure)
-  const currentEstimate = getCurrentEstimate(activeStep, isSuccess, isFailure)
-  const visualProgressPercent = isFailure ? phasePresentation.progressPercent : phasePresentation.progressPercent
-  const statusTone = isSuccess
-    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-    : isFailure
-      ? 'border-amber-200 bg-amber-50 text-amber-800'
-      : 'border-sky-200 bg-sky-50 text-sky-800'
+  const stopPolling = useRef(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current)
+      pollingRef.current = null
+    }
+  }).current
 
-  const handleClick = async () => {
+  const runGeneration = async () => {
     setIsLoading(true)
     setProgress([])
     setMessage(null)
     setShowLogs(false)
+    setEpisodeId(null)
+    setHasError(false)
 
-    // Progressセクションまでスクロール
     setTimeout(() => {
       const progressSection = document.getElementById('progress-section')
       if (progressSection) {
@@ -291,76 +385,46 @@ export default function GenerateEpisodeButton() {
 
     try {
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
-      const response = await generateEpisodeStream(today, maxArticles, newsSource, ttsEngine, enableReview, recreateSummary)
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => '')
-        setMessage(errorText || '番組生成に失敗しました。')
-        return
-      }
-
-      const reader = response.body?.getReader()
-      if (!reader) {
-        setMessage('ストリームを受信できませんでした。')
-        return
-      }
-
-      const decoder = new TextDecoder('utf-8')
-      let buffer = ''
-      let isCompleted = false
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const chunks = buffer.split('\n\n')
-        buffer = chunks.pop() ?? ''
-
-        for (const chunk of chunks) {
-          const trimmed = chunk.trim()
-          if (!trimmed) continue
-          const { event, payload } = parseSseChunk(trimmed)
-          if (!payload) continue
-
-          if (event === 'progress') {
-            appendProgress({
-              phase: payload.phase ?? 'start',
-              message: payload.message ?? '進捗更新',
-              status: payload.status,
-            })
-          } else if (event === 'complete') {
-            setMessage(payload.message ?? '生成が完了しました。')
-            appendProgress({
-              phase: payload.phase ?? 'complete',
-              message: payload.message ?? '生成が完了しました。',
-              status: payload.status,
-            })
-            isCompleted = true
-          } else if (event === 'error') {
-            setMessage(payload.message ?? 'エラーが発生しました。')
-            appendProgress({
-              phase: payload.phase ?? 'failed',
-              message: payload.message ?? 'エラーが発生しました。',
-              status: payload.status,
-            })
-            isCompleted = true
-          }
-        }
-
-        if (isCompleted) {
-          break
-        }
-      }
-
-      if (isCompleted) {
-        router.refresh()
-      }
+      const { episode_id } = await generateEpisode(today, maxArticles, newsSource, ttsEngine, enableReview, recreateSummary)
+      localStorage.setItem(STORAGE_KEY, String(episode_id))
+      setEpisodeId(episode_id)
     } catch (error) {
-      setMessage('通信エラーが発生しました。後でもう一度お試しください。')
-    } finally {
+      const msg = error instanceof Error ? error.message : '番組生成に失敗しました。'
+      setMessage(msg)
+      if (msg !== '既に生成中のタスクがあります') {
+        setHasError(true)
+      }
       setIsLoading(false)
     }
   }
+
+  const handleClick = async () => {
+    if (!isLoading && episodes?.some((ep) => ep.status === 'generating')) {
+      setMessage('先に生成中のタスクがあります')
+      return
+    }
+    await runGeneration()
+  }
+
+  const retryGeneration = async () => {
+    await runGeneration()
+  }
+
+  const activeStep = resolveActiveStep(progress)
+  const latestProgress = progress.at(-1)
+  const isSuccess = Boolean(progress.some((entry) => entry.phase === 'complete'))
+  const isFailure = Boolean(message && !isLoading && !isSuccess && hasError)
+  const currentEstimate = getCurrentEstimate(activeStep, isSuccess, isFailure)
+  const isDuplicateError = message === '先に生成中のタスクがあります'
+  const phasePresentation = getPhasePresentation(latestProgress, isFailure)
+  const visualProgressPercent = isFailure ? phasePresentation.progressPercent : phasePresentation.progressPercent
+  const statusTone = isSuccess
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+    : isFailure
+      ? 'border-amber-200 bg-amber-50 text-amber-800'
+      : isDuplicateError
+        ? 'border-amber-200 bg-amber-50 text-amber-800'
+        : 'border-sky-200 bg-sky-50 text-sky-800'
 
   return (
     <section className="rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-4 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur sm:p-5">
@@ -635,7 +699,7 @@ export default function GenerateEpisodeButton() {
         </aside>
       </div>
 
-      {(progress.length > 0 || message) && (
+      {(progress.length > 0 || message || isDuplicateError) && (
         <div id="progress-section" className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50/80 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -651,7 +715,7 @@ export default function GenerateEpisodeButton() {
               </span>
               {(isLoading || message) && (
                 <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${statusTone}`}>
-                  {isLoading ? '生成中' : isSuccess ? '完了' : '確認が必要'}
+                  {isLoading ? '生成中' : isSuccess ? '完了' : isDuplicateError ? '重複' : '確認が必要'}
                 </span>
               )}
             </div>
@@ -663,7 +727,7 @@ export default function GenerateEpisodeButton() {
                 <span className={`flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-[11px] font-semibold ${isSuccess ? 'bg-emerald-100 text-emerald-700' : isFailure ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700'}`}>
                   {phasePresentation.shortLabel}
                 </span>
-                <span>{isFailure ? '進行が中断されました' : '工程の進み具合'}</span>
+                <span>{isFailure ? '進行が中断されました' : isDuplicateError ? '生成できません' : '工程の進み具合'}</span>
               </span>
               <span className="tabular-nums text-slate-700">{visualProgressPercent}%</span>
             </div>
@@ -760,10 +824,25 @@ export default function GenerateEpisodeButton() {
           )}
 
           {message ? (
-            <div className={`mt-4 rounded-2xl border p-3 text-sm ${isSuccess ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
-              {isSuccess ? 'エピソードを更新しました。最新エピソードから再生できます。' : '生成を完了できませんでした。必要に応じてログを開いて詳細を確認してください。'}
+            <div className={`mt-4 rounded-2xl border p-3 text-sm ${isSuccess ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : isDuplicateError ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+              {isSuccess
+                ? 'エピソードを更新しました。最新エピソードから再生できます。'
+                : isDuplicateError
+                  ? '先に生成中のタスクがあります。完了をお待ちください。'
+                  : message || '生成を完了できませんでした。必要に応じてログを開いて詳細を確認してください。'}
             </div>
           ) : null}
+
+          {hasError && !isSuccess && (
+            <button
+              type="button"
+              onClick={retryGeneration}
+              disabled={isLoading}
+              className="mt-3 inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
+            >
+              再試行
+            </button>
+          )}
         </div>
       )}
     </section>

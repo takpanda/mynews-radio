@@ -60,7 +60,7 @@ export default async function Home() {
             </div>
           </div>
 
-          <GenerateEpisodeButton />
+          <GenerateEpisodeButton episodes={episodes} />
         </div>
       </section>
 
