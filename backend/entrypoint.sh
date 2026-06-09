@@ -25,9 +25,13 @@ crontab /etc/cron.d/mynews-batch
 echo "[entrypoint] crontab installed:"
 crontab -l
 
-# Start cron daemon
-cron
-echo "[entrypoint] cron started (pid=$(pgrep cron))"
+# Start cron daemon (skip if already running to avoid PID lock conflict)
+if pgrep cron > /dev/null 2>&1; then
+    echo "[entrypoint] cron already running, skipping start"
+else
+    cron
+    echo "[entrypoint] cron started"
+fi
 
 # Ensure the cron log file exists and stream it to Docker logs.
 mkdir -p /app/data/logs
