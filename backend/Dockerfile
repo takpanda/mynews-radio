@@ -5,6 +5,7 @@ WORKDIR /app
 # Install ffmpeg, crontab, and curl (needed for voicevox health check)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cron \
+    procps \
     ffmpeg \
     curl \
     && rm -rf /var/lib/apt/lists/*
