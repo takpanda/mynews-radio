@@ -58,8 +58,8 @@ def _apply_db_migrations() -> None:
 
         try:
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_episodes_generating_date ON episodes(episode_date) WHERE status = 'generating'")
-        except sqlite3.OperationalError:
-            pass  # 既に存在する場合は無視
+        except (sqlite3.OperationalError, sqlite3.IntegrityError):
+            pass  # 既に存在する場合や重複データがある場合は無視
 
 
 _init_db()
