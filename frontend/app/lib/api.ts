@@ -54,7 +54,7 @@ export interface Article {
 }
 
 const SERVER_API_BASE = process.env.API_BASE ?? 'http://api:8010'
-const CLIENT_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8010'
+const CLIENT_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? ''
 
 function getApiBase(): string {
   return typeof window === 'undefined' ? SERVER_API_BASE : CLIENT_API_BASE
