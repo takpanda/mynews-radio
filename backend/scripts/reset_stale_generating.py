@@ -1,22 +1,16 @@
 """Reset stale episodes stuck in generating status to pending."""
 
-import logging
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService
 
-logger = logging.getLogger(__name__)
-
 
 def reset_stale_generating() -> int:
-    """Select all episodes with status='generating', update each to 'pending'.
-
-    Returns the number of episodes that were reset.
-    """
+    """Reset all generating episodes for safe reuse and return the count."""
     service = EpisodeService()
 
     with get_db_connection() as conn:
@@ -24,25 +18,24 @@ def reset_stale_generating() -> int:
             "SELECT id FROM episodes WHERE status = 'generating'"
         ).fetchall()
 
-    count = 0
     for row in rows:
-        episode_id = row["id"]
-        service.reset_episode_for_reuse(episode_id)
-        logger.info("Reset episode %d from generating to pending", episode_id)
-        count += 1
+        service.reset_episode_for_reuse(row["id"])
+
+    return len(rows)
+
+
+def main() -> None:
+    try:
+        count = reset_stale_generating()
+    except Exception as exc:
+        print(f"Error connecting to database: {exc}")
+        raise SystemExit(1)
 
     if count == 0:
-        logger.info("No stale generating episodes found.")
+        print("No generating episodes found. Nothing to update.")
     else:
-        logger.info("Reset %d stale generating episode(s).", count)
-
-    return count
+        print(f"Updated {count} episode(s) from generating to pending.")
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    try:
-        reset_stale_generating()
-    except Exception:
-        logger.exception("Failed to reset stale episodes")
-        sys.exit(1)
+    main()

@@ -60,6 +60,27 @@ class TestGenerateEndpoint:
         assert data["episode_id"] == eid
         assert data["status"] == "generating"
 
+    def test_duplicate_date_reuses_generating_episode(self, client):
+        with patch("app.api.generate.asyncio.ensure_future"), \
+             patch("threading.Thread.start"):
+            r1 = client.post("/generate", json={"date": "2099-03-03"})
+            assert r1.status_code == 200
+            episode_id_1 = r1.json()["episode_id"]
+            r2 = client.post("/generate", json={"date": "2099-03-03"})
+            assert r2.status_code == 200
+            episode_id_2 = r2.json()["episode_id"]
+        assert episode_id_1 == episode_id_2
+
+    def test_new_date_creates_episode(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        before = len(svc.get_episode_list())
+        resp = client.post("/generate", json={"date": "2099-04-04"})
+        assert resp.status_code == 200
+        after = len(svc.get_episode_list())
+        assert after == before + 1
+
     def test_run_generation_outer_except_on_unexpected_error(self, client):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
@@ -138,6 +159,46 @@ class TestRunGenerationPipeline:
 
         mock_import.assert_called_once()
         assert svc.get_episode(ep_id)["status"] == "failed"
+
+    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    def test_guard_marks_failed_on_unexpected_exception_in_generate_script(self, mock_import):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode(episode_date="2099-09-01", status="generating")
+        body = GenerateRequest(date="2099-09-01", enable_review=False)
+
+        with patch("app.api.generate.summarize_articles", return_value=5), \
+             patch("app.api.generate.generate_script", side_effect=RuntimeError("unexpected")):
+            _run_generation(ep_id, body)
+
+        ep = svc.get_episode(ep_id)
+        assert ep["status"] == "failed"
+
+    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    def test_guard_does_not_overwrite_completed_status(self, mock_import):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode(episode_date="2099-06-01", status="generating")
+        body = GenerateRequest(date="2099-06-01", enable_review=False)
+
+        fake_script = '{"lines": [{"article_id": "1", "text": "Hello world"}]}'
+
+        with patch("app.api.generate.summarize_articles", return_value=5), \
+             patch("app.api.generate.generate_script", return_value=1), \
+             patch("app.api.generate.synthesize_episode", return_value=1), \
+             patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}), \
+             patch("builtins.open", _make_fake_open(fake_script)):
+
+            _run_generation(ep_id, body)
+
+        mock_import.assert_called_once()
+        ep = svc.get_episode(ep_id)
+        assert ep["status"] == "completed"
+        assert ep["phase"] == "complete"
 
     @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
     def test_success_path_persists_phase(self, mock_import):

@@ -12,14 +12,6 @@ const nextConfig = {
         destination: `${apiBase}/audio/:path*`,
       },
       {
-        source: '/episodes',
-        destination: `${apiBase}/episodes`,
-      },
-      {
-        source: '/episodes/:path*',
-        destination: `${apiBase}/episodes/:path*`,
-      },
-      {
         source: '/articles',
         destination: `${apiBase}/articles`,
       },

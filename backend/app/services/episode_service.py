@@ -106,6 +106,20 @@ class EpisodeService:
             ).fetchone()
             return dict(row) if row else None
 
+    @retry_on_busy()
+    def get_generating_episode(self, episode_date: str) -> Optional[int]:
+        """同一日かつ status=\"generating\" のエピソードを検索し、id を返す。存在しない場合は None"""
+        with get_db_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT id FROM episodes
+                WHERE episode_date = ? AND status = 'generating'
+                LIMIT 1
+                """,
+                (episode_date,),
+            ).fetchone()
+            return row["id"] if row else None
+
     def get_episode(self, episode_id: int) -> Optional[dict[str, Any]]:
         with get_db_connection() as conn:
             row = conn.execute(
