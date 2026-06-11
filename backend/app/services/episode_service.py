@@ -132,6 +132,15 @@ class EpisodeService:
             ).fetchone()
             return row["audio_path"] if row else None
 
+    def find_generating_by_date(self, episode_date: str) -> Optional[int]:
+        """Find an episode id with the given date and status 'generating'. Returns None if not found."""
+        with get_db_connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM episodes WHERE episode_date = ? AND status = 'generating' LIMIT 1",
+                (episode_date,),
+            ).fetchone()
+            return row["id"] if row else None
+
     @retry_on_busy()
     def update_episode_audio_path(self, episode_id: int, audio_path: str) -> None:
         with get_db_connection() as conn:
