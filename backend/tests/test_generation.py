@@ -31,6 +31,16 @@ class TestGenerateEndpoint:
         episode_id_2 = r2.json()["episode_id"]
         assert episode_id_1 == episode_id_2
 
+    def test_new_date_creates_episode(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        before = len(svc.get_episode_list())
+        resp = client.post("/generate", json={"date": "2099-04-04"})
+        assert resp.status_code == 200
+        after = len(svc.get_episode_list())
+        assert after == before + 1
+
 
 class TestEpisodePhase:
     def test_get_episode_returns_phase(self, client):
