@@ -7,30 +7,26 @@ from app.db.connection import get_db_connection
 
 
 def main():
-    with get_db_connection() as conn:
-        rows = conn.execute(
-            """
-            SELECT id FROM episodes
-            WHERE status = ?
-            """,
-            ("generating",),
-        ).fetchall()
+    count = 0
+    try:
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                UPDATE episodes
+                SET status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE status = ?
+                """,
+                ("pending", "generating"),
+            )
+            count = conn.total_changes
 
-        count = len(rows)
+    except Exception as e:
+        print(f"Error connecting to database: {e}")
+        raise SystemExit(1)
 
-        if count == 0:
-            print("No generating episodes found. Nothing to update.")
-            return
-
-        conn.execute(
-            """
-            UPDATE episodes
-            SET status = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE status = ?
-            """,
-            ("pending", "generating"),
-        )
-
+    if count == 0:
+        print("No generating episodes found. Nothing to update.")
+    else:
         print(f"Updated {count} episode(s) from generating to pending.")
 
 

@@ -1,6 +1,7 @@
 import sys
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 from app.services.episode_service import EpisodeService
 
 scripts_dir = Path(__file__).parent.parent / "scripts"
@@ -52,3 +53,21 @@ class TestResetStaleGenerating:
         assert svc.get_episode(failed_id)["status"] == "failed"
         assert svc.get_episode(generating_id)["status"] == "pending"
         assert "Updated 1 episode(s) from generating to pending." in captured.getvalue()
+
+    def test_db_error_exits_with_message(self):
+        captured = StringIO()
+        sys.stdout, original = captured, sys.stdout
+        try:
+            with patch(
+                "reset_stale_generating.get_db_connection",
+                side_effect=RuntimeError("connection refused"),
+            ):
+                try:
+                    main()
+                except SystemExit as e:
+                    assert e.code == 1
+
+        finally:
+            sys.stdout = original
+
+        assert "Error connecting to database:" in captured.getvalue()
