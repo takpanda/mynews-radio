@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     voicevox_speaker_male: int = 11
     voicevox_speaker_female: int = 2
     aivispeech_base_url: str = "http://192.168.1.102:10101"
-    #aivispeech_speaker_male: int = 1310138976   # 阿井田 茂 ノーマル
-    aivispeech_speaker_male: int = 5306848   # 猩々博士 (雑談ボイス) ノーマル
+    aivispeech_speaker_male: int = 1310138976   # 阿井田 茂 ノーマル
+    #aivispeech_speaker_male: int = 5306848      # 猩々博士（雑談ボイス）ノーマル
     aivispeech_speaker_female: int = 1388823424  # 湊音エル ノーマル
     default_tts_engine: str = "aivispeech"
     episode_retention_days: int = 30
