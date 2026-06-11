@@ -269,9 +269,14 @@ def generate_episode(body: GenerateRequest) -> dict:
 
     stale_id = service.find_generating_by_date(body.date)
     if stale_id is not None:
-        logger.info("Resetting stale generating episode %d for date %s to pending", stale_id, body.date)
-        service.update_episode_status(stale_id, "pending")
-        service.update_episode_status(stale_id, "generating")
+        logger.info("Resetting stale generating episode %d for date %s", stale_id, body.date)
+        service.reset_episode_for_reuse(stale_id)
+        service.clear_episode_items(stale_id)
+        if not service.claim_generating_slot(stale_id):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Episode for {body.date} could not be acquired (race condition)",
+            )
         episode_id = stale_id
     else:
         try:

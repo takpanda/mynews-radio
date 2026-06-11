@@ -27,7 +27,7 @@ def reset_stale_generating() -> int:
     count = 0
     for row in rows:
         episode_id = row["id"]
-        service.update_episode_status(episode_id, "pending")
+        service.reset_episode_for_reuse(episode_id)
         logger.info("Reset episode %d from generating to pending", episode_id)
         count += 1
 
@@ -41,4 +41,8 @@ def reset_stale_generating() -> int:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    reset_stale_generating()
+    try:
+        reset_stale_generating()
+    except Exception:
+        logger.exception("Failed to reset stale episodes")
+        sys.exit(1)

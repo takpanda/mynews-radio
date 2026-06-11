@@ -142,6 +142,46 @@ class EpisodeService:
             return row["id"] if row else None
 
     @retry_on_busy()
+    def claim_generating_slot(self, episode_id: int) -> bool:
+        """Atomically change status from 'pending' to 'generating'.
+
+        Returns True if the episode was in 'pending' and is now 'generating'.
+        Returns False if the row did not match (status was not 'pending').
+        """
+        with get_db_connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE episodes
+                SET status = 'generating', updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = 'pending'
+                """,
+                (episode_id,),
+            )
+            return cursor.rowcount > 0
+
+    @retry_on_busy()
+    def reset_episode_for_reuse(self, episode_id: int) -> None:
+        """Reset a stale episode's status and phase for reuse."""
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                UPDATE episodes
+                SET status = 'pending', phase = '', updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (episode_id,),
+            )
+
+    @retry_on_busy()
+    def clear_episode_items(self, episode_id: int) -> None:
+        """Clear all episode_items for an episode."""
+        with get_db_connection() as conn:
+            conn.execute(
+                "DELETE FROM episode_items WHERE episode_id = ?",
+                (episode_id,),
+            )
+
+    @retry_on_busy()
     def update_episode_audio_path(self, episode_id: int, audio_path: str) -> None:
         with get_db_connection() as conn:
             conn.execute(
