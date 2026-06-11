@@ -106,7 +106,23 @@ class TestRunGenerationPipeline:
         assert svc.get_episode(ep_id)["status"] == "failed"
 
     @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
-    def test_success_path_persists_phase(self, mock_import):
+    def test_guard_marks_failed_on_unexpected_exception_in_generate_script(self, mock_import):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode(episode_date="2099-09-01", status="generating")
+        body = GenerateRequest(date="2099-09-01", enable_review=False)
+
+        with patch("app.api.generate.summarize_articles", return_value=5), \
+             patch("app.api.generate.generate_script", side_effect=RuntimeError("unexpected")):
+            _run_generation(ep_id, body)
+
+        ep = svc.get_episode(ep_id)
+        assert ep["status"] == "failed"
+
+    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    def test_guard_does_not_overwrite_completed_status(self, mock_import):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
 
