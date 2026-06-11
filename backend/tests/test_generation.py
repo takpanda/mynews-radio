@@ -22,13 +22,53 @@ class TestGenerateEndpoint:
         elapsed = time.time() - start
         assert resp.status_code == 200 and elapsed < 1.0
 
-    def test_duplicate_date_reuses_generating_episode(self, client):
-        r1 = client.post("/generate", json={"date": "2099-03-03"})
+    def test_duplicate_date_returns_409_on_race_condition(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-03-03", status="generating")
+        svc.update_episode_phase(eid, "summarize")
+
+        # Simulate race: stale found, reset to pending, but claim fails.
+        with patch.object(EpisodeService, "claim_generating_slot", return_value=False):
+            r1 = client.post("/generate", json={"date": "2099-03-03"})
+        assert r1.status_code == 409
+
+    def test_duplicate_date_reuses_stale_episode(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-05-05", status="pending")
+        svc.update_episode_status(eid, "generating")
+        svc.update_episode_phase(eid, "summarize")
+
+        # Second request on same date reuses the stale generating episode.
+        r1 = client.post("/generate", json={"date": "2099-05-05"})
         assert r1.status_code == 200
-        episode_id_1 = r1.json()["episode_id"]
-        r2 = client.post("/generate", json={"date": "2099-03-03"})
-        assert r2.status_code == 200
-        episode_id_2 = r2.json()["episode_id"]
+        data = r1.json()
+        assert data["episode_id"] == eid
+
+    def test_stale_generating_episode_reused(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-04-04", status="generating")
+        svc.update_episode_phase(eid, "summarize")
+        r1 = client.post("/generate", json={"date": "2099-04-04"})
+        assert r1.status_code == 200
+        data = r1.json()
+        assert data["episode_id"] == eid
+        assert data["status"] == "generating"
+
+    def test_duplicate_date_reuses_generating_episode(self, client):
+        with patch("app.api.generate.asyncio.ensure_future"), \
+             patch("threading.Thread.start"):
+            r1 = client.post("/generate", json={"date": "2099-03-03"})
+            assert r1.status_code == 200
+            episode_id_1 = r1.json()["episode_id"]
+            r2 = client.post("/generate", json={"date": "2099-03-03"})
+            assert r2.status_code == 200
+            episode_id_2 = r2.json()["episode_id"]
         assert episode_id_1 == episode_id_2
 
     def test_new_date_creates_episode(self, client):
@@ -40,6 +80,21 @@ class TestGenerateEndpoint:
         assert resp.status_code == 200
         after = len(svc.get_episode_list())
         assert after == before + 1
+
+    def test_run_generation_outer_except_on_unexpected_error(self, client):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode(episode_date="2099-09-01", status="generating")
+        body = GenerateRequest(date="2099-09-01")
+
+        # Patch an early operation outside any inner try-except so the outer
+        # except catches it and sets status to "failed".
+        with patch("pathlib.Path.mkdir", side_effect=OSError("disk full")):
+            _run_generation(ep_id, body)
+
+        assert svc.get_episode(ep_id)["status"] == "failed"
 
 
 class TestEpisodePhase:
@@ -123,6 +178,30 @@ class TestRunGenerationPipeline:
 
     @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
     def test_guard_does_not_overwrite_completed_status(self, mock_import):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode(episode_date="2099-06-01", status="generating")
+        body = GenerateRequest(date="2099-06-01", enable_review=False)
+
+        fake_script = '{"lines": [{"article_id": "1", "text": "Hello world"}]}'
+
+        with patch("app.api.generate.summarize_articles", return_value=5), \
+             patch("app.api.generate.generate_script", return_value=1), \
+             patch("app.api.generate.synthesize_episode", return_value=1), \
+             patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}), \
+             patch("builtins.open", _make_fake_open(fake_script)):
+
+            _run_generation(ep_id, body)
+
+        mock_import.assert_called_once()
+        ep = svc.get_episode(ep_id)
+        assert ep["status"] == "completed"
+        assert ep["phase"] == "complete"
+
+    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    def test_success_path_persists_phase(self, mock_import):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
 

@@ -1,27 +1,34 @@
-import sys
+"""Reset stale episodes stuck in generating status to pending."""
+
 import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.db.connection import get_db_connection
+from app.services.episode_service import EpisodeService
 
 
-def main():
-    count = 0
+def reset_stale_generating() -> int:
+    """Reset all generating episodes for safe reuse and return the count."""
+    service = EpisodeService()
+
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT id FROM episodes WHERE status = 'generating'"
+        ).fetchall()
+
+    for row in rows:
+        service.reset_episode_for_reuse(row["id"])
+
+    return len(rows)
+
+
+def main() -> None:
     try:
-        with get_db_connection() as conn:
-            conn.execute(
-                """
-                UPDATE episodes
-                SET status = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE status = ?
-                """,
-                ("pending", "generating"),
-            )
-            count = conn.total_changes
-
-    except Exception as e:
-        print(f"Error connecting to database: {e}")
+        count = reset_stale_generating()
+    except Exception as exc:
+        print(f"Error connecting to database: {exc}")
         raise SystemExit(1)
 
     if count == 0:

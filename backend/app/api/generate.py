@@ -77,7 +77,7 @@ class GenerateRequest(BaseModel):
 def _run_generation(episode_id: int, body: GenerateRequest) -> None:
     """Background pipeline that persists DB records and status transitions synchronously."""
 
-    service = None
+    service: EpisodeService | None = None
     try:
         service = EpisodeService()
         episode_date = body.date
@@ -276,26 +276,27 @@ def generate_episode(body: GenerateRequest) -> dict:
 
     service = EpisodeService()
 
-    # Check if there's already a generating episode for the same date
-    existing_episode_id = service.get_generating_episode(body.date)
-    if existing_episode_id is not None:
-        return {
-            "episode_id": existing_episode_id,
-            "status": "generating",
-            "message": f"Reusing existing generation for {body.date}",
-        }
-
-    try:
-        episode_id = service.create_episode(
-            episode_date=body.date, status="generating"
-        )
-    except sqlite3.IntegrityError:
-        # Kept as a safety net for other UNIQUE constraint violations not covered by the pre-check above
-        raise HTTPException(
-            status_code=409,
-            detail=f"Episode for {body.date} is already being generated",
-        )
-
+    stale_id = service.find_generating_by_date(body.date)
+    if stale_id is not None:
+        logger.info("Resetting stale generating episode %d for date %s", stale_id, body.date)
+        service.reset_episode_for_reuse(stale_id)
+        service.clear_episode_items(stale_id)
+        if not service.claim_generating_slot(stale_id):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Episode for {body.date} could not be acquired (race condition)",
+            )
+        episode_id = stale_id
+    else:
+        try:
+            episode_id = service.create_episode(
+                episode_date=body.date, status="generating"
+            )
+        except sqlite3.IntegrityError:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Episode for {body.date} already exists",
+            )
     service.update_episode_phase(episode_id, "start")
 
     # Start actual pipeline in background; prefer asyncio under uvicorn
