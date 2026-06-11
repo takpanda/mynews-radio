@@ -22,11 +22,14 @@ class TestGenerateEndpoint:
         elapsed = time.time() - start
         assert resp.status_code == 200 and elapsed < 1.0
 
-    def test_duplicate_date_returns_409(self, client):
+    def test_duplicate_date_reuses_generating_episode(self, client):
         r1 = client.post("/generate", json={"date": "2099-03-03"})
         assert r1.status_code == 200
+        episode_id_1 = r1.json()["episode_id"]
         r2 = client.post("/generate", json={"date": "2099-03-03"})
-        assert r2.status_code == 409
+        assert r2.status_code == 200
+        episode_id_2 = r2.json()["episode_id"]
+        assert episode_id_1 == episode_id_2
 
 
 class TestEpisodePhase:

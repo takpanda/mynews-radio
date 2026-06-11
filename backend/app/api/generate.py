@@ -262,15 +262,22 @@ def generate_episode(body: GenerateRequest) -> dict:
     """Creates episode record and returns JSON immediately; actual generation runs in background."""
 
     service = EpisodeService()
-    try:
-        episode_id = service.create_episode(
-            episode_date=body.date, status="generating"
-        )
-    except sqlite3.IntegrityError:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Episode for {body.date} is already being generated",
-        )
+
+    # Check if there's already a generating episode for the same date
+    existing_episode_id = service.get_generating_episode(body.date)
+    if existing_episode_id is not None:
+        episode_id = existing_episode_id
+    else:
+        try:
+            episode_id = service.create_episode(
+                episode_date=body.date, status="generating"
+            )
+        except sqlite3.IntegrityError:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Episode for {body.date} is already being generated",
+            )
+
     service.update_episode_phase(episode_id, "start")
 
     # Start actual pipeline in background; prefer asyncio under uvicorn
