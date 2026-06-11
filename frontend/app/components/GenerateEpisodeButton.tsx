@@ -309,10 +309,25 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   useEffect(() => {
     if (!episodeId || !isLoading) return
 
+    let isCancelled = false
+
     const poll = async () => {
       try {
         const episode = await fetchEpisode(episodeId)
-        if (!episode) return
+
+        /* 404 → stale key として処理し、ポーリングを停止 */
+        if (episode === null) {
+          localStorage.removeItem(STORAGE_KEY)
+          setEpisodeId(null)
+          setIsLoading(false)
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current)
+            pollingRef.current = null
+          }
+          return
+        }
+
+        if (isCancelled) return
 
         const phase = mapStatusToPhase(episode)
         const pollMessage = episode.generation_message || MESSAGE_BY_STATUS[episode.status] || phase
@@ -323,6 +338,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
         })
 
         if (episode.status === 'completed') {
+          isCancelled = true
           localStorage.removeItem(STORAGE_KEY)
           setMessage('生成が完了しました。')
           setIsLoading(false)
@@ -332,6 +348,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
           }
           router.refresh()
         } else if (episode.status === 'failed') {
+          isCancelled = true
           localStorage.removeItem(STORAGE_KEY)
           setMessage('生成に失敗しました。')
           setHasError(true)
@@ -342,14 +359,15 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
           }
         }
       } catch {
-        // 一時的な通信エラーは無視してポーリング継続
+        /* 一時的な通信エラーは無視してポーリング継続 */
       }
     }
 
-    poll()
     pollingRef.current = setInterval(poll, 3000)
+    poll()
 
     return () => {
+      isCancelled = true
       if (pollingRef.current) {
         clearInterval(pollingRef.current)
         pollingRef.current = null
