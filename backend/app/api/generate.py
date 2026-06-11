@@ -257,12 +257,14 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
 
         service.update_episode_phase(episode_id, "complete")
         logger.info("[%d] completed successfully", episode_id)
-    except Exception:
+    except Exception as exc:
+        # Guard net: catch any unexpected exception and set status to "failed".
+        # update_episode_status is idempotent, so we only skip terminal states.
         if service is not None:
             current = service.get_episode(episode_id)
             current_status = current["status"] if current else None
             if current_status not in {"completed", "failed"}:
-                logger.exception("[%d] generation failed unexpectedly, marking as failed", episode_id)
+                logger.exception("[%d] generation failed unexpectedly", episode_id)
                 service.update_episode_status(episode_id, "failed")
         else:
             logger.exception("[%d] generation failed before service init", episode_id)
