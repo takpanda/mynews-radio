@@ -280,50 +280,46 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   const router = useRouter()
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isLoadingRef = useRef(false)
+  const attemptCountRef = useRef(0)
 
   useEffect(() => {
     isLoadingRef.current = isLoading
   }, [isLoading])
 
   useEffect(() => {
-    const storedId = localStorage.getItem(STORAGE_KEY)
-    if (!storedId) return
-
-    const id = Number(storedId)
-    if (isNaN(id) || id <= 0) {
-      localStorage.removeItem(STORAGE_KEY)
-      return
-    }
-
-    fetchEpisode(id)
-      .then((episode) => {
+    const checkAndResume = async () => {
+      const storedId = localStorage.getItem(STORAGE_KEY)
+      if (!storedId) return
+      const id = Number(storedId)
+      if (isNaN(id) || id <= 0) {
+        localStorage.removeItem(STORAGE_KEY)
+        return
+      }
+      try {
+        const episode = await fetchEpisode(id)
         if (episode === null) {
-          /* 404: 削除済みまたは存在しないエピソード → stale key として掃除 */
           localStorage.removeItem(STORAGE_KEY)
           return
         }
 
-        if (episode.status === 'completed') {
+        if (episode.status === 'completed' || episode.status === 'failed') {
           localStorage.removeItem(STORAGE_KEY)
-          setMessage('生成が完了しました。')
+          setEpisodeId(id)
+          setIsLoading(false)
+          setProgress([{ phase: mapStatusToPhase(episode), message: MESSAGE_BY_STATUS[episode.status] || '', status: episode.status }])
+          setMessage(episode.status === 'completed' ? '生成が完了しました。' : '生成に失敗しました。')
+          if (episode.status === 'failed') setHasError(true)
           return
         }
-
-        if (episode.status === 'failed') {
-          localStorage.removeItem(STORAGE_KEY)
-          setMessage('生成に失敗しました。')
-          setHasError(true)
-          return
-        }
-
-        /* pending / processing: 通常どおりポーリングを再開 */
-        setEpisodeId(id)
-        setIsLoading(true)
-        setProgress([{ phase: 'start', message: '前回の生成を再開しています…' }])
-      })
-      .catch(() => {
+      } catch {
         /* 通信エラー: stale key と断定せず、新規生成時の通常フローに委ねる */
-      })
+        return
+      }
+      setEpisodeId(id)
+      setIsLoading(true)
+      setProgress([{ phase: 'start', message: '前回の生成を再開しています…' }])
+    }
+    checkAndResume()
   }, [])
 
   useEffect(() => {
@@ -338,14 +334,27 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   useEffect(() => {
     if (!episodeId || !isLoading) return
 
+    const MAX_ATTEMPTS = 120
+    attemptCountRef.current = 0
     let isCancelled = false
 
     const poll = async () => {
+      if (isCancelled) return
       try {
+        attemptCountRef.current += 1
+        if (attemptCountRef.current > MAX_ATTEMPTS) {
+          if (!isCancelled) {
+            isCancelled = true
+            localStorage.removeItem(STORAGE_KEY)
+            setMessage('生成の確認がタイムアウトしました。ページを再読み込みしてください。')
+            setHasError(true)
+            setIsLoading(false)
+          }
+          return
+        }
         const episode = await fetchEpisode(episodeId)
-
-        /* 404 → stale key として処理し、ポーリングを停止 */
         if (episode === null) {
+          isCancelled = true
           localStorage.removeItem(STORAGE_KEY)
           setEpisodeId(null)
           setIsLoading(false)
