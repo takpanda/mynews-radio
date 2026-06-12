@@ -280,21 +280,43 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   const router = useRouter()
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isLoadingRef = useRef(false)
+  const attemptCountRef = useRef(0)
 
   useEffect(() => {
     isLoadingRef.current = isLoading
   }, [isLoading])
 
   useEffect(() => {
-    const storedId = localStorage.getItem(STORAGE_KEY)
-    if (storedId) {
+    const checkAndResume = async () => {
+      const storedId = localStorage.getItem(STORAGE_KEY)
+      if (!storedId) return
       const id = Number(storedId)
-      if (!isNaN(id) && id > 0) {
-        setEpisodeId(id)
-        setIsLoading(true)
-        setProgress([{ phase: 'start', message: '前回の生成を再開しています…' }])
+      if (isNaN(id) || id <= 0) {
+        localStorage.removeItem(STORAGE_KEY)
+        return
       }
+      try {
+        const episode = await fetchEpisode(id)
+        if (episode?.status === 'completed' || episode?.status === 'failed') {
+          localStorage.removeItem(STORAGE_KEY)
+          if (episode) {
+            setEpisodeId(id)
+            setIsLoading(false)
+            setProgress([{ phase: mapStatusToPhase(episode), message: MESSAGE_BY_STATUS[episode.status] || '', status: episode.status }])
+            setMessage(episode.status === 'completed' ? '生成が完了しました。' : '生成に失敗しました。')
+            if (episode.status === 'failed') setHasError(true)
+          }
+          return
+        }
+      } catch {
+        localStorage.removeItem(STORAGE_KEY)
+        return
+      }
+      setEpisodeId(id)
+      setIsLoading(true)
+      setProgress([{ phase: 'start', message: '前回の生成を再開しています…' }])
     }
+    checkAndResume()
   }, [])
 
   useEffect(() => {
@@ -309,10 +331,26 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   useEffect(() => {
     if (!episodeId || !isLoading) return
 
+    const MAX_ATTEMPTS = 120
+    attemptCountRef.current = 0
+    let isCancelled = false
+
     const poll = async () => {
+      if (isCancelled) return
       try {
+        attemptCountRef.current += 1
+        if (attemptCountRef.current > MAX_ATTEMPTS) {
+          if (!isCancelled) {
+            isCancelled = true
+            localStorage.removeItem(STORAGE_KEY)
+            setMessage('生成の確認がタイムアウトしました。ページを再読み込みしてください。')
+            setHasError(true)
+            setIsLoading(false)
+          }
+          return
+        }
         const episode = await fetchEpisode(episodeId)
-        if (!episode) return
+        if (!episode || isCancelled) return
 
         const phase = mapStatusToPhase(episode)
         const pollMessage = episode.generation_message || MESSAGE_BY_STATUS[episode.status] || phase
@@ -323,6 +361,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
         })
 
         if (episode.status === 'completed') {
+          isCancelled = true
           localStorage.removeItem(STORAGE_KEY)
           setMessage('生成が完了しました。')
           setIsLoading(false)
@@ -332,6 +371,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
           }
           router.refresh()
         } else if (episode.status === 'failed') {
+          isCancelled = true
           localStorage.removeItem(STORAGE_KEY)
           setMessage('生成に失敗しました。')
           setHasError(true)
@@ -350,7 +390,13 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
           }
         }
       } catch {
-        // 一時的な通信エラーは無視してポーリング継続
+        if (attemptCountRef.current > MAX_ATTEMPTS) {
+          isCancelled = true
+          localStorage.removeItem(STORAGE_KEY)
+          setMessage('生成の確認に失敗しました。ページを再読み込みしてください。')
+          setHasError(true)
+          setIsLoading(false)
+        }
       }
     }
 
@@ -358,6 +404,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
     pollingRef.current = setInterval(poll, 3000)
 
     return () => {
+      isCancelled = true
       if (pollingRef.current) {
         clearInterval(pollingRef.current)
         pollingRef.current = null
