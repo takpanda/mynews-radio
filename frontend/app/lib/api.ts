@@ -91,7 +91,7 @@ export async function fetchEpisodes(): Promise<EpisodeListItem[]> {
 }
 
 export async function fetchEpisode(id: number): Promise<Episode | null> {
-  const res = await fetch(`${getApiBase()}/episodes/${id}`, { cache: 'no-store' })
+  const res = await fetch(`${getApiBase()}/episodes/${id}?_t=${Date.now()}`, { cache: 'no-store' })
   if (res.status === 404) return null
   if (!res.ok) throw new Error(`Failed to fetch episode: ${res.status}`)
   return res.json() as Promise<Episode>
