@@ -287,14 +287,43 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
 
   useEffect(() => {
     const storedId = localStorage.getItem(STORAGE_KEY)
-    if (storedId) {
-      const id = Number(storedId)
-      if (!isNaN(id) && id > 0) {
+    if (!storedId) return
+
+    const id = Number(storedId)
+    if (isNaN(id) || id <= 0) {
+      localStorage.removeItem(STORAGE_KEY)
+      return
+    }
+
+    fetchEpisode(id)
+      .then((episode) => {
+        if (episode === null) {
+          /* 404: 削除済みまたは存在しないエピソード → stale key として掃除 */
+          localStorage.removeItem(STORAGE_KEY)
+          return
+        }
+
+        if (episode.status === 'completed') {
+          localStorage.removeItem(STORAGE_KEY)
+          setMessage('生成が完了しました。')
+          return
+        }
+
+        if (episode.status === 'failed') {
+          localStorage.removeItem(STORAGE_KEY)
+          setMessage('生成に失敗しました。')
+          setHasError(true)
+          return
+        }
+
+        /* pending / processing: 通常どおりポーリングを再開 */
         setEpisodeId(id)
         setIsLoading(true)
         setProgress([{ phase: 'start', message: '前回の生成を再開しています…' }])
-      }
-    }
+      })
+      .catch(() => {
+        /* 通信エラー: stale key と断定せず、新規生成時の通常フローに委ねる */
+      })
   }, [])
 
   useEffect(() => {
