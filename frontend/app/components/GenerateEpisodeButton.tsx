@@ -340,6 +340,14 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
             clearInterval(pollingRef.current)
             pollingRef.current = null
           }
+        } else if (episode.status === 'pending') {
+          // pending は生成が開始されていない、またはリセットされた状態
+          localStorage.removeItem(STORAGE_KEY)
+          setIsLoading(false)
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current)
+            pollingRef.current = null
+          }
         }
       } catch {
         // 一時的な通信エラーは無視してポーリング継続
