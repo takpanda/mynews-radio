@@ -24,6 +24,7 @@ interface ProgressEntry {
   phase: PhaseCode
   message: string
   status?: string
+  updatedAt?: number
 }
 
 interface PhasePresentation {
@@ -35,7 +36,23 @@ interface PhasePresentation {
 }
 
 const STATUS_TO_PHASE: Record<string, PhaseCode> = {
+  generating: 'start',
   pending: 'start',
+  start: 'start',
+  import: 'import',
+  summarize: 'summarize',
+  generate_script: 'generate_script',
+  review: 'review',
+  review_done: 'review_done',
+  synthesize: 'synthesize',
+  build: 'build',
+  db: 'db',
+  review_synthesize: 'review_synthesize',
+  review_build: 'review_build',
+  review_complete: 'review_complete',
+  complete: 'complete',
+  failed: 'failed',
+  // 後方互換用（status からマッピングする場合）
   start: 'start',
   import: 'import',
   summarize: 'summarize',
@@ -59,7 +76,6 @@ const STATUS_TO_PHASE: Record<string, PhaseCode> = {
   building: 'build',
   saving: 'db',
   completed: 'complete',
-  generating: 'start',
 }
 
 function mapStatusToPhase(episode: { status: string; generation_phase?: string }): PhaseCode {
@@ -70,6 +86,7 @@ function mapStatusToPhase(episode: { status: string; generation_phase?: string }
 }
 
 const MESSAGE_BY_STATUS: Record<string, string> = {
+  generating: '番組を生成中…',
   pending: '生成を開始しています…',
   importing: 'ニュース記事を取得しています…',
   summarizing: '記事を要約しています…',
@@ -342,6 +359,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   useEffect(() => {
     if (!episodeId || !isLoading) return
 
+    const INTERVAL_MS = 3000
     const MAX_ATTEMPTS = 120
     attemptCountRef.current = 0
     let isCancelled = false
@@ -418,7 +436,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
     }
 
     poll()
-    pollingRef.current = setInterval(poll, 1000)
+    pollingRef.current = setInterval(poll, INTERVAL_MS)
 
     return () => {
       isCancelled = true
