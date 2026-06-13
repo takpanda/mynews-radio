@@ -458,7 +458,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
 
   const runGeneration = async () => {
     setIsLoading(true)
-    setProgress([])
+    setProgress([{ phase: 'start', message: '番組の生成を準備しています…', updatedAt: Date.now() }])
     setMessage(null)
     setShowLogs(false)
     setEpisodeId(null)
