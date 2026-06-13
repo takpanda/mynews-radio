@@ -55,17 +55,27 @@ class EpisodeService:
             )
 
     @retry_on_busy()
-    def update_episode_phase(self, episode_id: int, phase: str) -> None:
-        """Updates the progress phase for an episode."""
+    def update_episode_phase(self, episode_id: int, phase: str, message: Optional[str] = None) -> None:
+        """Updates the progress phase for an episode. Optionally updates generation_message too."""
         with get_db_connection() as conn:
-            conn.execute(
-                """
-                UPDATE episodes
-                SET phase = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """,
-                (phase, episode_id),
-            )
+            if message is not None:
+                conn.execute(
+                    """
+                    UPDATE episodes
+                    SET phase = ?, generation_message = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (phase, message, episode_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE episodes
+                    SET phase = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (phase, episode_id),
+                )
 
     @retry_on_busy()
     def add_episode_item(

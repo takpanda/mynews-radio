@@ -91,11 +91,11 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
         logger.info("Background generation started: episode_id=%d date=%s", episode_id, episode_date)
 
         # -- START --
-        service.update_episode_phase(episode_id, "start")
+        service.update_episode_phase(episode_id, "start", "番組の生成を準備しています…")
         logger.info("[%d] phase=start", episode_id)
 
         # -- IMPORT --
-        service.update_episode_phase(episode_id, "import")
+        service.update_episode_phase(episode_id, "import", "ニュース記事を取得しています…")
         try:
             ins, dup = import_articles_by_source(news_source)
             logger.info("RSS import done: inserted=%d duplicated=%d", ins, dup)
@@ -109,7 +109,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
             return
 
         # -- SUMMARIZE --
-        service.update_episode_phase(episode_id, "summarize")
+        service.update_episode_phase(episode_id, "summarize", "記事を要約しています…")
         try:
             summaries_path = os.path.join(base_dir, "summaries.json")
             summarized = summarize_articles(summaries_path)
@@ -124,7 +124,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
 
         try:
             # -- GENERATE SCRIPT --
-            service.update_episode_phase(episode_id, "generate_script")
+            service.update_episode_phase(episode_id, "generate_script", "台本を生成しています…")
             script_path = os.path.join(base_dir, "script.json")
             line_count = generate_script(script_path, program_name=program_name, news_source=news_source)
         finally:
@@ -156,7 +156,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
 
         # -- REVIEW (optional) --
         if body.enable_review:
-            service.update_episode_phase(episode_id, "review")
+            service.update_episode_phase(episode_id, "review", "台本をレビューしています…")
             try:
                 reviewed_episode_id = service.create_episode(
                     episode_date=episode_date, status="pending"
@@ -172,14 +172,14 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
                     review_result["revised"],
                     review_result["review_count"],
                 )
-                service.update_episode_phase(episode_id, "review_done")
+                service.update_episode_phase(episode_id, "review_done", "レビューが完了しました…")
             except Exception as exc:
                 logger.warning("review_script failed (non-fatal): %s", exc)
                 if reviewed_episode_id is not None:
                     service.update_episode_status(reviewed_episode_id, "failed")
 
         # -- SYNTHESIZE TTS --
-        service.update_episode_phase(episode_id, "synthesize")
+        service.update_episode_phase(episode_id, "synthesize", "音声を合成しています…")
         try:
             success_count = synthesize_episode(
                 base_dir,
@@ -197,7 +197,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
             return
 
         # -- BUILD MP3 --
-        service.update_episode_phase(episode_id, "build")
+        service.update_episode_phase(episode_id, "build", "音声をまとめています…")
         ep_metadata = build_episode(base_dir)
         if not ep_metadata:
             service.update_episode_status(episode_id, "failed")
@@ -255,7 +255,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
             else:
                 service.update_episode_status(reviewed_episode_id, "failed")
 
-        service.update_episode_phase(episode_id, "complete")
+        service.update_episode_phase(episode_id, "complete", "生成が完了しました")
         logger.info("[%d] completed successfully", episode_id)
     except Exception as exc:
         # Guard net: catch any unexpected exception and set status to "failed".
@@ -297,7 +297,7 @@ def generate_episode(body: GenerateRequest) -> dict:
                 status_code=409,
                 detail=f"Episode for {body.date} already exists",
             )
-    service.update_episode_phase(episode_id, "start")
+    service.update_episode_phase(episode_id, "start", "番組の生成を準備しています…")
 
     # Start actual pipeline in background; prefer asyncio under uvicorn
     loop: asyncio.AbstractEventLoop | None = None
