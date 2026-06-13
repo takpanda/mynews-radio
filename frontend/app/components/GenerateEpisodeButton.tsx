@@ -24,6 +24,7 @@ interface ProgressEntry {
   phase: PhaseCode
   message: string
   status?: string
+  updatedAt?: number
 }
 
 interface PhasePresentation {
@@ -35,20 +36,31 @@ interface PhasePresentation {
 }
 
 const STATUS_TO_PHASE: Record<string, PhaseCode> = {
+  generating: 'start',
   pending: 'start',
+  start: 'start',
+  import: 'import',
+  summarize: 'summarize',
+  generate_script: 'generate_script',
+  review: 'review',
+  review_done: 'review_done',
+  synthesize: 'synthesize',
+  build: 'build',
+  db: 'db',
+  review_synthesize: 'review_synthesize',
+  review_build: 'review_build',
+  review_complete: 'review_complete',
+  complete: 'complete',
+  failed: 'failed',
+  // 後方互換用（status からマッピングする場合）
   importing: 'import',
   summarizing: 'summarize',
   generating_script: 'generate_script',
   reviewing: 'review',
-  review_done: 'review_done',
   synthesizing: 'synthesize',
   building: 'build',
   saving: 'db',
-  review_synthesizing: 'review_synthesize',
-  review_building: 'review_build',
-  review_complete: 'review_complete',
   completed: 'complete',
-  failed: 'failed',
 }
 
 function mapStatusToPhase(episode: { status: string; generation_phase?: string }): PhaseCode {
@@ -59,6 +71,7 @@ function mapStatusToPhase(episode: { status: string; generation_phase?: string }
 }
 
 const MESSAGE_BY_STATUS: Record<string, string> = {
+  generating: '番組を生成中…',
   pending: '生成を開始しています…',
   importing: 'ニュース記事を取得しています…',
   summarizing: '記事を要約しています…',
@@ -331,6 +344,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   useEffect(() => {
     if (!episodeId || !isLoading) return
 
+    const INTERVAL_MS = 3000
     const MAX_ATTEMPTS = 120
     attemptCountRef.current = 0
     let isCancelled = false
@@ -353,11 +367,17 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
         if (!episode || isCancelled) return
 
         const phase = mapStatusToPhase(episode)
-        const pollMessage = episode.generation_message || MESSAGE_BY_STATUS[episode.status] || phase
+        const pollMessage = episode.generation_message || MESSAGE_BY_STATUS[episode.status] || ''
         setProgress((current) => {
           const last = current.at(-1)
-          if (last && last.phase === phase) return current
-          return [...current, { phase, message: pollMessage, status: episode.status }]
+          if (last && last.phase === phase) {
+            // 同じフェーズ内でもメッセージとタイムスタンプを更新して「まだ動いている」ことを示す
+            return [
+              ...current.slice(0, -1),
+              { ...last, message: pollMessage || last.message, updatedAt: Date.now() }
+            ]
+          }
+          return [...current, { phase, message: pollMessage, status: episode.status, updatedAt: Date.now() }]
         })
 
         if (episode.status === 'completed') {
@@ -380,6 +400,14 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
             clearInterval(pollingRef.current)
             pollingRef.current = null
           }
+        } else if (episode.status === 'pending') {
+          // pending は生成が開始されていない、またはリセットされた状態
+          localStorage.removeItem(STORAGE_KEY)
+          setIsLoading(false)
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current)
+            pollingRef.current = null
+          }
         }
       } catch {
         if (attemptCountRef.current > MAX_ATTEMPTS) {
@@ -393,7 +421,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
     }
 
     poll()
-    pollingRef.current = setInterval(poll, 3000)
+    pollingRef.current = setInterval(poll, INTERVAL_MS)
 
     return () => {
       isCancelled = true
