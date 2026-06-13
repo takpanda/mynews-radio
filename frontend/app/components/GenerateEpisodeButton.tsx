@@ -61,7 +61,6 @@ const STATUS_TO_PHASE: Record<string, PhaseCode> = {
   building: 'build',
   saving: 'db',
   completed: 'complete',
-  generating: 'start',
 }
 
 function mapStatusToPhase(episode: { status: string; generation_phase?: string }): PhaseCode {
