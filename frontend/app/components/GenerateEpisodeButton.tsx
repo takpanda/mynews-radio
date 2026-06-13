@@ -24,6 +24,7 @@ interface ProgressEntry {
   phase: PhaseCode
   message: string
   status?: string
+  updatedAt?: number
 }
 
 interface PhasePresentation {
@@ -35,6 +36,7 @@ interface PhasePresentation {
 }
 
 const STATUS_TO_PHASE: Record<string, PhaseCode> = {
+  generating: 'start',
   pending: 'start',
   start: 'start',
   import: 'import',
@@ -70,6 +72,7 @@ function mapStatusToPhase(episode: { status: string; generation_phase?: string }
 }
 
 const MESSAGE_BY_STATUS: Record<string, string> = {
+  generating: '番組を生成中…',
   pending: '生成を開始しています…',
   importing: 'ニュース記事を取得しています…',
   summarizing: '記事を要約しています…',
