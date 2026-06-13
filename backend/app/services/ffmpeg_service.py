@@ -251,9 +251,10 @@ def add_jingles_and_encode(
 
 
 def _parse_ffmpeg_duration(stderr_text: str) -> Optional[float]:
-    """stderrからMP3のduration(sec)を抽出"""
+    """stderrからMP3のduration(sec)を抽出（最後の time= を使用）"""
     if not stderr_text:
         return None
+    last_duration: Optional[float] = None
     for line in stderr_text.splitlines():
         if "time=" not in line:
             continue
@@ -261,7 +262,7 @@ def _parse_ffmpeg_duration(stderr_text: str) -> Optional[float]:
         parts = time_str.split(":")
         try:
             h, m, s = float(parts[0]), float(parts[1]), float(parts[2])
-            return h * 3600 + m * 60 + s
+            last_duration = h * 3600 + m * 60 + s
         except (ValueError, IndexError):
-            return None
-    return None
+            pass
+    return last_duration
