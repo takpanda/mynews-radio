@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'react-hot-toast'
 import { generateEpisode, fetchEpisode, type EpisodeListItem } from '../lib/api'
 
 type PhaseCode =
@@ -400,6 +401,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
             clearInterval(pollingRef.current)
             pollingRef.current = null
           }
+          toast.success('番組の生成が完了しました！', { icon: '✅' })
           router.refresh()
         } else if (episode.status === 'failed') {
           isCancelled = true
@@ -468,6 +470,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
       const { episode_id } = await generateEpisode(today, maxArticles, newsSource, ttsEngine, enableReview, recreateSummary)
       localStorage.setItem(STORAGE_KEY, String(episode_id))
       setEpisodeId(episode_id)
+      toast('番組の生成を開始しました', { icon: '🎙️' })
     } catch (error) {
       const msg = error instanceof Error ? error.message : '番組生成に失敗しました。'
       setMessage(msg)
