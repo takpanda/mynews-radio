@@ -345,6 +345,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   useEffect(() => {
     if (!episodeId || !isLoading) return
 
+    const INTERVAL_MS = 3000
     const MAX_ATTEMPTS = 120
     attemptCountRef.current = 0
     let isCancelled = false
@@ -421,7 +422,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
     }
 
     poll()
-    pollingRef.current = setInterval(poll, 1000)
+    pollingRef.current = setInterval(poll, INTERVAL_MS)
 
     return () => {
       isCancelled = true
