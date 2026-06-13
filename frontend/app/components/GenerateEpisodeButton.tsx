@@ -294,6 +294,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isLoadingRef = useRef(false)
   const attemptCountRef = useRef(0)
+  const shouldScrollToProgress = useRef(false)
 
   useEffect(() => {
     isLoadingRef.current = isLoading
@@ -377,6 +378,16 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
               { ...last, message: pollMessage || last.message, updatedAt: Date.now() }
             ]
           }
+          // 最初のprogressエントリが追加されたらプログレスセクションにスクロール
+          if (current.length === 0 && shouldScrollToProgress.current) {
+            setTimeout(() => {
+              const progressSection = document.getElementById('progress-section')
+              if (progressSection) {
+                progressSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              }
+            }, 200)
+            shouldScrollToProgress.current = false
+          }
           return [...current, { phase, message: pollMessage, status: episode.status, updatedAt: Date.now() }]
         })
 
@@ -450,13 +461,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
     setShowLogs(false)
     setEpisodeId(null)
     setHasError(false)
-
-    setTimeout(() => {
-      const progressSection = document.getElementById('progress-section')
-      if (progressSection) {
-        progressSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }
-    }, 100)
+    shouldScrollToProgress.current = true
 
     try {
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
