@@ -305,8 +305,6 @@ def _build_narrative_arc_section(arc: dict, summaries: list) -> str:
         lines.append("")
         lines.append("**記事間の橋渡し（Contextual Bridge）**（transition行でこの文脈を活かすこと）:")
         for b in bridges:
-            if not isinstance(b, dict):
-                continue
             from_id = b.get("from_article_id")
             to_id = b.get("to_article_id")
             bridge = b.get("bridge_text", "")
