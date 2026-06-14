@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 
-const API_BASE = process.env.API_BASE ?? "http://api:8010"
+const API_BASE = process.env.API_BASE ?? "http://localhost:8010"
 
 export async function POST(request: NextRequest) {
   const body = await request.json()
