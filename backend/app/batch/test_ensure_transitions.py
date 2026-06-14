@@ -130,3 +130,30 @@ class TestPickSpeaker:
         expected = [_random.choice(phrases) for _ in range(3)]
         assert got == expected, "_pick_phrase uses random.choice deterministically"
 
+
+class TestEnsureTransitionsIdNotFoundInText:
+    def test_empty_title_no_id_in_transition(self):
+        lines = [
+            {"section": "intro", "speaker": "male"},
+            {"section": "news", "article_id": 42},
+        ]
+        summaries = [{"id": 42, "title": "", "url": ""}]
+        result = _ensure_transitions(lines, summaries)
+        for line in result:
+            if line["section"] == "transition":
+                text = line.get("text", "")
+                assert not any(c.isdigit() for c in text), f"transition contains digit in ID context: {text}"
+
+    def test_fallback_uses_neutral_expression(self):
+        lines = [
+            {"section": "intro", "speaker": "male"},
+            {"section": "news", "article_id": 99},
+        ]
+        summaries = [{"id": 1, "title": "Real"}]
+        result = _ensure_transitions(lines, summaries)
+        for line in result:
+            if line["section"] == "transition":
+                text = line.get("text", "")
+                assert "記事" not in text, f"transition contains article ID reference: {text}"
+                assert not any(c.isdigit() for c in text), f"transition contains digit in ID context: {text}"
+
