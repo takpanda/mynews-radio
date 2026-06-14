@@ -134,12 +134,12 @@ def _ensure_transitions(lines: list, summaries: list) -> list:
         art_id = art.get("id")
         if art_id is not None:
             raw = art.get("title") or art.get("url", "") or ""
-            topic_map[art_id] = raw[:15] if raw else f"記事{art_id}"
+            topic_map[art_id] = raw[:15] if raw else "次の話題"
 
     def _topic(article_id) -> str:
         if article_id is None:
             return "次の話題"
-        return topic_map.get(article_id, f"記事{article_id}")
+        return topic_map.get(article_id, "次の話題")
 
     result: list = []
     last_content_aid = None   # 直前の news/discussion の article_id
@@ -262,6 +262,17 @@ def lint_script(lines: list) -> list[str]:
                 errors.append(
                     f"行 {i} ({speaker}): 「{req}」を使っているが具体的な数字・データが含まれていません"
                 )
+
+        # 記事IDのトピック表記（「記事XX」「（ID: XX）」など）を検出
+        import re as _re
+        id_refs = [
+            r"[^a-zA-Z0-9](記事)\d{2,}",
+            r"\(ID:\s*\d+\)",
+            r"article_id[=：:]\s*\d+",
+        ]
+        for pattern in id_refs:
+            for m in _re.finditer(pattern, text):
+                errors.append(f"行 {i} ({speaker}): 記事IDの参照表記が検出されました: 「{m.group(0).strip()}」")
 
     return errors
 
