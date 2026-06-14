@@ -295,6 +295,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isLoadingRef = useRef(false)
   const attemptCountRef = useRef(0)
+  const consecutiveFailuresRef = useRef(0)
   const shouldScrollToProgress = useRef(false)
 
   useEffect(() => {
@@ -367,6 +368,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
         }
         const episode = await fetchEpisode(episodeId)
         if (!episode || isCancelled) return
+        consecutiveFailuresRef.current = 0
 
         const phase = mapStatusToPhase(episode)
         const pollMessage = episode.generation_message || MESSAGE_BY_STATUS[episode.status] || ''
@@ -379,8 +381,8 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
               { ...last, message: pollMessage || last.message, updatedAt: Date.now() }
             ]
           }
-          // 最初のprogressエントリが追加されたらプログレスセクションにスクロール
-          if (current.length === 0 && shouldScrollToProgress.current) {
+          // フェーズが変わったタイミングでプログレスセクションにスクロール
+          if (shouldScrollToProgress.current) {
             setTimeout(() => {
               const progressSection = document.getElementById('progress-section')
               if (progressSection) {
@@ -423,7 +425,9 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
           }
         }
       } catch {
-        if (attemptCountRef.current > MAX_ATTEMPTS) {
+        consecutiveFailuresRef.current += 1
+        const CONSECUTIVE_ERROR_THRESHOLD = 5
+        if (consecutiveFailuresRef.current >= CONSECUTIVE_ERROR_THRESHOLD || attemptCountRef.current > MAX_ATTEMPTS) {
           isCancelled = true
           localStorage.removeItem(STORAGE_KEY)
           setMessage('生成の確認に失敗しました。ページを再読み込みしてください。')
@@ -464,6 +468,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
     setEpisodeId(null)
     setHasError(false)
     shouldScrollToProgress.current = true
+    consecutiveFailuresRef.current = 0
 
     try {
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
@@ -782,7 +787,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
         </aside>
       </div>
 
-      {(progress.length > 0 || message || isDuplicateError) && (
+      {(isLoading || progress.length > 0 || message || isDuplicateError) && (
         <div id="progress-section" className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50/80 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
