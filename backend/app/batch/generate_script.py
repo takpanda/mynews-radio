@@ -265,9 +265,8 @@ def lint_script(lines: list) -> list[str]:
                 )
 
         # 記事IDのトピック表記（「記事XX」「（ID: XX）」など）を検出
-        import re as _re
         id_refs = [
-            r"[^a-zA-Z0-9](記事)\d{2,}",
+            r"(?:^|[^a-zA-Z0-9])(?:記事)\d+",
             r"\(ID:\s*\d+\)",
             r"article_id[=：:]\s*\d+",
         ]

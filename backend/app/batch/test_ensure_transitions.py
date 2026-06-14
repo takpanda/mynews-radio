@@ -144,15 +144,16 @@ class TestEnsureTransitionsIdNotFoundInText:
                 text = line.get("text", "")
                 assert not any(c.isdigit() for c in text), f"transition contains digit in ID context: {text}"
 
-    def test_none_article_id_uses_fallback(self):
+    def test_fallback_uses_neutral_expression(self):
         lines = [
             {"section": "intro", "speaker": "male"},
-            {"section": "news", "article_id": 1, "title": "Test"},
+            {"section": "news", "article_id": 99},
         ]
-        summaries = [{"id": 1, "title": "Test"}]
+        summaries = [{"id": 1, "title": "Real"}]
         result = _ensure_transitions(lines, summaries)
         for line in result:
-            if line.get("article_id") is None and line["section"] == "transition":
+            if line["section"] == "transition":
                 text = line.get("text", "")
-                assert not any(c.isdigit() for c in text), f"fallback transition contains digits: {text}"
+                assert "記事" not in text, f"transition contains article ID reference: {text}"
+                assert not any(c.isdigit() for c in text), f"transition contains digit in ID context: {text}"
 
