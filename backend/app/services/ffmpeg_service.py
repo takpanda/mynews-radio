@@ -183,11 +183,10 @@ def add_jingles_and_encode(
     concat_labels: list[str] = []
 
     if has_opening:
-        fade_out_start = max(0.0, jingle_duration - fade_duration)
+        # 先頭にフェードインのみ（ファイルをフルで使用）
         filter_parts.append(
-            f"[{idx}:a]atrim=end={jingle_duration},"
-            f"afade=t=in:st=0:d={fade_duration},"
-            f"afade=t=out:st={fade_out_start}:d={fade_duration}"
+            f"[{idx}:a]"
+            f"afade=t=in:st=0:d={fade_duration}"
             f"[open]"
         )
         concat_labels.append("[open]")
@@ -198,11 +197,10 @@ def add_jingles_and_encode(
     idx += 1
 
     if has_ending:
-        fade_out_start = max(0.0, jingle_duration - fade_duration)
+        # 先頭にフェードインのみ（ファイルをフルで使用）
         filter_parts.append(
-            f"[{idx}:a]atrim=end={jingle_duration},"
-            f"afade=t=in:st=0:d={fade_duration},"
-            f"afade=t=out:st={fade_out_start}:d={fade_duration}"
+            f"[{idx}:a]"
+            f"afade=t=in:st=0:d={fade_duration}"
             f"[end]"
         )
         concat_labels.append("[end]")

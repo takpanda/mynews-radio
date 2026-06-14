@@ -30,21 +30,27 @@ def _get_audio_duration(path: str) -> float:
         return 0.0
 
 
-def _annotate_start_times(script: dict, wav_dir: str, wav_files_sorted: list, settings) -> None:
+def _get_opening_path(script: dict, settings) -> str:
+    """script title に応じた開口ジングルパスを返す。"""
+    program_title = script.get("title", "")
+    if program_title == "ニュースのとなり":
+        return settings.jingle_news_no_tonari_opening_path
+    return settings.jingle_opening_path
+
+
+def _annotate_start_times(script: dict, wav_dir: str, wav_files_sorted: list, settings) -> tuple[float, str]:
     """各 script line に start_time (秒) を付与する。
 
-    start_time = 開口ジングルの長さ + その行の WAV ファイルが始まるまでの累積秒数。
-    wav_file フィールドがない line（古いエピソード）は synthesize_voicevox.py の
-    file_counter ロジックを再現してファイル名を推定する。
+    Returns (opening_offset, opening_path_used).
     """
-    # 開口ジングルが存在する場合、その実際の長さ（と jingle_duration の小さい方）をオフセットとする
-    # add_jingles_and_encode は atrim=end=jingle_duration でトリムするため、
-    # 実際のファイル長が jingle_duration 未満の場合はファイル長がそのまま使われる
+    # script title に応じたジングルパスを取得
+    opening_path = _get_opening_path(script, settings)
+
+    # 開口ジングルが存在する場合、その実際の長さをオフセットとする
     opening_offset = 0.0
-    opening_path = settings.jingle_opening_path if settings.jingle_opening_path else None
     if opening_path and os.path.isfile(opening_path):
         actual_dur = _get_audio_duration(opening_path)
-        opening_offset = min(actual_dur, float(settings.jingle_duration)) if actual_dur > 0 else float(settings.jingle_duration)
+        opening_offset = actual_dur if actual_dur > 0 else float(settings.jingle_duration)
 
     # wav_file が未設定の行がある場合、file_counter ロジックを再現して推定する
     lines = script.get("lines", [])
@@ -73,10 +79,12 @@ def _annotate_start_times(script: dict, wav_dir: str, wav_files_sorted: list, se
             line["start_time"] = round(wav_start[wav_file], 3)
 
     logger.info(
-        "start_time を %d 行に付与しました (opening_offset=%.1fs)",
+        "start_time を %d 行に付与しました (opening_offset=%.1fs, jingle=%s)",
         sum(1 for line in lines if "start_time" in line),
         opening_offset,
+        opening_path or "none",
     )
+    return opening_offset, opening_path
 
 
 def build_episode(directory: str) -> dict:
@@ -122,12 +130,21 @@ def build_episode(directory: str) -> dict:
         logger.warning("start_time の計算に失敗しました（スキップ）: %s", exc)
 
     # Step 2: MP3 encode（ジングルがあれば前後に追加）
+    # 「ニュースのとなり」の場合は専用ジングルを使用
+    program_title = script.get("title", "")
+    if program_title == "ニュースのとなり":
+        opening_jingle = settings.jingle_news_no_tonari_opening_path
+        ending_jingle = settings.jingle_news_no_tonari_ending_path
+    else:
+        opening_jingle = settings.jingle_opening_path
+        ending_jingle = settings.jingle_ending_path
+
     mp3_path = os.path.join(directory, "episode.mp3")
     result = add_jingles_and_encode(
         main_wav_path=combined_wav,
         output_mp3_path=mp3_path,
-        opening_path=settings.jingle_opening_path,
-        ending_path=settings.jingle_ending_path,
+        opening_path=opening_jingle,
+        ending_path=ending_jingle,
         jingle_duration=settings.jingle_duration,
         fade_duration=settings.jingle_fade_duration,
         bitrate="128k",

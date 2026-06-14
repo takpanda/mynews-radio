@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     jingle_opening_path: str = "/app/data/jingles/opening.mp3"
     jingle_ending_path: str = "/app/data/jingles/ending.mp3"
     jingle_transition_path: str = "/app/data/jingles/transition.mp3"
+    jingle_news_no_tonari_opening_path: str = "/app/data/jingles/news-no-tonari.mp3"
+    jingle_news_no_tonari_ending_path: str = "/app/data/jingles/news-no-tonari.mp3"
     jingle_duration: float = 10.0
     jingle_fade_duration: float = 1.0
 
