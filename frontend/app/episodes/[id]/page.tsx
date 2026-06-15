@@ -125,7 +125,7 @@ export default async function EpisodePage({ params }: Props) {
   const episodeSummary = episode ? buildEpisodeSummary(episode.subtitle, articles) : null
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-6 pb-16 sm:px-6 lg:px-8 lg:py-10 lg:pb-32">
+    <main className="mx-auto max-w-6xl px-4 py-6 pb-14 sm:pb-16 sm:px-6 lg:px-8 lg:py-10 lg:pb-32">
       <div className="mb-6">
         <Link
           href="/"
@@ -221,7 +221,7 @@ export default async function EpisodePage({ params }: Props) {
               audioUrl={buildAudioUrl(episode.audio_url)}
             />
           ) : hasScript ? (
-            <div id="player" className="mb-8 scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div id="player" className="mb-8 scroll-mt-24 max-sm:scroll-mt-[52px] rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <SynthesizeAudioButton episodeId={episode.id} />
             </div>
           ) : (
@@ -231,7 +231,7 @@ export default async function EpisodePage({ params }: Props) {
           )}
 
           {articles.length > 0 && (
-            <section id="articles" className="mb-8 scroll-mt-28">
+            <section id="articles" className="mb-8 scroll-mt-28 max-sm:scroll-mt-[52px]">
               <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">
                 元記事
               </h2>

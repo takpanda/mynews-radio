@@ -127,7 +127,7 @@ export default function ScriptViewer({ lines, currentTime, onSeek }: Props) {
                 >
                   <div className={`pointer-events-none absolute top-3 hidden h-[calc(100%-0.75rem)] w-24 bg-gradient-to-r ${speakerMeta.rail} opacity-80 blur-2xl sm:block ${line.speaker === 'female' ? 'right-6' : 'left-6'}`} />
                   <div
-                    className={`relative max-w-[88%] rounded-[1.6rem] border px-4 py-4 transition-all duration-300 sm:max-w-[78%] sm:px-5 ${
+                     className={`relative max-w-none rounded-[1.6rem] border px-4 py-4 transition-all duration-300 sm:max-w-[78%] sm:px-5 ${
                       canSeek ? 'cursor-pointer' : ''
                     } ${
                       isActive ? 'scale-[1.01]' : 'scale-100'
