@@ -125,7 +125,7 @@ export default async function EpisodePage({ params }: Props) {
   const episodeSummary = episode ? buildEpisodeSummary(episode.subtitle, articles) : null
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-6 pb-14 sm:px-6 lg:px-8 lg:py-10 lg:pb-32">
+    <main className="mx-auto max-w-6xl px-4 py-6 pb-14 sm:pb-16 sm:px-6 lg:px-8 lg:py-10 lg:pb-32">
       <div className="mb-6">
         <Link
           href="/"
