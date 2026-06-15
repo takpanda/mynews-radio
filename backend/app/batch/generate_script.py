@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 _TRANSITION_PHRASES = [
     "続いては{topic}のニュースです。",
-    "次のニュースに移りましょう。{topic}についてです。",
     "さて、{topic}の話題はどうでしょうか。",
     "話は変わりまして、{topic}のニュースをどうぞ。",
     "もうひとつ気になるニュースがありました。{topic}の話題です。",
@@ -49,7 +48,6 @@ _TRANSITION_PHRASES = [
     "ここからはちょっと違う切り口で、{topic}を考えます。",
     "{topic}についても忘れてはいけないニュースがありますよ。",
     "では、もう少し先を見てみましょうか。{topic}の話題でございます。",
-    "さあ、次にしましょうか。{topic}についてです。",
 ]
 
 _DISCUSSION_TRANSITIONS = [
@@ -134,8 +132,25 @@ def _ensure_transitions(lines: list, summaries: list) -> list:
     for art in summaries:
         art_id = art.get("id")
         if art_id is not None:
-            raw = art.get("title") or art.get("url", "") or ""
-            topic_map[art_id] = raw[:15] if raw else "次の話題"
+            raw_summary = art.get("summary", "") or ""
+            raw_title = art.get("title") or art.get("url", "") or ""
+            if raw_summary:
+                sentence_end = -1
+                for sep in ("。", "…", "..."):
+                    idx = raw_summary.find(sep)
+                    if idx >= 0 and (sentence_end < 0 or idx < sentence_end):
+                        sentence_end = idx + len(sep)
+                if sentence_end > 0:
+                    candidate = raw_summary[:sentence_end]
+                    topic_map[art_id] = candidate if len(candidate) <= 25 else raw_title[:25] or "次の話題"
+                else:
+                    segment = _re.split(r"[、,;：]", raw_summary)[0].strip()
+                    topic_map[art_id] = segment if segment and len(segment) <= 25 else raw_title[:25] or "次の話題"
+            elif raw_title:
+                title_clean = _re.split(r"[、,;：・]", raw_title)[0].strip()
+                topic_map[art_id] = title_clean if len(title_clean) >= 3 else raw_title[:25] or "次の話題"
+            else:
+                topic_map[art_id] = "次の話題"
 
     def _topic(article_id) -> str:
         if article_id is None:
