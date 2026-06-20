@@ -21,6 +21,10 @@ def _fresh_db(tmp_path):
     except sqlite3.OperationalError:
         pass
     try:
+        conn.execute("ALTER TABLE episodes ADD COLUMN generation_message TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_episodes_generating_date ON episodes(episode_date) WHERE status = 'generating'")
     except sqlite3.OperationalError:
         pass

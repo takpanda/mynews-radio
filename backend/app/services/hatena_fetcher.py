@@ -475,3 +475,94 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     ins, dup = auto_fetch_hatena_articles()
     print(f"inserted={ins} duplicated={dup}")
+
+
+# ---------------------------------------------------------------------------
+# Public helper: fetch single article by URL (for commentary pipeline)
+# ---------------------------------------------------------------------------
+
+def _extract_title_from_html(html_text: str) -> str:
+    """Extract page title from HTML (og:title > <title>)."""
+    import html.parser
+
+    class _TitleExtractor(html.parser.HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.og_title: str = ""
+            self.html_title: str = ""
+            self._in_title = False
+
+        def handle_starttag(self, tag: str, attrs: list) -> None:
+            if tag == "meta":
+                attrs_d = dict(attrs)
+                prop = attrs_d.get("property", "")
+                content = attrs_d.get("content", "")
+                if prop == "og:title" and content:
+                    self.og_title = content
+            elif tag == "title":
+                self._in_title = True
+
+        def handle_endtag(self, tag: str) -> None:
+            if tag == "title":
+                self._in_title = False
+
+        def handle_data(self, data: str) -> None:
+            if self._in_title:
+                self.html_title = (self.html_title + data).strip()
+
+    ext = _TitleExtractor()
+    try:
+        ext.feed(html_text)
+    except Exception:
+        pass
+    return ext.og_title or ext.html_title or ""
+
+
+def fetch_article_by_url(url: str) -> dict[str, Any]:
+    """Fetch a single article from the given URL.
+
+    Returns a dict with title, url, text, source suitable for
+    ArticleService.upsert_article(). Returns all-empty dict on failure.
+    """
+    req = urllib.request.Request(url)
+    req.add_header("User-Agent", "Mozilla/5.0 (compatible; mynews-radio-bot/1.0)")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read(512 * 1024)
+            charset = resp.headers.get_content_charset() or "utf-8"
+    except Exception as exc:
+        logger.warning("fetch_article_by_url: failed to fetch %s: %s", url, exc)
+        return {"title": "", "url": url, "text": "", "source": "url_input"}
+
+    try:
+        html_text = raw.decode(charset, errors="replace")
+    except LookupError:
+        html_text = raw.decode("utf-8", errors="replace")
+
+    title = _extract_title_from_html(html_text)
+
+    # Extract body text via trafilatura
+    text = ""
+    try:
+        import trafilatura
+        extracted = trafilatura.extract(
+            html_text,
+            url=url,
+            include_comments=False,
+            include_tables=False,
+            no_fallback=False,
+        )
+        if extracted and len(extracted.strip()) >= 50:
+            text = extracted.strip()[:1500]
+    except Exception as exc:
+        logger.debug("fetch_article_by_url: trafilatura failed for %s: %s", url, exc)
+
+    if not text:
+        logger.warning("fetch_article_by_url: no text extracted from %s", url)
+
+    return {
+        "title": title,
+        "url": url,
+        "text": text,
+        "source": "url_input",
+    }
