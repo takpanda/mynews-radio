@@ -503,7 +503,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
       return
     }
     if (isUrlMode && !isValidUrl(urlInput)) {
-      setUrlError('「https://...」の形式で有効なURLを入力してください')
+      setUrlError('「http(s)://...」の形式で有効なURLを入力してください')
       return
     }
     await runGeneration()
@@ -563,7 +563,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
             }}
             onBlur={() => {
               if (urlInput.trim() && !isValidUrl(urlInput)) {
-                setUrlError('「https://...」の形式で入力してください')
+                setUrlError('「http(s)://...」の形式で入力してください')
               } else {
                 setUrlError(null)
               }
