@@ -6,6 +6,8 @@ export interface EpisodeListItem {
   duration: number
   audio_url: string
   status: string
+  type?: string
+  source_url?: string | null
   has_script?: boolean
 }
 
@@ -16,6 +18,8 @@ export interface Episode {
   date: string
   duration_seconds: number
   status: string
+  type?: string
+  source_url?: string | null
   article_count: number
   audio_url: string | null
   articles: EpisodeItem[]

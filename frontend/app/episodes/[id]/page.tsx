@@ -121,7 +121,7 @@ export default async function EpisodePage({ params }: Props) {
   if (!episode && !error) notFound()
 
   const hasScript = Boolean(script && script.lines.length > 0)
-  const hasArticles = articles.length > 0
+  const hasArticles = articles.length > 0 || !!episode?.source_url
   const episodeSummary = episode ? buildEpisodeSummary(episode.subtitle, articles) : null
 
   return (
@@ -150,13 +150,34 @@ export default async function EpisodePage({ params }: Props) {
                 <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
                   Episode Detail
                 </p>
-                <h1 className="mt-3 text-3xl font-semibold leading-tight text-slate-950 sm:text-4xl">
-                  {episode.title || `エピソード #${episode.id}`}
-                </h1>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <h1 className="text-3xl font-semibold leading-tight text-slate-950 sm:text-4xl">
+                    {episode.title || `エピソード #${episode.id}`}
+                  </h1>
+                  {episode.type === 'commentary' && (
+                    <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700">
+                      解説
+                    </span>
+                  )}
+                </div>
                 {episode.subtitle && (
                   <p className="mt-3 text-base leading-7 text-sky-700">{episode.subtitle}</p>
                 )}
                 <p className="mt-4 text-sm text-slate-500">{formatDate(episode.date)}</p>
+                {episode.source_url && (
+                  <a
+                    href={episode.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-sky-600 transition-colors"
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                    </svg>
+                    <span className="truncate max-w-[400px]">{episode.source_url}</span>
+                  </a>
+                )}
               </div>
 
               <div className="grid min-w-[220px] gap-3 sm:grid-cols-2 lg:grid-cols-1">
@@ -230,12 +251,12 @@ export default async function EpisodePage({ params }: Props) {
             </div>
           )}
 
-          {articles.length > 0 && (
+          {(articles.length > 0 || episode.source_url) && (
             <section id="articles" className="mb-8 scroll-mt-28 max-sm:scroll-mt-[52px]">
               <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">
                 元記事
               </h2>
-              <ArticleLinks articles={articles} />
+              <ArticleLinks articles={articles} sourceUrl={episode.source_url} />
             </section>
           )}
 
