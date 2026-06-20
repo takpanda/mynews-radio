@@ -69,6 +69,8 @@ def list_episodes() -> list[dict]:
                 "audio_url": None,
                 "status": ep.get("status", "pending"),
                 "audio_path": ep.get("audio_path"),
+                "type": ep.get("type", "radio"),
+                "source_url": ep.get("source_url"),
             }
         )
 
@@ -103,6 +105,8 @@ def get_latest_episode() -> dict:
         "date": episode["episode_date"],
         "duration_seconds": 0.0,
         "status": episode.get("status", "pending"),
+        "type": episode.get("type", "radio"),
+        "source_url": episode.get("source_url"),
         "article_count": 0,
         "audio_url": None,
         "articles": [],
@@ -137,6 +141,8 @@ def get_episode(episode_id: int) -> dict:
         "date": episode["episode_date"],
         "duration_seconds": 0.0,
         "status": episode.get("status", "pending"),
+        "type": episode.get("type", "radio"),
+        "source_url": episode.get("source_url"),
         "phase": episode.get("phase", ""),
         "generation_phase": episode.get("phase", ""),
         "generation_message": episode.get("generation_message", ""),

@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS episodes (
     script_text TEXT,
     audio_path TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
+    type TEXT NOT NULL DEFAULT 'radio',
+    source_url TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
