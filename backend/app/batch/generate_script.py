@@ -252,13 +252,45 @@ def _has_digits(text: str) -> bool:
     return bool(re.search(r"[0-9０-９]|[一二三四五六七八九十百千万億兆](?:人|件|回|社|倍|円|割|%|パーセント)", text))
 
 
-def lint_script(lines: list) -> list[str]:
+def lint_script(lines: list, program_name: str = "ニュースのとなり") -> list[str]:
     """生成済み lines に対して品質チェックを行い、問題点のリストを返す。
     返値が空リストなら合格。"""
     errors: list[str] = []
 
     seen_texts: set[str] = set()
     phrase_counts: dict[str, int] = {}
+
+    # --- ルール1: introフォーマットチェック [INTRO_FORMAT] (ERROR) ---
+    intro_lines = [(i, line) for i, line in enumerate(lines) if line.get("section") == "intro"]
+    if intro_lines:
+        first_intro_text = intro_lines[0][1].get("text", "").strip()
+        expected_prefix = f"「{program_name}」の時間です"
+        if not first_intro_text.startswith(expected_prefix):
+            errors.append(
+                f"[INTRO_FORMAT] introの1行目が「{expected_prefix}」で始まっていません: "
+                f"「{first_intro_text[:50]}」"
+            )
+    else:
+        errors.append("[INTRO_FORMAT] introセクションが存在しません")
+
+    # --- ルール2: introラインアップチェック [INTRO_LINEUP] (WARN) ---
+    intro_texts = [line.get("text", "") for line in lines if line.get("section") == "intro"]
+    if intro_texts:
+        combined = "".join(intro_texts)
+        lineup_keywords = ["ラインナップ", "ラインアップ", "トピック", "本日", "今日", "今回", "ニュース"]
+        found = [kw for kw in lineup_keywords if kw in combined]
+        if len(found) < 2:
+            errors.append(
+                f"[INTRO_LINEUP] introにラインアップを示唆する表現が不足しています "
+                f"(検出されたキーワード: {found})"
+            )
+
+    # --- ルール3: outro充実度チェック [OUTRO_LENGTH] (ERROR) ---
+    outro_count = sum(1 for line in lines if line.get("section") == "outro")
+    if outro_count < 2:
+        errors.append(
+            f"[OUTRO_LENGTH] outroセクションが{outro_count}行しかありません（最低2行必要）"
+        )
 
     # discussion が全 news の後に来ているか確認
     sections = [line.get("section") for line in lines]
@@ -477,7 +509,7 @@ def generate_script(output_path: str, program_name: str = "ニュースのとな
                 logger.error("Invalid script JSON generated (attempt=%d). Raw response: %s", lint_attempt, response)
                 break
 
-            lint_errors = lint_script(response["lines"])
+            lint_errors = lint_script(response["lines"], program_name=program_name)
             if not lint_errors:
                 logger.info("Auto-Lint PASSED (attempt=%d)", lint_attempt)
                 break
