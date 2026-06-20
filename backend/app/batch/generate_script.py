@@ -252,7 +252,36 @@ def _has_digits(text: str) -> bool:
     return bool(re.search(r"[0-9０-９]|[一二三四五六七八九十百千万億兆](?:人|件|回|社|倍|円|割|%|パーセント)", text))
 
 
-def lint_script(lines: list, program_name: str = "ニュースのとなり") -> list[str]:
+def _levenshtein_ratio(s1: str, s2: str) -> float:
+    """2つの文字列の正規化Levenshtein類似度を返す（0.0〜1.0）。"""
+    if not s1 and not s2:
+        return 1.0
+    if not s1 or not s2:
+        return 0.0
+    if len(s1) > len(s2):
+        s1, s2 = s2, s1
+    len1, len2 = len(s1), len(s2)
+    prev = list(range(len1 + 1))
+    for i, ch2 in enumerate(s2, 1):
+        curr = [i]
+        for j, ch1 in enumerate(s1, 1):
+            cost = 0 if ch1 == ch2 else 1
+            curr.append(min(
+                curr[-1] + 1,
+                prev[j] + 1,
+                prev[j - 1] + cost,
+            ))
+        prev = curr
+    distance = prev[len1]
+    max_len = max(len1, len2)
+    return 1.0 - (distance / max_len) if max_len > 0 else 1.0
+
+
+def lint_script(
+    lines: list,
+    program_name: str = "ニュースのとなり",
+    bridges: list[dict] | None = None,
+) -> list[str]:
     """生成済み lines に対して品質チェックを行い、問題点のリストを返す。
     返値が空リストなら合格。"""
     errors: list[str] = []
@@ -291,6 +320,48 @@ def lint_script(lines: list, program_name: str = "ニュースのとなり") -> 
         errors.append(
             f"[OUTRO_LENGTH] outroセクションが{outro_count}行しかありません（最低2行必要）"
         )
+
+    # --- ルール4: transitionバリエーションチェック [TRANS_VARIATION] (ERROR) ---
+    trans_lines = [
+        (i, line.get("text", "").strip())
+        for i, line in enumerate(lines)
+        if line.get("section") == "transition" and line.get("text", "").strip()
+    ]
+    _TRANS_SIMILARITY_THRESHOLD = float(os.getenv("LINT_TRANS_SIMILARITY", "0.7"))
+    for idx_a in range(len(trans_lines)):
+        for idx_b in range(idx_a + 1, len(trans_lines)):
+            i, text_i = trans_lines[idx_a]
+            j, text_j = trans_lines[idx_b]
+            ratio = _levenshtein_ratio(text_i, text_j)
+            if ratio >= _TRANS_SIMILARITY_THRESHOLD:
+                errors.append(
+                    f"[TRANS_VARIATION] transition行 {i} と {j} の類似度が {ratio:.2f} です: "
+                    f"「{text_i[:30]}...」「{text_j[:30]}...」"
+                )
+
+    # --- ルール5: transitionコンテキストチェック [TRANS_CONTEXT] (ERROR) ---
+    if bridges:
+        first_trans_idx: int | None = None
+        for i, line in enumerate(lines):
+            if line.get("section") == "transition":
+                first_trans_idx = i
+                break
+        for i, line in enumerate(lines):
+            if line.get("section") != "transition":
+                continue
+            if i == first_trans_idx:
+                continue
+            text = line.get("text", "").strip()
+            if not text:
+                continue
+            if _re.search(r"次の話題|次のトピック", text):
+                errors.append(f"[TRANS_CONTEXT] transition行 {i} に汎用表記が含まれています: 「{text[:40]}...」")
+            elif _re.search(r"^続いては", text):
+                errors.append(f"[TRANS_CONTEXT] transition行 {i} に汎用表記が含まれています: 「{text[:40]}...」")
+            elif _re.search(r"^次は", text):
+                errors.append(f"[TRANS_CONTEXT] transition行 {i} に汎用表記が含まれています: 「{text[:40]}...」")
+            elif _re.search(r"では次", text):
+                errors.append(f"[TRANS_CONTEXT] transition行 {i} に汎用表記が含まれています: 「{text[:40]}...」")
 
     # discussion が全 news の後に来ているか確認
     sections = [line.get("section") for line in lines]
@@ -509,7 +580,11 @@ def generate_script(output_path: str, program_name: str = "ニュースのとな
                 logger.error("Invalid script JSON generated (attempt=%d). Raw response: %s", lint_attempt, response)
                 break
 
-            lint_errors = lint_script(response["lines"], program_name=program_name)
+            lint_errors = lint_script(
+                response["lines"],
+                program_name=program_name,
+                bridges=arc.get("bridges", []) if arc else None,
+            )
             if not lint_errors:
                 logger.info("Auto-Lint PASSED (attempt=%d)", lint_attempt)
                 break
