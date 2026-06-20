@@ -294,7 +294,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   const [episodeId, setEpisodeId] = useState<number | null>(null)
   const [hasError, setHasError] = useState(false)
   const [urlInput, setUrlInput] = useState('')
-  const [commentaryStyle, setCommentaryStyle] = useState<'solo' | 'duo'>('solo')
+  const [commentaryStyle, setCommentaryStyle] = useState<'solo' | 'dialogue'>('solo')
   const [urlError, setUrlError] = useState<string | null>(null)
   const router = useRouter()
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -755,13 +755,13 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                   </span>
                 </label>
 
-                <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(commentaryStyle === 'duo', isLoading)}`}>
+                <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(commentaryStyle === 'dialogue', isLoading)}`}>
                   <input
                     type="radio"
                     name="commentaryStyle"
-                    value="duo"
-                    checked={commentaryStyle === 'duo'}
-                    onChange={() => setCommentaryStyle('duo')}
+                    value="dialogue"
+                    checked={commentaryStyle === 'dialogue'}
+                    onChange={() => setCommentaryStyle('dialogue')}
                     disabled={isLoading}
                     className="sr-only"
                   />
@@ -772,7 +772,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                         2人のパーソナリティが対談形式で解説します。
                       </span>
                     </span>
-                    <span className={`mt-1 h-4 w-4 rounded-full border ${commentaryStyle === 'duo' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
+                    <span className={`mt-1 h-4 w-4 rounded-full border ${commentaryStyle === 'dialogue' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
                   </span>
                 </label>
               </div>
