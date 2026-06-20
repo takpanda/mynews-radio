@@ -66,6 +66,16 @@ def _apply_db_migrations() -> None:
         except sqlite3.OperationalError:
             pass  # カラムが既に存在する場合は無視
 
+        try:
+            conn.execute("ALTER TABLE episodes ADD COLUMN type TEXT NOT NULL DEFAULT 'radio'")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE episodes ADD COLUMN source_url TEXT")
+        except sqlite3.OperationalError:
+            pass
+
 
 _init_db()
 _apply_db_migrations()

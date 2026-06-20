@@ -30,15 +30,17 @@ class EpisodeService:
         script_text: Optional[str] = None,
         audio_path: Optional[str] = None,
         status: str = "pending",
+        type: str = "radio",
+        source_url: Optional[str] = None,
     ) -> int:
         """エピソードを新規作成し、id を返す"""
         with get_db_connection() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO episodes (episode_date, script_text, audio_path, status)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO episodes (episode_date, script_text, audio_path, status, type, source_url)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (episode_date, script_text, audio_path, status),
+                (episode_date, script_text, audio_path, status, type, source_url),
             )
             return cursor.lastrowid
 
@@ -98,7 +100,7 @@ class EpisodeService:
         with get_db_connection() as conn:
             rows = conn.execute(
                 """
-                SELECT id, episode_date, audio_path, status
+                SELECT id, episode_date, audio_path, status, type, source_url
                 FROM episodes
                 ORDER BY episode_date DESC, id DESC
                 """
