@@ -119,7 +119,7 @@ export interface GenerateResponse {
   episode_id: number
 }
 
-export async function generateEpisode(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', enableReview = true, recreateSummary = false): Promise<GenerateResponse> {
+export async function generateEpisode(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', enableReview = true, recreateSummary = false, url?: string, style?: 'solo' | 'duo'): Promise<GenerateResponse> {
   const res = await fetch('/api/generate', {
     method: 'POST',
     headers: {
@@ -132,6 +132,8 @@ export async function generateEpisode(date: string, maxArticles = 10, newsSource
       tts_engine: ttsEngine,
       enable_review: enableReview,
       recreate_summary: recreateSummary,
+      ...(url ? { url } : {}),
+      ...(style ? { style } : {}),
     }),
   })
   if (!res.ok) {
