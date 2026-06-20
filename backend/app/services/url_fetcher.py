@@ -1,7 +1,7 @@
 import logging
 import urllib.error
 import urllib.request
-from datetime import date
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -62,14 +62,9 @@ def fetch_article_by_url(url: str, timeout: int = 10) -> dict[str, Any]:
         logger.error("fetch_article_by_url: trafilatura returned None for %s", url)
         raise RuntimeError(f"Could not extract article content from {url}")
 
-    if isinstance(extracted, dict):
-        text = (extracted.get("text") or "").strip()
-        title = (extracted.get("title") or "").strip()
-        raw_date = (extracted.get("date") or "").strip()
-    else:
-        text = extracted.strip()
-        title = ""
-        raw_date = ""
+    text = (extracted.get("text") or "").strip()
+    title = (extracted.get("title") or "").strip()
+    raw_date = (extracted.get("date") or "").strip()
 
     if not text or len(text) < 50:
         logger.error(
@@ -80,7 +75,8 @@ def fetch_article_by_url(url: str, timeout: int = 10) -> dict[str, Any]:
     if not title:
         logger.warning("fetch_article_by_url: no title found for %s, using URL fallback", url)
 
-    published_at = raw_date[:10] if raw_date else date.today().isoformat()
+    JST = timezone(timedelta(hours=9))
+    published_at = raw_date[:10] if raw_date else datetime.now(JST).date().isoformat()
 
     return {
         "title": title or f"Article from {url}",
