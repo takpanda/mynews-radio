@@ -110,6 +110,26 @@ class ArticleService:
                 ).fetchall()
             return [dict(row) for row in rows]
 
+    def fetch_and_store_article_by_url(self, url: str, timeout: int = 10) -> bool:
+        """Fetch article from URL and store in DB with source='url_commentary'.
+
+        Args:
+            url: HTTP(S) URL of the article to fetch.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            True if inserted, False if duplicate (url UNIQUE constraint).
+
+        Raises:
+            ValueError: Invalid URL.
+            urllib.error.URLError: Network error.
+            RuntimeError: Extraction failure.
+        """
+        from app.services.url_fetcher import fetch_article_by_url
+
+        article = fetch_article_by_url(url, timeout=timeout)
+        return self.upsert_article(article)
+
     def mark_articles_used(self, article_ids: list[int]) -> None:
         """Mark articles as 'used' so they are not reused in future episode scripts."""
         if not article_ids:
