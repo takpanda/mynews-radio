@@ -263,14 +263,16 @@ function getCurrentEstimate(activeStep: number, isSuccess: boolean, isFailure: b
   return STEP_DEFINITIONS[activeStep]?.estimate ?? '通常 2-5 分'
 }
 
-function optionCardClass(isSelected: boolean, isLoading: boolean) {
+function optionCardClass(isSelected: boolean, isLoading: boolean, isDisabled = false) {
   if (isSelected) {
     return 'border-sky-500 bg-sky-50 shadow-[0_10px_25px_rgba(14,165,233,0.15)]'
   }
 
-  return isLoading
-    ? 'border-slate-200 bg-slate-50/70 opacity-70'
-    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+  if (isLoading || isDisabled) {
+    return 'border-slate-200 bg-slate-50/70 opacity-70'
+  }
+
+  return 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
 }
 
 const STORAGE_KEY = 'generating_episode_id'
@@ -291,12 +293,20 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   const [maxArticles, setMaxArticles] = useState(10)
   const [episodeId, setEpisodeId] = useState<number | null>(null)
   const [hasError, setHasError] = useState(false)
+  const [urlInput, setUrlInput] = useState('')
+  const [commentaryStyle, setCommentaryStyle] = useState<'solo' | 'duo'>('solo')
+  const [urlError, setUrlError] = useState<string | null>(null)
   const router = useRouter()
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isLoadingRef = useRef(false)
   const attemptCountRef = useRef(0)
   const consecutiveFailuresRef = useRef(0)
   const shouldScrollToProgress = useRef(false)
+
+  const isUrlMode = urlInput.trim().length > 0
+
+  const isValidUrl = (value: string): boolean =>
+    value === '' || /^https?:\/\/.+/.test(value)
 
   useEffect(() => {
     isLoadingRef.current = isLoading
@@ -467,12 +477,13 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
     setShowLogs(false)
     setEpisodeId(null)
     setHasError(false)
+    setUrlError(null)
     shouldScrollToProgress.current = true
     consecutiveFailuresRef.current = 0
 
     try {
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
-      const { episode_id } = await generateEpisode(today, maxArticles, newsSource, ttsEngine, enableReview, recreateSummary)
+      const { episode_id } = await generateEpisode(today, maxArticles, newsSource, ttsEngine, enableReview, recreateSummary, isUrlMode ? urlInput.trim() : undefined, isUrlMode ? commentaryStyle : undefined)
       localStorage.setItem(STORAGE_KEY, String(episode_id))
       setEpisodeId(episode_id)
       toast('番組の生成を開始しました', { icon: '🎙️' })
@@ -489,6 +500,10 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   const handleClick = async () => {
     if (!isLoading && episodes?.some((ep) => ep.status === 'generating')) {
       setMessage('先に生成中のタスクがあります')
+      return
+    }
+    if (isUrlMode && !isValidUrl(urlInput)) {
+      setUrlError('「https://...」の形式で有効なURLを入力してください')
       return
     }
     await runGeneration()
@@ -521,7 +536,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
           <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
             Generate Episode
           </p>
-          <h2 className="mt-2 text-2xl font-semibold text-slate-950">今日の番組を生成</h2>
+          <h2 className="mt-2 text-2xl font-semibold text-slate-950">{isUrlMode ? 'URLから解説を生成' : '今日の番組を生成'}</h2>
         </div>
         <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
           通常 2-5 分
@@ -529,8 +544,42 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
       </div>
 
       <p className="mt-3 text-sm leading-7 text-slate-600">
-        ニュースの種類と読み上げエンジンを選ぶと、取得から音声化までの進行をこの場で確認できます。
+        {isUrlMode
+          ? 'URLから記事を取得して解説音声を生成します。読み上げエンジンを選んで生成ボタンを押してください。'
+          : 'ニュースの種類と読み上げエンジンを選ぶと、取得から音声化までの進行をこの場で確認できます。'}
       </p>
+
+      <fieldset className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
+        <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+          URL from Web
+        </legend>
+        <div className="mt-3">
+          <input
+            type="url"
+            value={urlInput}
+            onChange={(e) => {
+              setUrlInput(e.target.value)
+              if (urlError) setUrlError(null)
+            }}
+            onBlur={() => {
+              if (urlInput.trim() && !isValidUrl(urlInput)) {
+                setUrlError('「https://...」の形式で入力してください')
+              } else {
+                setUrlError(null)
+              }
+            }}
+            placeholder="https://example.com/article"
+            disabled={isLoading}
+            className="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-50"
+          />
+          {urlError && (
+            <p className="mt-2 text-xs text-red-500">{urlError}</p>
+          )}
+          <p className="mt-2 text-xs leading-6 text-slate-500">
+            URLを入力すると自動的に解説モードに切り替わり、ニュースソース選択が無効になります。
+          </p>
+        </div>
+      </fieldset>
 
       <div className="mt-5 grid gap-4 2xl:grid-cols-[minmax(0,1fr)_220px]">
         <div className="space-y-4">
@@ -539,14 +588,14 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
               News Source
             </legend>
             <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(newsSource === 'hatena_bookmark', isLoading)}`}>
+              <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(newsSource === 'hatena_bookmark', isLoading, isUrlMode)}`}>
                 <input
                   type="radio"
                   name="newsSource"
                   value="hatena_bookmark"
                   checked={newsSource === 'hatena_bookmark'}
                   onChange={() => setNewsSource('hatena_bookmark')}
-                  disabled={isLoading}
+                  disabled={isLoading || isUrlMode}
                   className="sr-only"
                 />
                 <span className="flex items-start justify-between gap-3">
@@ -560,14 +609,14 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                 </span>
               </label>
 
-              <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(newsSource === 'hatena_hotentry_all', isLoading)}`}>
+              <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(newsSource === 'hatena_hotentry_all', isLoading, isUrlMode)}`}>
                 <input
                   type="radio"
                   name="newsSource"
                   value="hatena_hotentry_all"
                   checked={newsSource === 'hatena_hotentry_all'}
                   onChange={() => setNewsSource('hatena_hotentry_all')}
-                  disabled={isLoading}
+                  disabled={isLoading || isUrlMode}
                   className="sr-only"
                 />
                 <span className="flex items-start justify-between gap-3">
@@ -581,14 +630,14 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                 </span>
               </label>
 
-              <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(newsSource === 'yahoo_news', isLoading)}`}>
+              <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(newsSource === 'yahoo_news', isLoading, isUrlMode)}`}>
                 <input
                   type="radio"
                   name="newsSource"
                   value="yahoo_news"
                   checked={newsSource === 'yahoo_news'}
                   onChange={() => setNewsSource('yahoo_news')}
-                  disabled={isLoading}
+                  disabled={isLoading || isUrlMode}
                   className="sr-only"
                 />
                 <span className="flex items-start justify-between gap-3">
@@ -679,6 +728,57 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
             </div>
           </fieldset>
 
+          {isUrlMode && (
+            <fieldset className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
+              <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                Commentary Style
+              </legend>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(commentaryStyle === 'solo', isLoading)}`}>
+                  <input
+                    type="radio"
+                    name="commentaryStyle"
+                    value="solo"
+                    checked={commentaryStyle === 'solo'}
+                    onChange={() => setCommentaryStyle('solo')}
+                    disabled={isLoading}
+                    className="sr-only"
+                  />
+                  <span className="flex items-start justify-between gap-3">
+                    <span>
+                      <span className="block text-sm font-semibold text-slate-900">一人解説</span>
+                      <span className="mt-1 block text-xs leading-6 text-slate-500">
+                        1人のナレーターが記事を読み上げます。
+                      </span>
+                    </span>
+                    <span className={`mt-1 h-4 w-4 rounded-full border ${commentaryStyle === 'solo' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
+                  </span>
+                </label>
+
+                <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(commentaryStyle === 'duo', isLoading)}`}>
+                  <input
+                    type="radio"
+                    name="commentaryStyle"
+                    value="duo"
+                    checked={commentaryStyle === 'duo'}
+                    onChange={() => setCommentaryStyle('duo')}
+                    disabled={isLoading}
+                    className="sr-only"
+                  />
+                  <span className="flex items-start justify-between gap-3">
+                    <span>
+                      <span className="block text-sm font-semibold text-slate-900">対談解説</span>
+                      <span className="mt-1 block text-xs leading-6 text-slate-500">
+                        2人のパーソナリティが対談形式で解説します。
+                      </span>
+                    </span>
+                    <span className={`mt-1 h-4 w-4 rounded-full border ${commentaryStyle === 'duo' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+          )}
+
           <fieldset className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
             <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
               Script Review
@@ -741,29 +841,48 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
             className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#0f172a,#0f766e)] px-5 py-3 text-sm font-semibold text-white shadow-[0_16px_35px_rgba(15,23,42,0.25)] transition hover:translate-y-[-1px] hover:shadow-[0_20px_40px_rgba(15,23,42,0.3)] disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-70"
           >
             <span className={`h-2.5 w-2.5 rounded-full bg-white/90 ${isLoading ? 'animate-pulse' : ''}`} />
-            {isLoading ? '生成を進めています…' : 'この設定で番組を生成する'}
+            {isLoading ? '生成を進めています…' : isUrlMode ? 'このURLで解説を生成する' : 'この設定で番組を生成する'}
           </button>
         </div>
 
         <aside className="rounded-[1.5rem] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.95),rgba(255,255,255,0.95))] p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">今回の設定</p>
           <dl className="mt-4 space-y-3 text-sm text-slate-600">
-            <div>
-              <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">ソース</dt>
-              <dd className="mt-1 font-medium text-slate-900">
-                {newsSource === 'hatena_bookmark' ? 'テックニュース' : '一般ニュース'}
-              </dd>
-            </div>
+            {isUrlMode ? (
+              <div>
+                <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">URL</dt>
+                <dd className="mt-1 break-all font-medium text-slate-900">
+                  {urlInput}
+                </dd>
+              </div>
+            ) : (
+              <div>
+                <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">ソース</dt>
+                <dd className="mt-1 font-medium text-slate-900">
+                  {newsSource === 'hatena_bookmark' ? 'テックニュース' : newsSource === 'hatena_hotentry_all' ? '一般ニュース' : 'Yahoo!ニュース'}
+                </dd>
+              </div>
+            )}
             <div>
               <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">音声</dt>
               <dd className="mt-1 font-medium text-slate-900">
                 {ttsEngine === 'voicevox' ? 'VOICEVOX' : 'AivisSpeech'}
               </dd>
             </div>
-            <div>
-              <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">記事数</dt>
-              <dd className="mt-1 font-medium text-slate-900">{maxArticles} 件</dd>
-            </div>
+            {isUrlMode && (
+              <div>
+                <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">解説スタイル</dt>
+                <dd className="mt-1 font-medium text-slate-900">
+                  {commentaryStyle === 'solo' ? '一人解説' : '対談解説'}
+                </dd>
+              </div>
+            )}
+            {!isUrlMode && (
+              <div>
+                <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">記事数</dt>
+                <dd className="mt-1 font-medium text-slate-900">{maxArticles} 件</dd>
+              </div>
+            )}
             <div>
               <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">レビュー</dt>
               <dd className="mt-1 font-medium text-slate-900">
@@ -781,7 +900,9 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
           <div className="mt-5 rounded-2xl bg-slate-900 px-4 py-3 text-sm text-slate-50">
             <p className="font-medium">生成の流れ</p>
             <p className="mt-2 text-xs leading-6 text-slate-300">
-              記事取得 → 要約 → 台本生成 → 音声合成の順で処理します。
+              {isUrlMode
+                ? 'URL取得 → 記事抽出 → 解説生成 → 音声合成の順で処理します。'
+                : '記事取得 → 要約 → 台本生成 → 音声合成の順で処理します。'}
             </p>
           </div>
         </aside>
