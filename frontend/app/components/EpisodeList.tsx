@@ -33,13 +33,25 @@ export default function EpisodeList({ episodes }: Props) {
           >
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="font-medium text-gray-900 truncate">
-                  {ep.title || `エピソード #${ep.id}`}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="font-medium text-gray-900 truncate">
+                    {ep.title || `エピソード #${ep.id}`}
+                  </p>
+                  {ep.type === 'commentary' && (
+                    <span className="inline-flex items-center shrink-0 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">
+                      解説
+                    </span>
+                  )}
+                </div>
                 {ep.subtitle && (
                   <p className="text-xs text-blue-500 mt-0.5 truncate">{ep.subtitle}</p>
                 )}
                 <p className="text-sm text-gray-500 mt-1">{formatDate(ep.date)}</p>
+                {ep.source_url && (
+                  <p className="text-xs text-gray-400 mt-0.5 truncate max-w-[400px]">
+                    元URL: {ep.source_url}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2 flex-shrink-0 mt-1">
               {ep.status === 'generating' && (
