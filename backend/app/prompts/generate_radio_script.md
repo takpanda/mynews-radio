@@ -71,7 +71,8 @@
   "subtitle": "副題（その日の主なトピックを凝縮した15〜25文字の一文）",
   "lines": [
     {{ "speaker": "male",   "text": "「ニュースのとなり」の時間です。今日も気になる話題が多めです。", "article_id": null, "section": "intro" }},
-    {{ "speaker": "female", "text": "今日もよろしくお願いします。では早速参りましょう。",           "article_id": null, "section": "intro" }},
+    {{ "speaker": "male",   "text": "今日のラインアップは、AI・セキュリティ・経済の3本。いずれも身近な話題です。", "article_id": null, "section": "intro" }},
+    {{ "speaker": "female", "text": "盛りだくさんですね。今日もよろしくお願いします。",              "article_id": null, "section": "intro" }},
     {{ "speaker": "male",   "text": "続いては〔トピックA〕のニュースです。",                        "article_id": 1,    "section": "transition" }},
     {{ "speaker": "male",   "text": "〔記事Aの事実概要〕",                                           "article_id": 1,    "section": "news" }},
     {{ "speaker": "female", "text": "〔記事Aへの反応・掘り下げ〕",                                   "article_id": 1,    "section": "news" }},
@@ -82,7 +83,10 @@
     {{ "speaker": "male",   "text": "〔discussionへの導入〕",                                        "article_id": 1,    "section": "transition" }},
     {{ "speaker": "male",   "text": "〔discussion 発言〕",                                           "article_id": 1,    "section": "discussion" }},
     {{ "speaker": "female", "text": "〔discussion 発言〕",                                           "article_id": 1,    "section": "discussion" }},
-    {{ "speaker": "male",   "text": "以上、本日のニュースでした。",                                   "article_id": null, "section": "outro" }}
+    {{ "speaker": "male",   "text": "今日はAI・セキュリティ・経済と、幅広いテーマをお届けしました。", "article_id": null, "section": "outro" }},
+    {{ "speaker": "female", "text": "どの話題も身近に感じられる内容でしたね。皆さんの感想をお待ちしています。", "article_id": null, "section": "outro" }},
+    {{ "speaker": "male",   "text": "また明日も気になるニュースをお届けします。お楽しみに。",        "article_id": null, "section": "outro" }},
+    {{ "speaker": "female", "text": "それではまた明日、お会いしましょう。",                             "article_id": null, "section": "outro" }}
   ]
 }}
 
@@ -130,8 +134,25 @@
     「今日のラインアップ、なかなか読み応えがあります。」
     「今日は国内外問わず動きがありました。」
 - その後のやりとりは「今日もよろしくお願いします」「さて、今日もニュースを見ていきましょう」のように、レギュラー番組として自然に続ける
-- intro のやりとりは2〜3行で簡潔にまとめ、その日の話題への期待感や軽いコメントを添えてもよい
+- intro のやりとりは4〜5行で簡潔にまとめ、以下の流れを基本とすること:
+  - 導入のオープニング（最初の1行: 「ニュースのとなり」の時間です。[一言]）
+  - 今日のラインアップ紹介（1〜2行: 取り上げるトピックの一覧を簡潔に示す）
+  - 最初のニュースへの橋渡し（1行）
+- ラインアップ紹介は1〜2行の簡潔なものとし、冗長にならないこと
 - intro 行の article_id は null とする
+
+# outro セクションのルール
+
+- outro は4〜6行で簡潔にまとめ、以下の要素を含めること:
+  - 本日のニュースの軽い総括（1行）
+  - リスナーへの問いかけ（意見募集・感想を促す）（1行）
+  - 次回への期待感を示す一言（1行）
+  - 締めの挨拶（1行）
+- 総括ではその日のニュースのテーマを一言で振り返り、具体性を持たせること
+- リスナーへの問いかけは抽象的な「感想をお待ちしています」程度で良い（募集手段は未定義のため）
+- 翌回への期待感を示す一言を必ず入れること（毎日放送の番組として自然な流れ）
+- outro 行の article_id は null とする
+- speaker は田村（male）と山口（female）両方を使い、自然な掛け合いにすること
 
 # 各 news セクションの構成ルール
 
