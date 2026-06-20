@@ -50,6 +50,15 @@ _TRANSITION_PHRASES = [
     "では、もう少し先を見てみましょうか。{topic}の話題でございます。",
 ]
 
+_BRIDGE_TRANSITION_PHRASES = [
+    "{bridge} さて、{topic}の話題です。",
+    "{bridge} それでは、{topic}のニュースをどうぞ。",
+    "{bridge} そんな中、{topic}についても見ていきましょう。",
+    "{bridge} では次は{topic}の話題をご紹介します。",
+    "{bridge} 続いては{topic}の最新情報です。",
+    "{bridge} ここで視点を変えて、{topic}を見てみましょう。",
+]
+
 _DISCUSSION_TRANSITIONS = [
     "ここで{topic}についてもう少し掘り下げてみましょう。",
     "{topic}、少し深堀りして話し合ってみましょう。",
@@ -125,9 +134,23 @@ def _pick_speaker(result: list, section: str):
     return alternate
 
 
-def _ensure_transitions(lines: list, summaries: list) -> list:
+def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -> list:
     """LLM が生成した lines を後処理し、article_id 切り替わり境界に
-    transition 行を確実に挿入して返す。LLM が既に挿入した transition は保持する。"""
+    transition 行を確実に挿入して返す。LLM が既に挿入した transition は保持する。
+
+    arc が与えられた場合、bridges 情報を参照して Contextual Bridge を
+    考慮した transition 文を生成する。"""
+    bridge_map: dict = {}
+    if arc and isinstance(arc, dict):
+        for b in arc.get("bridges", []):
+            if not isinstance(b, dict):
+                continue
+            from_id = b.get("from_article_id")
+            to_id = b.get("to_article_id")
+            bridge_text = b.get("bridge_text", "")
+            if from_id is not None and to_id is not None and bridge_text:
+                bridge_map.setdefault(from_id, {})[to_id] = bridge_text
+
     topic_map: dict = {}
     for art in summaries:
         art_id = art.get("id")
@@ -171,8 +194,16 @@ def _ensure_transitions(lines: list, summaries: list) -> list:
             # article_id が変わった（または intro→news）かつ直前が transition でない場合に挿入
             if not prev_is_transition and article_id != last_content_aid:
                 speaker = _pick_speaker(result, section)
-                phrases = _DISCUSSION_TRANSITIONS if section == "discussion" else _TRANSITION_PHRASES
-                text = _pick_phrase(phrases, trans_phrase_used).format(topic=_topic(article_id))
+                if section == "discussion":
+                    phrases = _DISCUSSION_TRANSITIONS
+                    text = _pick_phrase(phrases, trans_phrase_used).format(topic=_topic(article_id))
+                elif last_content_aid is not None and last_content_aid in bridge_map and article_id in bridge_map[last_content_aid]:
+                    bridge_text = bridge_map[last_content_aid][article_id]
+                    bridge_topic = _topic(article_id)
+                    text = _pick_phrase(_BRIDGE_TRANSITION_PHRASES, trans_phrase_used).format(bridge=bridge_text, topic=bridge_topic)
+                else:
+                    phrases = _TRANSITION_PHRASES
+                    text = _pick_phrase(phrases, trans_phrase_used).format(topic=_topic(article_id))
                 result.append({
                     "speaker": speaker,
                     "text": text,
@@ -495,7 +526,7 @@ def generate_script(output_path: str, program_name: str = "ニュースのとな
         )
 
     # LLM が transition を省略した場合に備えてプログラム側で補完する
-    script["lines"] = _ensure_transitions(script["lines"], ordered_summaries)
+    script["lines"] = _ensure_transitions(script["lines"], ordered_summaries, arc=arc)
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     Path(output_path).write_text(
