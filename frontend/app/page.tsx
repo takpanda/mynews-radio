@@ -22,7 +22,7 @@ export default async function Home() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-10">
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-10 overflow-x-hidden">
       <section className="relative overflow-hidden rounded-[2rem] border border-white/70 bg-[radial-gradient(circle_at_top_left,_rgba(254,240,138,0.8),_transparent_30%),linear-gradient(135deg,_rgba(255,255,255,0.96),_rgba(238,244,255,0.92))] px-5 py-6 shadow-[0_24px_80px_rgba(15,23,42,0.12)] sm:px-8 sm:py-8">
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-200 to-transparent" />
         <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] lg:items-start">
@@ -82,13 +82,13 @@ export default async function Home() {
 
       {!error && latestEpisode && (
         <section className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
-          <div className="rounded-[2rem] border border-slate-200/80 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] sm:p-6">
-            <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 rounded-[2rem] border border-slate-200/80 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] sm:p-6">
+            <div className="flex flex-wrap items-start justify-between gap-3 min-w-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
                   Latest Episode
                 </p>
-                <h2 className="mt-3 text-2xl font-semibold text-slate-950">
+                <h2 className="mt-3 text-2xl font-semibold text-slate-950 break-words">
                   {latestEpisode.title || `エピソード #${latestEpisode.id}`}
                 </h2>
                 {latestEpisode.subtitle && (
@@ -119,7 +119,7 @@ export default async function Home() {
           </div>
 
           {episodes.length > 0 && (
-            <section className="rounded-[2rem] border border-slate-200/80 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] sm:p-6">
+            <section className="min-w-0 rounded-[2rem] border border-slate-200/80 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] sm:p-6">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
