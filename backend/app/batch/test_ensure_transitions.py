@@ -1,4 +1,4 @@
-from app.batch.generate_script import _ensure_transitions, _pick_phrase, _pick_speaker
+from app.batch.generate_script import _ensure_transitions, _pick_phrase, _pick_speaker, _BRIDGE_TRANSITION_PHRASES
 
 
 class TestPickPhraseNoConsecutiveDuplicate:
@@ -156,4 +156,184 @@ class TestEnsureTransitionsIdNotFoundInText:
                 text = line.get("text", "")
                 assert "記事" not in text, f"transition contains article ID reference: {text}"
                 assert not any(c.isdigit() for c in text), f"transition contains digit in ID context: {text}"
+
+
+class TestEnsureTransitionsBridgeContextual:
+    """Narrative Arc の Contextual Bridge を考慮した transition 生成のテスト。"""
+
+    def test_bridge_text_used_in_transition(self):
+        """bridge がある場合、bridge テキストを含む transition が生成されること"""
+        lines = [
+            {"section": "intro"},
+            {"section": "news", "article_id": 1},
+            {"section": "news", "article_id": 2},
+        ]
+        summaries = [
+            {"id": 1, "title": "気候変動"},
+            {"id": 2, "title": "経済ニュース"},
+        ]
+        arc = {
+            "bridges": [
+                {"from_article_id": 1, "to_article_id": 2, "bridge_text": "気候変動の影響は経済にも及んでいます"},
+            ],
+        }
+        result = _ensure_transitions(lines, summaries, arc=arc)
+        for line in result:
+            if line["section"] == "transition" and line.get("article_id") == 2:
+                text = line.get("text", "")
+                assert "気候変動の影響は経済にも及んでいます" in text, (
+                    f"bridge text not found in transition: {text}"
+                )
+
+    def test_bridge_not_used_for_first_article(self):
+        """intro→news で last_content_aid=None の場合、bridge は使われず通常フォールバック"""
+        lines = [
+            {"section": "intro"},
+            {"section": "news", "article_id": 1},
+        ]
+        summaries = [
+            {"id": 1, "title": "テクノロジーニュース"},
+        ]
+        arc = {
+            "bridges": [
+                {"from_article_id": 1, "to_article_id": 2, "bridge_text": "some bridge"},
+            ],
+        }
+        result = _ensure_transitions(lines, summaries, arc=arc)
+        for line in result:
+            if line["section"] == "transition" and line.get("article_id") == 1:
+                text = line.get("text", "")
+                assert "some bridge" not in text, "bridge should not appear for first article"
+                assert "{bridge}" not in text, "unformatted placeholder in transition"
+
+    def test_no_bridge_falls_back_to_template(self):
+        """bridge がない遷移では従来のテンプレートフレーズが使われること"""
+        lines = [
+            {"section": "intro"},
+            {"section": "news", "article_id": 1},
+            {"section": "news", "article_id": 2},
+            {"section": "news", "article_id": 3},
+        ]
+        summaries = [
+            {"id": 1, "title": "A"},
+            {"id": 2, "title": "B"},
+            {"id": 3, "title": "C"},
+        ]
+        arc = {
+            "bridges": [
+                {"from_article_id": 1, "to_article_id": 2, "bridge_text": "bridge for 1→2"},
+            ],
+        }
+        result = _ensure_transitions(lines, summaries, arc=arc)
+        for line in result:
+            if line["section"] == "transition":
+                text = line.get("text", "")
+                assert "{bridge}" not in text, f"unformatted bridge placeholder: {text}"
+                assert "{topic}" not in text, f"unformatted topic placeholder: {text}"
+
+    def test_arc_none_preserves_original_behavior(self):
+        """arc=None の場合、従来のテンプレート動作が完全に維持されること"""
+        lines = [
+            {"section": "intro"},
+            {"section": "news", "article_id": 1},
+            {"section": "news", "article_id": 2},
+        ]
+        summaries = [
+            {"id": 1, "title": "ニュース1"},
+            {"id": 2, "title": "ニュース2"},
+        ]
+        result_with = _ensure_transitions(lines, summaries, arc=None)
+        result_without = _ensure_transitions(lines, summaries)
+        assert len(result_with) == len(result_without), "arc=None should produce same length"
+        for lw, lwo in zip(result_with, result_without):
+            assert lw["section"] == lwo["section"], "section mismatch"
+            if lw["section"] == "transition":
+                assert lw["article_id"] == lwo["article_id"], "article_id mismatch"
+
+    def test_bridge_for_specific_pair_only(self):
+        """特定のペアのみ bridge があり、他の遷移は通常テンプレート"""
+        lines = [
+            {"section": "intro"},
+            {"section": "news", "article_id": 1},
+            {"section": "news", "article_id": 2},
+            {"section": "news", "article_id": 3},
+            {"section": "news", "article_id": 4},
+        ]
+        summaries = [
+            {"id": 1, "title": "A"},
+            {"id": 2, "title": "B"},
+            {"id": 3, "title": "C"},
+            {"id": 4, "title": "D"},
+        ]
+        arc = {
+            "bridges": [
+                {"from_article_id": 2, "to_article_id": 3, "bridge_text": "BとCをつなぐ橋渡し"},
+            ],
+        }
+        result = _ensure_transitions(lines, summaries, arc=arc)
+        for line in result:
+            if line["section"] == "transition":
+                text = line.get("text", "")
+                assert "{bridge}" not in text, f"unformatted bridge placeholder: {text}"
+                assert "{topic}" not in text, f"unformatted topic placeholder: {text}"
+                if line.get("article_id") == 3:
+                    assert "BとCをつなぐ橋渡し" in text, (
+                        f"bridge text should appear in transition to article 3: {text}"
+                    )
+                elif line.get("article_id") in (2, 4):
+                    assert "BとCをつなぐ橋渡し" not in text, (
+                        f"bridge text should NOT appear in transition to article {line.get('article_id')}: {text}"
+                    )
+
+    def test_bridge_text_in_bridge_phrases_only(self):
+        """bridge が使われる際は _BRIDGE_TRANSITION_PHRASES のいずれかのフォーマットに従うこと"""
+        lines = [
+            {"section": "intro"},
+            {"section": "news", "article_id": 1},
+            {"section": "news", "article_id": 2},
+        ]
+        summaries = [
+            {"id": 1, "title": "テーマA"},
+            {"id": 2, "title": "テーマB"},
+        ]
+        arc = {
+            "bridges": [
+                {"from_article_id": 1, "to_article_id": 2, "bridge_text": "橋渡し文"},
+            ],
+        }
+        result = _ensure_transitions(lines, summaries, arc=arc)
+        for line in result:
+            if line["section"] == "transition" and line.get("article_id") == 2:
+                text = line.get("text", "")
+                # _BRIDGE_TRANSITION_PHRASES のテンプレートに従っていれば
+                # "{bridge}" は bridge text で置換済みのはず
+                assert "橋渡し文" in text, f"bridge text missing: {text}"
+                assert "テーマB" in text, f"topic missing in bridge transition: {text}"
+
+    def test_bridge_not_in_first_transition(self):
+        """intro→article1 の最初の transition には bridge は適用されない"""
+        lines = [
+            {"section": "intro"},
+            {"section": "news", "article_id": 1},
+            {"section": "news", "article_id": 2},
+        ]
+        summaries = [
+            {"id": 1, "title": "テックA"},
+            {"id": 2, "title": "テックB"},
+        ]
+        arc = {
+            "bridges": [
+                {"from_article_id": 1, "to_article_id": 2, "bridge_text": "つなぎの文"},
+            ],
+        }
+        result = _ensure_transitions(lines, summaries, arc=arc)
+        art1_transitions = [
+            l for l in result
+            if l["section"] == "transition" and l.get("article_id") == 1
+        ]
+        assert len(art1_transitions) >= 1
+        for t in art1_transitions:
+            assert "つなぎの文" not in t.get("text", ""), (
+                "bridge should not appear in transition to article 1"
+            )
 
