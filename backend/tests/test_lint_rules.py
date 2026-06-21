@@ -474,3 +474,90 @@ class TestExistingLintRulesRegression:
         errors = lint_script(lines)
         discussion_errors = [e for e in errors if "discussion" in e]
         assert len(discussion_errors) == 1
+
+
+class TestTransitionTruncatedCheck:
+    """TRUNCATED_TRANS: transition行の不完全チェック (WARN)"""
+
+    def test_complete_transition_no_warning(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("transition", "続いては政治のニュースです。"),
+        ]
+        errors = lint_script(lines)
+        trunc_errors = [e for e in errors if "[TRUNCATED_TRANS]" in e]
+        assert len(trunc_errors) == 0
+
+    def test_transition_ending_with_ellipsis_detected(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("transition", "いったい何のための戦争だったのか……"),
+        ]
+        errors = lint_script(lines)
+        trunc_errors = [e for e in errors if "[TRUNCATED_TRANS]" in e]
+        assert len(trunc_errors) == 1
+        assert "不完全な文" in trunc_errors[0]
+
+    def test_transition_too_short_detected(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("transition", "次"),
+        ]
+        errors = lint_script(lines)
+        trunc_errors = [e for e in errors if "[TRUNCATED_TRANS]" in e]
+        assert len(trunc_errors) == 1
+        assert "短すぎます" in trunc_errors[0]
+
+    def test_non_transition_section_with_ellipsis_ignored(self):
+        """news行の「……」は対象外"""
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("news", "これは重要な問題です……今後も注視します。"),
+        ]
+        errors = lint_script(lines)
+        trunc_errors = [e for e in errors if "[TRUNCATED_TRANS]" in e]
+        assert len(trunc_errors) == 0
+
+    def test_transition_with_ellipsis_mid_sentence_no_warning(self):
+        """「……」が文中にあるだけなら不完全とは判定しない"""
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("transition", "さて、本題に入る前に……ちょっと寄り道です。"),
+        ]
+        errors = lint_script(lines)
+        trunc_errors = [e for e in errors if "[TRUNCATED_TRANS]" in e]
+        assert len(trunc_errors) == 0
+
+    def test_transition_exactly_five_chars_no_warning(self):
+        """5文字以上ならWARNにならない"""
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("transition", "次の話題へ"),
+        ]
+        errors = lint_script(lines)
+        trunc_errors = [e for e in errors if "[TRUNCATED_TRANS]" in e]
+        assert len(trunc_errors) == 0
+
+    def test_transition_four_chars_warns(self):
+        """4文字以下はWARN"""
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("transition", "次へ"),
+        ]
+        errors = lint_script(lines)
+        trunc_errors = [e for e in errors if "[TRUNCATED_TRANS]" in e]
+        assert len(trunc_errors) == 1
