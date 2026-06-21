@@ -1,5 +1,5 @@
 """
-review_script.py — 4-director script review + revision step.
+review_script.py — 5-director script review + revision step.
 
 Reads an existing script.json (source_script_path), runs four character-based
 LLM reviews, then synthesises all feedback into a revised script written to
@@ -49,7 +49,7 @@ def _load_prompt(filename: str) -> str:
 # ---------------------------------------------------------------------------
 
 def review_script(source_script_path: str, output_dir: str) -> dict:
-    """Review *source_script_path* with 4 directors and write a revised script.
+    """Review *source_script_path* with 5 directors and write a revised script.
 
     Args:
         source_script_path: Path to the original script.json (read-only).
