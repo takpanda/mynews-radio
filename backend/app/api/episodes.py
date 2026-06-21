@@ -11,7 +11,8 @@ from app.services.episode_service import EpisodeService
 
 router = APIRouter()
 
-EPISODES_BASE_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
+def _episodes_base_dir() -> str:
+    return os.environ.get("EPISODES_DIR", "data/episodes")
 
 
 def _require_episode(episode_id: int) -> dict:
@@ -24,12 +25,13 @@ def _require_episode(episode_id: int) -> dict:
 
 
 def _resolve_episode_directory(episode: dict) -> str:
-    id_dir = os.path.join(EPISODES_BASE_DIR, str(episode.get("id", "")))
+    base = _episodes_base_dir()
+    id_dir = os.path.join(base, str(episode.get("id", "")))
     if os.path.isdir(id_dir):
         return id_dir
 
     episode_date = episode.get("episode_date") or episode.get("date") or ""
-    date_dir = os.path.join(EPISODES_BASE_DIR, episode_date)
+    date_dir = os.path.join(base, episode_date)
     if os.path.isdir(date_dir):
         return date_dir
 
@@ -160,7 +162,7 @@ def get_episode(episode_id: int) -> dict:
 
 @router.get("/episodes/{episode_id}/script", summary="エピソードの台本JSONを取得")
 def get_episode_script(episode_id: int) -> dict:
-    """script.json に基づく台本データを返す"""
+    """script.json の内容に DB のエピソード情報を付与して返す"""
     episode = _require_episode(episode_id)
     base_dir = _resolve_episode_directory(episode)
     script_path = os.path.join(base_dir, "script.json")
@@ -171,7 +173,14 @@ def get_episode_script(episode_id: int) -> dict:
     with open(script_path, "r", encoding="utf-8") as f:
         script = json.load(f)
 
-    return script
+    return {
+        "id": episode["id"],
+        "episode_date": episode["episode_date"],
+        "title": script.get("title", ""),
+        "subtitle": script.get("subtitle", ""),
+        "lines": script.get("lines", []),
+        "generated_at": episode.get("updated_at", ""),
+    }
 
 
 def _enrich_episode(episode: dict) -> None:
