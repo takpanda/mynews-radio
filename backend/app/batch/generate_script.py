@@ -191,6 +191,16 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
         if section in ("news", "discussion"):
             prev_is_transition = bool(result) and result[-1].get("section") == "transition"
 
+            # LLM が transition を出力していても、その article_id が現在の記事と
+            # 一致しない場合は誤った帰属とみなし、LLM の transition を削除して
+            # プログラム側の transition で置き換える
+            if prev_is_transition:
+                llm_trans_aid = result[-1].get("article_id")
+                if llm_trans_aid is not None and llm_trans_aid != article_id:
+                    removed = result.pop()
+                    logger.debug("LLM transition 削除: article_id=%s text=%s", removed.get("article_id"), removed.get("text", "")[:60])
+                    prev_is_transition = False
+
             # article_id が変わった（または intro→news）かつ直前が transition でない場合に挿入
             if not prev_is_transition and article_id != last_content_aid:
                 speaker = _pick_speaker(result, section)
@@ -412,6 +422,13 @@ def lint_script(
                 errors.append(
                     f"行 {i} ({speaker}): 「{req}」を使っているが具体的な数字・データが含まれていません"
                 )
+
+        # transition行の不完全チェック（WARN: 演出上の「間」意図の可能性を考慮し警告レベル）
+        if section == "transition":
+            if _re.search(r"[……‥]{2,}$", text):
+                errors.append(f"[WARN][TRUNCATED_TRANS] transition行 {i} が不完全な文で終わっています: 「{text[:40]}...」")
+            elif len(text) < 5:
+                errors.append(f"[WARN][TRUNCATED_TRANS] transition行 {i} が短すぎます: 「{text[:40]}...」")
 
         # 記事IDのトピック表記（「記事XX」「（ID: XX）」など）を検出
         id_refs = [
