@@ -183,6 +183,22 @@ def get_episode_script(episode_id: int) -> dict:
     }
 
 
+@router.get("/episodes/{episode_id}/review", summary="エピソードのレビュー結果JSONを取得")
+def get_episode_review(episode_id: int) -> dict:
+    """review.json の内容をそのまま返す"""
+    episode = _require_episode(episode_id)
+    base_dir = _resolve_episode_directory(episode)
+    review_path = os.path.join(base_dir, "review.json")
+
+    if not os.path.isfile(review_path):
+        raise HTTPException(status_code=404, detail="Review file not found")
+
+    with open(review_path, "r", encoding="utf-8") as f:
+        review = json.load(f)
+
+    return review
+
+
 def _enrich_episode(episode: dict) -> None:
     """script.json または metadata.json からtitle/subtitle/durationを補完"""
     base_dir = _resolve_episode_directory(episode)
