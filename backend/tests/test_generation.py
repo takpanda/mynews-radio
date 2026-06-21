@@ -8,7 +8,6 @@ class TestGenerateEndpoint:
         resp = client.post("/generate", json={
             "date": "2099-01-01",
             "max_articles": 5,
-            "enable_review": False,
         })
         assert resp.status_code == 200
         data = resp.json()
@@ -167,7 +166,7 @@ class TestRunGenerationPipeline:
 
         svc = EpisodeService()
         ep_id = svc.create_episode(episode_date="2099-09-01", status="generating")
-        body = GenerateRequest(date="2099-09-01", enable_review=False)
+        body = GenerateRequest(date="2099-09-01")
 
         with patch("app.api.generate.summarize_articles", return_value=5), \
              patch("app.api.generate.generate_script", side_effect=RuntimeError("unexpected")):
@@ -183,7 +182,7 @@ class TestRunGenerationPipeline:
 
         svc = EpisodeService()
         ep_id = svc.create_episode(episode_date="2099-06-01", status="generating")
-        body = GenerateRequest(date="2099-06-01", enable_review=False)
+        body = GenerateRequest(date="2099-06-01")
 
         fake_script = '{"lines": [{"article_id": "1", "text": "Hello world"}]}'
 
@@ -207,7 +206,7 @@ class TestRunGenerationPipeline:
 
         svc = EpisodeService()
         ep_id = svc.create_episode(episode_date="2099-06-01", status="generating")
-        body = GenerateRequest(date="2099-06-01", enable_review=False)
+        body = GenerateRequest(date="2099-06-01")
 
         fake_script = '{"lines": [{"article_id": "1", "text": "Hello world"}]}'
 
@@ -231,7 +230,7 @@ class TestRunGenerationPipeline:
 
         svc = EpisodeService()
         ep_id = svc.create_episode(episode_date="2099-08-01", status="generating")
-        body = GenerateRequest(date="2099-08-01", enable_review=True)
+        body = GenerateRequest(date="2099-08-01")
 
         fake_script = '{"lines": [{"article_id": "1", "text": "Hello world"}]}'
 

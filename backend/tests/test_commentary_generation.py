@@ -50,7 +50,6 @@ class TestCommentaryGenerateRequestValidation:
     def test_radio_without_url_still_works(self, client):
         resp = client.post("/generate", json={
             "date": "2099-06-15",
-            "enable_review": False,
         })
         assert resp.status_code == 200
         data = resp.json()
