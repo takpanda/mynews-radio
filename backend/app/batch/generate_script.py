@@ -440,6 +440,14 @@ def lint_script(
             for m in _re.finditer(pattern, text):
                 errors.append(f"行 {i} ({speaker}): 記事IDの参照表記が検出されました: 「{m.group(0).strip()}」")
 
+        # 全角ブラケット〔...〕（U+3014/U+3015）がtextに含まれていないかチェック
+        if section in ("news", "discussion", "transition"):
+            if _re.search(r"〔[^〕]*〕", text):
+                errors.append(
+                    f"行 {i} ({speaker}): textにプレースホルダー表記〔...〕が含まれています: "
+                    f"「{text[:50]}」"
+                )
+
     return errors
 
 
