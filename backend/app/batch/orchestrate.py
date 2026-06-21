@@ -3,7 +3,7 @@
 Batch orchestration script for MyNews Radio episode generation.
 
 Runs 5 steps sequentially:
-    import_articles → summarize_articles → generate_script → synthesize_voicevox → build_episode
+    import_articles → summarize_articles → generate_script → review_script → synthesize_voicevox → build_episode
 
 On any step failure, remaining steps are skipped and the episode status is set to `failed`.
 Intermediate artifacts are preserved on error.
@@ -115,16 +115,11 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
         if lines_count == 0:
             raise RuntimeError("generate_script produced no lines")
 
-        # Step 3.5: review_script — create a separate reviewed episode (non-fatal)
-        logger.info("=== Step 3.5: review_script (reviewed episode) ===")
-        reviewed_episode_id: int | None = None
-        reviewed_episode_dir: str | None = None
+        # Step 4: review_script — quality gate (non-fatal)
+        logger.info("=== Step 4/5: review_script (quality gate) ===")
         review_result: dict = {"revised": False, "review_count": 0, "revision_summary": "", "lines_count": 0}
         try:
-            reviewed_episode_id = _create_episode_record(date_str)
-            reviewed_episode_dir = os.path.join(EPISODES_DIR, str(reviewed_episode_id))
-            os.makedirs(os.path.join(reviewed_episode_dir, "lines"), exist_ok=True)
-            review_result = review_script(script_path, reviewed_episode_dir)
+            review_result = review_script(script_path, episode_dir)
             logger.info(
                 "review_script completed: revised=%s review_count=%d",
                 review_result["revised"],
@@ -132,18 +127,16 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
             )
         except Exception as _rev_exc:
             logger.warning("review_script failed (non-fatal): %s", _rev_exc)
-            if reviewed_episode_id is not None:
-                _set_episode_status(reviewed_episode_id, "failed")
 
-        # Step 4: synthesize_voicevox
-        logger.info("=== Step 4/5: synthesize_voicevox ===")
+        # Step 5: synthesize_voicevox
+        logger.info("=== Step 5/5: synthesize_voicevox ===")
         wave_count = synthesize_episode(episode_dir)
         logger.info("synthesize_voicevox completed: lines=%d", wave_count)
         if wave_count == 0:
             raise RuntimeError("synthesize_voicevox produced no WAV files")
 
         # Step 5: build_episode
-        logger.info("=== Step 5/5: build_episode ===")
+        logger.info("=== Step 5/5: build_episode (episode) ===")
         metadata = build_episode(episode_dir)
         if not metadata:
             raise RuntimeError("build_episode returned empty metadata")
@@ -153,34 +146,6 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
 
         logger.info("=== Episode generation completed successfully ===")
 
-        # Step 4b/5b: build reviewed episode (non-fatal if it fails)
-        if reviewed_episode_id is not None and reviewed_episode_dir is not None:
-            if review_result.get("revised"):
-                try:
-                    logger.info("=== Step 4b: synthesize reviewed episode (id=%d) ===", reviewed_episode_id)
-                    reviewed_wave_count = synthesize_episode(reviewed_episode_dir)
-                    logger.info("reviewed synthesize completed: lines=%d", reviewed_wave_count)
-                    if reviewed_wave_count == 0:
-                        raise RuntimeError("reviewed synthesize produced 0 WAV files")
-
-                    logger.info("=== Step 5b: build reviewed episode (id=%d) ===", reviewed_episode_id)
-                    reviewed_metadata = build_episode(reviewed_episode_dir)
-                    if not reviewed_metadata:
-                        raise RuntimeError("reviewed build_episode returned empty metadata")
-
-                    _update_episode_audio(reviewed_episode_id, "episode.mp3")
-                    _set_episode_status(reviewed_episode_id, "done")
-                    logger.info(
-                        "Reviewed episode completed: id=%d duration=%.1fs",
-                        reviewed_episode_id,
-                        reviewed_metadata.get("duration_seconds", 0),
-                    )
-                except Exception as _build_exc:
-                    logger.warning("Reviewed episode build failed (non-fatal): %s", _build_exc)
-                    _set_episode_status(reviewed_episode_id, "failed")
-            else:
-                logger.info("review_script did not produce a revised script; marking reviewed episode as failed")
-                _set_episode_status(reviewed_episode_id, "failed")
         logger.info("Episode ID: %d  |  Date: %s  |  Audio: episode.mp3  |  Duration: %.1fs",
                      episode_id, date_str, metadata.get("duration_seconds", 0))
 
