@@ -1,5 +1,5 @@
 """
-review_script.py — 4-director script review + revision step.
+review_script.py — 5-director script review + revision step.
 
 Reads an existing script.json (source_script_path), runs four character-based
 LLM reviews, then synthesises all feedback into a revised script written to
@@ -27,13 +27,14 @@ logger = logging.getLogger(__name__)
 # Director definitions
 # ---------------------------------------------------------------------------
 
-_DIRECTOR_KEYS = ("genius", "beginner", "worried", "positive")
+_DIRECTOR_KEYS = ("genius", "beginner", "worried", "positive", "radio")
 
 _PROMPT_FILES: dict[str, str] = {
     "genius":   "review_genius_director.md",
     "beginner": "review_beginner_director.md",
     "worried":  "review_worried_director.md",
     "positive": "review_positive_director.md",
+    "radio":    "review_radio_director.md",
 }
 
 _PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
@@ -48,7 +49,7 @@ def _load_prompt(filename: str) -> str:
 # ---------------------------------------------------------------------------
 
 def review_script(source_script_path: str, output_dir: str) -> dict:
-    """Review *source_script_path* with 4 directors and write a revised script.
+    """Review *source_script_path* with 5 directors and write a revised script.
 
     Args:
         source_script_path: Path to the original script.json (read-only).
@@ -112,6 +113,7 @@ def review_script(source_script_path: str, output_dir: str) -> dict:
                 beginner_review=json.dumps(reviews.get("beginner", {}), ensure_ascii=False, indent=2),
                 worried_review=json.dumps(reviews.get("worried", {}), ensure_ascii=False, indent=2),
                 positive_review=json.dumps(reviews.get("positive", {}), ensure_ascii=False, indent=2),
+                radio_review=json.dumps(reviews.get("radio", {}), ensure_ascii=False, indent=2),
             )
             synth_response = client.generate_json(synth_prompt)
 
