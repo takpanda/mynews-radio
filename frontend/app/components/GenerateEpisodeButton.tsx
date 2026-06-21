@@ -479,6 +479,12 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
     setHasError(false)
     setUrlError(null)
     shouldScrollToProgress.current = true
+    setTimeout(() => {
+      const progressSection = document.getElementById('progress-section')
+      if (progressSection) {
+        progressSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }, 200)
     consecutiveFailuresRef.current = 0
 
     try {
