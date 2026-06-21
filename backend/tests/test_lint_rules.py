@@ -561,3 +561,74 @@ class TestTransitionTruncatedCheck:
         errors = lint_script(lines)
         trunc_errors = [e for e in errors if "[TRUNCATED_TRANS]" in e]
         assert len(trunc_errors) == 1
+
+
+class TestPlaceholderBracketCheck:
+    """全角ブラケット〔...〕（U+3014/U+3015）検出ルールのテスト"""
+
+    def test_news_with_bracket_detected(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("news", "〔トピックA〕の内容についてお伝えします。"),
+        ]
+        errors = lint_script(lines)
+        bracket_errors = [e for e in errors if "プレースホルダー表記" in e]
+        assert len(bracket_errors) == 1
+
+    def test_discussion_with_bracket_detected(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("discussion", "〔discussion 発言〕"),
+        ]
+        errors = lint_script(lines)
+        bracket_errors = [e for e in errors if "プレースホルダー表記" in e]
+        assert len(bracket_errors) == 1
+
+    def test_transition_with_bracket_detected(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("transition", "続いては〔トピックA〕のニュースです。"),
+        ]
+        errors = lint_script(lines)
+        bracket_errors = [e for e in errors if "プレースホルダー表記" in e]
+        assert len(bracket_errors) == 1
+
+    def test_intro_with_bracket_ignored(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。〔一言〕"),
+        ]
+        errors = lint_script(lines)
+        bracket_errors = [e for e in errors if "プレースホルダー表記" in e]
+        assert len(bracket_errors) == 0
+
+    def test_clean_text_no_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("news", "OpenAIが最新モデルを公開しました。"),
+            _make_line("discussion", "今回の発表は競合他社の動きも活発な中での発表です。"),
+            _make_line("transition", "では次は気候変動の話題をご紹介します。"),
+        ]
+        errors = lint_script(lines)
+        bracket_errors = [e for e in errors if "プレースホルダー表記" in e]
+        assert len(bracket_errors) == 0
+
+    def test_outro_with_bracket_ignored(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("outro", "本日のニュースは以上です。〔総括〕"),
+        ]
+        errors = lint_script(lines)
+        bracket_errors = [e for e in errors if "プレースホルダー表記" in e]
+        assert len(bracket_errors) == 0
