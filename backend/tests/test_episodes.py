@@ -91,3 +91,62 @@ class TestEpisodeApiTypeSourceUrl:
         data = resp.json()
         assert data["type"] == "commentary"
         assert data["source_url"] == "https://example.com/latest"
+
+
+class TestEpisodeScriptEndpoint:
+    """GET /episodes/{id}/script のレスポンス形式テスト"""
+
+    def test_get_script_returns_formatted_response(self, client):
+        import json as _json
+        import os as _os
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-31")
+
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        ep_script_dir = _os.path.join(ep_dir, str(eid))
+        _os.makedirs(ep_script_dir, exist_ok=True)
+
+        script_data = {
+            "title": "テスト番組",
+            "subtitle": "テスト用サブタイトル",
+            "lines": [
+                {"speaker": "male", "text": "こんにちは", "section": "intro"},
+                {"speaker": "female", "text": "こんばんは", "section": "news"},
+            ],
+        }
+        with open(_os.path.join(ep_script_dir, "script.json"), "w", encoding="utf-8") as f:
+            _json.dump(script_data, f)
+
+        resp = client.get(f"/episodes/{eid}/script")
+        assert resp.status_code == 200, (
+            f"Expected 200, got {resp.status_code}. "
+            f"ep_dir={ep_dir}, script_dir={ep_script_dir}, "
+            f"env_episodes_dir={_os.environ.get('EPISODES_DIR')}"
+        )
+        data = resp.json()
+
+        assert data["id"] == eid
+        assert data["episode_date"] == "2099-12-31"
+        assert data["title"] == "テスト番組"
+        assert data["subtitle"] == "テスト用サブタイトル"
+        assert len(data["lines"]) == 2
+        assert data["lines"][0]["speaker"] == "male"
+        assert data["lines"][0]["text"] == "こんにちは"
+        assert data["lines"][1]["speaker"] == "female"
+        assert data["lines"][1]["text"] == "こんばんは"
+        assert "generated_at" in data
+
+    def test_get_script_404_when_no_script_file(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-31")
+
+        resp = client.get(f"/episodes/{eid}/script")
+        assert resp.status_code == 404
+
+    def test_get_script_404_when_episode_not_found(self, client):
+        resp = client.get("/episodes/99999/script")
+        assert resp.status_code == 404
