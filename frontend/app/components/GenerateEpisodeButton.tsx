@@ -289,7 +289,6 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   const [newsSource, setNewsSource] = useState<'hatena_bookmark' | 'hatena_hotentry_all' | 'yahoo_news'>('hatena_bookmark')
   const [recreateSummary, setRecreateSummary] = useState(false)
   const [ttsEngine, setTtsEngine] = useState<'voicevox' | 'aivispeech'>('aivispeech')
-  const [enableReview, setEnableReview] = useState(false)
   const [maxArticles, setMaxArticles] = useState(10)
   const [episodeId, setEpisodeId] = useState<number | null>(null)
   const [hasError, setHasError] = useState(false)
@@ -489,7 +488,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
 
     try {
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
-      const { episode_id } = await generateEpisode(today, maxArticles, newsSource, ttsEngine, enableReview, recreateSummary, isUrlMode ? urlInput.trim() : undefined, isUrlMode ? commentaryStyle : undefined)
+      const { episode_id } = await generateEpisode(today, maxArticles, newsSource, ttsEngine, recreateSummary, isUrlMode ? urlInput.trim() : undefined, isUrlMode ? commentaryStyle : undefined)
       localStorage.setItem(STORAGE_KEY, String(episode_id))
       setEpisodeId(episode_id)
       toast('番組の生成を開始しました', { icon: '🎙️' })
@@ -785,36 +784,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
             </fieldset>
           )}
 
-          <fieldset className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
-            <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Script Review
-            </legend>
-            <label className={`mt-3 block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(enableReview, isLoading)}`}>
-              <input
-                type="checkbox"
-                checked={enableReview}
-                onChange={(e) => setEnableReview(e.target.checked)}
-                disabled={isLoading}
-                className="sr-only"
-              />
-              <span className="flex items-start justify-between gap-3">
-                <span>
-                  <span className="block text-sm font-semibold text-slate-900">台本をレビューする</span>
-                  <span className="mt-1 block text-xs leading-6 text-slate-500">
-                    4人のディレクターが台本をチェックし、修正版を別エピソードとして生成します。処理時間が増えます。
-                  </span>
-                </span>
-                <span className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${enableReview ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`}>
-                  {enableReview && (
-                    <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 10 8" fill="none">
-                      <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </span>
-              </span>
-            </label>
-
-              <label className={`mt-3 block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(recreateSummary, isLoading)}`}>
+          <label className={`mt-3 block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(recreateSummary, isLoading)}`}>
                 <input
                   type="checkbox"
                   checked={recreateSummary}
@@ -838,7 +808,6 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                   </span>
                 </span>
               </label>
-            </fieldset>
 
           <button
             type="button"
@@ -889,13 +858,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                 <dd className="mt-1 font-medium text-slate-900">{maxArticles} 件</dd>
               </div>
             )}
-            <div>
-              <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">レビュー</dt>
-              <dd className="mt-1 font-medium text-slate-900">
-                {enableReview ? '有効（修正版も生成）' : '無効'}
-              </dd>
-            </div>
-            <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
               <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">要約の再作成</dt>
               <dd className="mt-1 font-medium text-slate-900">
                 {recreateSummary ? '有効' : '無効'}
