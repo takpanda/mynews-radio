@@ -93,6 +93,7 @@ def generate_commentary_script(
             "text": text,
             "article_id": line.get("article_id"),
             "section": section,
+            "delivery": "neutral",
         })
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
