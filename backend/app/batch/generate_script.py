@@ -219,6 +219,7 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                     "text": text,
                     "article_id": article_id,
                     "section": "transition",
+                    "delivery": "neutral",
                 })
                 logger.debug("transition 挿入: article_id=%s text=%s", article_id, text)
 
@@ -654,6 +655,7 @@ def generate_script(output_path: str, program_name: str = "ニュースのとな
                 "text": text,
                 "article_id": line.get("article_id"),
                 "section": section,
+                "delivery": "neutral",
             }
         )
 
