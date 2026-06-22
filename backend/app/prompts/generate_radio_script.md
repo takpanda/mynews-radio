@@ -71,9 +71,9 @@
   "title": "ニュースのとなり",
   "subtitle": "副題（その日の主なトピックを凝縮した15〜25文字の一文）",
   "lines": [
-    {{ "speaker": "male",   "text": "「ニュースのとなり」の時間です。今日も気になる話題が多めです。", "article_id": null, "section": "intro" }},
-    {{ "speaker": "male",   "text": "今日のラインアップは、AI・セキュリティ・経済の3本。いずれも身近な話題です。", "article_id": null, "section": "intro" }},
-    {{ "speaker": "female", "text": "盛りだくさんですね。今日もよろしくお願いします。",              "article_id": null, "section": "intro" }},
+    {{ "speaker": "male",   "text": "「ニュースのとなり」の時間です。今日も気になる話題が多めです。", "article_id": null, "section": "intro", "delivery": "warm" }},
+    {{ "speaker": "male",   "text": "今日のラインアップは、AI・セキュリティ・経済の3本。いずれも身近な話題です。", "article_id": null, "section": "intro", "delivery": "neutral" }},
+    {{ "speaker": "female", "text": "盛りだくさんですね。今日もよろしくお願いします。",              "article_id": null, "section": "intro", "delivery": "neutral" }},
     {{ "speaker": "male",   "text": "続いてはAI関連のニュースです。",                           "article_id": 1,    "section": "transition" }},
     {{ "speaker": "male",   "text": "OpenAIが最新モデルを公開しました。",                        "article_id": 1,    "section": "news" }},
     {{ "speaker": "female", "text": "また新しいモデルですか。どれくらい凄いんですか？",          "article_id": 1,    "section": "news" }},
@@ -99,7 +99,7 @@
 
 - title は常に「ニュースのとなり」とする
 - subtitle はその日の主要トピックや特集記事を端的に表す15〜25文字の日本語にする（例：「AI・セキュリティ・ドコモ最新動向」「テクノロジーと社会の最前線」）
-- lines の各要素は speaker/text/article_id/section を必ず含める
+- lines の各要素は speaker/text/article_id/section/delivery を必ず含める
 - speaker は "male" または "female" のみ
 - article_id は入力にある記事IDを使う
 - section は intro/news/transition/discussion/outro のいずれか
@@ -111,6 +111,34 @@
 - **「数字で見ると」を使う場合は必ず具体的な数字・データを文中に包含すること。数字を示せない場合はこのフレーズを使わないこと**
 - **同一のテキストを別のtext行にそのままコピーしてはならない。すべての行のテキストはユニークでなければならない**
 - 上記「禁止フレーズ」セクションのフレーズは一切使用しないこと
+
+# 話術タグ (delivery)
+
+各 line には `delivery` フィールドを含め、発話の話術（トーン）を指定します。
+
+## delivery タグ一覧
+
+| タグ | 意味 | 使用タイミング |
+|------|------|--------------|
+| neutral | 標準 | 通常のニュース読み、事実説明 |
+| emphasis | 強調・驚き | 衝撃的な数字、意外な発見、重要なポイント |
+| thoughtful | 考察調 | discussion パート、考察・分析 |
+| questioning | 疑問形 | 「なぜか」「どうなのか」という疑問を投げかける場面 |
+| warm | まとめ | outro の展望、締めくくり、リスナーへの呼びかけ |
+
+## セクションと delivery の目安
+
+| section | 推奨タグ | 備考 |
+|---------|---------|------|
+| intro | warm / neutral | 番組冒頭は温かく。最初のニュース導入は neutral で |
+| news（事実説明） | neutral | 事実は淡々と伝える |
+| news（驚きの数字） | emphasis | 衝撃的な数字や意外な事実には emphasis を使う |
+| discussion | thoughtful / questioning | 考察・分析には thoughtful、疑問提起には questioning |
+| transition | neutral | 話題の橋渡しは標準のトーンで |
+| outro | warm | 締めくくりは温かく |
+
+- 上記は目安です。文脈に応じて適切なタグを選択してください
+- discussion パートでは thoughtful と questioning を組み合わせると自然な議論の流れになります
 
 # intro セクションのルール
 
