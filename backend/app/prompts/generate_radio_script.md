@@ -71,23 +71,23 @@
   "title": "ニュースのとなり",
   "subtitle": "副題（その日の主なトピックを凝縮した15〜25文字の一文）",
   "lines": [
-    {{ "speaker": "male",   "text": "「ニュースのとなり」の時間です。今日も気になる話題が多めです。", "article_id": null, "section": "intro", "delivery": "warm" }},
+    {{ "speaker": "male",   "text": "「ニュースのとなり」の時間です。今日も気になる話題が多めです。", "article_id": null, "section": "intro", "delivery": "neutral" }},
     {{ "speaker": "male",   "text": "今日のラインアップは、AI・セキュリティ・経済の3本。いずれも身近な話題です。", "article_id": null, "section": "intro", "delivery": "neutral" }},
     {{ "speaker": "female", "text": "盛りだくさんですね。今日もよろしくお願いします。",              "article_id": null, "section": "intro", "delivery": "neutral" }},
-    {{ "speaker": "male",   "text": "続いてはAI関連のニュースです。",                           "article_id": 1,    "section": "transition" }},
-    {{ "speaker": "male",   "text": "OpenAIが最新モデルを公開しました。",                        "article_id": 1,    "section": "news" }},
-    {{ "speaker": "female", "text": "また新しいモデルですか。どれくらい凄いんですか？",          "article_id": 1,    "section": "news" }},
-    {{ "speaker": "female", "text": "では次は気候変動の話題をご紹介します。",                    "article_id": 2,    "section": "transition" }},
-    {{ "speaker": "male",   "text": "COP29で新たな排出削減目標が合意されました。",               "article_id": 2,    "section": "news" }},
-    {{ "speaker": "female", "text": "各国の温度差が課題ですね。",                               "article_id": 2,    "section": "news" }},
+    {{ "speaker": "male",   "text": "続いてはAI関連のニュースです。",                           "article_id": 1,    "section": "transition", "delivery": "neutral" }},
+    {{ "speaker": "male",   "text": "OpenAIが最新モデルを公開しました。",                        "article_id": 1,    "section": "news", "delivery": "neutral" }},
+    {{ "speaker": "female", "text": "また新しいモデルですか。どれくらい凄いんですか？",          "article_id": 1,    "section": "news", "delivery": "neutral" }},
+    {{ "speaker": "female", "text": "では次は気候変動の話題をご紹介します。",                    "article_id": 2,    "section": "transition", "delivery": "neutral" }},
+    {{ "speaker": "male",   "text": "COP29で新たな排出削減目標が合意されました。",               "article_id": 2,    "section": "news", "delivery": "neutral" }},
+    {{ "speaker": "female", "text": "各国の温度差が課題ですね。",                               "article_id": 2,    "section": "news", "delivery": "neutral" }},
     ...（記事C, D ... すべて紹介）...,
-    {{ "speaker": "male",   "text": "ここでAI関連ニュースについてもう少し掘り下げてみましょう。", "article_id": 1,    "section": "transition" }},
-    {{ "speaker": "male",   "text": "今回のOpenAI発表は、競合他社の動きも活発な中での発表です。", "article_id": 1,    "section": "discussion" }},
-    {{ "speaker": "female", "text": "ユーザーとしては、料金や使い勝手の変化が気になりますね。",  "article_id": 1,    "section": "discussion" }},
-    {{ "speaker": "male",   "text": "今日はAI・セキュリティ・経済と、幅広いテーマをお届けしました。", "article_id": null, "section": "outro" }},
-    {{ "speaker": "female", "text": "どの話題も身近に感じられる内容でしたね。皆さんの感想をお待ちしています。", "article_id": null, "section": "outro" }},
-    {{ "speaker": "male",   "text": "また明日も気になるニュースをお届けします。お楽しみに。",        "article_id": null, "section": "outro" }},
-    {{ "speaker": "female", "text": "それではまた明日、お会いしましょう。",                             "article_id": null, "section": "outro" }}
+    {{ "speaker": "male",   "text": "ここでAI関連ニュースについてもう少し掘り下げてみましょう。", "article_id": 1,    "section": "transition", "delivery": "neutral" }},
+    {{ "speaker": "male",   "text": "今回のOpenAI発表は、競合他社の動きも活発な中での発表です。", "article_id": 1,    "section": "discussion", "delivery": "thoughtful" }},
+    {{ "speaker": "female", "text": "ユーザーとしては、料金や使い勝手の変化が気になりますね。",  "article_id": 1,    "section": "discussion", "delivery": "questioning" }},
+    {{ "speaker": "male",   "text": "今日はAI・セキュリティ・経済と、幅広いテーマをお届けしました。", "article_id": null, "section": "outro", "delivery": "warm" }},
+    {{ "speaker": "female", "text": "どの話題も身近に感じられる内容でしたね。皆さんの感想をお待ちしています。", "article_id": null, "section": "outro", "delivery": "warm" }},
+    {{ "speaker": "male",   "text": "また明日も気になるニュースをお届けします。お楽しみに。",        "article_id": null, "section": "outro", "delivery": "warm" }},
+    {{ "speaker": "female", "text": "それではまた明日、お会いしましょう。",                             "article_id": null, "section": "outro", "delivery": "warm" }}
   ]
 }}
 
@@ -112,33 +112,19 @@
 - **同一のテキストを別のtext行にそのままコピーしてはならない。すべての行のテキストはユニークでなければならない**
 - 上記「禁止フレーズ」セクションのフレーズは一切使用しないこと
 
-# 話術タグ (delivery)
+# delivery フィールドのルール
 
-各 line には `delivery` フィールドを含め、発話の話術（トーン）を指定します。
+- delivery は TTS エンジンに話し方を指示するためのタグである
+- 各セクションごとに以下の delivery 値を設定すること:
 
-## delivery タグ一覧
-
-| タグ | 意味 | 使用タイミング |
-|------|------|--------------|
-| neutral | 標準 | 通常のニュース読み、事実説明 |
-| emphasis | 強調・驚き | 衝撃的な数字、意外な発見、重要なポイント |
-| thoughtful | 考察調 | discussion パート、考察・分析 |
-| questioning | 疑問形 | 「なぜか」「どうなのか」という疑問を投げかける場面 |
-| warm | まとめ | outro の展望、締めくくり、リスナーへの呼びかけ |
-
-## セクションと delivery の目安
-
-| section | 推奨タグ | 備考 |
-|---------|---------|------|
-| intro | warm / neutral | 番組冒頭は温かく。最初のニュース導入は neutral で |
-| news（事実説明） | neutral | 事実は淡々と伝える |
-| news（驚きの数字） | emphasis | 衝撃的な数字や意外な事実には emphasis を使う |
-| discussion | thoughtful / questioning | 考察・分析には thoughtful、疑問提起には questioning |
-| transition | neutral | 話題の橋渡しは標準のトーンで |
-| outro | warm | 締めくくりは温かく |
-
-- 上記は目安です。文脈に応じて適切なタグを選択してください
-- discussion パートでは thoughtful と questioning を組み合わせると自然な議論の流れになります
+| セクション | delivery | speaker | 説明 |
+|-----------|----------|---------|------|
+| intro | neutral | 共通 | 標準の導入 |
+| transition | neutral | 共通 | 話題の橋渡しは標準のトーンで |
+| news | neutral | 共通 | 事実説明 |
+| discussion | thoughtful | male（田村） | 考察 |
+| discussion | questioning | female（山口） | 疑問形 |
+| outro | warm | 共通 | まとめ・締めくくり |
 
 # intro セクションのルール
 
