@@ -44,23 +44,23 @@
   "title": "解説：{article_title}",
   "subtitle": "15〜25文字の副題",
   "lines": [
-    {{ "speaker": "male",   "text": "〔introduction〕",              "article_id": {article_id}, "section": "intro" }},
-    {{ "speaker": "male",   "text": "〔ニュースの解説①〕",           "article_id": {article_id}, "section": "news" }},
-    {{ "speaker": "male",   "text": "〔ニュースの解説②〕",           "article_id": {article_id}, "section": "news" }},
-    {{ "speaker": "male",   "text": "〔まとめ・締めくくり〕",        "article_id": null,         "section": "outro" }}
+    {{ "speaker": "male",   "text": "〔introduction〕",              "article_id": {article_id}, "section": "intro", "delivery": "neutral" }},
+    {{ "speaker": "male",   "text": "〔ニュースの解説①〕",           "article_id": {article_id}, "section": "news", "delivery": "neutral" }},
+    {{ "speaker": "male",   "text": "〔ニュースの解説②〕",           "article_id": {article_id}, "section": "news", "delivery": "neutral" }},
+    {{ "speaker": "male",   "text": "〔まとめ・締めくくり〕",        "article_id": null,         "section": "outro", "delivery": "warm" }}
   ]
 }}
 
 **dialogue の場合の出力フォーマット（linesの例）**:
 {{
   "lines": [
-    {{ "speaker": "male",   "text": "〔introduction〕",              "article_id": {article_id}, "section": "intro" }},
-    {{ "speaker": "female", "text": "〔導入の相槌・反応〕",          "article_id": {article_id}, "section": "intro" }},
-    {{ "speaker": "male",   "text": "〔ニュースの事実解説〕",         "article_id": {article_id}, "section": "news" }},
-    {{ "speaker": "female", "text": "〔リスナー視点の感想・疑問〕",   "article_id": {article_id}, "section": "news" }},
-    {{ "speaker": "male",   "text": "〔補足説明・構造分析〕",         "article_id": {article_id}, "section": "news" }},
-    {{ "speaker": "female", "text": "〔まとめ・リスナーへのメッセージ〕","article_id": null,         "section": "outro" }},
-    {{ "speaker": "male",   "text": "〔締めくくり〕",                "article_id": null,         "section": "outro" }}
+    {{ "speaker": "male",   "text": "〔introduction〕",              "article_id": {article_id}, "section": "intro", "delivery": "neutral" }},
+    {{ "speaker": "female", "text": "〔導入の相槌・反応〕",          "article_id": {article_id}, "section": "intro", "delivery": "neutral" }},
+    {{ "speaker": "male",   "text": "〔ニュースの事実解説〕",         "article_id": {article_id}, "section": "news", "delivery": "neutral" }},
+    {{ "speaker": "female", "text": "〔リスナー視点の感想・疑問〕",   "article_id": {article_id}, "section": "news", "delivery": "questioning" }},
+    {{ "speaker": "male",   "text": "〔補足説明・構造分析〕",         "article_id": {article_id}, "section": "news", "delivery": "thoughtful" }},
+    {{ "speaker": "female", "text": "〔まとめ・リスナーへのメッセージ〕","article_id": null,         "section": "outro", "delivery": "warm" }},
+    {{ "speaker": "male",   "text": "〔締めくくり〕",                "article_id": null,         "section": "outro", "delivery": "warm" }}
   ]
 }}
 
@@ -68,7 +68,7 @@
 
 - title は「解説：{article_title}」の形式とする
 - subtitle は内容を端的に表す15〜25文字の日本語
-- lines の各要素は speaker/text/article_id/section を必ず含める
+- lines の各要素は speaker/text/article_id/section/delivery を必ず含める
 - soloの場合: speaker は "male" のみ
 - dialogueの場合: speaker は "male" または "female"
 - article_id は各lineに適切に設定する（intro/outroはnull）
@@ -108,6 +108,32 @@
 - 特定の立場に偏らない中立的な解説
 - 抽象的な表現を避け、具体的な事実・数字・事例を示す
 - 同じ言い回し・同じ構文をlinesの中で繰り返さない
+
+# 話術タグ (delivery)
+
+各 line には `delivery` フィールドを含め、発話の話術（トーン）を指定します。
+
+## delivery タグ一覧
+
+| タグ | 意味 | 使用タイミング |
+|------|------|--------------|
+| neutral | 標準 | 通常のニュース読み、事実説明 |
+| emphasis | 強調・驚き | 衝撃的な数字、意外な発見、重要なポイント |
+| thoughtful | 考察調 | discussion パート、考察・分析 |
+| questioning | 疑問形 | 「なぜか」「どうなのか」という疑問を投げかける場面 |
+| warm | まとめ | outro の展望、締めくくり、リスナーへの呼びかけ |
+
+## セクションと delivery の目安
+
+| section | 推奨タグ | 備考 |
+|---------|---------|------|
+| intro | warm / neutral | 導入は温かく、または標準で |
+| news（事実説明） | neutral | 事実は淡々と伝える |
+| news（驚きの数字） | emphasis | 衝撃的な数字や意外な事実には emphasis を使う |
+| news（疑問提起） | questioning | リスナー視点の疑問には questioning を使う |
+| outro | warm | 締めくくりは温かく |
+
+- 上記は目安です。文脈に応じて適切なタグを選択してください
 
 入力記事:
 {article_json}
