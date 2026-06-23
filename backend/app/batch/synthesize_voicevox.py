@@ -168,13 +168,17 @@ def synthesize_episode(
         original_text = line.get("text", "")
         spoken_text = apply_replacements(original_text)
         speaker = line.get("speaker", "male")
+        delivery = line.get("delivery", "neutral")
+        # VOICEVOX Engine 使用時は delivery を neutral 固定（安全のため）
+        if not default_engine_is_aivispeech:
+            delivery = "neutral"
 
         logger.info(
-            "Line %s (speaker=%s, section=%s): '%s' -> WAV: %s",
-            idx, speaker, section, original_text[:50], filepath,
+            "Line %s (speaker=%s, section=%s, delivery=%s): '%s' -> WAV: %s",
+            idx, speaker, section, delivery, original_text[:50], filepath,
         )
 
-        ok = client.synthesize_line(spoken_text, speaker, filepath)
+        ok = client.synthesize_line(spoken_text, speaker, filepath, delivery=delivery)
         if ok and os.path.isfile(filepath):
             success_count += 1
             # Store both display and spoken text back into line object

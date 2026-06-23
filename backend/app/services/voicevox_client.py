@@ -1,9 +1,40 @@
+import json
 import logging
 from typing import Dict, Optional
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+# delivery → 音声パラメータマッピング（一箇所に集約して調整容易に）
+DELIVERY_PARAMS: Dict[str, Dict[str, float]] = {
+    "neutral": {
+        "speedScale": 1.0,
+        "intonationScale": 1.0,
+        "tempoDynamicsScale": 1.0,
+    },
+    "emphasis": {
+        "speedScale": 1.025,
+        "intonationScale": 1.4,
+        "tempoDynamicsScale": 1.5,
+    },
+    "thoughtful": {
+        "speedScale": 0.925,
+        "intonationScale": 0.75,
+        "tempoDynamicsScale": 0.85,
+    },
+    "questioning": {
+        "speedScale": 1.0,
+        "intonationScale": 1.05,
+        "tempoDynamicsScale": 1.1,
+    },
+    "warm": {
+        "speedScale": 0.975,
+        "intonationScale": 1.15,
+        "tempoDynamicsScale": 0.95,
+    },
+}
 
 
 class VoicevoxClient:
@@ -38,11 +69,19 @@ class VoicevoxClient:
 
     # -- VOICEVOX API 2-steps: audio_query -> synthesis --
 
-    def get_audio_query(self, text: str, speaker_id: int) -> Optional[str]:
+    def get_audio_query(
+        self, text: str, speaker_id: int,
+        query_params: Optional[Dict[str, float]] = None,
+        kana_text: Optional[str] = None,
+    ) -> Optional[str]:
         """
         POST /audio_query — audio queryをJSON文字列として取得する。
         failureの場合、None を返す。
-        
+
+        query_params: 指定された場合、audio_query レスポンスの該当フィールドを上書きする
+                      （レスポンスに存在するキーのみ上書き、未知キーは無視）
+        kana_text: 指定された場合、audio_query の kana フィールドを上書きする
+
         VOICEVOX API: POST with query params (text, speaker)
         """
         try:
@@ -55,7 +94,19 @@ class VoicevoxClient:
                 },
             )
             resp.raise_for_status()
-            return resp.text
+
+            result = resp.text
+            if query_params or kana_text is not None:
+                query = json.loads(result)
+                if query_params:
+                    for key, value in query_params.items():
+                        if key in query:
+                            query[key] = value
+                if kana_text is not None:
+                    query["kana"] = kana_text
+                result = json.dumps(query, ensure_ascii=False)
+
+            return result
         except httpx.HTTPError as exc:
             logger.error(
                 "/audio_query failed for speaker %d: %s", speaker_id, exc
@@ -98,12 +149,25 @@ class VoicevoxClient:
             return False
 
     def synthesize_line(
-        self, text: str, speaker: str, output_path: str
+        self, text: str, speaker: str, output_path: str,
+        delivery: str = "neutral",
     ) -> bool:
-        """セリフ1行を、audio_query → synthesis の2ステップでWAV生成する"""
+        """セリフ1行を、audio_query → synthesis の2ステップでWAV生成する
+
+        delivery: 発話スタイル（neutral / emphasis / thoughtful / questioning / warm）
+        """
         speaker_id = self.get_speaker_id(speaker)
 
-        audio_query = self.get_audio_query(text, speaker_id)
+        params = DELIVERY_PARAMS.get(delivery)
+        if params is None:
+            logger.warning("不明なdelivery値 '%s'、neutralとして扱います", delivery)
+            params = DELIVERY_PARAMS["neutral"]
+
+        audio_query = self.get_audio_query(
+            text, speaker_id,
+            query_params=params,
+            kana_text=text,
+        )
         if audio_query is None:
             logger.error(
                 "audio_query 失敗 (speaker=%d, text='%s')", speaker_id, text[:50]
