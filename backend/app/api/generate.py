@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import sqlite3
 from pathlib import Path
 from typing import Any, Generator
@@ -221,28 +222,9 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
         except Exception:
             logger.exception("failed to persist episode_items")
 
-        # -- BUILD REVIEWED EPISODE (non-fatal) --
+        # -- COPY REVISED SCRIPT (if revised) --
         if review_result.get("revised"):
-            try:
-                reviewed_wav = synthesize_episode(
-                    reviewed_episode_dir,
-                    base_url=tts_base_url,
-                    speaker_male=tts_speaker_male,
-                    speaker_female=tts_speaker_female,
-                )
-                if reviewed_wav <= 0:
-                    raise RuntimeError("reviewed synthesize produced 0 WAV files")
-
-                reviewed_meta = build_episode(reviewed_episode_dir)
-                if not reviewed_meta:
-                    raise RuntimeError(
-                        "reviewed build_episode returned empty metadata"
-                    )
-
-            except Exception as exc:
-                logger.warning(
-                    "Reviewed episode build failed (non-fatal): %s", exc
-                )
+            shutil.copy(os.path.join(reviewed_episode_dir, "script.json"), script_path)
 
         service.update_episode_phase(episode_id, "complete", "生成が完了しました")
         logger.info("[%d] completed successfully", episode_id)
