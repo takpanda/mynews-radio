@@ -158,19 +158,12 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
             tts_speaker_male = settings.voicevox_speaker_male
             tts_speaker_female = settings.voicevox_speaker_female
 
-        reviewed_episode_id: int | None = None
-        reviewed_episode_dir: str | None = None
         review_result: dict[str, Any] = {"revised": False, "review_count": 0}
 
         # -- REVIEW (quality gate) --
         service.update_episode_phase(episode_id, "review", "台本をレビューしています…")
         try:
-            reviewed_episode_id = service.create_episode(
-                episode_date=episode_date, status="pending"
-            )
-            reviewed_episode_dir = os.path.join(
-                DEFAULT_EPISODES_DIR, str(reviewed_episode_id)
-            )
+            reviewed_episode_dir = os.path.join(base_dir, "review")
             Path(reviewed_episode_dir).mkdir(parents=True, exist_ok=True)
             Path(os.path.join(reviewed_episode_dir, "lines")).mkdir(exist_ok=True)
             review_result = review_script(script_path, reviewed_episode_dir)
@@ -182,8 +175,6 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
             service.update_episode_phase(episode_id, "review_done", "レビューが完了しました…")
         except Exception as exc:
             logger.warning("review_script failed (non-fatal): %s", exc)
-            if reviewed_episode_id is not None:
-                service.update_episode_status(reviewed_episode_id, "failed")
 
         # -- SYNTHESIZE TTS --
         service.update_episode_phase(episode_id, "synthesize", "音声を合成しています…")
@@ -231,36 +222,27 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
             logger.exception("failed to persist episode_items")
 
         # -- BUILD REVIEWED EPISODE (non-fatal) --
-        if reviewed_episode_id is not None and reviewed_episode_dir is not None:
-            if review_result.get("revised"):
-                try:
-                    reviewed_wav = synthesize_episode(
-                        reviewed_episode_dir,
-                        base_url=tts_base_url,
-                        speaker_male=tts_speaker_male,
-                        speaker_female=tts_speaker_female,
-                    )
-                    if reviewed_wav <= 0:
-                        raise RuntimeError("reviewed synthesize produced 0 WAV files")
+        if review_result.get("revised"):
+            try:
+                reviewed_wav = synthesize_episode(
+                    reviewed_episode_dir,
+                    base_url=tts_base_url,
+                    speaker_male=tts_speaker_male,
+                    speaker_female=tts_speaker_female,
+                )
+                if reviewed_wav <= 0:
+                    raise RuntimeError("reviewed synthesize produced 0 WAV files")
 
-                    reviewed_meta = build_episode(reviewed_episode_dir)
-                    if not reviewed_meta:
-                        raise RuntimeError(
-                            "reviewed build_episode returned empty metadata"
-                        )
+                reviewed_meta = build_episode(reviewed_episode_dir)
+                if not reviewed_meta:
+                    raise RuntimeError(
+                        "reviewed build_episode returned empty metadata"
+                    )
 
-                    service.update_episode_audio_path(
-                        reviewed_episode_id,
-                        reviewed_meta.get("audio_path") or "",
-                    )
-                    service.update_episode_status(reviewed_episode_id, "completed")
-                except Exception as exc:
-                    logger.warning(
-                        "Reviewed episode build failed (non-fatal): %s", exc
-                    )
-                    service.update_episode_status(reviewed_episode_id, "failed")
-            else:
-                service.update_episode_status(reviewed_episode_id, "failed")
+            except Exception as exc:
+                logger.warning(
+                    "Reviewed episode build failed (non-fatal): %s", exc
+                )
 
         service.update_episode_phase(episode_id, "complete", "生成が完了しました")
         logger.info("[%d] completed successfully", episode_id)
