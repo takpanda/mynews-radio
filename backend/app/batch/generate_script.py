@@ -219,7 +219,7 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                     "text": text,
                     "article_id": article_id,
                     "section": "transition",
-                    "delivery": line.get("delivery", "neutral"),
+                    "delivery": "neutral",
                 })
                 logger.debug("transition 挿入: article_id=%s text=%s", article_id, text)
 
