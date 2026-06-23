@@ -186,7 +186,7 @@ def _build_revised_script(source: dict, response: dict) -> dict:
                 "text": str(line.get("text", "")).strip(),
                 "article_id": line.get("article_id"),
                 "section": section,
-                "delivery": "neutral",
+                "delivery": line.get("delivery", "neutral"),
             }
         )
 

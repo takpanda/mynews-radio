@@ -655,7 +655,7 @@ def generate_script(output_path: str, program_name: str = "ニュースのとな
                 "text": text,
                 "article_id": line.get("article_id"),
                 "section": section,
-                "delivery": "neutral",
+                "delivery": line.get("delivery", "neutral"),
             }
         )
 
