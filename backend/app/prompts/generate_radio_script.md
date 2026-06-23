@@ -115,16 +115,18 @@
 # delivery フィールドのルール
 
 - delivery は TTS エンジンに話し方を指示するためのタグである
-- 各セクションごとに以下の delivery 値を設定すること:
+- 各セクションごとに以下の delivery 値を**目安**として設定すること。ただし文脈に応じて柔軟に選択してよい:
 
-| セクション | delivery | speaker | 説明 |
-|-----------|----------|---------|------|
+| セクション | delivery | speaker（目安） | 説明 |
+|-----------|----------|----------------|------|
 | intro | neutral | 共通 | 標準の導入 |
 | transition | neutral | 共通 | 話題の橋渡しは標準のトーンで |
 | news | neutral | 共通 | 事実説明 |
-| discussion | thoughtful | male（田村） | 考察 |
-| discussion | questioning | female（山口） | 疑問形 |
+| discussion | thoughtful | male（田村）（目安） | 考察 |
+| discussion | questioning | female（山口）（目安） | 疑問形 |
 | outro | warm | 共通 | まとめ・締めくくり |
+
+- discussion セクションでは上記の speaker 割り当ては目安であり、話者と内容に合わせて柔軟に選択してよい。例えば田村が質問を投げかける場面では questioning、山口が分析を述べる場面では thoughtful など、文脈に応じて適切な delivery を設定すること。
 
 # intro セクションのルール
 
