@@ -85,15 +85,15 @@
   "title": "ニュースのとなり",
   "subtitle": "改善されたサブタイトル【レビュー版】",
   "lines": [
-    {{"speaker": "male", "text": "台本テキスト", "article_id": null, "section": "intro"}},
-    {{"speaker": "female", "text": "台本テキスト", "article_id": null, "section": "intro"}}
+    {{"speaker": "male", "text": "台本テキスト", "article_id": null, "section": "intro", "delivery": "neutral"}},
+    {{"speaker": "female", "text": "台本テキスト", "article_id": null, "section": "intro", "delivery": "neutral"}}
   ],
   "revision_summary": "どのディレクターの指摘をどう反映したか、変更点を3〜5文で要約する"
 }}
 
 条件:
 - title は常に「ニュースのとなり」とする
-- lines の各要素は必ず speaker/text/article_id/section の 4 フィールドを含める
+- lines の各要素は必ず speaker/text/article_id/section/delivery の 5 フィールドを含める
 - speaker は "male" または "female" のみ
 - section は intro/news/transition/discussion/outro のいずれか
 - text に記事IDや「（ID: XX）」などの参照を含めないこと
