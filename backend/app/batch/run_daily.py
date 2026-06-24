@@ -57,10 +57,22 @@ def main() -> None:
         episode_date = dt.date.today().isoformat()  # YYYY-MM-DD
 
     episode_service = EpisodeService()
-    episode_id = episode_service.create_episode(
-        episode_date=episode_date,
-        status="generating",
-    )
+
+    existing_id = episode_service.find_by_date(episode_date)
+    if existing_id is not None:
+        logger.info("Existing episode %d found for date %s — resetting for reuse", existing_id, episode_date)
+        episode_service.reset_episode_for_reuse(existing_id)
+        episode_service.clear_episode_items(existing_id)
+        if not episode_service.claim_generating_slot(existing_id):
+            logger.error("Episode for %s could not be acquired (race condition)", episode_date)
+            sys.exit(1)
+        episode_id = existing_id
+    else:
+        episode_id = episode_service.create_episode(
+            episode_date=episode_date,
+            status="generating",
+        )
+
     episode_dir = os.path.join("data", "episodes", str(episode_id))
     os.makedirs(episode_dir, exist_ok=True)
     summaries_path = os.path.join(episode_dir, "summaries.json")
