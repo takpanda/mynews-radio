@@ -25,7 +25,7 @@ from app.batch.review_script import review_script
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
 from app.services.article_service import ArticleService
-from app.services.episode_service import EpisodeService
+from app.services.episode_service import EpisodeService, retry_on_busy
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +47,17 @@ def _set_episode_status(episode_id: int, status: str) -> None:
         )
 
 
+@retry_on_busy()
 def _create_episode_record(date_str: str) -> int:
     ep_service = EpisodeService()
+    existing_id = ep_service.find_by_date(date_str)
+    if existing_id is not None:
+        logger.info("Existing episode %d found for date %s — resetting for reuse", existing_id, date_str)
+        ep_service.reset_episode_for_reuse(existing_id)
+        ep_service.clear_episode_items(existing_id)
+        if not ep_service.claim_generating_slot(existing_id):
+            raise RuntimeError("Episode for %s could not be acquired (race condition)" % date_str)
+        return existing_id
     return ep_service.create_episode(episode_date=date_str, status="generating")
 
 
