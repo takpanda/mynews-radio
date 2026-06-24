@@ -224,7 +224,7 @@ class TestRunGenerationPipeline:
         assert ep["phase"] == "complete"
 
     @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
-    def test_success_with_review_creates_reviewed_episode(self, mock_import):
+    def test_success_with_review_does_not_create_extra_episode(self, mock_import):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
 
@@ -249,7 +249,7 @@ class TestRunGenerationPipeline:
         assert ep["status"] == "completed"
         assert ep["phase"] == "complete"
 
+        # No separate review episode record should be created
         episodes = svc.get_episode_list()
         reviewed = [e for e in episodes if e["id"] != ep_id]
-        assert len(reviewed) == 1
-        assert reviewed[0]["status"] == "failed"
+        assert len(reviewed) == 0
