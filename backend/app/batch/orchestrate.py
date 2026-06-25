@@ -137,26 +137,31 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
         except Exception as _rev_exc:
             logger.warning("review_script failed (non-fatal): %s", _rev_exc)
 
-        # Step 5: synthesize_voicevox
-        logger.info("=== Step 5/5: synthesize_voicevox ===")
-        wave_count = synthesize_episode(episode_dir)
-        logger.info("synthesize_voicevox completed: lines=%d", wave_count)
-        if wave_count == 0:
-            raise RuntimeError("synthesize_voicevox produced no WAV files")
+        # -- BRANCH based on revised flag --
+        if review_result.get("revised"):
+            _set_episode_status(episode_id, "reviewed")
+            logger.info("=== Reviewed (synthesize/build skipped; use POST /episodes/{id}/synthesize) ===")
+            logger.info("Episode ID: %d  |  Date: %s", episode_id, date_str)
+        else:
+            # Step 5: synthesize_voicevox
+            logger.info("=== Step 5/5: synthesize_voicevox ===")
+            wave_count = synthesize_episode(episode_dir)
+            logger.info("synthesize_voicevox completed: lines=%d", wave_count)
+            if wave_count == 0:
+                raise RuntimeError("synthesize_voicevox produced no WAV files")
 
-        # Step 5: build_episode
-        logger.info("=== Step 5/5: build_episode (episode) ===")
-        metadata = build_episode(episode_dir)
-        if not metadata:
-            raise RuntimeError("build_episode returned empty metadata")
+            # Step 5: build_episode
+            logger.info("=== Step 5/5: build_episode (episode) ===")
+            metadata = build_episode(episode_dir)
+            if not metadata:
+                raise RuntimeError("build_episode returned empty metadata")
 
-        _update_episode_audio(episode_id, "episode.mp3")
-        _set_episode_status(episode_id, "done")
+            _update_episode_audio(episode_id, "episode.mp3")
+            _set_episode_status(episode_id, "done")
 
-        logger.info("=== Episode generation completed successfully ===")
-
-        logger.info("Episode ID: %d  |  Date: %s  |  Audio: episode.mp3  |  Duration: %.1fs",
-                     episode_id, date_str, metadata.get("duration_seconds", 0))
+            logger.info("=== Episode generation completed successfully ===")
+            logger.info("Episode ID: %d  |  Date: %s  |  Audio: episode.mp3  |  Duration: %.1fs",
+                         episode_id, date_str, metadata.get("duration_seconds", 0))
 
     except SystemExit as exc:
         # Catch sys.exit() from batch modules (they exit 0 on success, 1 on failure)
