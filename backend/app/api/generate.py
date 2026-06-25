@@ -183,72 +183,53 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
             # Copy reviewed script to base_dir
             shutil.copy(os.path.join(reviewed_episode_dir, "script.json"), script_path)
 
-            # Persist items from reviewed script
-            try:
-                with open(script_path, "r", encoding="utf-8") as f:
-                    script = json.load(f)
-                for idx, line in enumerate(script.get("lines", []), start=1):
-                    aid = line.get("article_id")
-                    service.add_episode_item(
-                        episode_id=episode_id,
-                        article_id=int(aid) if aid is not None else None,
-                        item_order=idx,
-                        segment_text=line.get("text", ""),
-                    )
-            except Exception:
-                logger.exception("failed to persist episode_items for reviewed script")
-
-            service.update_episode_phase(episode_id, "reviewed", "レビューが完了しました（音声合成は後続処理で行います）")
-            service.update_episode_status(episode_id, "reviewed")
-            logger.info("[%d] reviewed (synthesize skipped; use POST /episodes/{id}/synthesize)", episode_id)
-        else:
-            # -- SYNTHESIZE TTS --
-            service.update_episode_phase(episode_id, "synthesize", "音声を合成しています…")
-            try:
-                success_count = synthesize_episode(
-                    base_dir,
-                    base_url=tts_base_url,
-                    speaker_male=tts_speaker_male,
-                    speaker_female=tts_speaker_female,
-                )
-            except Exception as exc:
-                logger.exception("tts synthesis failed")
-                service.update_episode_status(episode_id, "failed")
-                return
-
-            if success_count <= 0:
-                service.update_episode_status(episode_id, "failed")
-                return
-
-            # -- BUILD MP3 --
-            service.update_episode_phase(episode_id, "build", "音声をまとめています…")
-            ep_metadata = build_episode(base_dir)
-            if not ep_metadata:
-                service.update_episode_status(episode_id, "failed")
-                return
-
-            service.update_episode_audio_path(
-                episode_id, ep_metadata.get("audio_path") or ""
+        # -- SYNTHESIZE TTS --
+        service.update_episode_phase(episode_id, "synthesize", "音声を合成しています…")
+        try:
+            success_count = synthesize_episode(
+                base_dir,
+                base_url=tts_base_url,
+                speaker_male=tts_speaker_male,
+                speaker_female=tts_speaker_female,
             )
-            service.update_episode_status(episode_id, "completed")
+        except Exception as exc:
+            logger.exception("tts synthesis failed")
+            service.update_episode_status(episode_id, "failed")
+            return
 
-            # -- PERSIST ITEMS --
-            try:
-                with open(script_path, "r", encoding="utf-8") as f:
-                    script = json.load(f)
-                for idx, line in enumerate(script.get("lines", []), start=1):
-                    aid = line.get("article_id")
-                    service.add_episode_item(
-                        episode_id=episode_id,
-                        article_id=int(aid) if aid is not None else None,
-                        item_order=idx,
-                        segment_text=line.get("text", ""),
-                    )
-            except Exception:
-                logger.exception("failed to persist episode_items")
+        if success_count <= 0:
+            service.update_episode_status(episode_id, "failed")
+            return
 
-            service.update_episode_phase(episode_id, "complete", "生成が完了しました")
-            logger.info("[%d] completed successfully", episode_id)
+        # -- BUILD MP3 --
+        service.update_episode_phase(episode_id, "build", "音声をまとめています…")
+        ep_metadata = build_episode(base_dir)
+        if not ep_metadata:
+            service.update_episode_status(episode_id, "failed")
+            return
+
+        service.update_episode_audio_path(
+            episode_id, ep_metadata.get("audio_path") or ""
+        )
+        service.update_episode_status(episode_id, "completed")
+
+        # -- PERSIST ITEMS --
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                script = json.load(f)
+            for idx, line in enumerate(script.get("lines", []), start=1):
+                aid = line.get("article_id")
+                service.add_episode_item(
+                    episode_id=episode_id,
+                    article_id=int(aid) if aid is not None else None,
+                    item_order=idx,
+                    segment_text=line.get("text", ""),
+                )
+        except Exception:
+            logger.exception("failed to persist episode_items")
+
+        service.update_episode_phase(episode_id, "complete", "生成が完了しました")
+        logger.info("[%d] completed successfully", episode_id)
     except Exception as exc:
         # Guard net: catch any unexpected exception and set status to "failed".
         # update_episode_status is idempotent, so we only skip terminal states.
