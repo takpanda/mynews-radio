@@ -255,7 +255,7 @@ class TestRunGenerationPipeline:
         assert len(reviewed) == 0
 
     @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
-    def test_revised_true_skips_synthesize_and_build(self, mock_import):
+    def test_revised_true_runs_synthesize_and_build(self, mock_import):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
 
@@ -267,8 +267,9 @@ class TestRunGenerationPipeline:
 
         with patch("app.api.generate.summarize_articles", return_value=5), \
              patch("app.api.generate.generate_script", return_value=1), \
-             patch("app.api.generate.synthesize_episode") as mock_synth, \
-             patch("app.api.generate.build_episode") as mock_build, \
+             patch("app.api.generate.synthesize_episode", return_value=1) as mock_synth, \
+             patch("app.api.generate.build_episode",
+                   return_value={"audio_path": "episode.mp3"}) as mock_build, \
              patch("app.api.generate.review_script",
                    return_value={"revised": True, "review_count": 3}), \
              patch("shutil.copy"), \
@@ -277,11 +278,11 @@ class TestRunGenerationPipeline:
             _run_generation(ep_id, body)
 
         mock_import.assert_called_once()
-        mock_synth.assert_not_called()
-        mock_build.assert_not_called()
+        mock_synth.assert_called_once()
+        mock_build.assert_called_once()
         ep = svc.get_episode(ep_id)
-        assert ep["status"] == "reviewed"
-        assert ep["phase"] == "reviewed"
+        assert ep["status"] == "completed"
+        assert ep["phase"] == "complete"
 
     @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
     def test_revised_true_persists_items_from_reviewed_script(self, mock_import):
@@ -302,8 +303,9 @@ class TestRunGenerationPipeline:
 
         with patch("app.api.generate.summarize_articles", return_value=5), \
              patch("app.api.generate.generate_script", return_value=1), \
-             patch("app.api.generate.synthesize_episode"), \
-             patch("app.api.generate.build_episode"), \
+             patch("app.api.generate.synthesize_episode", return_value=1), \
+             patch("app.api.generate.build_episode",
+                   return_value={"audio_path": "episode.mp3"}), \
              patch("app.api.generate.review_script",
                    return_value={"revised": True, "review_count": 3}), \
              patch("shutil.copy"), \
