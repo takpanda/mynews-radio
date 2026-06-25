@@ -253,3 +253,118 @@ class TestRunGenerationPipeline:
         episodes = svc.get_episode_list()
         reviewed = [e for e in episodes if e["id"] != ep_id]
         assert len(reviewed) == 0
+
+    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    def test_revised_true_skips_synthesize_and_build(self, mock_import):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode(episode_date="2099-10-01", status="generating")
+        body = GenerateRequest(date="2099-10-01")
+
+        fake_script = '{"lines": [{"article_id": "1", "text": "Hello world"}]}'
+
+        with patch("app.api.generate.summarize_articles", return_value=5), \
+             patch("app.api.generate.generate_script", return_value=1), \
+             patch("app.api.generate.synthesize_episode") as mock_synth, \
+             patch("app.api.generate.build_episode") as mock_build, \
+             patch("app.api.generate.review_script",
+                   return_value={"revised": True, "review_count": 3}), \
+             patch("shutil.copy"), \
+             patch("builtins.open", _make_fake_open(fake_script)):
+
+            _run_generation(ep_id, body)
+
+        mock_import.assert_called_once()
+        mock_synth.assert_not_called()
+        mock_build.assert_not_called()
+        ep = svc.get_episode(ep_id)
+        assert ep["status"] == "reviewed"
+        assert ep["phase"] == "reviewed"
+
+    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    def test_revised_true_persists_items_from_reviewed_script(self, mock_import):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode(episode_date="2099-11-01", status="generating")
+        body = GenerateRequest(date="2099-11-01")
+
+        fake_script = '{"lines": [{"article_id": "1", "text": "Hello world"}]}'
+        reviewed_script = '{"title": "Reviewed", "lines": [{"article_id": "10", "text": "Reviewed text"}]}'
+
+        def _fake_open_side_effect(*args, **kwargs):
+            m = MagicMock()
+            m.__enter__.return_value.read.return_value = reviewed_script
+            return m
+
+        with patch("app.api.generate.summarize_articles", return_value=5), \
+             patch("app.api.generate.generate_script", return_value=1), \
+             patch("app.api.generate.synthesize_episode"), \
+             patch("app.api.generate.build_episode"), \
+             patch("app.api.generate.review_script",
+                   return_value={"revised": True, "review_count": 3}), \
+             patch("shutil.copy"), \
+             patch("builtins.open", side_effect=_fake_open_side_effect):
+
+            _run_generation(ep_id, body)
+
+        items = svc.get_episode_items(ep_id)
+        assert len(items) == 1
+        assert items[0]["segment_text"] == "Reviewed text"
+        assert items[0]["article_id"] == 10
+
+    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    def test_revised_false_keeps_existing_flow(self, mock_import):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode(episode_date="2099-12-01", status="generating")
+        body = GenerateRequest(date="2099-12-01")
+
+        fake_script = '{"lines": [{"article_id": "1", "text": "Original text"}]}'
+
+        with patch("app.api.generate.summarize_articles", return_value=5), \
+             patch("app.api.generate.generate_script", return_value=1), \
+             patch("app.api.generate.synthesize_episode", return_value=1) as mock_synth, \
+             patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}) as mock_build, \
+             patch("app.api.generate.review_script",
+                   return_value={"revised": False, "review_count": 0}), \
+             patch("builtins.open", _make_fake_open(fake_script)):
+
+            _run_generation(ep_id, body)
+
+        mock_import.assert_called_once()
+        mock_synth.assert_called_once()
+        mock_build.assert_called_once()
+        ep = svc.get_episode(ep_id)
+        assert ep["status"] == "completed"
+        assert ep["phase"] == "complete"
+
+    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    def test_review_exception_falls_back_to_revised_false(self, mock_import):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode(episode_date="2099-12-02", status="generating")
+        body = GenerateRequest(date="2099-12-02")
+
+        fake_script = '{"lines": [{"article_id": "1", "text": "Fallback text"}]}'
+
+        with patch("app.api.generate.summarize_articles", return_value=5), \
+             patch("app.api.generate.generate_script", return_value=1), \
+             patch("app.api.generate.synthesize_episode", return_value=1) as mock_synth, \
+             patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}) as mock_build, \
+             patch("app.api.generate.review_script", side_effect=RuntimeError("ollama down")), \
+             patch("builtins.open", _make_fake_open(fake_script)):
+
+            _run_generation(ep_id, body)
+
+        mock_synth.assert_called_once()
+        mock_build.assert_called_once()
+        ep = svc.get_episode(ep_id)
+        assert ep["status"] == "completed"
