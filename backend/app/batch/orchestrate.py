@@ -119,7 +119,8 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
         # Step 3: generate_script
         logger.info("=== Step 3/5: generate_script (source=%s) ===", news_source)
         script_path = os.path.join(episode_dir, "script.json")
-        lines_count = generate_script(script_path, news_source=news_source)
+        program_name = "テックニュース" if news_source == "hatena_bookmark" else "ニュースのとなり"
+        lines_count = generate_script(script_path, program_name=program_name, news_source=news_source)
         logger.info("generate_script completed: lines=%d", lines_count)
         if lines_count == 0:
             raise RuntimeError("generate_script produced no lines")
