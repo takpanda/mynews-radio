@@ -94,8 +94,9 @@ def main() -> None:
     # Step 2: generate script
     script_path = os.path.join(episode_dir, "script.json")
     news_source = os.environ.get("BATCH_NEWS_SOURCE", "hatena_bookmark")
+    program_name = "テックニュース" if news_source == "hatena_bookmark" else "ニュースのとなり"
     try:
-        line_count = generate_script(script_path, news_source=news_source)
+        line_count = generate_script(script_path, program_name=program_name, news_source=news_source)
         logger.info("generated script with %d lines", line_count)
         if line_count == 0:
             logger.warning("Script generation returned 0 lines - aborting pipeline")
