@@ -41,7 +41,7 @@
 # 出力フォーマット
 
 {{
-  "title": "解説：{article_title}",
+  "title": "{article_title}",
   "subtitle": "15〜25文字の副題",
   "lines": [
     {{ "speaker": "male",   "text": "〔introduction〕",              "article_id": {article_id}, "section": "intro", "delivery": "neutral" }},
@@ -66,7 +66,7 @@
 
 # 制約
 
-- title は「解説：{article_title}」の形式とする
+- title は元記事タイトル「{article_title}」と完全一致させること
 - subtitle は内容を端的に表す15〜25文字の日本語
 - lines の各要素は speaker/text/article_id/section/delivery を必ず含める
 - soloの場合: speaker は "male" のみ

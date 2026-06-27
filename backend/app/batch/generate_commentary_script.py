@@ -132,7 +132,7 @@ def generate_commentary_script(
 
     script = {
         "date": str(date.today()),
-        "title": str(response.get("title", f"解説：{article.get('title', '')}")),
+        "title": str(response.get("title", article.get("title", ""))),
         "subtitle": str(response.get("subtitle", "")),
         "style": style,
         "lines": [],

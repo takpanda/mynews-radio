@@ -162,10 +162,20 @@ def review_script(source_script_path: str, output_dir: str) -> dict:
 
 def _build_revised_script(source: dict, response: dict) -> dict:
     """Construct the final script dict from the LLM synthesis response."""
+    # Commentary scripts have a "style" key — preserve original title/subtitle
+    # to avoid the review prompt overwriting them with radio-specific values.
+    is_commentary = "style" in source
+    if is_commentary:
+        title = source.get("title", "")
+        subtitle = source.get("subtitle", "")
+    else:
+        title = str(response.get("title", source.get("title", "")))
+        subtitle = str(response.get("subtitle", source.get("subtitle", "")))
+
     script: dict = {
         "date": source.get("date", ""),
-        "title": str(response.get("title", source.get("title", ""))),
-        "subtitle": str(response.get("subtitle", source.get("subtitle", ""))),
+        "title": title,
+        "subtitle": subtitle,
         "lines": [],
     }
 

@@ -196,7 +196,7 @@ class TestNonEmptyTextValidation:
         }
 
         fake_response = {
-            "title": "解説：Test",
+            "title": "Test",
             "subtitle": "",
             "lines": [
                 {"speaker": "male", "text": "本日は注目のニュースについて解説します", "section": "intro", "delivery": "neutral"},
@@ -380,7 +380,7 @@ class TestSectionValidation:
         }
 
         fake_response = {
-            "title": "解説：Test",
+            "title": "Test",
             "subtitle": "テスト",
             "lines": [
                 {"speaker": "male", "text": "intro line", "section": "intro", "delivery": "neutral"},
@@ -416,7 +416,7 @@ class TestSectionValidation:
         }
 
         fake_response = {
-            "title": "解説：Test",
+            "title": "Test",
             "subtitle": "テスト",
             "lines": [
                 {"speaker": "male", "text": "intro line", "section": "intro", "delivery": "neutral"},
