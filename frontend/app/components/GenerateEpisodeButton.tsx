@@ -294,6 +294,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   const [hasError, setHasError] = useState(false)
   const [urlInput, setUrlInput] = useState('')
   const [commentaryStyle, setCommentaryStyle] = useState<'solo' | 'dialogue'>('solo')
+  const [mcGender, setMcGender] = useState<'male' | 'female'>('male')
   const [urlError, setUrlError] = useState<string | null>(null)
   const router = useRouter()
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -488,7 +489,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
 
     try {
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
-      const { episode_id } = await generateEpisode(today, maxArticles, newsSource, ttsEngine, recreateSummary, isUrlMode ? urlInput.trim() : undefined, isUrlMode ? commentaryStyle : undefined)
+      const { episode_id } = await generateEpisode(today, maxArticles, newsSource, ttsEngine, recreateSummary, isUrlMode ? urlInput.trim() : undefined, isUrlMode ? commentaryStyle : undefined, isUrlMode && commentaryStyle === 'solo' ? mcGender : undefined)
       localStorage.setItem(STORAGE_KEY, String(episode_id))
       setEpisodeId(episode_id)
       toast('番組の生成を開始しました', { icon: '🎙️' })
@@ -781,6 +782,53 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                   </span>
                 </label>
               </div>
+
+              {commentaryStyle === 'solo' && (
+                <div className="mt-4 border-t border-slate-200 pt-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    MC Gender
+                  </p>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className={`block cursor-pointer rounded-2xl border p-3 transition ${optionCardClass(mcGender === 'male', isLoading)}`}>
+                      <input
+                        type="radio"
+                        name="mcGender"
+                        value="male"
+                        checked={mcGender === 'male'}
+                        onChange={() => setMcGender('male')}
+                        disabled={isLoading}
+                        className="sr-only"
+                      />
+                      <span className="flex items-start justify-between gap-3">
+                        <span>
+                          <span className="block text-sm font-semibold text-slate-900">男性</span>
+                          <span className="mt-1 block text-xs leading-6 text-slate-500">男性のナレーター音声で生成します。</span>
+                        </span>
+                        <span className={`mt-1 h-4 w-4 shrink-0 rounded-full border ${mcGender === 'male' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
+                      </span>
+                    </label>
+
+                    <label className={`block cursor-pointer rounded-2xl border p-3 transition ${optionCardClass(mcGender === 'female', isLoading)}`}>
+                      <input
+                        type="radio"
+                        name="mcGender"
+                        value="female"
+                        checked={mcGender === 'female'}
+                        onChange={() => setMcGender('female')}
+                        disabled={isLoading}
+                        className="sr-only"
+                      />
+                      <span className="flex items-start justify-between gap-3">
+                        <span>
+                          <span className="block text-sm font-semibold text-slate-900">女性</span>
+                          <span className="mt-1 block text-xs leading-6 text-slate-500">女性のナレーター音声で生成します。</span>
+                        </span>
+                        <span className={`mt-1 h-4 w-4 shrink-0 rounded-full border ${mcGender === 'female' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              )}
             </fieldset>
           )}
 
@@ -850,6 +898,14 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                 <dd className="mt-1 font-medium text-slate-900">
                   {commentaryStyle === 'solo' ? '一人解説' : '対談解説'}
                 </dd>
+                {commentaryStyle === 'solo' && (
+                  <>
+                    <dt className="mt-3 text-xs uppercase tracking-[0.16em] text-slate-400">MC 性別</dt>
+                    <dd className="mt-1 font-medium text-slate-900">
+                      {mcGender === 'male' ? '男性' : '女性'}
+                    </dd>
+                  </>
+                )}
               </div>
             )}
             {!isUrlMode && (
