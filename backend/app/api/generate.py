@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 DEFAULT_EPISODES_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
+VALID_GENDERS = {"male", "female"}
 
 PHASE_SEQUENCE = {
     "start": {"step_index": 0, "step_total": 6, "step_label": "開始"},
@@ -259,9 +260,10 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         Path(base_dir).mkdir(parents=True, exist_ok=True)
 
         style = body.style if body.style in {"solo", "dialogue"} else "solo"
+        mc_gender = body.mc_gender if body.mc_gender in VALID_GENDERS else "male"
         logger.info(
-            "Background commentary started: episode_id=%d date=%s url=%s style=%s",
-            episode_id, episode_date, body.url, style,
+            "Background commentary started: episode_id=%d date=%s url=%s style=%s mc_gender=%s",
+            episode_id, episode_date, body.url, style, body.mc_gender,
         )
 
         # -- START --
@@ -306,7 +308,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         # -- GENERATE COMMENTARY SCRIPT --
         service.update_episode_phase(episode_id, "generate_commentary", "解説台本を生成しています…")
         script_path = os.path.join(base_dir, "script.json")
-        line_count = generate_commentary_script(script_path, article, style=style, mc_gender=body.mc_gender)
+        line_count = generate_commentary_script(script_path, article, style=style, mc_gender=mc_gender)
 
         if line_count <= 0:
             service.update_episode_status(episode_id, "failed")
@@ -411,7 +413,6 @@ def generate_episode(body: GenerateRequest) -> dict:
     """Creates episode record and returns JSON immediately; actual generation runs in background."""
 
     # Validate: mc_gender
-    VALID_GENDERS = {"male", "female"}
     if body.mc_gender not in VALID_GENDERS:
         raise HTTPException(status_code=400, detail="mc_gender must be 'male' or 'female'")
 
