@@ -164,6 +164,8 @@ def _build_revised_script(source: dict, response: dict) -> dict:
     """Construct the final script dict from the LLM synthesis response."""
     # Commentary scripts have a "style" key — preserve original title/subtitle
     # to avoid the review prompt overwriting them with radio-specific values.
+    # NOTE: "style" is the current discriminant for commentary. If non-commentary
+    # scripts ever gain a "style" key, extend this check (e.g. source.get("type")).
     is_commentary = "style" in source
     if is_commentary:
         title = source.get("title", "")
