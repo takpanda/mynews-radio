@@ -48,9 +48,9 @@ PHASE_SEQUENCE = {
     "review_complete": {"step_index": 6, "step_total": 6, "step_label": "レビュー版完了"},
     "complete": {"step_index": 6, "step_total": 6, "step_label": "完了"},
     "failed": {"step_index": 0, "step_total": 6, "step_label": "失敗"},
-    # Commentary phases (step_total=5)
-    "fetch_article": {"step_index": 1, "step_total": 5, "step_label": "記事取得"},
-    "generate_commentary": {"step_index": 2, "step_total": 5, "step_label": "解説生成"},
+    # Commentary phases (step_total=6)
+    "fetch_article": {"step_index": 1, "step_total": 6, "step_label": "記事取得"},
+    "generate_commentary": {"step_index": 2, "step_total": 6, "step_label": "解説生成"},
 }
 
 
@@ -310,6 +310,28 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         if line_count <= 0:
             service.update_episode_status(episode_id, "failed")
             return
+
+        review_result: dict[str, Any] = {"revised": False, "review_count": 0}
+
+        # -- REVIEW (quality gate) --
+        service.update_episode_phase(episode_id, "review", "台本をレビューしています…")
+        try:
+            reviewed_episode_dir = os.path.join(base_dir, "review")
+            Path(reviewed_episode_dir).mkdir(parents=True, exist_ok=True)
+            Path(os.path.join(reviewed_episode_dir, "lines")).mkdir(exist_ok=True)
+            review_result = review_script(script_path, reviewed_episode_dir)
+            logger.info(
+                "review_script: revised=%s review_count=%d",
+                review_result["revised"],
+                review_result["review_count"],
+            )
+            service.update_episode_phase(episode_id, "review_done", "レビューが完了しました…")
+        except Exception as exc:
+            logger.warning("review_script failed (non-fatal): %s", exc)
+
+        # -- BRANCH based on revised flag --
+        if review_result.get("revised"):
+            shutil.copy(os.path.join(reviewed_episode_dir, "script.json"), script_path)
 
         # -- TTS SETUP --
         settings = get_settings()
