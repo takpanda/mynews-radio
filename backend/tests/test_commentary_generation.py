@@ -182,6 +182,186 @@ class TestRunCommentaryGeneration:
         assert ep["status"] == "failed"
 
 
+class TestCalcSuggestedLines:
+    """Unit tests for _calc_suggested_lines."""
+
+    def test_short_text_solo_returns_minimum(self):
+        from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(0, "solo") == 6
+        assert _calc_suggested_lines(30, "solo") == 6
+        assert _calc_suggested_lines(49, "solo") == 6
+
+    def test_short_text_dialogue_returns_minimum(self):
+        from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(0, "dialogue") == 8
+        assert _calc_suggested_lines(30, "dialogue") == 8
+        assert _calc_suggested_lines(49, "dialogue") == 8
+
+    def test_below_2000_solo_returns_6(self):
+        from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(500, "solo") == 6
+        assert _calc_suggested_lines(1999, "solo") == 6
+
+    def test_below_2000_dialogue_returns_8(self):
+        from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(500, "dialogue") == 8
+        assert _calc_suggested_lines(1999, "dialogue") == 8
+
+    def test_2000_to_4000_solo_returns_8_to_10(self):
+        from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(2000, "solo") == 8
+        assert _calc_suggested_lines(2999, "solo") == 8
+        assert _calc_suggested_lines(3000, "solo") == 9
+        assert _calc_suggested_lines(3999, "solo") == 9
+        assert _calc_suggested_lines(4000, "solo") == 10
+
+    def test_2000_to_4000_dialogue_returns_10_to_12(self):
+        from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(2000, "dialogue") == 10
+        assert _calc_suggested_lines(2999, "dialogue") == 10
+        assert _calc_suggested_lines(3000, "dialogue") == 11
+        assert _calc_suggested_lines(3999, "dialogue") == 11
+        assert _calc_suggested_lines(4000, "dialogue") == 12
+
+    def test_over_4000_solo_returns_12_to_15(self):
+        from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(4001, "solo") == 12
+        assert _calc_suggested_lines(6000, "solo") == 13
+        assert _calc_suggested_lines(8000, "solo") == 15
+        assert _calc_suggested_lines(10000, "solo") == 15
+
+    def test_over_4000_dialogue_returns_12_to_15(self):
+        from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(4001, "dialogue") == 12
+        assert _calc_suggested_lines(6000, "dialogue") == 13
+        assert _calc_suggested_lines(8000, "dialogue") == 15
+        assert _calc_suggested_lines(10000, "dialogue") == 15
+
+    def test_empty_string_text(self):
+        from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(len(""), "solo") == 6
+        assert _calc_suggested_lines(len(""), "dialogue") == 8
+
+
+class TestBuildSectionDetails:
+    """Unit tests for _build_section_details."""
+
+    def test_small_count_returns_small_section_details(self):
+        from app.batch.generate_commentary_script import _build_section_details
+        result = _build_section_details(6)
+        assert "intro、1〜2行" in result
+        assert "news、3〜6行" in result
+        assert "outro、1〜2行" in result
+
+    def test_medium_count_returns_medium_section_details(self):
+        from app.batch.generate_commentary_script import _build_section_details
+        result = _build_section_details(10)
+        assert "intro、2行" in result
+        assert "news、6〜9行" in result
+        assert "outro、1〜2行" in result
+
+    def test_large_count_returns_large_section_details(self):
+        from app.batch.generate_commentary_script import _build_section_details
+        result = _build_section_details(13)
+        assert "intro、2〜3行" in result
+        assert "news、8〜12行" in result
+        assert "outro、1〜2行" in result
+
+    def test_boundary_8_returns_small(self):
+        from app.batch.generate_commentary_script import _build_section_details
+        result = _build_section_details(8)
+        assert "intro、1〜2行" in result
+
+    def test_boundary_9_returns_medium(self):
+        from app.batch.generate_commentary_script import _build_section_details
+        result = _build_section_details(9)
+        assert "intro、2行" in result
+
+    def test_boundary_12_returns_medium(self):
+        from app.batch.generate_commentary_script import _build_section_details
+        result = _build_section_details(12)
+        assert "intro、2行" in result
+
+    def test_boundary_13_returns_large(self):
+        from app.batch.generate_commentary_script import _build_section_details
+        result = _build_section_details(13)
+        assert "intro、2〜3行" in result
+
+
+class TestSectionValidation:
+    """Test section validation fallback logic in generate_commentary_script."""
+
+    def test_invalid_section_fallback_to_news(self, tmp_path):
+        from app.batch.generate_commentary_script import generate_commentary_script
+        from unittest.mock import patch
+
+        article = {
+            "id": 1,
+            "title": "Test",
+            "text": "x" * 500,
+        }
+
+        fake_response = {
+            "title": "解説：Test",
+            "subtitle": "テスト",
+            "lines": [
+                {"speaker": "male", "text": "intro line", "section": "intro", "delivery": "neutral"},
+                {"speaker": "male", "text": "invalid section line", "section": "invalid_section", "delivery": "neutral"},
+                {"speaker": "male", "text": "another invalid", "section": "extra_section", "delivery": "neutral"},
+                {"speaker": "male", "text": "outro line", "section": "outro", "delivery": "warm"},
+            ]
+        }
+
+        output = tmp_path / "test_out.json"
+
+        with patch("app.batch.generate_commentary_script.OllamaClient") as mock:
+            instance = mock.return_value
+            instance.__enter__.return_value.generate_json.return_value = fake_response
+            result = generate_commentary_script(str(output), article, style="solo")
+
+        assert result == 4
+        import json
+        script = json.loads(output.read_text(encoding="utf-8"))
+        assert script["lines"][0]["section"] == "intro"
+        assert script["lines"][1]["section"] == "news"  # fallback
+        assert script["lines"][2]["section"] == "news"  # fallback
+        assert script["lines"][3]["section"] == "outro"
+
+    def test_valid_sections_unchanged(self, tmp_path):
+        from app.batch.generate_commentary_script import generate_commentary_script
+        from unittest.mock import patch
+
+        article = {
+            "id": 1,
+            "title": "Test",
+            "text": "x" * 500,
+        }
+
+        fake_response = {
+            "title": "解説：Test",
+            "subtitle": "テスト",
+            "lines": [
+                {"speaker": "male", "text": "intro line", "section": "intro", "delivery": "neutral"},
+                {"speaker": "male", "text": "news line", "section": "news", "delivery": "neutral"},
+                {"speaker": "male", "text": "outro line", "section": "outro", "delivery": "warm"},
+            ]
+        }
+
+        output = tmp_path / "test_out.json"
+
+        with patch("app.batch.generate_commentary_script.OllamaClient") as mock:
+            instance = mock.return_value
+            instance.__enter__.return_value.generate_json.return_value = fake_response
+            result = generate_commentary_script(str(output), article, style="solo")
+
+        assert result == 3
+        import json
+        script = json.loads(output.read_text(encoding="utf-8"))
+        assert script["lines"][0]["section"] == "intro"
+        assert script["lines"][1]["section"] == "news"
+        assert script["lines"][2]["section"] == "outro"
+
+
 def _make_fake_open(script_json: str):
     """Return a mock `open` context manager that reads from a string."""
     def _open(*args, **kwargs):
