@@ -182,6 +182,48 @@ class TestRunCommentaryGeneration:
         assert ep["status"] == "failed"
 
 
+class TestNonEmptyTextValidation:
+    """各セグメントのtextが空でないことの確認（テスト項目5）。"""
+
+    def test_all_lines_have_non_empty_text(self, tmp_path):
+        from app.batch.generate_commentary_script import generate_commentary_script
+        from unittest.mock import patch
+
+        article = {
+            "id": 1,
+            "title": "Test",
+            "text": "x" * 3000,
+        }
+
+        fake_response = {
+            "title": "解説：Test",
+            "subtitle": "",
+            "lines": [
+                {"speaker": "male", "text": "本日は注目のニュースについて解説します", "section": "intro", "delivery": "neutral"},
+                {"speaker": "male", "text": "まず最初のトピックです", "section": "news", "delivery": "neutral"},
+                {"speaker": "male", "text": "", "section": "news", "delivery": "neutral"},
+                {"speaker": "male", "text": "   ", "section": "news", "delivery": "neutral"},
+                {"speaker": "male", "text": "以上が本日の解説でした", "section": "outro", "delivery": "warm"},
+            ]
+        }
+
+        output = tmp_path / "test_out.json"
+
+        with patch("app.batch.generate_commentary_script.OllamaClient") as mock:
+            instance = mock.return_value
+            instance.__enter__.return_value.generate_json.return_value = fake_response
+            result = generate_commentary_script(str(output), article, style="solo")
+
+        import json
+        script = json.loads(output.read_text(encoding="utf-8"))
+        non_empty = [l for l in script["lines"] if l["text"].strip()]
+        assert result == 5, "all lines including empty should be counted"
+        assert len(non_empty) == 3, "empty/whitespace-only lines should be stripped to empty"
+        assert all(l["text"] for l in script["lines"][:2]), "intro and first news should have text"
+        assert not script["lines"][2]["text"], "empty text line should remain empty after strip"
+        assert not script["lines"][3]["text"], "whitespace-only line should be stripped to empty"
+
+
 class TestCalcSuggestedLines:
     """Unit tests for _calc_suggested_lines."""
 
@@ -241,6 +283,42 @@ class TestCalcSuggestedLines:
         from app.batch.generate_commentary_script import _calc_suggested_lines
         assert _calc_suggested_lines(len(""), "solo") == 6
         assert _calc_suggested_lines(len(""), "dialogue") == 8
+
+    def test_exact_50_char_boundary(self):
+        from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(50, "solo") == 6
+        assert _calc_suggested_lines(50, "dialogue") == 8
+        # < 50 returns minimum; >= 50 still returns minimum in < 2000 range
+
+    def test_intermediate_2000_to_4000_granular(self):
+        from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(1000, "solo") == 6
+        assert _calc_suggested_lines(1500, "solo") == 6
+        assert _calc_suggested_lines(1999, "solo") == 6
+        assert _calc_suggested_lines(2000, "solo") == 8
+        assert _calc_suggested_lines(2500, "solo") == 8
+        assert _calc_suggested_lines(3000, "solo") == 9
+        assert _calc_suggested_lines(3500, "solo") == 9
+        assert _calc_suggested_lines(4000, "solo") == 10
+
+    def test_intermediate_4000_granular(self):
+        from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(4001, "solo") == 12
+        assert _calc_suggested_lines(4500, "solo") == 12
+        assert _calc_suggested_lines(5333, "solo") == 12
+        assert _calc_suggested_lines(5334, "solo") == 13
+        assert _calc_suggested_lines(6000, "solo") == 13
+        assert _calc_suggested_lines(6666, "solo") == 13
+        assert _calc_suggested_lines(6667, "solo") == 14
+        assert _calc_suggested_lines(7000, "solo") == 14
+        assert _calc_suggested_lines(8000, "solo") == 15
+        assert _calc_suggested_lines(10000, "solo") == 15
+        assert _calc_suggested_lines(13333, "solo") == 15
+        assert _calc_suggested_lines(13334, "solo") == 15
+        # dialogue > 4000 should match solo (no +2 bonus)
+        assert _calc_suggested_lines(4001, "dialogue") == 12
+        assert _calc_suggested_lines(8000, "dialogue") == 15
+        assert _calc_suggested_lines(10000, "dialogue") == 15
 
 
 class TestBuildSectionDetails:
