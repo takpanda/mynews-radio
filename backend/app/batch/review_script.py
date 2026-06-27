@@ -162,10 +162,6 @@ def review_script(source_script_path: str, output_dir: str) -> dict:
 
 def _build_revised_script(source: dict, response: dict) -> dict:
     """Construct the final script dict from the LLM synthesis response."""
-    # Commentary scripts have a "style" key — preserve original title/subtitle
-    # to avoid the review prompt overwriting them with radio-specific values.
-    # NOTE: "style" is the current discriminant for commentary. If non-commentary
-    # scripts ever gain a "style" key, extend this check (e.g. source.get("type")).
     is_commentary = "style" in source
     if is_commentary:
         title = source.get("title", "")
@@ -174,12 +170,16 @@ def _build_revised_script(source: dict, response: dict) -> dict:
         title = str(response.get("title", source.get("title", "")))
         subtitle = str(response.get("subtitle", source.get("subtitle", "")))
 
+    style = source.get("style") if is_commentary else None
+
     script: dict = {
         "date": source.get("date", ""),
         "title": title,
         "subtitle": subtitle,
         "lines": [],
     }
+    if style:
+        script["style"] = style
 
     valid_sections = {"intro", "news", "transition", "discussion", "outro"}
 
@@ -187,8 +187,12 @@ def _build_revised_script(source: dict, response: dict) -> dict:
         if not isinstance(line, dict):
             continue
         speaker = str(line.get("speaker", "male"))
-        if speaker not in {"male", "female"}:
-            speaker = "male"
+        if style == "solo":
+            if speaker not in {"male"}:
+                speaker = "male"
+        else:
+            if speaker not in {"male", "female"}:
+                speaker = "male"
         section = str(line.get("section", "news"))
         if section not in valid_sections:
             section = "news"
