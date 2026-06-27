@@ -26,23 +26,20 @@ def _calc_suggested_lines(text_length: int, style: str) -> int:
     Returns:
         Suggested number of lines.
     """
+    # 50文字未満は記事が空/ほぼ空の場合の安全マージン → 最低保証値
     if text_length < 50:
-        return _DEFAULT_LINES_SOLO if style == "solo" else _DEFAULT_LINES_DIALOGUE
+        return _DEFAULT_LINES_DIALOGUE if style == "dialogue" else _DEFAULT_LINES_SOLO
 
-    if style == "solo":
-        if text_length < 2000:
-            return 6
-        elif text_length <= 4000:
-            return 8 + (text_length - 2000) // 1000
-        else:
-            return min(15, 12 + (text_length - 4000) * 3 // 4000)
+    if text_length < 2000:
+        base = 6
+    elif text_length <= 4000:
+        base = 8 + (text_length - 2000) // 1000
     else:
-        if text_length < 2000:
-            return 8
-        elif text_length <= 4000:
-            return 10 + (text_length - 2000) // 1000
-        else:
-            return min(15, 12 + (text_length - 4000) * 3 // 4000)
+        base = min(15, 12 + (text_length - 4000) * 3 // 4000)
+
+    if style == "dialogue" and text_length <= 4000:
+        return base + 2
+    return base
 
 
 def _build_section_details(suggested_lines_count: int) -> str:
@@ -55,61 +52,31 @@ def _build_section_details(suggested_lines_count: int) -> str:
         Section guidance string for the prompt template.
     """
     if suggested_lines_count <= 8:
-        return """解説は以下の流れで構成してください：
-
-1. **導入（intro、1〜2行）**
-   - このエピソードで取り上げるテーマを簡潔に紹介
-   - なぜこのニュースが気になるのか、一言添える
-   - リスナーの興味を引く導入
-
-2. **本文解説（news、3〜6行）**
-   - 何が起きたか・何が発表されたかを具体的に伝える
-   - 背景・経緯を補足する
-   - 影響・意義を解説する
-   - 複数の視点からバランスよく伝える
-   - dialogueの場合は田村と山口が掛け合い形式で進行
-
-3. **まとめ（outro、1〜2行）**
-   - 内容を一言で振り返る
-   - リスナーへのメッセージや今後の展望に触れてもよい"""
-
+        intro_range = "1〜2"
+        news_range = "3〜6"
     elif suggested_lines_count <= 12:
-        return """解説は以下の流れで構成してください：
-
-1. **導入（intro、2行）**
-   - このエピソードで取り上げるテーマを簡潔に紹介
-   - なぜこのニュースが気になるのか、一言添える
-   - リスナーの興味を引く導入
-
-2. **本文解説（news、6〜9行）**
-   - 何が起きたか・何が発表されたかを具体的に伝える
-   - 背景・経緯を補足する
-   - 影響・意義を解説する
-   - 複数の視点からバランスよく伝える
-   - dialogueの場合は田村と山口が掛け合い形式で進行
-
-3. **まとめ（outro、1〜2行）**
-   - 内容を一言で振り返る
-   - リスナーへのメッセージや今後の展望に触れてもよい"""
-
+        intro_range = "2"
+        news_range = "6〜9"
     else:
-        return """解説は以下の流れで構成してください：
+        intro_range = "2〜3"
+        news_range = "8〜12"
 
-1. **導入（intro、2〜3行）**
-   - このエピソードで取り上げるテーマを簡潔に紹介
-   - なぜこのニュースが気になるのか、一言添える
-   - リスナーの興味を引く導入
-
-2. **本文解説（news、8〜12行）**
-   - 何が起きたか・何が発表されたかを具体的に伝える
-   - 背景・経緯を補足する
-   - 影響・意義を解説する
-   - 複数の視点からバランスよく伝える
-   - dialogueの場合は田村と山口が掛け合い形式で進行
-
-3. **まとめ（outro、1〜2行）**
-   - 内容を一言で振り返る
-   - リスナーへのメッセージや今後の展望に触れてもよい"""
+    return (
+        "解説は以下の流れで構成してください：\n\n"
+        f"1. **導入（intro、{intro_range}行）**\n"
+        "   - このエピソードで取り上げるテーマを簡潔に紹介\n"
+        "   - なぜこのニュースが気になるのか、一言添える\n"
+        "   - リスナーの興味を引く導入\n\n"
+        f"2. **本文解説（news、{news_range}行）**\n"
+        "   - 何が起きたか・何が発表されたかを具体的に伝える\n"
+        "   - 背景・経緯を補足する\n"
+        "   - 影響・意義を解説する\n"
+        "   - 複数の視点からバランスよく伝える\n"
+        "   - dialogueの場合は田村と山口が掛け合い形式で進行\n\n"
+        "3. **まとめ（outro、1〜2行）**\n"
+        "   - 内容を一言で振り返る\n"
+        "   - リスナーへのメッセージや今後の展望に触れてもよい"
+    )
 
 
 def _load_prompt_template() -> str:

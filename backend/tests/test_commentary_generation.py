@@ -288,6 +288,80 @@ class TestBuildSectionDetails:
         assert "intro、2〜3行" in result
 
 
+class TestSectionValidation:
+    """Test section validation fallback logic in generate_commentary_script."""
+
+    def test_invalid_section_fallback_to_news(self, tmp_path):
+        from app.batch.generate_commentary_script import generate_commentary_script
+        from unittest.mock import patch
+
+        article = {
+            "id": 1,
+            "title": "Test",
+            "text": "x" * 500,
+        }
+
+        fake_response = {
+            "title": "解説：Test",
+            "subtitle": "テスト",
+            "lines": [
+                {"speaker": "male", "text": "intro line", "section": "intro", "delivery": "neutral"},
+                {"speaker": "male", "text": "invalid section line", "section": "invalid_section", "delivery": "neutral"},
+                {"speaker": "male", "text": "another invalid", "section": "extra_section", "delivery": "neutral"},
+                {"speaker": "male", "text": "outro line", "section": "outro", "delivery": "warm"},
+            ]
+        }
+
+        output = tmp_path / "test_out.json"
+
+        with patch("app.batch.generate_commentary_script.OllamaClient") as mock:
+            instance = mock.return_value
+            instance.__enter__.return_value.generate_json.return_value = fake_response
+            result = generate_commentary_script(str(output), article, style="solo")
+
+        assert result == 4
+        import json
+        script = json.loads(output.read_text(encoding="utf-8"))
+        assert script["lines"][0]["section"] == "intro"
+        assert script["lines"][1]["section"] == "news"  # fallback
+        assert script["lines"][2]["section"] == "news"  # fallback
+        assert script["lines"][3]["section"] == "outro"
+
+    def test_valid_sections_unchanged(self, tmp_path):
+        from app.batch.generate_commentary_script import generate_commentary_script
+        from unittest.mock import patch
+
+        article = {
+            "id": 1,
+            "title": "Test",
+            "text": "x" * 500,
+        }
+
+        fake_response = {
+            "title": "解説：Test",
+            "subtitle": "テスト",
+            "lines": [
+                {"speaker": "male", "text": "intro line", "section": "intro", "delivery": "neutral"},
+                {"speaker": "male", "text": "news line", "section": "news", "delivery": "neutral"},
+                {"speaker": "male", "text": "outro line", "section": "outro", "delivery": "warm"},
+            ]
+        }
+
+        output = tmp_path / "test_out.json"
+
+        with patch("app.batch.generate_commentary_script.OllamaClient") as mock:
+            instance = mock.return_value
+            instance.__enter__.return_value.generate_json.return_value = fake_response
+            result = generate_commentary_script(str(output), article, style="solo")
+
+        assert result == 3
+        import json
+        script = json.loads(output.read_text(encoding="utf-8"))
+        assert script["lines"][0]["section"] == "intro"
+        assert script["lines"][1]["section"] == "news"
+        assert script["lines"][2]["section"] == "outro"
+
+
 def _make_fake_open(script_json: str):
     """Return a mock `open` context manager that reads from a string."""
     def _open(*args, **kwargs):
