@@ -16,6 +16,102 @@ _DEFAULT_LINES_SOLO = 6
 _DEFAULT_LINES_DIALOGUE = 8
 
 
+def _calc_suggested_lines(text_length: int, style: str) -> int:
+    """Calculate suggested number of lines based on article text length and style.
+
+    Args:
+        text_length: Length of the article text in characters.
+        style: "solo" or "dialogue".
+
+    Returns:
+        Suggested number of lines.
+    """
+    if text_length < 50:
+        return _DEFAULT_LINES_SOLO if style == "solo" else _DEFAULT_LINES_DIALOGUE
+
+    if style == "solo":
+        if text_length < 2000:
+            return 6
+        elif text_length <= 4000:
+            return 8 + (text_length - 2000) // 1000
+        else:
+            return min(15, 12 + (text_length - 4000) * 3 // 4000)
+    else:
+        if text_length < 2000:
+            return 8
+        elif text_length <= 4000:
+            return 10 + (text_length - 2000) // 1000
+        else:
+            return min(15, 12 + (text_length - 4000) * 3 // 4000)
+
+
+def _build_section_details(suggested_lines_count: int) -> str:
+    """Build dynamic section composition guidance based on suggested line count.
+
+    Args:
+        suggested_lines_count: Calculated suggested line count.
+
+    Returns:
+        Section guidance string for the prompt template.
+    """
+    if suggested_lines_count <= 8:
+        return """解説は以下の流れで構成してください：
+
+1. **導入（intro、1〜2行）**
+   - このエピソードで取り上げるテーマを簡潔に紹介
+   - なぜこのニュースが気になるのか、一言添える
+   - リスナーの興味を引く導入
+
+2. **本文解説（news、3〜6行）**
+   - 何が起きたか・何が発表されたかを具体的に伝える
+   - 背景・経緯を補足する
+   - 影響・意義を解説する
+   - 複数の視点からバランスよく伝える
+   - dialogueの場合は田村と山口が掛け合い形式で進行
+
+3. **まとめ（outro、1〜2行）**
+   - 内容を一言で振り返る
+   - リスナーへのメッセージや今後の展望に触れてもよい"""
+
+    elif suggested_lines_count <= 12:
+        return """解説は以下の流れで構成してください：
+
+1. **導入（intro、2行）**
+   - このエピソードで取り上げるテーマを簡潔に紹介
+   - なぜこのニュースが気になるのか、一言添える
+   - リスナーの興味を引く導入
+
+2. **本文解説（news、6〜9行）**
+   - 何が起きたか・何が発表されたかを具体的に伝える
+   - 背景・経緯を補足する
+   - 影響・意義を解説する
+   - 複数の視点からバランスよく伝える
+   - dialogueの場合は田村と山口が掛け合い形式で進行
+
+3. **まとめ（outro、1〜2行）**
+   - 内容を一言で振り返る
+   - リスナーへのメッセージや今後の展望に触れてもよい"""
+
+    else:
+        return """解説は以下の流れで構成してください：
+
+1. **導入（intro、2〜3行）**
+   - このエピソードで取り上げるテーマを簡潔に紹介
+   - なぜこのニュースが気になるのか、一言添える
+   - リスナーの興味を引く導入
+
+2. **本文解説（news、8〜12行）**
+   - 何が起きたか・何が発表されたかを具体的に伝える
+   - 背景・経緯を補足する
+   - 影響・意義を解説する
+   - 複数の視点からバランスよく伝える
+   - dialogueの場合は田村と山口が掛け合い形式で進行
+
+3. **まとめ（outro、1〜2行）**
+   - 内容を一言で振り返る
+   - リスナーへのメッセージや今後の展望に触れてもよい"""
+
+
 def _load_prompt_template() -> str:
     prompt_path = Path(__file__).resolve().parents[1] / "prompts" / "generate_commentary_script.md"
     return prompt_path.read_text(encoding="utf-8")
@@ -39,7 +135,9 @@ def generate_commentary_script(
     settings = get_settings()
     template = _load_prompt_template()
 
-    suggested_lines = _DEFAULT_LINES_SOLO if style == "solo" else _DEFAULT_LINES_DIALOGUE
+    text_length = len(article.get("text", "") or "")
+    suggested_lines = _calc_suggested_lines(text_length, style)
+    section_details = _build_section_details(suggested_lines)
 
     article_json = json.dumps({
         "id": article.get("id"),
@@ -52,6 +150,7 @@ def generate_commentary_script(
         article_id=article.get("id"),
         article_title=article.get("title", ""),
         suggested_lines_count=suggested_lines,
+        section_details=section_details,
         article_json=article_json,
     )
 
