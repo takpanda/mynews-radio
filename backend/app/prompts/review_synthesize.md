@@ -76,6 +76,7 @@
 4. 元の台本の lines 数をできる限り維持する（大幅な増減は避ける）
 5. article_id・section は元の値を維持する（transition/discussion の構造を崩さない）
 6. subtitleはレビューを踏まえて改善してよい。末尾に「【レビュー版】」を付けること
+   ※commentary（解説）台本の場合は subtitle を変更しないでください。元の subtitle をそのまま維持すること。
 
 # 出力フォーマット
 

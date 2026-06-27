@@ -178,7 +178,7 @@ class TestCommentaryScriptDeliveryField:
             {"speaker": "male", "text": "これが内容です", "article_id": 1, "section": "news"},
             {"speaker": "male", "text": "以上です", "article_id": 1, "section": "outro"},
         ]
-        fake_response = {"title": "解説：テスト記事", "subtitle": "", "lines": fake_lines}
+        fake_response = {"title": "テスト記事", "subtitle": "", "lines": fake_lines}
 
         with patch("app.batch.generate_commentary_script.OllamaClient",
                    return_value=_mock_ollama_client(fake_response)):
@@ -204,7 +204,7 @@ class TestCommentaryScriptDeliveryField:
         fake_lines = [
             {"speaker": "male", "text": "解説です", "article_id": 99, "section": "intro"},
         ]
-        fake_response = {"title": "解説", "subtitle": "", "lines": fake_lines}
+        fake_response = {"title": "テスト記事", "subtitle": "", "lines": fake_lines}
 
         with patch("app.batch.generate_commentary_script.OllamaClient",
                    return_value=_mock_ollama_client(fake_response)):
@@ -232,7 +232,7 @@ class TestCommentaryScriptDeliveryField:
             {"speaker": "male", "text": "これが内容です", "article_id": 1, "section": "news", "delivery": "thoughtful"},
             {"speaker": "male", "text": "以上です", "article_id": 1, "section": "outro", "delivery": "questioning"},
         ]
-        fake_response = {"title": "解説：テスト記事", "subtitle": "", "lines": fake_lines}
+        fake_response = {"title": "テスト記事", "subtitle": "", "lines": fake_lines}
 
         with patch("app.batch.generate_commentary_script.OllamaClient",
                    return_value=_mock_ollama_client(fake_response)):
