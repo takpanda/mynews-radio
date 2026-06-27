@@ -82,6 +82,7 @@ class GenerateRequest(BaseModel):
     tts_engine: str = Field(default="aivispeech", description="TTSエンジン (voicevox | aivispeech)")
     url: str | None = Field(default=None, description="解説対象の記事URL（指定時はnews_sourceは無視）")
     style: str = Field(default="solo", description="解説スタイル (solo | dialogue)")
+    mc_gender: str = Field(default="male", description="MC性別 (male | female)")
 
 
 def _run_generation(episode_id: int, body: GenerateRequest) -> None:
@@ -305,7 +306,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         # -- GENERATE COMMENTARY SCRIPT --
         service.update_episode_phase(episode_id, "generate_commentary", "解説台本を生成しています…")
         script_path = os.path.join(base_dir, "script.json")
-        line_count = generate_commentary_script(script_path, article, style=style)
+        line_count = generate_commentary_script(script_path, article, style=style, mc_gender=body.mc_gender)
 
         if line_count <= 0:
             service.update_episode_status(episode_id, "failed")
@@ -408,6 +409,11 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
 @router.post("/generate", summary="番組を生成する（バックグラウンド実行）")
 def generate_episode(body: GenerateRequest) -> dict:
     """Creates episode record and returns JSON immediately; actual generation runs in background."""
+
+    # Validate: mc_gender
+    VALID_GENDERS = {"male", "female"}
+    if body.mc_gender not in VALID_GENDERS:
+        raise HTTPException(status_code=400, detail="mc_gender must be 'male' or 'female'")
 
     # Validate: url 指定時は style をチェック
     if body.url:

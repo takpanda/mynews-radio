@@ -88,6 +88,7 @@ def generate_commentary_script(
     output_path: str,
     article: dict,
     style: str = "solo",
+    mc_gender: str = "male",
 ) -> int:
     """Generate a commentary script for a single article.
 
@@ -143,8 +144,8 @@ def generate_commentary_script(
             continue
         speaker = str(line.get("speaker", "male"))
         if style == "solo":
-            if speaker not in {"male"}:
-                speaker = "male"
+            if speaker != mc_gender:
+                speaker = mc_gender
         else:
             if speaker not in {"male", "female"}:
                 speaker = "male"
