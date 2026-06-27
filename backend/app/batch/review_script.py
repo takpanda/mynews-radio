@@ -188,7 +188,7 @@ def _build_revised_script(source: dict, response: dict) -> dict:
             continue
         speaker = str(line.get("speaker", "male"))
         if style == "solo":
-            if speaker not in {"male"}:
+            if speaker not in {"male", "female"}:
                 speaker = "male"
         else:
             if speaker not in {"male", "female"}:

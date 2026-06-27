@@ -321,3 +321,30 @@ class TestReviewScriptDeliveryField:
                 assert line["delivery"] == "thoughtful", f"news の delivery が thoughtful ではありません: {line}"
             elif line["section"] == "outro":
                 assert line["delivery"] == "warm", f"outro の delivery が warm ではありません: {line}"
+
+    def test_review_solo_female_speaker_preserved(self):
+        """solo スタイルで speaker=female が male に潰されないこと。"""
+        from app.batch.review_script import _build_revised_script
+
+        source = {
+            "date": "2026-06-23",
+            "title": "",
+            "subtitle": "",
+            "style": "solo",
+            "lines": [],
+        }
+        response = {
+            "title": "",
+            "subtitle": "",
+            "lines": [
+                {"speaker": "female", "text": "女性の解説です", "article_id": 1, "section": "intro"},
+                {"speaker": "female", "text": "内容です", "article_id": 1, "section": "news"},
+                {"speaker": "female", "text": "以上です", "article_id": 1, "section": "outro"},
+            ],
+        }
+
+        revised = _build_revised_script(source, response)
+
+        for i, line in enumerate(revised["lines"]):
+            assert line["speaker"] == "female", \
+                f"line[{i}] の speaker が female ではありません: {line}"
