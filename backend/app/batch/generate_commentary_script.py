@@ -136,6 +136,7 @@ def generate_commentary_script(
         "title": str(response.get("title", article.get("title", ""))),
         "subtitle": str(response.get("subtitle", "")),
         "style": style,
+        "mc_gender": mc_gender,
         "lines": [],
     }
 

@@ -171,6 +171,7 @@ def _build_revised_script(source: dict, response: dict) -> dict:
         subtitle = str(response.get("subtitle", source.get("subtitle", "")))
 
     style = source.get("style") if is_commentary else None
+    mc_gender = source.get("mc_gender") if is_commentary else None
 
     script: dict = {
         "date": source.get("date", ""),
@@ -180,6 +181,8 @@ def _build_revised_script(source: dict, response: dict) -> dict:
     }
     if style:
         script["style"] = style
+    if mc_gender:
+        script["mc_gender"] = mc_gender
 
     valid_sections = {"intro", "news", "transition", "discussion", "outro"}
 
@@ -187,9 +190,8 @@ def _build_revised_script(source: dict, response: dict) -> dict:
         if not isinstance(line, dict):
             continue
         speaker = str(line.get("speaker", "male"))
-        if style == "solo":
-            if speaker not in {"male", "female"}:
-                speaker = "male"
+        if style == "solo" and mc_gender:
+            speaker = mc_gender
         else:
             if speaker not in {"male", "female"}:
                 speaker = "male"
