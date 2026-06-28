@@ -30,12 +30,18 @@ def _get_audio_duration(path: str) -> float:
         return 0.0
 
 
+def jingle_paths_for_title(script: dict, settings) -> tuple[str, str]:
+    """script title に応じた (opening_path, ending_path) を返す。"""
+    program_title = script.get("title", "")
+    if program_title.startswith("ニュースのとなり"):
+        return settings.jingle_news_no_tonari_opening_path, settings.jingle_news_no_tonari_ending_path
+    return settings.jingle_opening_path, settings.jingle_ending_path
+
+
 def _get_opening_path(script: dict, settings) -> str:
     """script title に応じた開口ジングルパスを返す。"""
-    program_title = script.get("title", "")
-    if program_title == "ニュースのとなり":
-        return settings.jingle_news_no_tonari_opening_path
-    return settings.jingle_opening_path
+    opening_path, _ = jingle_paths_for_title(script, settings)
+    return opening_path
 
 
 def _annotate_start_times(script: dict, wav_dir: str, wav_files_sorted: list, settings) -> tuple[float, str]:
@@ -130,14 +136,7 @@ def build_episode(directory: str) -> dict:
         logger.warning("start_time の計算に失敗しました（スキップ）: %s", exc)
 
     # Step 2: MP3 encode（ジングルがあれば前後に追加）
-    # 「ニュースのとなり」の場合は専用ジングルを使用
-    program_title = script.get("title", "")
-    if program_title == "ニュースのとなり":
-        opening_jingle = settings.jingle_news_no_tonari_opening_path
-        ending_jingle = settings.jingle_news_no_tonari_ending_path
-    else:
-        opening_jingle = settings.jingle_opening_path
-        ending_jingle = settings.jingle_ending_path
+    opening_jingle, ending_jingle = jingle_paths_for_title(script, settings)
 
     mp3_path = os.path.join(directory, "episode.mp3")
     result = add_jingles_and_encode(

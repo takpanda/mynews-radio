@@ -25,7 +25,7 @@ from app.batch.review_script import review_script
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
 from app.services.article_service import ArticleService
-from app.services.episode_service import EpisodeService, retry_on_busy
+from app.services.episode_service import EpisodeService, retry_on_busy, override_script_title, build_radio_title
 
 logger = logging.getLogger(__name__)
 
@@ -48,17 +48,9 @@ def _set_episode_status(episode_id: int, status: str) -> None:
 
 
 @retry_on_busy()
-def _create_episode_record(date_str: str) -> int:
+def _create_episode_record(date_str: str) -> tuple[int, int]:
     ep_service = EpisodeService()
-    existing_id = ep_service.find_by_date(date_str)
-    if existing_id is not None:
-        logger.info("Existing episode %d found for date %s — resetting for reuse", existing_id, date_str)
-        ep_service.reset_episode_for_reuse(existing_id)
-        ep_service.clear_episode_items(existing_id)
-        if not ep_service.claim_generating_slot(existing_id):
-            raise RuntimeError("Episode for %s could not be acquired (race condition)" % date_str)
-        return existing_id
-    return ep_service.create_episode(episode_date=date_str, status="generating")
+    return ep_service.create_radio_episode(episode_date=date_str, status="generating")
 
 
 def _update_episode_audio(episode_id: int, audio_path: str) -> None:
@@ -77,8 +69,8 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
 
     # Create episode DB record with status=generating
     ep_service = EpisodeService()
-    episode_id = _create_episode_record(date_str)
-    logger.info("Episode record created: id=%d, date=%s", episode_id, date_str)
+    episode_id, seq = _create_episode_record(date_str)
+    logger.info("Episode record created: id=%d, date=%s, seq=%d", episode_id, date_str, seq)
 
     episode_dir = os.path.join(EPISODES_DIR, str(episode_id))
     artifact_dir = os.path.join(episode_dir, "lines")
@@ -124,6 +116,10 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
         logger.info("generate_script completed: lines=%d", lines_count)
         if lines_count == 0:
             raise RuntimeError("generate_script produced no lines")
+
+        # Override title with date-based format
+        override_script_title(script_path, program_name, date_str, seq)
+        logger.info("Title overridden: %s", build_radio_title(program_name, date_str, seq))
 
         # Step 4: review_script — quality gate (non-fatal)
         logger.info("=== Step 4/5: review_script (quality gate) ===")

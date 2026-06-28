@@ -23,7 +23,7 @@ from app.batch.synthesize_voicevox import synthesize_episode
 from app.config import get_settings
 from app.db.connection import get_db_connection
 from app.services.article_service import ArticleService
-from app.services.episode_service import EpisodeService
+from app.services.episode_service import EpisodeService, override_script_title, build_radio_title
 from app.services.hatena_fetcher import fetch_article_by_url
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,10 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
         news_source = body.news_source if body.news_source in {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news"} else "hatena_bookmark"
         program_name = "テックニュース" if news_source == "hatena_bookmark" else "ニュースのとなり"
 
-        logger.info("Background generation started: episode_id=%d date=%s", episode_id, episode_date)
+        ep = service.get_episode(episode_id)
+        seq = ep.get("seq", 0) if ep else 0
+
+        logger.info("Background generation started: episode_id=%d date=%s seq=%d", episode_id, episode_date, seq)
 
         # -- START --
         service.update_episode_phase(episode_id, "start", "番組の生成を準備しています…")
@@ -149,6 +152,10 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
             service.update_episode_status(episode_id, "failed")
             return
 
+        # Override title with date-based format for radio episodes
+        override_script_title(script_path, program_name, episode_date, seq)
+        logger.info("Title overridden: %s", build_radio_title(program_name, episode_date, seq))
+
         # -- TTS SETUP --
         settings = get_settings()
         tts_engines = {"voicevox", "aivispeech"}
@@ -184,6 +191,8 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
         if review_result.get("revised"):
             # Copy reviewed script to base_dir
             shutil.copy(os.path.join(reviewed_episode_dir, "script.json"), script_path)
+            # Re-apply title override (review may have changed the title)
+            override_script_title(script_path, program_name, episode_date, seq)
 
         # -- SYNTHESIZE TTS --
         service.update_episode_phase(episode_id, "synthesize", "音声を合成しています…")
@@ -430,27 +439,10 @@ def generate_episode(body: GenerateRequest) -> dict:
     service = EpisodeService()
 
     if episode_type == "radio":
-        stale_id = service.find_generating_by_date(body.date)
-        if stale_id is not None:
-            logger.info("Resetting stale generating episode %d for date %s", stale_id, body.date)
-            service.reset_episode_for_reuse(stale_id)
-            service.clear_episode_items(stale_id)
-            if not service.claim_generating_slot(stale_id):
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Episode for {body.date} could not be acquired (race condition)",
-                )
-            episode_id = stale_id
-        else:
-            try:
-                episode_id = service.create_episode(
-                    episode_date=body.date, status="generating"
-                )
-            except sqlite3.IntegrityError:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Episode for {body.date} already exists",
-                )
+        episode_id, seq = service.create_radio_episode(
+            episode_date=body.date, status="generating"
+        )
+        logger.info("Episode record created: id=%d, date=%s, seq=%d", episode_id, body.date, seq)
         service.update_episode_phase(episode_id, "start", "番組の生成を準備しています…")
     else:
         try:

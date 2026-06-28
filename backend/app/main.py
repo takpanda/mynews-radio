@@ -57,9 +57,14 @@ def _apply_db_migrations() -> None:
             pass  # カラムが既に存在する場合は無視
 
         try:
-            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_episodes_generating_date ON episodes(episode_date) WHERE status = 'generating'")
-        except (sqlite3.OperationalError, sqlite3.IntegrityError):
-            pass  # 既に存在する場合や重複データがある場合は無視
+            conn.execute("DROP INDEX IF EXISTS idx_episodes_generating_date")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE episodes ADD COLUMN seq INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
 
         try:
             conn.execute("ALTER TABLE episodes ADD COLUMN generation_message TEXT DEFAULT ''")
@@ -73,6 +78,13 @@ def _apply_db_migrations() -> None:
 
         try:
             conn.execute("ALTER TABLE episodes ADD COLUMN source_url TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_episodes_date_type ON episodes(episode_date, type)"
+            )
         except sqlite3.OperationalError:
             pass
 

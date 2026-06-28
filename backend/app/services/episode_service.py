@@ -32,17 +32,61 @@ class EpisodeService:
         status: str = "pending",
         type: str = "radio",
         source_url: Optional[str] = None,
+        seq: int = 0,
     ) -> int:
         """エピソードを新規作成し、id を返す"""
         with get_db_connection() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO episodes (episode_date, script_text, audio_path, status, type, source_url)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO episodes (episode_date, seq, script_text, audio_path, status, type, source_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (episode_date, script_text, audio_path, status, type, source_url),
+                (episode_date, seq, script_text, audio_path, status, type, source_url),
             )
             return cursor.lastrowid
+
+    @retry_on_busy()
+    def count_radio_by_date(self, episode_date: str) -> int:
+        """同一日付の type='radio' のエピソード数をカウントする。
+        
+        全statusをカウント対象とする。seqは「何本目のエピソードか」を
+        表す位置識別子であり、成功/失敗にかかわらずスロットを消費する。
+        """
+        with get_db_connection() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM episodes WHERE episode_date = ? AND type = 'radio'",
+                (episode_date,),
+            ).fetchone()
+            return row["cnt"] if row else 0
+
+    @retry_on_busy()
+    def create_radio_episode(self, episode_date: str, status: str = "generating") -> tuple[int, int]:
+        """ラジオエピソードをアトミックに作成し (episode_id, seq) を返す。
+        
+        同一トランザクション内で:
+        1. staleなgeneratingエピソードをfailedにリセット
+        2. MAX(seq)+1をSQLレベルで採番してINSERT
+        これによりレースコンディションを防止する。
+        """
+        with get_db_connection() as conn:
+            conn.execute(
+                "UPDATE episodes SET status = 'failed', updated_at = CURRENT_TIMESTAMP "
+                "WHERE episode_date = ? AND type = 'radio' AND status = 'generating'",
+                (episode_date,),
+            )
+            cursor = conn.execute(
+                """
+                INSERT INTO episodes (episode_date, seq, status, type)
+                SELECT ?, COALESCE(MAX(seq), -1) + 1, ?, 'radio'
+                FROM episodes WHERE episode_date = ? AND type = 'radio'
+                """,
+                (episode_date, status, episode_date),
+            )
+            episode_id = cursor.lastrowid
+            row = conn.execute(
+                "SELECT seq FROM episodes WHERE id = ?", (episode_id,)
+            ).fetchone()
+            return episode_id, row["seq"]
 
     @retry_on_busy()
     def update_episode_status(self, episode_id: int, status: str) -> None:
@@ -253,4 +297,23 @@ class EpisodeService:
             conn.execute("DELETE FROM episode_items WHERE episode_id = ?", (episode_id,))
             conn.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
             return True
+
+
+def build_radio_title(program_name: str, episode_date: str, seq: int) -> str:
+    """Build radio episode title with date and optional sub-number."""
+    parts = episode_date.split("-")
+    date_part = ".".join(parts)
+    if seq >= 1:
+        return f"{program_name} {date_part}-{seq:02d}"
+    return f"{program_name} {date_part}"
+
+
+def override_script_title(script_path: str, program_name: str, episode_date: str, seq: int) -> None:
+    """Override the title in script.json with the radio title format."""
+    import json as _json
+    with open(script_path, "r", encoding="utf-8") as f:
+        script = _json.load(f)
+    script["title"] = build_radio_title(program_name, episode_date, seq)
+    with open(script_path, "w", encoding="utf-8") as f:
+        _json.dump(script, f, ensure_ascii=False, indent=2)
 

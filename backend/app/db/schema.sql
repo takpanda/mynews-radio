@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS articles (
 CREATE TABLE IF NOT EXISTS episodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     episode_date TEXT NOT NULL,
+    seq INTEGER DEFAULT 0,
     script_text TEXT,
     audio_path TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS episode_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_episodes_date ON episodes(episode_date);
+CREATE INDEX IF NOT EXISTS idx_episodes_date_type ON episodes(episode_date, type);
 CREATE INDEX IF NOT EXISTS idx_episode_items_episode_id ON episode_items(episode_id);
 CREATE INDEX IF NOT EXISTS idx_episode_items_order ON episode_items(item_order);
 CREATE INDEX IF NOT EXISTS idx_articles_status ON articles(status);
