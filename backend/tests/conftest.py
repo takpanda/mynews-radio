@@ -25,7 +25,15 @@ def _fresh_db(tmp_path):
     except sqlite3.OperationalError:
         pass
     try:
-        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_episodes_generating_date ON episodes(episode_date) WHERE status = 'generating'")
+        conn.execute("DROP INDEX IF EXISTS idx_episodes_generating_date")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE episodes ADD COLUMN seq INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_episodes_date_type ON episodes(episode_date, type)")
     except sqlite3.OperationalError:
         pass
     conn.commit()

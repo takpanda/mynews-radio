@@ -26,7 +26,7 @@ from app.batch.build_episode import build_episode           # noqa: E402
 from app.batch.health_check import run_health_checks         # noqa: E402
 from app.logging_config import setup_daily_logging           # noqa: E402
 from app.config import get_settings                          # noqa: E402
-from app.services.episode_service import EpisodeService      # noqa: E402
+from app.services.episode_service import EpisodeService, override_script_title, build_radio_title      # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -58,20 +58,10 @@ def main() -> None:
 
     episode_service = EpisodeService()
 
-    existing_id = episode_service.find_by_date(episode_date)
-    if existing_id is not None:
-        logger.info("Existing episode %d found for date %s — resetting for reuse", existing_id, episode_date)
-        episode_service.reset_episode_for_reuse(existing_id)
-        episode_service.clear_episode_items(existing_id)
-        if not episode_service.claim_generating_slot(existing_id):
-            logger.error("Episode for %s could not be acquired (race condition)", episode_date)
-            sys.exit(1)
-        episode_id = existing_id
-    else:
-        episode_id = episode_service.create_episode(
-            episode_date=episode_date,
-            status="generating",
-        )
+    episode_id, seq = episode_service.create_radio_episode(
+        episode_date=episode_date, status="generating",
+    )
+    logger.info("Episode record created: id=%d, date=%s, seq=%d", episode_id, episode_date, seq)
 
     episode_dir = os.path.join("data", "episodes", str(episode_id))
     os.makedirs(episode_dir, exist_ok=True)
@@ -103,6 +93,10 @@ def main() -> None:
             episode_service.update_episode_status(episode_id, "failed")
             _write_manifest(status="skipped_no_scripts")
             sys.exit(0)
+
+        # Override title with date-based format
+        override_script_title(script_path, program_name, episode_date, seq)
+        logger.info("Title overridden: %s", build_radio_title(program_name, episode_date, seq))
     except Exception as exc:
         logger.error("generate_script failed: %s", exc, exc_info=True)
         _write_manifest(status=f"error_generate_script: {exc}")

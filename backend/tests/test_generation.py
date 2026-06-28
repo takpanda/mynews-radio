@@ -21,64 +21,55 @@ class TestGenerateEndpoint:
         elapsed = time.time() - start
         assert resp.status_code == 200 and elapsed < 1.0
 
-    def test_duplicate_date_returns_409_on_race_condition(self, client):
+    def test_duplicate_date_creates_new_episode(self, client):
         from app.services.episode_service import EpisodeService
 
         svc = EpisodeService()
-        eid = svc.create_episode(episode_date="2099-03-03", status="generating")
-        svc.update_episode_phase(eid, "summarize")
+        eid = svc.create_episode(episode_date="2099-03-03", status="pending")
 
-        # Simulate race: stale found, reset to pending, but claim fails.
-        with patch.object(EpisodeService, "claim_generating_slot", return_value=False):
-            r1 = client.post("/generate", json={"date": "2099-03-03"})
-        assert r1.status_code == 409
-
-    def test_duplicate_date_reuses_stale_episode(self, client):
-        from app.services.episode_service import EpisodeService
-
-        svc = EpisodeService()
-        eid = svc.create_episode(episode_date="2099-05-05", status="pending")
-        svc.update_episode_status(eid, "generating")
-        svc.update_episode_phase(eid, "summarize")
-
-        # Second request on same date reuses the stale generating episode.
-        r1 = client.post("/generate", json={"date": "2099-05-05"})
+        # With new logic, second request creates a new episode.
+        r1 = client.post("/generate", json={"date": "2099-03-03"})
         assert r1.status_code == 200
         data = r1.json()
-        assert data["episode_id"] == eid
+        assert data["episode_id"] != eid
 
-    def test_stale_generating_episode_reused(self, client):
+    def test_duplicate_date_creates_new_episode_with_seq(self, client):
         from app.services.episode_service import EpisodeService
 
         svc = EpisodeService()
-        eid = svc.create_episode(episode_date="2099-04-04", status="generating")
-        svc.update_episode_phase(eid, "summarize")
-        r1 = client.post("/generate", json={"date": "2099-04-04"})
+        eid1 = svc.create_episode(episode_date="2099-05-05", status="completed")
+
+        # Second request on same date creates a new episode with seq=1.
+        r1 = client.post("/generate", json={"date": "2099-05-05", "max_articles": 5})
         assert r1.status_code == 200
         data = r1.json()
-        assert data["episode_id"] == eid
-        assert data["status"] == "generating"
+        assert data["episode_id"] != eid1
+        ep = svc.get_episode(data["episode_id"])
+        assert ep["seq"] == 1
 
-    def test_duplicate_date_reuses_generating_episode(self, client):
-        with patch("app.api.generate.asyncio.ensure_future"), \
-             patch("threading.Thread.start"):
-            r1 = client.post("/generate", json={"date": "2099-03-03"})
-            assert r1.status_code == 200
-            episode_id_1 = r1.json()["episode_id"]
-            r2 = client.post("/generate", json={"date": "2099-03-03"})
-            assert r2.status_code == 200
-            episode_id_2 = r2.json()["episode_id"]
-        assert episode_id_1 == episode_id_2
+    def test_stale_generating_episode_creates_new(self, client):
+        from app.services.episode_service import EpisodeService
 
-    def test_new_date_creates_episode(self, client):
+        svc = EpisodeService()
+        eid1 = svc.create_episode(episode_date="2099-04-04", status="generating")
+        svc.update_episode_phase(eid1, "summarize")
+        r1 = client.post("/generate", json={"date": "2099-04-04", "max_articles": 5})
+        assert r1.status_code == 200
+        data = r1.json()
+        assert data["episode_id"] != eid1
+
+    def test_new_date_creates_episode_with_seq_0(self, client):
         from app.services.episode_service import EpisodeService
 
         svc = EpisodeService()
         before = len(svc.get_episode_list())
-        resp = client.post("/generate", json={"date": "2099-04-04"})
+        resp = client.post("/generate", json={"date": "2099-04-04", "max_articles": 5})
         assert resp.status_code == 200
+        data = resp.json()
         after = len(svc.get_episode_list())
         assert after == before + 1
+        ep = svc.get_episode(data["episode_id"])
+        assert ep["seq"] == 0
 
     def test_run_generation_outer_except_on_unexpected_error(self, client):
         from app.api.generate import _run_generation, GenerateRequest
