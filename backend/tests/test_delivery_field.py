@@ -348,3 +348,55 @@ class TestReviewScriptDeliveryField:
         for i, line in enumerate(revised["lines"]):
             assert line["speaker"] == "female", \
                 f"line[{i}] の speaker が female ではありません: {line}"
+
+    def test_review_solo_mc_gender_forces_speaker_uniform(self):
+        """solo + mc_gender 指定時に全 speaker が mc_gender に統一されること。"""
+        from app.batch.review_script import _build_revised_script
+
+        source = {
+            "date": "2026-06-23",
+            "title": "",
+            "subtitle": "",
+            "style": "solo",
+            "mc_gender": "female",
+            "lines": [],
+        }
+        response = {
+            "title": "",
+            "subtitle": "",
+            "lines": [
+                {"speaker": "male", "text": "導入です", "article_id": 1, "section": "intro"},
+                {"speaker": "male", "text": "内容です", "article_id": 1, "section": "news"},
+            ],
+        }
+
+        revised = _build_revised_script(source, response)
+
+        for i, line in enumerate(revised["lines"]):
+            assert line["speaker"] == "female", \
+                f"line[{i}] の speaker が mc_gender(female) に強制されていません: {line}"
+
+    def test_review_solo_mc_gender_preserved_in_output_json(self):
+        """_build_revised_script の出力 JSON に mc_gender が含まれること。"""
+        from app.batch.review_script import _build_revised_script
+
+        source = {
+            "date": "2026-06-23",
+            "title": "",
+            "subtitle": "",
+            "style": "solo",
+            "mc_gender": "male",
+            "lines": [],
+        }
+        response = {
+            "title": "",
+            "subtitle": "",
+            "lines": [
+                {"speaker": "male", "text": "内容です", "article_id": 1, "section": "news"},
+            ],
+        }
+
+        revised = _build_revised_script(source, response)
+
+        assert revised.get("mc_gender") == "male", \
+            f"出力に mc_gender が含まれていません: {revised}"
