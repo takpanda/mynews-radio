@@ -599,7 +599,7 @@ class TestPlaceholderBracketCheck:
         bracket_errors = [e for e in errors if "プレースホルダー表記" in e]
         assert len(bracket_errors) == 1
 
-    def test_intro_with_bracket_ignored(self):
+    def test_intro_with_bracket_detected(self):
         from app.batch.generate_script import lint_script
 
         lines = [
@@ -607,7 +607,7 @@ class TestPlaceholderBracketCheck:
         ]
         errors = lint_script(lines)
         bracket_errors = [e for e in errors if "プレースホルダー表記" in e]
-        assert len(bracket_errors) == 0
+        assert len(bracket_errors) == 1
 
     def test_clean_text_no_error(self):
         from app.batch.generate_script import lint_script
@@ -622,7 +622,7 @@ class TestPlaceholderBracketCheck:
         bracket_errors = [e for e in errors if "プレースホルダー表記" in e]
         assert len(bracket_errors) == 0
 
-    def test_outro_with_bracket_ignored(self):
+    def test_outro_with_bracket_detected(self):
         from app.batch.generate_script import lint_script
 
         lines = [
@@ -631,4 +631,4 @@ class TestPlaceholderBracketCheck:
         ]
         errors = lint_script(lines)
         bracket_errors = [e for e in errors if "プレースホルダー表記" in e]
-        assert len(bracket_errors) == 0
+        assert len(bracket_errors) == 1
