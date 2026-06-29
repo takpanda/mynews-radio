@@ -115,6 +115,7 @@ def generate_commentary_script(
 
     prompt = template.format(
         style=style,
+        mc_gender=mc_gender,
         article_id=article.get("id"),
         article_title=article.get("title", ""),
         suggested_lines_count=suggested_lines,
