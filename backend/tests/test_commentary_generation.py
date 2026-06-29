@@ -646,6 +646,107 @@ class TestMcGenderInPrompt:
         assert '掛け声' in captured_prompt, "monologue constraint should forbid calls"
 
 
+class TestSoloStyleProhibitions:
+    """Verify solo prompt contains dialogue-ending prohibitions (BEE-330)."""
+
+    CAPTURED_PROMPT_MALE = None
+    CAPTURED_PROMPT_FEMALE = None
+
+    class _CapturingClientBase:
+        def __init__(self, *args, **kwargs):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *args, **kwargs):
+            pass
+        def generate_json(self, prompt):
+            return {"title": "Test", "subtitle": "", "lines": []}
+
+    class _CapturingClientMale(_CapturingClientBase):
+        def generate_json(self, prompt):
+            TestSoloStyleProhibitions.CAPTURED_PROMPT_MALE = prompt
+            return {"title": "Test", "subtitle": "", "lines": [{"speaker": "male", "text": "test", "section": "news", "delivery": "neutral"}]}
+
+    class _CapturingClientFemale(_CapturingClientBase):
+        def generate_json(self, prompt):
+            TestSoloStyleProhibitions.CAPTURED_PROMPT_FEMALE = prompt
+            return {"title": "Test", "subtitle": "", "lines": [{"speaker": "male", "text": "test", "section": "news", "delivery": "neutral"}]}
+
+    def test_solo_prompt_contains_prohibitions_male(self, tmp_path):
+        from app.batch.generate_commentary_script import generate_commentary_script
+
+        article = {"id": 1, "title": "Test", "text": "x" * 500}
+        output = tmp_path / "test_male.json"
+        with patch("app.batch.generate_commentary_script.OllamaClient", self._CapturingClientMale):
+            generate_commentary_script(str(output), article, style="solo", mc_gender="male")
+
+        prompt = self.CAPTURED_PROMPT_MALE
+        assert prompt is not None, "prompt not captured"
+
+        # 自問自答禁止
+        assert "自問自答" in prompt
+        # 聞き手への問いかけ禁止
+        assert "聞き手に対する問いかけ" in prompt or "掛け声" in prompt
+        # 対話相手前提の語尾禁止
+        assert "〜ですか" in prompt
+        assert "〜ですね" in prompt
+        assert "〜なのでしょうか" in prompt
+
+    def test_solo_prompt_contains_prohibitions_female(self, tmp_path):
+        from app.batch.generate_commentary_script import generate_commentary_script
+
+        article = {"id": 1, "title": "Test", "text": "x" * 500}
+        output = tmp_path / "test_female.json"
+        with patch("app.batch.generate_commentary_script.OllamaClient", self._CapturingClientFemale):
+            generate_commentary_script(str(output), article, style="solo", mc_gender="female")
+
+        prompt = self.CAPTURED_PROMPT_FEMALE
+        assert prompt is not None, "prompt not captured"
+
+        # 自問自答禁止
+        assert "自問自答" in prompt
+        # 聞き手への問いかけ禁止
+        assert "聞き手に対する問いかけ" in prompt or "掛け声" in prompt
+        # 対話相手前提の語尾禁止
+        assert "〜ですか" in prompt
+        assert "〜ですね" in prompt
+        assert "〜なのでしょうか" in prompt
+
+    def test_dialogue_prompt_unchanged_regression(self, tmp_path):
+        from app.batch.generate_commentary_script import generate_commentary_script
+        from app.batch.generate_commentary_script import _load_prompt_template
+
+        article = {"id": 1, "title": "Test", "text": "x" * 500}
+        output = tmp_path / "test_dialogue.json"
+
+        original_template = _load_prompt_template()
+        dialogue_section = original_template[original_template.find("## スタイル=dialogue（二人対談）の場合"):]
+
+        captured_dialogue_prompt = [None]
+
+        class CapturingClient:
+            def __init__(self, *args, **kwargs):
+                pass
+            def __enter__(self):
+                return self
+            def __exit__(self, *args, **kwargs):
+                pass
+            def generate_json(self, prompt):
+                captured_dialogue_prompt[0] = prompt
+                return {"title": "Test", "subtitle": "", "lines": [{"speaker": "male", "text": "test", "section": "news", "delivery": "neutral"}]}
+
+        with patch("app.batch.generate_commentary_script.OllamaClient", CapturingClient):
+            generate_commentary_script(str(output), article, style="dialogue", mc_gender="female")
+
+        # template-level: dialogue section unchanged from original
+        dialogue_in_prompt = captured_dialogue_prompt[0][captured_dialogue_prompt[0].find("## スタイル=dialogue（二人対談）の場合"):]
+        assert "田村" in dialogue_in_prompt
+        assert "山口" in dialogue_in_prompt
+        assert "役割分担の鉄則" in dialogue_in_prompt
+        assert "田村は「感情" in dialogue_in_prompt
+        assert "山口は「技術" in dialogue_in_prompt
+
+
 class TestSoloDialogueSpeakerBehavior:
     """Verify solo/dialogue speaker normalization differences."""
 
