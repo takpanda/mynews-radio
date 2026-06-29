@@ -560,6 +560,236 @@ class TestSectionValidation:
         assert script["lines"][2]["section"] == "outro"
 
 
+class TestMcGenderInPrompt:
+    """Verify mc_gender is passed to the prompt template and affects the prompt content."""
+
+    def test_prompt_contains_mc_gender_when_solo(self, tmp_path):
+        from app.batch.generate_commentary_script import generate_commentary_script
+        from unittest.mock import patch
+
+        article = {
+            "id": 1,
+            "title": "Test",
+            "text": "x" * 500,
+        }
+
+        fake_response = {
+            "title": "Test",
+            "subtitle": "",
+            "lines": [{"speaker": "male", "text": "test", "section": "news", "delivery": "neutral"}],
+        }
+
+        captured_prompt = None
+
+        class CapturingClient:
+            def __init__(self, *args, **kwargs):
+                pass
+            def __enter__(self):
+                return self
+            def __exit__(self, *args, **kwargs):
+                pass
+            def generate_json(self, prompt):
+                nonlocal captured_prompt
+                captured_prompt = prompt
+                return fake_response
+
+        output = tmp_path / "test_out.json"
+
+        with patch("app.batch.generate_commentary_script.OllamaClient", CapturingClient):
+            generate_commentary_script(str(output), article, style="solo", mc_gender="female")
+
+        assert captured_prompt is not None, "prompt was not captured"
+        assert '{mc_gender}' not in captured_prompt, "template placeholder should be resolved"
+        assert '話者は "female" 1名のみ' in captured_prompt, \
+            f"expected 'female' in prompt, got: ...{captured_prompt[captured_prompt.find('話者は'):captured_prompt.find('話者は')+40]}..."
+        assert '"female" のみ' in captured_prompt, \
+            "solo speaker constraint should reference mc_gender"
+
+    def test_prompt_contains_male_when_solo_male(self, tmp_path):
+        from app.batch.generate_commentary_script import generate_commentary_script
+        from unittest.mock import patch
+
+        article = {
+            "id": 1,
+            "title": "Test",
+            "text": "x" * 500,
+        }
+
+        fake_response = {
+            "title": "Test",
+            "subtitle": "",
+            "lines": [{"speaker": "male", "text": "test", "section": "news", "delivery": "neutral"}],
+        }
+
+        captured_prompt = None
+
+        class CapturingClient:
+            def __init__(self, *args, **kwargs):
+                pass
+            def __enter__(self):
+                return self
+            def __exit__(self, *args, **kwargs):
+                pass
+            def generate_json(self, prompt):
+                nonlocal captured_prompt
+                captured_prompt = prompt
+                return fake_response
+
+        output = tmp_path / "test_out.json"
+
+        with patch("app.batch.generate_commentary_script.OllamaClient", CapturingClient):
+            generate_commentary_script(str(output), article, style="solo", mc_gender="male")
+
+        assert captured_prompt is not None
+        assert '話者は "male" 1名のみ' in captured_prompt
+        assert '自問自答' in captured_prompt, "monologue constraint should be present"
+        assert '掛け声' in captured_prompt, "monologue constraint should forbid calls"
+
+
+class TestSoloDialogueSpeakerBehavior:
+    """Verify solo/dialogue speaker normalization differences."""
+
+    def test_solo_llm_returns_male_speaker_normalized_to_mc_gender_female(self, tmp_path):
+        """solo mode: even if LLM returns male speaker, it should be normalized to mc_gender."""
+        from app.batch.generate_commentary_script import generate_commentary_script
+        from unittest.mock import patch
+
+        article = {
+            "id": 1,
+            "title": "Test",
+            "text": "x" * 500,
+        }
+
+        fake_response = {
+            "title": "Test",
+            "subtitle": "",
+            "lines": [{"speaker": "male", "text": "intro", "section": "intro", "delivery": "neutral"}],
+        }
+
+        output = tmp_path / "test_out.json"
+
+        with patch("app.batch.generate_commentary_script.OllamaClient") as mock:
+            instance = mock.return_value
+            instance.__enter__.return_value.generate_json.return_value = fake_response
+            generate_commentary_script(str(output), article, style="solo", mc_gender="female")
+
+        import json
+        script = json.loads(output.read_text(encoding="utf-8"))
+        assert script["mc_gender"] == "female"
+        assert script["style"] == "solo"
+        for line in script["lines"]:
+            assert line["speaker"] == "female", \
+                f"solo mode should normalize speaker to mc_gender, got {line['speaker']}"
+
+    def test_solo_female_all_speakers_normalized(self, tmp_path):
+        """solo+female: all speakers become female regardless of LLM output."""
+        from app.batch.generate_commentary_script import generate_commentary_script
+        from unittest.mock import patch
+
+        article = {
+            "id": 1,
+            "title": "Test",
+            "text": "x" * 500,
+        }
+
+        fake_response = {
+            "title": "Test",
+            "subtitle": "",
+            "lines": [
+                {"speaker": "male", "text": "intro", "section": "intro", "delivery": "neutral"},
+                {"speaker": "male", "text": "news", "section": "news", "delivery": "neutral"},
+                {"speaker": "female", "text": "outro", "section": "outro", "delivery": "warm"},
+            ],
+        }
+
+        output = tmp_path / "test_out.json"
+
+        with patch("app.batch.generate_commentary_script.OllamaClient") as mock:
+            instance = mock.return_value
+            instance.__enter__.return_value.generate_json.return_value = fake_response
+            generate_commentary_script(str(output), article, style="solo", mc_gender="female")
+
+        import json
+        script = json.loads(output.read_text(encoding="utf-8"))
+        assert script["mc_gender"] == "female"
+        assert script["style"] == "solo"
+        for line in script["lines"]:
+            assert line["speaker"] == "female", \
+                f"all solo lines should be female, got {line['speaker']}"
+
+    def test_dialogue_preserves_both_speakers(self, tmp_path):
+        """dialogue mode: male and female speakers should be preserved."""
+        from app.batch.generate_commentary_script import generate_commentary_script
+        from unittest.mock import patch
+
+        article = {
+            "id": 1,
+            "title": "Test",
+            "text": "x" * 500,
+        }
+
+        fake_response = {
+            "title": "Test",
+            "subtitle": "",
+            "lines": [
+                {"speaker": "male", "text": "intro", "section": "intro", "delivery": "neutral"},
+                {"speaker": "female", "text": "comment", "section": "intro", "delivery": "neutral"},
+                {"speaker": "male", "text": "news detail", "section": "news", "delivery": "neutral"},
+                {"speaker": "female", "text": "question", "section": "news", "delivery": "questioning"},
+                {"speaker": "male", "text": "analysis", "section": "news", "delivery": "thoughtful"},
+                {"speaker": "female", "text": "outro", "section": "outro", "delivery": "warm"},
+            ],
+        }
+
+        output = tmp_path / "test_out.json"
+
+        with patch("app.batch.generate_commentary_script.OllamaClient") as mock:
+            instance = mock.return_value
+            instance.__enter__.return_value.generate_json.return_value = fake_response
+            generate_commentary_script(str(output), article, style="dialogue", mc_gender="female")
+
+        import json
+        script = json.loads(output.read_text(encoding="utf-8"))
+        assert script["style"] == "dialogue"
+        speakers = {line["speaker"] for line in script["lines"]}
+        assert "male" in speakers, "dialogue should keep male speaker"
+        assert "female" in speakers, "dialogue should keep female speaker"
+
+    def test_dialogue_invalid_speaker_fallback_to_male(self, tmp_path):
+        """dialogue mode: invalid speaker should fallback to male."""
+        from app.batch.generate_commentary_script import generate_commentary_script
+        from unittest.mock import patch
+
+        article = {
+            "id": 1,
+            "title": "Test",
+            "text": "x" * 500,
+        }
+
+        fake_response = {
+            "title": "Test",
+            "subtitle": "",
+            "lines": [
+                {"speaker": "male", "text": "intro", "section": "intro", "delivery": "neutral"},
+                {"speaker": "invalid", "text": "bad speaker", "section": "news", "delivery": "neutral"},
+                {"speaker": "female", "text": "outro", "section": "outro", "delivery": "warm"},
+            ],
+        }
+
+        output = tmp_path / "test_out.json"
+
+        with patch("app.batch.generate_commentary_script.OllamaClient") as mock:
+            instance = mock.return_value
+            instance.__enter__.return_value.generate_json.return_value = fake_response
+            generate_commentary_script(str(output), article, style="dialogue", mc_gender="female")
+
+        import json
+        script = json.loads(output.read_text(encoding="utf-8"))
+        assert script["lines"][0]["speaker"] == "male"
+        assert script["lines"][1]["speaker"] == "male", "invalid speaker should fallback to male"
+        assert script["lines"][2]["speaker"] == "female"
+
+
 def _make_fake_open(script_json: str):
     """Return a mock `open` context manager that reads from a string."""
     def _open(*args, **kwargs):

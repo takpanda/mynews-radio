@@ -10,11 +10,15 @@
 
 ## スタイル=solo（一人解説）の場合
 
-- 話者は "male"（男性ナレーター）1名のみ
+- 話者は "{mc_gender}" 1名のみ
 - 語り口は落ち着いて知的、かつわかりやすい解説
 - リスナーに寄り添い、専門用語は適宜噛み砕いて説明する
 - ニュースの背景・事実・影響をバランスよく伝える
 - 話し方：淡々としすぎず、適度な抑揚を感じさせる自然な語り
+- 一人語りの文体を厳守すること：
+  - 自問自答（「〜でしょうか？」「〜でしょうかね？」など）をしない
+  - 聞き手に対する問いかけや掛け声（「はい」「そうです」「なるほど」など）を入れない
+  - すべての台詞は解説者による一貫したナレーションとして自然に流れること
 
 ## スタイル=dialogue（二人対談）の場合
 
@@ -69,7 +73,7 @@
 - title は元記事タイトル「{article_title}」と完全一致させること
 - subtitle は内容を端的に表す15〜25文字の日本語
 - lines の各要素は speaker/text/article_id/section/delivery を必ず含める
-- soloの場合: speaker は "male" のみ
+- soloの場合: speaker は "{mc_gender}" のみ
 - dialogueの場合: speaker は "male" または "female"
 - article_id は各lineに適切に設定する（intro/outroはnull）
 - section は intro/news/outro のいずれか
