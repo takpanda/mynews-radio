@@ -1,6 +1,7 @@
 """Tests for commentary generation pipeline."""
 
 import json
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -889,6 +890,145 @@ class TestSoloDialogueSpeakerBehavior:
         assert script["lines"][0]["speaker"] == "male"
         assert script["lines"][1]["speaker"] == "male", "invalid speaker should fallback to male"
         assert script["lines"][2]["speaker"] == "female"
+
+
+class TestSoloConcreteDataInstructions:
+    """Verify concrete data instructions are added to the solo prompt template."""
+
+    def test_prompt_template_contains_concrete_data_instructions(self):
+        prompt_path = Path(__file__).resolve().parents[1] / "app" / "prompts" / "generate_commentary_script.md"
+        content = prompt_path.read_text(encoding="utf-8")
+        assert "元記事に含まれる数値・金額・割合・日時・バージョン番号などをぼかさず" in content
+        assert "モデル名・製品名・企業名・固有名詞" in content
+        assert "比較対象や検証条件" in content
+        assert "各 news ラインには最低1件以上の具体的な事実・数字を含める" in content
+
+    def test_dialogue_section_unchanged(self):
+        prompt_path = Path(__file__).resolve().parents[1] / "app" / "prompts" / "generate_commentary_script.md"
+        content = prompt_path.read_text(encoding="utf-8")
+        solo_marker = "## スタイル=solo（一人解説）の場合"
+        dialogue_marker = "## スタイル=dialogue（二人対談）の場合"
+        solo_start = content.index(solo_marker)
+        dialogue_start = content.index(dialogue_marker)
+        solo_end = dialogue_start
+        solo_section = content[solo_start:solo_end]
+        assert "元記事に含まれる数値" in solo_section
+        dialogue_section = content[dialogue_start:]
+        assert "元記事に含まれる数値" not in dialogue_section
+
+    def test_solo_generation_injects_concrete_data_instructions(self, tmp_path):
+        from app.batch.generate_commentary_script import generate_commentary_script
+        from unittest.mock import patch
+        from pathlib import Path
+
+        article = {
+            "id": 1,
+            "title": "Test",
+            "text": "x" * 500,
+        }
+        fake_response = {
+            "title": "Test",
+            "subtitle": "",
+            "lines": [{"speaker": "male", "text": "test", "section": "news", "delivery": "neutral"}],
+        }
+        captured_prompt = None
+
+        class CapturingClient:
+            def __init__(self, *args, **kwargs):
+                pass
+            def __enter__(self):
+                return self
+            def __exit__(self, *args, **kwargs):
+                pass
+            def generate_json(self, prompt):
+                nonlocal captured_prompt
+                captured_prompt = prompt
+                return fake_response
+
+        output = tmp_path / "test_out.json"
+        with patch("app.batch.generate_commentary_script.OllamaClient", CapturingClient):
+            generate_commentary_script(str(output), article, style="solo", mc_gender="male")
+
+        assert captured_prompt is not None
+        assert "元記事に含まれる数値・金額・割合" in captured_prompt
+        assert "各 news ラインには最低1件以上の具体的な事実・数字を含める" in captured_prompt
+
+    def test_dialogue_generation_still_works(self, tmp_path):
+        from app.batch.generate_commentary_script import generate_commentary_script
+        from unittest.mock import patch
+
+        article = {
+            "id": 1,
+            "title": "Test",
+            "text": "x" * 500,
+        }
+        fake_response = {
+            "title": "Test",
+            "subtitle": "",
+            "lines": [
+                {"speaker": "male", "text": "intro", "section": "intro", "delivery": "neutral"},
+                {"speaker": "female", "text": "reaction", "section": "intro", "delivery": "neutral"},
+                {"speaker": "male", "text": "news detail", "section": "news", "delivery": "neutral"},
+                {"speaker": "female", "text": "question", "section": "news", "delivery": "questioning"},
+                {"speaker": "male", "text": "analysis", "section": "news", "delivery": "thoughtful"},
+                {"speaker": "female", "text": "outro", "section": "outro", "delivery": "warm"},
+            ],
+        }
+
+        output = tmp_path / "test_out.json"
+        with patch("app.batch.generate_commentary_script.OllamaClient") as mock:
+            instance = mock.return_value
+            instance.__enter__.return_value.generate_json.return_value = fake_response
+            result = generate_commentary_script(str(output), article, style="dialogue", mc_gender="male")
+
+        import json
+        script = json.loads(output.read_text(encoding="utf-8"))
+        assert result == 6
+        assert script["style"] == "dialogue"
+        speakers = {line["speaker"] for line in script["lines"]}
+        assert "male" in speakers
+        assert "female" in speakers
+
+
+class TestConcreteDataQualityGuard:
+    """Tests for _check_concrete_data quality guard."""
+
+    def test_digits_present_no_warning(self, caplog):
+        from app.batch.generate_commentary_script import _check_concrete_data
+        caplog.set_level("WARNING")
+        lines = [
+            {"text": "This product costs 100 dollars and has 2 features"},
+            {"text": "Version 3.0 was released"},
+        ]
+        _check_concrete_data(lines, "solo")
+        assert len(caplog.records) == 0
+
+    def test_no_digits_triggers_warning(self, caplog):
+        from app.batch.generate_commentary_script import _check_concrete_data
+        caplog.set_level("WARNING")
+        lines = [
+            {"text": "This product is expensive"},  # missing text key raises
+            {"text": "No numbers here either"},
+        ]
+        _check_concrete_data(lines, "solo")
+        assert len(caplog.records) == 1
+        assert "no concrete data" in caplog.records[0].getMessage().lower()
+
+    def test_dialogue_skips_check(self, caplog):
+        from app.batch.generate_commentary_script import _check_concrete_data
+        caplog.set_level("WARNING")
+        lines = [
+            {"text": "totally abstract without any numbers"},
+        ]
+        _check_concrete_data(lines, "dialogue")
+        assert len(caplog.records) == 0
+
+    def test_empty_lines_no_crash(self, caplog):
+        from app.batch.generate_commentary_script import _check_concrete_data
+        caplog.set_level("WARNING")
+        _check_concrete_data([], "solo")
+        assert len(caplog.records) == 1
+        assert "no concrete data" in caplog.records[0].getMessage().lower()
 
 
 def _make_fake_open(script_json: str):

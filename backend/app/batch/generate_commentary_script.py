@@ -79,6 +79,23 @@ def _build_section_details(suggested_lines_count: int) -> str:
     )
 
 
+def _check_concrete_data(lines: list, style: str) -> None:
+    """Check that solo commentary lines contain at least one digit.
+
+    Args:
+        lines: List of line dicts with 'text' key.
+        style: "solo" or "dialogue".
+    """
+    if style == "dialogue":
+        return
+    combined = " ".join(line.get("text", "") for line in lines)
+    if not any(c.isdigit() for c in combined):
+        logger.warning(
+            "Solo commentary script contains no concrete data (no digits found in %d lines)",
+            len(lines),
+        )
+
+
 def _load_prompt_template() -> str:
     prompt_path = Path(__file__).resolve().parents[1] / "prompts" / "generate_commentary_script.md"
     return prompt_path.read_text(encoding="utf-8")
@@ -164,6 +181,8 @@ def generate_commentary_script(
             "section": section,
             "delivery": line.get("delivery", "neutral"),
         })
+
+    _check_concrete_data(script["lines"], style)
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     Path(output_path).write_text(
