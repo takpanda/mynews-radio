@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>mynews-radio 台本生成詳細ドキュメント</title>
+<style>
+  :root{
+    --paper:#F2F4F6;
+    --panel:#FFFFFF;
+    --ink:#1B2330;
+    --ink-soft:#4A5568;
+    --line:#D8DEE6;
+    --onair:#C73E3A;
+    --dial:#D9A441;
+    --wave:#2E7D7B;
+    --night:#141A24;
+    --night-soft:#1E2735;
+    --purple:#4A3FA0;
+    --mono:ui-monospace,'SFMono-Regular','Cascadia Mono','Source Han Code JP',Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html{scroll-behavior:smooth;}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto;} *{animation:none!important;transition:none!important;} }
+  body{
+    font-family:'Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI','Meiryo',sans-serif;
+    background:var(--paper); color:var(--ink);
+    font-size:15px; line-height:1.85;
+  }
+  /* ---------- studio header ---------- */
+  header.studio{
+    background:linear-gradient(160deg,var(--night) 0%,var(--night-soft) 70%,#243246 100%);
+    color:#E8EDF4; padding:54px 28px 46px;
+    position:relative; overflow:hidden;
+  }
+  header.studio::after{
+    content:""; position:absolute; inset:0;
+    background:repeating-linear-gradient(90deg,transparent 0 59px,rgba(255,255,255,.035) 59px 60px);
+    pointer-events:none;
+  }
+  .studio-inner{max-width:1080px;margin:0 auto;position:relative;}
+  .onair{
+    display:inline-flex;align-items:center;gap:9px;
+    border:1px solid rgba(199,62,58,.65); border-radius:4px;
+    padding:5px 14px; font-size:11px; letter-spacing:.28em;
+    color:#F1B3B1; background:rgba(199,62,58,.14); font-weight:700;
+  }
+  .onair .lamp{width:8px;height:8px;border-radius:50%;background:var(--onair);
+    box-shadow:0 0 10px 2px rgba(199,62,58,.7); animation:lamp 2.4s ease-in-out infinite;}
+  @keyframes lamp{0%,100%{opacity:1}50%{opacity:.35}}
+  header.studio h1{
+    margin-top:22px; font-size:clamp(26px,4vw,42px); font-weight:800;
+    letter-spacing:.02em; line-height:1.25;
+  }
+  header.studio h1 .repo{color:var(--dial);}
+  header.studio p.lead{margin-top:14px; max-width:740px; color:#AAB6C6; font-size:14.5px;}
+  .meta-strip{margin-top:26px; display:flex; flex-wrap:wrap; gap:10px 26px; font-size:12.5px; color:#8B98AB;}
+  .meta-strip b{color:#D7DFEA; font-weight:600;}
+  /* ---------- layout ---------- */
+  .frame{max-width:1080px; margin:0 auto; padding:0 28px 90px; display:grid;
+    grid-template-columns:220px minmax(0,1fr); gap:44px;}
+  @media(max-width:880px){ .frame{grid-template-columns:1fr;} nav.dial{position:static; max-height:none; border-left:none; border-bottom:1px solid var(--line); padding-bottom:18px;} }
+  nav.dial{
+    position:sticky; top:0; align-self:start; max-height:100vh; overflow:auto;
+    padding:34px 0 34px; font-size:13px;
+  }
+  nav.dial .dial-title{font-size:11px; letter-spacing:.24em; color:var(--ink-soft); font-weight:700; margin-bottom:14px;}
+  nav.dial a{
+    display:flex; align-items:baseline; gap:10px; color:var(--ink-soft);
+    text-decoration:none; padding:6px 8px 6px 0; border-left:2px solid transparent; padding-left:10px;
+  }
+  nav.dial a:hover{color:var(--ink); border-left-color:var(--dial);}
+  nav.dial a .freq{font-family:var(--mono); font-size:11px; color:var(--dial); min-width:38px; font-weight:600;}
+  main{padding-top:34px; min-width:0;}
+  section{margin-bottom:70px;}
+  .ch{
+    display:flex; align-items:baseline; gap:14px; border-bottom:2px solid var(--ink); padding-bottom:10px; margin-bottom:22px;
+  }
+  .ch .freq{
+    font-family:var(--mono); font-weight:700; color:var(--dial); font-size:15px;
+    background:var(--night); padding:3px 9px; border-radius:4px; letter-spacing:.04em;
+  }
+  .ch h2{font-size:23px; font-weight:800; letter-spacing:.01em;}
+  h3{font-size:17px; font-weight:700; margin:30px 0 12px; padding-left:11px; border-left:4px solid var(--wave);}
+  h4{font-size:14.5px; font-weight:700; margin:20px 0 8px; color:var(--ink);}
+  p{margin-bottom:13px;}
+  p.note{font-size:13px; color:var(--ink-soft); background:#E9EDF1; border-left:3px solid var(--dial); padding:10px 14px; border-radius:0 6px 6px 0;}
+  p.warn{font-size:13px; color:#6B1E1B; background:#FBEFEF; border-left:3px solid var(--onair); padding:10px 14px; border-radius:0 6px 6px 0;}
+  code{font-family:var(--mono); font-size:.88em; background:#E4E9EE; padding:1px 6px; border-radius:4px; color:#243246;}
+  pre{
+    font-family:var(--mono); font-size:12.5px; line-height:1.7; background:var(--night); color:#D8E2EE;
+    padding:16px 18px; border-radius:8px; overflow-x:auto; margin:14px 0 18px;
+  }
+  pre code{background:none; color:inherit; padding:0;}
+  table{width:100%; border-collapse:collapse; margin:14px 0 20px; font-size:13.5px; background:var(--panel);}
+  th{background:var(--night); color:#E2E9F2; text-align:left; padding:9px 12px; font-weight:600; font-size:12.5px; letter-spacing:.03em;}
+  td{padding:8px 12px; border-bottom:1px solid var(--line); vertical-align:top;}
+  tr:nth-child(even) td{background:#F7F9FB;}
+  td code{white-space:nowrap;}
+  .fig{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:18px 18px 10px; margin:18px 0 22px; overflow-x:auto;
+  }
+  .fig figcaption{
+    font-size:12px; color:var(--ink-soft); margin-top:8px; padding-top:8px;
+    border-top:1px dashed var(--line);
+  }
+  .fig figcaption b{color:var(--ink); font-family:var(--mono); font-size:11px;}
+  ul,ol{margin:0 0 14px 24px;}
+  li{margin-bottom:5px;}
+  .pill{display:inline-block; font-size:11px; font-weight:700; padding:1px 9px; border-radius:99px; letter-spacing:.04em; vertical-align:1px;}
+  .pill.step{background:#E4E2F4; color:var(--purple);}
+  .pill.ok{background:#DDEBE6; color:#1F6E50;}
+  .pill.warn{background:#F6E3E2; color:var(--onair);}
+  .pill.info{background:#E3EEF6; color:#1D5FA0;}
+  /* MC cards */
+  .mc-grid{display:grid; grid-template-columns:1fr 1fr; gap:20px; margin:18px 0;}
+  @media(max-width:640px){.mc-grid{grid-template-columns:1fr;}}
+  .mc-card{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px 20px;}
+  .mc-card.male{border-top:4px solid #2563EB;}
+  .mc-card.female{border-top:4px solid #C026D3;}
+  .mc-card h4{margin:0 0 8px; font-size:15px;}
+  .mc-card .role{font-size:11px; font-weight:700; letter-spacing:.1em; color:var(--ink-soft); margin-bottom:10px;}
+  .mc-card ul{margin-left:18px; font-size:13.5px;}
+  /* rule badges */
+  .rule-badge{
+    display:inline-block; font-family:var(--mono); font-size:11px; font-weight:700;
+    padding:1px 8px; border-radius:4px; margin-right:6px; vertical-align:1px;
+  }
+  .rule-badge.error{background:#F6E3E2; color:var(--onair);}
+  .rule-badge.warn{background:#FEF3E2; color:#92400E;}
+  /* director cards */
+  .dir-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:16px; margin:18px 0;}
+  .dir-card{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px;}
+  .dir-card .dir-name{font-weight:700; margin-bottom:6px; font-size:14px;}
+  .dir-card p{font-size:12.5px; color:var(--ink-soft); margin:0;}
+  footer{max-width:1080px; margin:0 auto; padding:26px 28px 50px; font-size:12px; color:var(--ink-soft); border-top:1px solid var(--line);}
+</style>
+</head>
+<body>
+
+<header class="studio">
+  <div class="studio-inner">
+    <span class="onair"><span class="lamp"></span>ON AIR &mdash; SCRIPT GENERATION DETAIL</span>
+    <h1><span class="repo">mynews-radio</span><br>台本生成 詳細ドキュメント</h1>
+    <p class="lead">ニュース要約から男女2人MCによるラジオ台本（<code>script.json</code>）が生成されるまでの全工程を解説します。Narrative Arc 設計・台本執筆・Auto-Lint・5ディレクターレビューの4フェーズを中心に、プロンプト設計・データモデル・品質ゲートを詳述します。</p>
+    <div class="meta-strip">
+      <span>リポジトリ: <b>takpanda/mynews-radio</b></span>
+      <span>対象ブランチ: <b>main</b></span>
+      <span>最終更新: <b>2026-06-30</b></span>
+      <span>対象ファイル: <b>batch/generate_script.py / review_script.py</b></span>
+    </div>
+  </div>
+</header>
+
+<div class="frame">
+<nav class="dial" aria-label="目次">
+  <div class="dial-title">CHANNEL GUIDE</div>
+  <a href="#overview"><span class="freq">76.1</span>台本生成の全体像</a>
+  <a href="#arc"><span class="freq">78.0</span>Step 1: Narrative Arc</a>
+  <a href="#writer"><span class="freq">80.0</span>Step 2: 台本執筆（Writer）</a>
+  <a href="#transition"><span class="freq">82.5</span>自動トランジション挿入</a>
+  <a href="#lint"><span class="freq">84.7</span>Auto-Lint &amp; 再生成</a>
+  <a href="#mc"><span class="freq">86.0</span>MCキャラクター設定</a>
+  <a href="#sections"><span class="freq">87.5</span>セクション構成ルール</a>
+  <a href="#review"><span class="freq">88.1</span>5ディレクターレビュー</a>
+  <a href="#datamodel"><span class="freq">89.7</span>script.json データモデル</a>
+  <a href="#prompts"><span class="freq">91.6</span>プロンプト設計</a>
+  <a href="#env"><span class="freq">93.0</span>環境変数・設定</a>
+  <a href="#files"><span class="freq">95.4</span>ファイル参照</a>
+</nav>
+
+<main>
+
+<!-- ===== 76.1: 台本生成の全体像 ===== -->
+<section id="overview">
+  <div class="ch"><span class="freq">76.1</span><h2>台本生成の全体像</h2></div>
+  <p><code>generate_script.py</code> は、記事要約 DB から取得したニュースをもとに、2フェーズで台本 JSON（<code>script.json</code>）を生成します。その後 <code>review_script.py</code> が5ディレクターによるLLMレビューと改訂を行います。</p>
+
+  <figure class="fig">
+  <svg viewBox="0 0 960 540" xmlns="http://www.w3.org/2000/svg" font-family="'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif" font-size="12" role="img" aria-label="台本生成全体フロー">
+    <defs>
+      <marker id="a0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#1B2330"/>
+      </marker>
+      <marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#4A3FA0"/>
+      </marker>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#C73E3A"/>
+      </marker>
+    </defs>
+
+    <!-- DB Input -->
+    <rect x="30" y="30" width="220" height="80" rx="9" fill="#FFF9EC" stroke="#D9A441" stroke-width="2"/>
+    <text x="140" y="58" text-anchor="middle" font-weight="bold">articles テーブル</text>
+    <text x="140" y="78" text-anchor="middle" font-size="11" fill="#4A5568">status='summarized'</text>
+    <text x="140" y="96" text-anchor="middle" font-size="11" fill="#4A5568">importance_score ≥ MIN_IMPORTANCE_SCORE</text>
+
+    <!-- generate_script.py -->
+    <rect x="300" y="20" width="400" height="390" rx="12" fill="#EDF1F5" stroke="#8B98AB" stroke-dasharray="6 4"/>
+    <text x="320" y="46" font-size="11" fill="#4A5568" font-weight="bold" letter-spacing="2">generate_script.py</text>
+
+    <!-- Step 1: Arc -->
+    <rect x="320" y="60" width="360" height="80" rx="9" fill="#FFFFFF" stroke="#4A3FA0" stroke-width="2"/>
+    <text x="500" y="85" text-anchor="middle" font-weight="bold" fill="#4A3FA0">Step 1 / 2 ── Narrative Arc 生成（Architect）</text>
+    <text x="500" y="106" text-anchor="middle" font-size="11" fill="#4A5568">generate_narrative_arc.md プロンプト → Ollama</text>
+    <text x="500" y="123" text-anchor="middle" font-size="11" fill="#4A5568">テーマ・記事順序・橋渡し・discussion 記事を決定</text>
+
+    <!-- Step 2: Writer -->
+    <rect x="320" y="168" width="360" height="130" rx="9" fill="#FFFFFF" stroke="#1B2330" stroke-width="2"/>
+    <text x="500" y="193" text-anchor="middle" font-weight="bold">Step 2 / 2 ── 台本執筆（Writer）ループ</text>
+    <text x="500" y="213" text-anchor="middle" font-size="11" fill="#4A5568">generate_radio_script.md プロンプト → Ollama</text>
+    <text x="500" y="233" text-anchor="middle" font-size="11" fill="#4A5568">intro / news / discussion / outro 生成</text>
+    <text x="500" y="253" text-anchor="middle" font-size="11" fill="#C73E3A">Auto-Lint 不合格 → 修正プロンプトで再生成（最大3回）</text>
+    <text x="500" y="273" text-anchor="middle" font-size="11" fill="#4A5568">lint 合格 or 最終試行でループ脱出</text>
+
+    <!-- _ensure_transitions -->
+    <rect x="320" y="316" width="360" height="60" rx="9" fill="#FFFFFF" stroke="#2E7D7B" stroke-width="2"/>
+    <text x="500" y="341" text-anchor="middle" font-weight="bold" fill="#2E7D7B">後処理: _ensure_transitions()</text>
+    <text x="500" y="360" text-anchor="middle" font-size="11" fill="#4A5568">記事境界に transition 行・話者を自動補完</text>
+
+    <!-- script.json output -->
+    <rect x="760" y="150" width="175" height="80" rx="9" fill="#FFFFFF" stroke="#1F6E50" stroke-width="2"/>
+    <text x="848" y="178" text-anchor="middle" font-weight="bold" fill="#1F6E50">script.json</text>
+    <text x="848" y="198" text-anchor="middle" font-size="11" fill="#4A5568">title / subtitle / lines[]</text>
+    <text x="848" y="214" text-anchor="middle" font-size="11" fill="#4A5568">episodes/&lt;id&gt;/ に出力</text>
+
+    <!-- review_script.py -->
+    <rect x="760" y="280" width="175" height="130" rx="9" fill="#F2EFFA" stroke="#4A3FA0" stroke-width="2" stroke-dasharray="5 3"/>
+    <text x="848" y="305" text-anchor="middle" font-weight="bold" fill="#4A3FA0">review_script.py</text>
+    <text x="848" y="325" text-anchor="middle" font-size="11" fill="#4A5568">5ディレクター</text>
+    <text x="848" y="341" text-anchor="middle" font-size="11" fill="#4A5568">LLM レビュー</text>
+    <text x="848" y="358" text-anchor="middle" font-size="11" fill="#4A5568">→ review_synthesize</text>
+    <text x="848" y="375" text-anchor="middle" font-size="11" fill="#4A5568">→ 改訂 script.json</text>
+    <text x="848" y="395" text-anchor="middle" font-size="10.5" fill="#C73E3A" font-weight="bold">非致命的</text>
+
+    <!-- arrows -->
+    <line x1="250" y1="70" x2="318" y2="90" stroke="#D9A441" stroke-width="1.8" marker-end="url(#a0)"/>
+    <text x="255" y="62" font-size="10.5" fill="#4A5568">summaries 一覧</text>
+    <line x1="500" y1="140" x2="500" y2="166" stroke="#1B2330" stroke-width="1.6" marker-end="url(#a0)"/>
+    <text x="508" y="158" font-size="10.5" fill="#4A5568">記事順序 + テーマ</text>
+    <line x1="500" y1="298" x2="500" y2="314" stroke="#1B2330" stroke-width="1.6" marker-end="url(#a0)"/>
+    <line x1="680" y1="340" x2="758" y2="195" stroke="#1F6E50" stroke-width="1.8" marker-end="url(#a0)"/>
+    <text x="700" y="290" font-size="10.5" fill="#1F6E50">出力</text>
+    <line x1="848" y1="230" x2="848" y2="278" stroke="#4A3FA0" stroke-width="1.6" marker-end="url(#ap)"/>
+    <text x="856" y="260" font-size="10.5" fill="#4A5568">入力</text>
+  </svg>
+  <figcaption><b>図1</b>　台本生成フロー。generate_script.py が2フェーズで script.json を生成し、その後 review_script.py（非致命的）が5ディレクターによる改訂版を別エピソードとして生成する。</figcaption>
+  </figure>
+
+  <h3>エントリポイント</h3>
+  <pre><code>def generate_script(output_path: str, program_name: str = "ニュースのとなり", news_source: str | None = None) -> int</code></pre>
+  <table>
+    <tr><th>引数</th><th>型</th><th>説明</th></tr>
+    <tr><td><code>output_path</code></td><td>str</td><td><code>script.json</code> の書き出しパス（例: <code>data/episodes/42/script.json</code>）</td></tr>
+    <tr><td><code>program_name</code></td><td>str</td><td>番組名。既定値 "ニュースのとなり"。<code>news_source="hatena_bookmark"</code> 時は "テックニュース" を渡す</td></tr>
+    <tr><td><code>news_source</code></td><td>str | None</td><td>記事絞り込み用ソース指定。<code>None</code> で全ソース対象</td></tr>
+  </table>
+  <p><strong>戻り値</strong>: 生成された台本行数（<code>int</code>）。0 の場合は失敗としてパイプラインを中断。</p>
+
+  <h3>使用する Ollama 呼び出し回数</h3>
+  <table>
+    <tr><th>フェーズ</th><th>呼び出し数</th><th>備考</th></tr>
+    <tr><td>Narrative Arc 生成</td><td>1回</td><td>失敗時はスキップし Arc なしで続行</td></tr>
+    <tr><td>台本生成（Writer）</td><td>1〜3回</td><td>Auto-Lint 合格まで再生成。<code>SCRIPT_LINT_RETRIES</code> 環境変数で最大試行数を制御（既定3）</td></tr>
+    <tr><td>5ディレクターレビュー（review_script.py）</td><td>5 + 1 = 6回</td><td>ディレクター4名 + radio + synthesis の計6回</td></tr>
+  </table>
+  <p class="note">1エピソード生成あたり、最小2回・最大9回の Ollama 呼び出しが発生します。モデルのレスポンスタイムによりますが、標準的な構成では合計5〜15分程度を要します。</p>
+</section>
+
+<!-- ===== 78.0: Narrative Arc ===== -->
+<section id="arc">
+  <div class="ch"><span class="freq">78.0</span><h2>Step 1: Narrative Arc 生成（Architect）</h2></div>
+  <p>台本を書く前に、まずプロデューサー役の LLM がエピソード全体のストーリー構造（Narrative Arc）を設計します。これにより、複数記事をバラバラに並べるのではなく、<strong>共通テーマで貫かれた一本の物語</strong>として番組を構成できます。</p>
+
+  <h3>処理フロー</h3>
+  <ol>
+    <li>DB から取得した要約一覧（JSON）を <code>generate_narrative_arc.md</code> プロンプトへ埋め込む</li>
+    <li>Ollama を呼び出し、Arc JSON を取得する</li>
+    <li>Arc の <code>article_order</code> に従って要約一覧を並び替え（<code>_reorder_summaries()</code>）</li>
+    <li>Arc 情報をプロンプトへ注入するセクション文字列（<code>_build_narrative_arc_section()</code>）を生成し、台本生成ステップへ渡す</li>
+  </ol>
+  <p class="note">Arc 生成が失敗した場合（Ollama がタイムアウト、または <code>article_order</code> が無効な場合）は、Arc なしで続行します。この場合、記事は元の重要度順で台本に渡されます。</p>
+
+  <h3>Arc JSON の出力フォーマット</h3>
+  <pre><code>{
+  "theme": "エピソードを貫く共通テーマ（20〜40文字）",
+  "theme_description": "テーマの補足説明（60〜100文字）。台本ライターへの具体的な指示",
+  "article_order": [3, 1, 5, 2, 4],          // 記事IDの並び替え後の順序
+  "bridges": [
+    {
+      "from_article_id": 3,
+      "to_article_id": 1,
+      "bridge_text": "この2記事を繋ぐ文脈・対比・共通点（30〜60文字）"
+    }
+  ],
+  "discussion_article_id": 1,               // discussion で深掘りする記事ID
+  "discussion_reason": "選んだ理由（40〜80文字）"
+}</code></pre>
+
+  <h3>記事順序設計の原則</h3>
+  <ul>
+    <li><strong>起承転結</strong> を意識し、中程度のインパクトのニュースで掴み始める</li>
+    <li>最重要トピックは冒頭に使い切らず、<strong>中盤以降</strong>に配置する</li>
+    <li><code>discussion_article_id</code> の記事は最後から2番目の news として配置し、discussion セクションへ自然に繋げる</li>
+    <li>複数記事に共通する「緊張・対比・連鎖」（例: "便利さ vs. リスク"）をテーマとして発見する</li>
+  </ul>
+
+  <h3>Bridge（橋渡し）の活用</h3>
+  <p>Arc の <code>bridges</code> は、記事間を繋ぐ文脈情報です。<code>_ensure_transitions()</code> がこの情報を参照し、通常の transition フレーズ（「続いては〜」）の代わりに <strong>Contextual Bridge transition</strong>（「{bridge_text}。さて、{topic}の話題です。」）を生成します。Arc なし・Bridge なしの場合は通常フレーズに fallback します。</p>
+
+  <figure class="fig">
+  <svg viewBox="0 0 900 200" xmlns="http://www.w3.org/2000/svg" font-family="'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif" font-size="12" role="img" aria-label="Narrative Arcの記事順序と橋渡し">
+    <defs>
+      <marker id="br" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#4A3FA0"/>
+      </marker>
+    </defs>
+    <!-- articles -->
+    <rect x="30" y="60" width="120" height="50" rx="7" fill="#FFFFFF" stroke="#D8DEE6" stroke-width="1.5"/>
+    <text x="90" y="82" text-anchor="middle" font-size="11" font-weight="bold">記事 #3</text>
+    <text x="90" y="99" text-anchor="middle" font-size="10.5" fill="#4A5568">AI規制</text>
+
+    <rect x="210" y="60" width="120" height="50" rx="7" fill="#FFFFFF" stroke="#D8DEE6" stroke-width="1.5"/>
+    <text x="270" y="82" text-anchor="middle" font-size="11" font-weight="bold">記事 #1</text>
+    <text x="270" y="99" text-anchor="middle" font-size="10.5" fill="#4A5568">LLM新機能</text>
+
+    <rect x="390" y="60" width="120" height="50" rx="7" fill="#FFFFFF" stroke="#D8DEE6" stroke-width="1.5"/>
+    <text x="450" y="82" text-anchor="middle" font-size="11" font-weight="bold">記事 #5</text>
+    <text x="450" y="99" text-anchor="middle" font-size="10.5" fill="#4A5568">情報セキュリティ</text>
+
+    <rect x="570" y="60" width="120" height="50" rx="7" fill="#EEF2FF" stroke="#4A3FA0" stroke-width="2"/>
+    <text x="630" y="82" text-anchor="middle" font-size="11" font-weight="bold" fill="#4A3FA0">記事 #2</text>
+    <text x="630" y="99" text-anchor="middle" font-size="10.5" fill="#4A5568">※ discussion</text>
+
+    <rect x="750" y="60" width="120" height="50" rx="7" fill="#FFFFFF" stroke="#D8DEE6" stroke-width="1.5"/>
+    <text x="810" y="82" text-anchor="middle" font-size="11" font-weight="bold">記事 #4</text>
+    <text x="810" y="99" text-anchor="middle" font-size="10.5" fill="#4A5568">経済指標</text>
+
+    <!-- bridges -->
+    <line x1="150" y1="85" x2="208" y2="85" stroke="#4A3FA0" stroke-width="1.6" marker-end="url(#br)"/>
+    <text x="179" y="72" text-anchor="middle" font-size="10" fill="#4A3FA0">Bridge</text>
+
+    <line x1="330" y1="85" x2="388" y2="85" stroke="#4A3FA0" stroke-width="1.6" marker-end="url(#br)"/>
+    <text x="359" y="72" text-anchor="middle" font-size="10" fill="#4A3FA0">Bridge</text>
+
+    <line x1="510" y1="85" x2="568" y2="85" stroke="#4A3FA0" stroke-width="1.6" marker-end="url(#br)"/>
+    <text x="539" y="72" text-anchor="middle" font-size="10" fill="#4A3FA0">Bridge</text>
+
+    <line x1="690" y1="85" x2="748" y2="85" stroke="#D8DEE6" stroke-width="1.6" marker-end="url(#br)"/>
+
+    <!-- theme label -->
+    <rect x="30" y="140" width="840" height="40" rx="7" fill="#EEF2FF" stroke="#4A3FA0" stroke-width="1"/>
+    <text x="450" y="156" text-anchor="middle" font-size="11" fill="#4A3FA0" font-weight="bold">共通テーマ: 「AI の加速と制度・人々の不安が交差する週」</text>
+    <text x="450" y="172" text-anchor="middle" font-size="10.5" fill="#4A5568">各記事の共通軸を意識した台本執筆を台本Writerに指示</text>
+  </svg>
+  <figcaption><b>図2</b>　Narrative Arc が設計する記事順序と橋渡し。discussion 対象記事（紫枠）は最後から2番目の news として配置される。</figcaption>
+  </figure>
+</section>
+
+<!-- ===== 80.0: Writer ===== -->
+<section id="writer">
+  <div class="ch"><span class="freq">80.0</span><h2>Step 2: 台本執筆（Writer）</h2></div>
+  <p>Narrative Arc の情報を注入したプロンプトを使い、Ollama に台本 JSON を生成させます。Auto-Lint が合格するまで最大3回再生成します。</p>
+
+  <h3>台本生成のメインループ</h3>
+  <pre><code>_MAX_LINT_RETRIES = int(os.getenv("SCRIPT_LINT_RETRIES", "3"))
+current_prompt = base_prompt                 # Arc 注入済みプロンプト
+
+for lint_attempt in range(1, _MAX_LINT_RETRIES + 1):
+    response = client.generate_json(current_prompt)
+    if response is None or not list型:
+        break                                # 致命的失敗
+
+    lint_errors = lint_script(response["lines"], ...)
+    if not lint_errors:
+        break                                # ✅ 合格
+
+    if lint_attempt < _MAX_LINT_RETRIES:
+        current_prompt = _build_correction_prompt(base_prompt, response["lines"], lint_errors)
+    # 最終試行で失敗してもそのまま使用（最善の結果を保持）</code></pre>
+
+  <h3>生成後の後処理</h3>
+  <ol>
+    <li><strong>フィールド正規化</strong>: <code>speaker</code> を "male"/"female" に強制、<code>section</code> を有効値に強制、<code>text</code> の前後空白を除去</li>
+    <li><strong>プレースホルダー除去</strong>: 〔...〕形式（全角ブラケット）を正規表現で削除</li>
+    <li><strong>transition 補完</strong>: <code>_ensure_transitions()</code> を実行（後述）</li>
+    <li><strong>ファイル書き出し</strong>: <code>Path.write_text()</code> で UTF-8 JSON を書き出し</li>
+    <li><strong>記事 "used" マーク</strong>: 採用した記事を <code>article_service.mark_articles_used()</code> で次回から除外</li>
+  </ol>
+
+  <h3>Ollama クライアント設定</h3>
+  <table>
+    <tr><th>設定項目</th><th>値</th><th>説明</th></tr>
+    <tr><td>エンドポイント</td><td><code>POST /api/generate</code></td><td>Ollama の生成 API</td></tr>
+    <tr><td>format</td><td><code>"json"</code></td><td>Ollama に JSON モードを指示（structured output）</td></tr>
+    <tr><td>stream</td><td><code>false</code></td><td>ストリーミング無効（完全レスポンス待ち）</td></tr>
+    <tr><td>HTTP タイムアウト</td><td>120 秒</td><td>大規模な台本生成に対応した長めのタイムアウト</td></tr>
+    <tr><td>max_retries</td><td>2</td><td>通信失敗時のリトライ数（計3回試行）</td></tr>
+    <tr><td>JSON パース</td><td>直接 → 抽出 の2段階</td><td>まず <code>json.loads()</code>、失敗したら <code>{...}</code> 部分抽出を試みる</td></tr>
+  </table>
+  <p class="note">reasoning モデル（thinking フィールドを持つモデル）に対しては、<code>data["response"]</code> が空の場合に <code>data["thinking"]</code> へ fallback します。</p>
+</section>
+
+<!-- ===== 82.5: transition ===== -->
+<section id="transition">
+  <div class="ch"><span class="freq">82.5</span><h2>自動トランジション挿入（_ensure_transitions）</h2></div>
+  <p><code>_ensure_transitions(lines, summaries, arc)</code> は、LLM が生成した <code>lines</code> を後処理し、<strong>記事 ID の切り替わり境界</strong>に必ず transition 行が存在することを保証します。</p>
+
+  <h3>処理ロジック</h3>
+  <figure class="fig">
+  <svg viewBox="0 0 900 440" xmlns="http://www.w3.org/2000/svg" font-family="'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif" font-size="12" role="img" aria-label="ensure_transitions処理フロー">
+    <defs>
+      <marker id="et" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#1B2330"/>
+      </marker>
+    </defs>
+    <rect x="30" y="20" width="840" height="60" rx="8" fill="#FFFFFF" stroke="#D8DEE6" stroke-width="1.5"/>
+    <text x="450" y="46" text-anchor="middle" font-weight="bold">各 line を順にスキャン</text>
+    <text x="450" y="64" text-anchor="middle" font-size="11" fill="#4A5568">section: news / discussion の行で処理発動。intro / outro / transition はそのまま通過</text>
+
+    <!-- decision 1 -->
+    <polygon points="450,110 550,140 450,170 350,140" fill="#FFF9EC" stroke="#D9A441" stroke-width="1.5"/>
+    <text x="450" y="136" text-anchor="middle" font-size="11">直前が transition 行?</text>
+    <text x="450" y="153" text-anchor="middle" font-size="10.5" fill="#4A5568">(result[-1].section == "transition")</text>
+    <line x1="450" y1="80" x2="450" y2="108" stroke="#1B2330" stroke-width="1.5" marker-end="url(#et)"/>
+
+    <!-- YES branch: check article_id match -->
+    <text x="570" y="133" font-size="10.5" fill="#1F6E50">YES</text>
+    <line x1="550" y1="140" x2="720" y2="140" stroke="#1B2330" stroke-width="1.5" marker-end="url(#et)"/>
+    <rect x="720" y="110" width="160" height="60" rx="7" fill="#DDEBE6" stroke="#1F6E50" stroke-width="1.5"/>
+    <text x="800" y="136" text-anchor="middle" font-size="11">LLM transition の</text>
+    <text x="800" y="153" text-anchor="middle" font-size="11">article_id を検証</text>
+
+    <!-- NO branch: check article_id change -->
+    <text x="378" y="133" font-size="10.5" fill="#C73E3A">NO</text>
+    <line x1="450" y1="170" x2="450" y2="210" stroke="#1B2330" stroke-width="1.5" marker-end="url(#et)"/>
+
+    <polygon points="450,210 560,240 450,270 340,240" fill="#FFF9EC" stroke="#D9A441" stroke-width="1.5"/>
+    <text x="450" y="237" text-anchor="middle" font-size="11">article_id が変わった?</text>
+    <text x="450" y="254" text-anchor="middle" font-size="10.5" fill="#4A5568">(article_id != last_content_aid)</text>
+
+    <!-- NO2 -->
+    <text x="290" y="233" font-size="10.5" fill="#1F6E50">NO</text>
+    <line x1="340" y1="240" x2="200" y2="240" stroke="#1B2330" stroke-width="1.5" marker-end="url(#et)"/>
+    <rect x="30" y="210" width="170" height="60" rx="7" fill="#DDEBE6" stroke="#1F6E50" stroke-width="1.5"/>
+    <text x="115" y="236" text-anchor="middle" font-size="11">そのまま result に</text>
+    <text x="115" y="253" text-anchor="middle" font-size="11">append</text>
+
+    <!-- YES2 branch: insert transition -->
+    <text x="562" y="233" font-size="10.5" fill="#C73E3A">YES</text>
+    <line x1="560" y1="240" x2="680" y2="240" stroke="#1B2330" stroke-width="1.5" marker-end="url(#et)"/>
+    <rect x="680" y="210" width="200" height="80" rx="7" fill="#F6E3E2" stroke="#C73E3A" stroke-width="1.5"/>
+    <text x="780" y="234" text-anchor="middle" font-size="11" fill="#C73E3A" font-weight="bold">transition 行を生成・挿入</text>
+    <text x="780" y="252" text-anchor="middle" font-size="10.5" fill="#4A5568">Bridge あり → Contextual</text>
+    <text x="780" y="268" text-anchor="middle" font-size="10.5" fill="#4A5568">Bridge なし → 通常フレーズ</text>
+    <text x="780" y="284" text-anchor="middle" font-size="10.5" fill="#4A5568">_pick_speaker() で話者決定</text>
+
+    <!-- phrase pool -->
+    <rect x="30" y="340" width="840" height="80" rx="8" fill="#F7F9FB" stroke="#D8DEE6"/>
+    <text x="450" y="365" text-anchor="middle" font-weight="bold">transition フレーズプール（30種）</text>
+    <text x="450" y="385" text-anchor="middle" font-size="11" fill="#4A5568">通常: 「続いては{topic}のニュースです。」「さて、{topic}の話題はどうでしょうか。」など30種</text>
+    <text x="450" y="403" text-anchor="middle" font-size="11" fill="#4A5568">Bridge付き: 「{bridge} さて、{topic}の話題です。」など6種 ／ discussion遷移: 7種</text>
+  </svg>
+  <figcaption><b>図3</b>　<code>_ensure_transitions()</code> の処理ロジック。LLM が出力した transition 行の article_id が不正な場合はプログラム側の transition に置き換える。</figcaption>
+  </figure>
+
+  <h3>話者選択ロジック（_pick_speaker）</h3>
+  <p>トランジション行の話者は <code>_pick_speaker(result, section)</code> が以下のルールで決定します：</p>
+  <ol>
+    <li>直前の news/discussion 行（最大3件）の話者パターンを取得</li>
+    <li>同一話者が2連続以上 → 強制的に相手話者</li>
+    <li>直近3行でバランスが2:1以上に偏っている → 少数側の話者</li>
+    <li>それ以外 → 直前コンテンツ行と交互（alternate）</li>
+  </ol>
+
+  <h3>フレーズ重複回避（_pick_phrase）</h3>
+  <p>30種のフレーズから乱択しますが、<strong>直前に使ったフレーズと同一のものを避ける</strong>ため、<code>used_indices</code> 辞書で最後に選んだインデックスを管理します。フレーズが1種しかない場合は重複回避を無効化します。</p>
+</section>
+
+<!-- ===== 84.7: Auto-Lint ===== -->
+<section id="lint">
+  <div class="ch"><span class="freq">84.7</span><h2>Auto-Lint &amp; 再生成ループ</h2></div>
+  <p><code>lint_script(lines, program_name, bridges)</code> は生成された台本に対して品質チェックを実行し、問題点のリストを返します。空リストを返せば合格です。合格するまで最大3回再生成します（<code>SCRIPT_LINT_RETRIES</code>）。</p>
+
+  <h3>Lint ルール一覧</h3>
+  <table>
+    <tr><th>ルールID</th><th>種別</th><th>チェック内容</th><th>合格条件</th></tr>
+    <tr>
+      <td><span class="rule-badge error">INTRO_FORMAT</span></td>
+      <td><span class="pill warn">ERROR</span></td>
+      <td>intro 最初の行が番組名で始まるか</td>
+      <td><code>「{番組名}」の時間です</code> で始まること</td>
+    </tr>
+    <tr>
+      <td><span class="rule-badge error">INTRO_FORMAT</span></td>
+      <td><span class="pill warn">ERROR</span></td>
+      <td>intro セクション自体が存在するか</td>
+      <td>intro 行が1行以上あること</td>
+    </tr>
+    <tr>
+      <td><span class="rule-badge warn">INTRO_LINEUP</span></td>
+      <td><span class="pill info">WARN</span></td>
+      <td>intro にラインアップを示す表現があるか</td>
+      <td>「ラインナップ」「本日」「今日」などキーワードが2個以上</td>
+    </tr>
+    <tr>
+      <td><span class="rule-badge error">OUTRO_LENGTH</span></td>
+      <td><span class="pill warn">ERROR</span></td>
+      <td>outro が十分な行数か</td>
+      <td>outro が2行以上あること</td>
+    </tr>
+    <tr>
+      <td><span class="rule-badge error">TRANS_VARIATION</span></td>
+      <td><span class="pill warn">ERROR</span></td>
+      <td>transition 行の文字列が類似しすぎていないか</td>
+      <td>任意の2行間の Levenshtein 類似度が 0.7 未満（<code>LINT_TRANS_SIMILARITY</code> で変更可）</td>
+    </tr>
+    <tr>
+      <td><span class="rule-badge error">TRANS_CONTEXT</span></td>
+      <td><span class="pill warn">ERROR</span></td>
+      <td>Narrative Arc Bridge 存在時に汎用的すぎる transition を使っていないか</td>
+      <td>「次の話題」「続いては」「次は」「では次」で始まる transition が2個目以降に出現しないこと</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td><span class="pill warn">ERROR</span></td>
+      <td>discussion が全 news の後に配置されているか</td>
+      <td>discussion 最初の行インデックス > news 最後の行インデックス</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td><span class="pill warn">ERROR</span></td>
+      <td>テキストの重複</td>
+      <td>同一テキストが2行以上現れないこと</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td><span class="pill warn">ERROR</span></td>
+      <td>禁止フレーズの存在</td>
+      <td>下表「禁止フレーズ」が1件も検出されないこと</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td><span class="pill warn">ERROR</span></td>
+      <td>数字なし「数字で見ると」系フレーズ</td>
+      <td>「数字で見ると」使用時、同行に数字・数量表現があること</td>
+    </tr>
+    <tr>
+      <td><span class="rule-badge warn">TRUNCATED_TRANS</span></td>
+      <td><span class="pill info">WARN</span></td>
+      <td>transition 行の不完全テキスト</td>
+      <td>「……」連続2個以上の末尾 / 5文字未満の transition を警告</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td><span class="pill warn">ERROR</span></td>
+      <td>記事 ID 参照の混入</td>
+      <td>「記事XX」「（ID: XX）」などの記事ID参照表現がないこと</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td><span class="pill warn">ERROR</span></td>
+      <td>プレースホルダー〔...〕の残存</td>
+      <td>全角ブラケット〔...〕がテキストに残っていないこと</td>
+    </tr>
+  </table>
+
+  <h3>禁止フレーズ（Forbidden Phrases）</h3>
+  <p>以下のフレーズがテキスト中に含まれていると Lint エラーになります（プロンプト内の Forbidden Phrases テーブルと同期）：</p>
+  <table>
+    <tr><th>禁止フレーズ</th><th>理由</th></tr>
+    <tr><td><code>ここで大事なのは、背景ですよね</code> / <code>ここで大事なのは背景ですよね</code></td><td>抽象的な逃げ。具体的な背景事実を述べるべき</td></tr>
+    <tr><td><code>といったところです。</code> / <code>といった内容です。</code></td><td>フィラー。台詞の締まりがなくなる</td></tr>
+    <tr><td><code>一見シンプルに見えますが、実は構造的な問題があります</code></td><td>田村の口癖。使い回しで不自然になる</td></tr>
+    <tr><td><code>これは感情論だけでは片づけられません</code></td><td>田村の口癖。同上</td></tr>
+    <tr><td><code>これ、普通に暮らしている人からするとかなり大きいですよね</code></td><td>山口の口癖。同上</td></tr>
+    <tr><td><code>正直、そこが一番気になります</code></td><td>山口の口癖。同上</td></tr>
+    <tr><td><code>視聴者の方も、ここはモヤっとすると思います</code></td><td>山口の口癖。同上</td></tr>
+  </table>
+  <p class="note">「口癖」として登録されているフレーズは Forbidden Phrases（完全禁止）と二重管理されています。これは、禁止フレーズとして登録されても LLM が出力してしまうケースに対応するためです。</p>
+
+  <h3>修正プロンプト（_build_correction_prompt）</h3>
+  <p>Lint 不合格時は、元のベースプロンプトに以下を追記した<strong>修正指示付きプロンプト</strong>を生成して再生成します：</p>
+  <pre><code># ⚠️ 前回の生成で以下の品質問題が検出されました。これらをすべて修正して再生成してください。
+
+- [INTRO_FORMAT] introの1行目が「ニュースのとなり」の時間です」で始まっていません
+- ...（Lint エラーリスト）
+
+## 前回生成した lines（修正対象）:
+```json
+[ ... ]
+```
+
+上記の問題を修正した完全な台本 JSON を出力してください。</code></pre>
+</section>
+
+<!-- ===== 86.0: MC ===== -->
+<section id="mc">
+  <div class="ch"><span class="freq">86.0</span><h2>MC キャラクター設定</h2></div>
+  <p>番組は2名のMCによる掛け合い形式で進行します。それぞれ明確な役割分担があり、プロンプトで厳密に定義されています。</p>
+
+  <div class="mc-grid">
+    <div class="mc-card male">
+      <div class="role">SPEAKER KEY: "male"</div>
+      <h4>田村 誠（たむら まこと）</h4>
+      <p style="font-size:13px;color:var(--ink-soft);margin-bottom:10px">38歳 / 元新聞記者・ニュースキャスター</p>
+      <ul>
+        <li><strong>担当</strong>: 事実・数字・データの正確な伝達</li>
+        <li><strong>担当</strong>: 技術的な仕組みや構造の説明（平易な言葉で）</li>
+        <li><strong>担当</strong>: 制度・背景・歴史的経緯の解説</li>
+        <li><strong>担当</strong>: 論点の整理と問題の構造化</li>
+        <li><strong>禁止</strong>: 感情・共感・リスナー視点の台詞</li>
+        <li>性格: 落ち着いていて理性的。難しい話を噛み砕く</li>
+        <li>話し方: 短く、歯切れよく。やわらかい言葉で要点</li>
+      </ul>
+    </div>
+    <div class="mc-card female">
+      <div class="role">SPEAKER KEY: "female"</div>
+      <h4>山口 麻衣（やまぐち まい）</h4>
+      <p style="font-size:13px;color:var(--ink-soft);margin-bottom:10px">31歳 / ラジオパーソナリティ・生活情報コメンテーター</p>
+      <ul>
+        <li><strong>担当</strong>: 生活者・消費者の目線で影響を具体化する</li>
+        <li><strong>担当</strong>: リスクや不安を代弁し、リスナーの疑問を言語化</li>
+        <li><strong>担当</strong>: 田村の説明を「つまりこういうことですよね？」と噛み砕く</li>
+        <li><strong>担当</strong>: 生活者視点からの分析・異論・別角度の提起</li>
+        <li><strong>禁止</strong>: 技術構造・制度・データの詳細解説</li>
+        <li>性格: 明るく率直。共感力が高く、疑問をそのまま言葉にする</li>
+        <li>話し方: やわらかく親しみやすい。少しテンポが速い</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>役割分担の鉄則</h3>
+  <ul>
+    <li>田村が説明した内容を山口が<strong>単に別の言い方で繰り返す行は禁止</strong>。必ず視点・情報が追加されていること</li>
+    <li>山口の異論は「技術的事実への反論」ではなく「<strong>生活者視点からの別角度の提示</strong>」であること</li>
+    <li>山口からの問題提起に対して田村が<strong>事実・構造で受け止める相互作用</strong>を許容する</li>
+    <li>田村は「感情論での受答」は禁止。山口は「技術構造の詳細解説」は禁止</li>
+  </ul>
+
+  <h3>口癖管理</h3>
+  <p>各MCには代表的な口癖フレーズが定義されています。<strong>1エピソード内で各フレーズ最大1回まで</strong>（できれば使わないこと）とプロンプトで指示されており、Auto-Lint が2回以上の使用を検出してエラーを返します。</p>
+  <table>
+    <tr><th>MC</th><th>口癖フレーズ</th></tr>
+    <tr><td>田村（male）</td><td>「一見シンプルに見えますが、実は構造的な問題があります」</td></tr>
+    <tr><td>田村（male）</td><td>「これは感情論だけでは片づけられません」</td></tr>
+    <tr><td>山口（female）</td><td>「これ、普通に暮らしている人からするとかなり大きいですよね」</td></tr>
+    <tr><td>山口（female）</td><td>「正直、そこが一番気になります」</td></tr>
+    <tr><td>山口（female）</td><td>「視聴者の方も、ここはモヤっとすると思います」</td></tr>
+  </table>
+</section>
+
+<!-- ===== 87.5: セクション構成 ===== -->
+<section id="sections">
+  <div class="ch"><span class="freq">87.5</span><h2>セクション構成ルール</h2></div>
+  <p>台本の各行は <code>section</code> フィールドによって5種類のセクションに分類されます。セクションの並び順と行数に関する規則があります。</p>
+
+  <h3>セクション一覧</h3>
+  <table>
+    <tr><th>section</th><th>article_id</th><th>行数の目安</th><th>役割・制約</th></tr>
+    <tr>
+      <td><code>intro</code></td>
+      <td>null</td>
+      <td>2〜3行</td>
+      <td>1行目は必ず <code>「{番組名}」の時間です。{独自の一言}</code> で始める。ラインアップ紹介を含むこと</td>
+    </tr>
+    <tr>
+      <td><code>transition</code></td>
+      <td>次の記事の article_id</td>
+      <td>1行</td>
+      <td>話題の切り替えブリッジ。<code>_ensure_transitions()</code> により記事 ID 境界に自動保証。<strong>news 行のテキスト内に埋め込まない</strong></td>
+    </tr>
+    <tr>
+      <td><code>news</code></td>
+      <td>対象記事の article_id</td>
+      <td>記事あたり2〜6行</td>
+      <td>記事の事実概要 → MC 掛け合い → 生活影響・リスク解説。難易度3（技術/セキュリティ/金融）は田村が仕組みを解説し、山口が影響を語る追加ループあり</td>
+    </tr>
+    <tr>
+      <td><code>discussion</code></td>
+      <td>最高重要度記事の article_id</td>
+      <td>4〜8行</td>
+      <td>全 news 紹介後に最高重要度記事を深掘り。<code>discussion_article_id</code>（Narrative Arc 指定）の記事を使用。全 news より後に配置すること（Auto-Lint でチェック）</td>
+    </tr>
+    <tr>
+      <td><code>outro</code></td>
+      <td>null</td>
+      <td>2行以上</td>
+      <td>当日の話題まとめ・締め。最低2行（Auto-Lint: OUTRO_LENGTH）</td>
+    </tr>
+  </table>
+
+  <h3>セクション配置順序</h3>
+  <pre><code>[intro] × 2〜3
+  ↓ transition（記事1へ）
+[news 記事1] × 2〜6
+  ↓ transition（記事2へ）
+[news 記事2] × 2〜6
+  ↓ ...（全記事）
+  ↓ transition（discussion 記事へ）
+[discussion] × 4〜8
+  ↓
+[outro] × 2以上</code></pre>
+
+  <h3>delivery フィールド</h3>
+  <p>各行には任意の <code>delivery</code> フィールドが付与されます。音声合成のパラメーター調整に将来利用できます（現在は記録のみ）。</p>
+  <table>
+    <tr><th>値</th><th>場面</th></tr>
+    <tr><td><code>neutral</code></td><td>通常（既定値）</td></tr>
+    <tr><td><code>emphasis</code></td><td>強調・重要事実</td></tr>
+    <tr><td><code>thoughtful</code></td><td>思慮深い・discussion</td></tr>
+    <tr><td><code>questioning</code></td><td>疑問・問いかけ</td></tr>
+    <tr><td><code>warm</code></td><td>親しみ・outro</td></tr>
+  </table>
+</section>
+
+<!-- ===== 88.1: 5ディレクターレビュー ===== -->
+<section id="review">
+  <div class="ch"><span class="freq">88.1</span><h2>5ディレクターレビュー（review_script.py）</h2></div>
+  <p><code>review_script(source_script_path, output_dir)</code> は、生成済み台本に対して5種類のディレクターキャラクターによるLLMレビューを実施し、その結果を統合した<strong>改訂版 script.json</strong> を生成します。この処理は<strong>非致命的</strong>（失敗してもメインエピソードには影響なし）です。</p>
+
+  <h3>ディレクター 5 名</h3>
+  <div class="dir-grid">
+    <div class="dir-card">
+      <div class="dir-name" style="color:#4A3FA0">天才ディレクター (genius)</div>
+      <p>番組全体の構成・テーマの深さ・MC 間の化学反応を高い視座で評価する</p>
+    </div>
+    <div class="dir-card">
+      <div class="dir-name" style="color:#1D5FA0">初心者ディレクター (beginner)</div>
+      <p>ラジオ初心者目線。分かりにくい表現・専門用語・説明不足を指摘する</p>
+    </div>
+    <div class="dir-card">
+      <div class="dir-name" style="color:#C73E3A">心配性ディレクター (worried)</div>
+      <p>リスク管理視点。放送禁止表現・誤情報・炎上リスクを保守的に評価する</p>
+    </div>
+    <div class="dir-card">
+      <div class="dir-name" style="color:#1F6E50">ポジティブディレクター (positive)</div>
+      <p>良い点を積極的に評価し、改善点より強みを伸ばす提案を行う</p>
+    </div>
+    <div class="dir-card">
+      <div class="dir-name" style="color:#92400E">ラジオ専門ディレクター (radio)</div>
+      <p>ラジオメディアの特性（耳だけ・間・テンポ・口語）に特化した評価を行う</p>
+    </div>
+  </div>
+
+  <h3>処理フロー（2ステップ）</h3>
+  <figure class="fig">
+  <svg viewBox="0 0 900 320" xmlns="http://www.w3.org/2000/svg" font-family="'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif" font-size="12" role="img" aria-label="5ディレクターレビューフロー">
+    <defs>
+      <marker id="rv" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#4A3FA0"/>
+      </marker>
+    </defs>
+    <!-- source -->
+    <rect x="30" y="100" width="120" height="60" rx="7" fill="#FFFFFF" stroke="#D8DEE6" stroke-width="1.5"/>
+    <text x="90" y="127" text-anchor="middle" font-size="11" font-weight="bold">source</text>
+    <text x="90" y="144" text-anchor="middle" font-size="11" fill="#4A5568">script.json</text>
+
+    <!-- step 1 directors -->
+    <rect x="200" y="20" width="160" height="60" rx="7" fill="#F2EFFA" stroke="#4A3FA0" stroke-width="1.5"/>
+    <text x="280" y="46" text-anchor="middle" font-size="11" font-weight="bold" fill="#4A3FA0">genius review</text>
+    <text x="280" y="63" text-anchor="middle" font-size="10.5" fill="#4A5568">overall_score / issues[]</text>
+
+    <rect x="200" y="100" width="160" height="60" rx="7" fill="#E3EEF6" stroke="#1D5FA0" stroke-width="1.5"/>
+    <text x="280" y="126" text-anchor="middle" font-size="11" font-weight="bold" fill="#1D5FA0">beginner review</text>
+    <text x="280" y="143" text-anchor="middle" font-size="10.5" fill="#4A5568">overall_score / issues[]</text>
+
+    <rect x="200" y="180" width="160" height="60" rx="7" fill="#FBEFEF" stroke="#C73E3A" stroke-width="1.5"/>
+    <text x="280" y="206" text-anchor="middle" font-size="11" font-weight="bold" fill="#C73E3A">worried review</text>
+    <text x="280" y="223" text-anchor="middle" font-size="10.5" fill="#4A5568">overall_score / issues[]</text>
+
+    <rect x="200" y="260" width="160" height="50" rx="7" fill="#DDEBE6" stroke="#1F6E50" stroke-width="1.5"/>
+    <text x="280" y="281" text-anchor="middle" font-size="11" font-weight="bold" fill="#1F6E50">positive review</text>
+
+    <!-- ... and radio -->
+    <text x="280" y="320" text-anchor="middle" font-size="11" fill="#4A5568">+ radio review</text>
+
+    <!-- arrows source -> directors -->
+    <line x1="150" y1="130" x2="198" y2="50" stroke="#4A3FA0" stroke-width="1.2" marker-end="url(#rv)"/>
+    <line x1="150" y1="130" x2="198" y2="130" stroke="#4A3FA0" stroke-width="1.2" marker-end="url(#rv)"/>
+    <line x1="150" y1="130" x2="198" y2="210" stroke="#4A3FA0" stroke-width="1.2" marker-end="url(#rv)"/>
+    <line x1="150" y1="130" x2="198" y2="285" stroke="#4A3FA0" stroke-width="1.2" marker-end="url(#rv)"/>
+
+    <!-- step 2 synthesis -->
+    <rect x="430" y="100" width="180" height="80" rx="7" fill="#F2EFFA" stroke="#4A3FA0" stroke-width="2"/>
+    <text x="520" y="126" text-anchor="middle" font-size="11" font-weight="bold" fill="#4A3FA0">review_synthesize.md</text>
+    <text x="520" y="146" text-anchor="middle" font-size="11" fill="#4A5568">5つのレビューを統合</text>
+    <text x="520" y="162" text-anchor="middle" font-size="11" fill="#4A5568">→ 改訂版 script JSON</text>
+
+    <!-- arrows directors -> synthesis -->
+    <line x1="360" y1="50" x2="428" y2="130" stroke="#4A3FA0" stroke-width="1.2" marker-end="url(#rv)"/>
+    <line x1="360" y1="130" x2="428" y2="140" stroke="#4A3FA0" stroke-width="1.2" marker-end="url(#rv)"/>
+    <line x1="360" y1="210" x2="428" y2="155" stroke="#4A3FA0" stroke-width="1.2" marker-end="url(#rv)"/>
+    <line x1="360" y1="285" x2="428" y2="165" stroke="#4A3FA0" stroke-width="1.2" marker-end="url(#rv)"/>
+
+    <!-- outputs -->
+    <rect x="670" y="80" width="150" height="60" rx="7" fill="#FFFFFF" stroke="#1F6E50" stroke-width="2"/>
+    <text x="745" y="106" text-anchor="middle" font-size="11" font-weight="bold" fill="#1F6E50">script.json</text>
+    <text x="745" y="122" text-anchor="middle" font-size="10.5" fill="#4A5568">改訂版（同ディレクトリ）</text>
+
+    <rect x="670" y="160" width="150" height="60" rx="7" fill="#FFFFFF" stroke="#D8DEE6" stroke-width="1.5"/>
+    <text x="745" y="186" text-anchor="middle" font-size="11" font-weight="bold">review.json</text>
+    <text x="745" y="203" text-anchor="middle" font-size="10.5" fill="#4A5568">全レビュー結果を保存</text>
+
+    <line x1="610" y1="140" x2="668" y2="115" stroke="#4A3FA0" stroke-width="1.5" marker-end="url(#rv)"/>
+    <line x1="610" y1="140" x2="668" y2="185" stroke="#4A3FA0" stroke-width="1.5" marker-end="url(#rv)"/>
+  </svg>
+  <figcaption><b>図4</b>　5ディレクターレビュー処理フロー。Step 1 で各ディレクターが独立してレビューし、Step 2 でその結果を統合して改訂版台本を生成する。</figcaption>
+  </figure>
+
+  <h3>ディレクターレビュー JSON フォーマット（例）</h3>
+  <pre><code>{
+  "overall_score": 7,               // 1〜10点
+  "issues": [
+    {
+      "line_index": 12,
+      "severity": "high",           // high / medium / low
+      "description": "田村が共感的な台詞を言っており役割から逸脱している",
+      "suggestion": "「一般的には〜という構造があります」などに修正"
+    }
+  ],
+  "strengths": ["intro の構成が自然", "transition のバリエーションが豊富"],
+  "summary": "全体的に役割分担が明確で質が高い。いくつか口語表現の硬さが残る"
+}</code></pre>
+
+  <h3>戻り値</h3>
+  <table>
+    <tr><th>キー</th><th>型</th><th>説明</th></tr>
+    <tr><td><code>revised</code></td><td>bool</td><td>改訂版 script.json が書き出されたか</td></tr>
+    <tr><td><code>review_count</code></td><td>int</td><td>成功したディレクターレビューの数（0〜5）</td></tr>
+    <tr><td><code>revision_summary</code></td><td>str</td><td>改訂内容の要約テキスト（LLM 生成）</td></tr>
+    <tr><td><code>lines_count</code></td><td>int</td><td>改訂版 lines の行数（0 なら未生成）</td></tr>
+  </table>
+  <p class="warn">synthesis（統合）が有効な改訂版を返さなかった場合（<code>lines</code> が空、または None）は <code>revised=False</code> で返り、メインエピソードの script.json は上書きされません。</p>
+</section>
+
+<!-- ===== 89.7: データモデル ===== -->
+<section id="datamodel">
+  <div class="ch"><span class="freq">89.7</span><h2>script.json データモデル</h2></div>
+  <p><code>generate_script.py</code> が出力する <code>script.json</code> の完全なスキーマを示します。</p>
+
+  <h3>トップレベル構造</h3>
+  <table>
+    <tr><th>フィールド</th><th>型</th><th>nullable</th><th>説明</th></tr>
+    <tr><td><code>date</code></td><td>string (YYYY-MM-DD)</td><td>No</td><td><code>str(date.today())</code>。<code>BATCH_DATE</code> 環境変数で上書き可</td></tr>
+    <tr><td><code>title</code></td><td>string</td><td>No</td><td>番組名（既定: "ニュースのとなり"）。<code>override_script_title()</code> により日付形式で上書き</td></tr>
+    <tr><td><code>subtitle</code></td><td>string</td><td>No</td><td>15〜25文字。当日のトピックを凝縮した副題</td></tr>
+    <tr><td><code>lines</code></td><td>array of Line</td><td>No</td><td>台本行の配列</td></tr>
+  </table>
+
+  <h3>Line オブジェクト</h3>
+  <table>
+    <tr><th>フィールド</th><th>型</th><th>nullable</th><th>生成タイミング</th><th>説明</th></tr>
+    <tr><td><code>speaker</code></td><td>"male" | "female"</td><td>No</td><td>generate_script</td><td>MC 話者</td></tr>
+    <tr><td><code>text</code></td><td>string</td><td>No</td><td>generate_script</td><td>実際の台詞テキスト（前後空白除去・〔...〕除去済み）</td></tr>
+    <tr><td><code>article_id</code></td><td>int | null</td><td>Yes</td><td>generate_script</td><td>intro/outro は null、news/transition/discussion は対象記事の DB id</td></tr>
+    <tr><td><code>section</code></td><td>enum</td><td>No</td><td>generate_script</td><td>intro / news / transition / discussion / outro</td></tr>
+    <tr><td><code>delivery</code></td><td>string</td><td>No</td><td>generate_script</td><td>neutral / emphasis / thoughtful / questioning / warm（既定: neutral）</td></tr>
+    <tr><td><code>display_text</code></td><td>string</td><td>Yes</td><td>synthesize_voicevox</td><td>合成後に書き戻し。元の text と同一（表示用）</td></tr>
+    <tr><td><code>spoken_text</code></td><td>string</td><td>Yes</td><td>synthesize_voicevox</td><td>合成後に書き戻し。読み置換テーブル適用後のテキスト（TTS に渡したテキスト）</td></tr>
+    <tr><td><code>wav_file</code></td><td>string</td><td>Yes</td><td>synthesize_voicevox</td><td>合成後に書き戻し。対応する WAV ファイルパス（例: <code>lines/003.wav</code>）</td></tr>
+    <tr><td><code>start_time</code></td><td>number</td><td>Yes</td><td>build_episode</td><td>エピソード内の再生開始秒。ジングル長を加味した累積時間</td></tr>
+  </table>
+
+  <h3>完全な出力例</h3>
+  <pre><code>{
+  "date": "2026-06-30",
+  "title": "ニュースのとなり 2026/06/30 #70",
+  "subtitle": "AI規制と生活コスト、技術加速の裏で問われる社会設計",
+  "lines": [
+    {
+      "speaker": "male",
+      "text": "「ニュースのとなり」の時間です。今日も気になるニュースを届けますよ。",
+      "article_id": null,
+      "section": "intro",
+      "delivery": "neutral"
+    },
+    {
+      "speaker": "female",
+      "text": "本日のラインアップは、AI・生活費・セキュリティの3本です。",
+      "article_id": null,
+      "section": "intro",
+      "delivery": "neutral"
+    },
+    {
+      "speaker": "male",
+      "text": "続いてはAI規制のニュースです。",
+      "article_id": 16,
+      "section": "transition",
+      "delivery": "neutral"
+    },
+    {
+      "speaker": "male",
+      "text": "EUのAI規制法が今月から本格施行されました。",
+      "article_id": 16,
+      "section": "news",
+      "delivery": "neutral",
+      "display_text": "EUのAI規制法が今月から本格施行されました。",  // ← 合成後に付与
+      "spoken_text": "EUのAI規制法が今月から本格施行されました。",  // ← 読み置換後
+      "wav_file": "lines/002.wav",                                  // ← 合成後に付与
+      "start_time": 3.24                                            // ← build後に付与
+    }
+    // ...
+  ]
+}</code></pre>
+</section>
+
+<!-- ===== 91.6: プロンプト設計 ===== -->
+<section id="prompts">
+  <div class="ch"><span class="freq">91.6</span><h2>プロンプト設計</h2></div>
+  <p>台本生成に使用するプロンプトは <code>backend/app/prompts/</code> に Markdown ファイルとして管理されます。</p>
+
+  <h3>プロンプトファイル一覧</h3>
+  <table>
+    <tr><th>ファイル</th><th>用途</th><th>使用元</th></tr>
+    <tr><td><code>generate_narrative_arc.md</code></td><td>Narrative Arc（テーマ・記事順序）生成</td><td>generate_script.py (_generate_arc)</td></tr>
+    <tr><td><code>generate_radio_script.md</code></td><td>メイン台本 JSON 生成</td><td>generate_script.py (generate_script)</td></tr>
+    <tr><td><code>review_genius_director.md</code></td><td>天才ディレクターレビュー</td><td>review_script.py</td></tr>
+    <tr><td><code>review_beginner_director.md</code></td><td>初心者ディレクターレビュー</td><td>review_script.py</td></tr>
+    <tr><td><code>review_worried_director.md</code></td><td>心配性ディレクターレビュー</td><td>review_script.py</td></tr>
+    <tr><td><code>review_positive_director.md</code></td><td>ポジティブディレクターレビュー</td><td>review_script.py</td></tr>
+    <tr><td><code>review_radio_director.md</code></td><td>ラジオ専門ディレクターレビュー</td><td>review_script.py</td></tr>
+    <tr><td><code>review_synthesize.md</code></td><td>5レビューを統合して改訂版台本を生成</td><td>review_script.py</td></tr>
+    <tr><td><code>generate_commentary_script.md</code></td><td>単一記事解説台本生成（コメンタリー）</td><td>generate_commentary_script.py</td></tr>
+    <tr><td><code>summarize_article.md</code></td><td>記事要約・カテゴリ・重要度・難易度の付与</td><td>summarize_articles.py</td></tr>
+  </table>
+
+  <h3>generate_radio_script.md の主要指示</h3>
+  <table>
+    <tr><th>指示カテゴリ</th><th>内容</th></tr>
+    <tr><td>出力形式</td><td><strong>JSON のみ</strong>を返すこと（説明文や前置きを禁止）。<code>title / subtitle / lines[]</code> を必ず含むこと</td></tr>
+    <tr><td>narrative_arc_section</td><td>Arc 生成成功時のみ <code>{narrative_arc_section}</code> プレースホルダーに注入される。Arc の記事順・テーマ・Bridge を台本に反映させる指示</td></tr>
+    <tr><td>summaries_json</td><td><code>{summaries_json}</code> プレースホルダーに要約一覧 JSON を埋め込む。各エントリ: id / title / source / url / summary / category / importance_score / difficulty</td></tr>
+    <tr><td>セクション構成</td><td>intro(2-3行) → news×N → discussion(4-8行) → outro(2行以上）の順序を強制</td></tr>
+    <tr><td>記事ID使用禁止</td><td>「（ID: XX）」「記事XX」などの記事ID参照表記を本文内で使わないこと（Auto-Lint でも検出）</td></tr>
+    <tr><td>口語表現</td><td>「〜とされています」「〜と報じられています」などの受動態報道調を禁止し、「〜なんです」「〜ですよ」などの能動態口語に統一</td></tr>
+  </table>
+
+  <h3>generate_narrative_arc.md の主要指示</h3>
+  <table>
+    <tr><th>指示カテゴリ</th><th>内容</th></tr>
+    <tr><td>テーマ発見</td><td>「緊張・対比・連鎖」を探す（例: 便利さ vs. リスク / 技術の加速と制度の遅れ）</td></tr>
+    <tr><td>記事順序設計</td><td>中程度インパクトで掴み始め、最重要は中盤以降。discussion 記事は最後から2番目の news に</td></tr>
+    <tr><td>Bridge 設計</td><td>各記事間の文脈・対比・共通点を30〜60文字で表現</td></tr>
+    <tr><td>出力形式</td><td>JSON のみ。<code>theme / theme_description / article_order / bridges / discussion_article_id / discussion_reason</code></td></tr>
+  </table>
+
+  <h3>プロンプトのテンプレート変数</h3>
+  <table>
+    <tr><th>変数</th><th>使用プロンプト</th><th>内容</th></tr>
+    <tr><td><code>{summaries_json}</code></td><td>generate_radio_script.md, generate_narrative_arc.md</td><td>要約済み記事の JSON 配列。Arc 使用時は Arc の article_order で並び替え済み</td></tr>
+    <tr><td><code>{narrative_arc_section}</code></td><td>generate_radio_script.md</td><td>Arc 情報のプロンプト注入テキスト（Arc なし時は空文字）</td></tr>
+    <tr><td><code>{script_json}</code></td><td>review_*.md（ディレクター系）</td><td>レビュー対象の script.json をそのまま文字列化したもの</td></tr>
+    <tr><td><code>{original_script_json}</code></td><td>review_synthesize.md</td><td>元の script.json</td></tr>
+    <tr><td><code>{*_review}</code></td><td>review_synthesize.md</td><td>各ディレクターのレビュー JSON（genius / beginner / worried / positive / radio）</td></tr>
+  </table>
+</section>
+
+<!-- ===== 93.0: 環境変数 ===== -->
+<section id="env">
+  <div class="ch"><span class="freq">93.0</span><h2>環境変数・設定</h2></div>
+  <table>
+    <tr><th>変数名</th><th>既定値</th><th>影響する処理</th><th>説明</th></tr>
+    <tr><td><code>MAX_SCRIPT_ARTICLES</code></td><td>10</td><td>generate_script</td><td>台本に採用する最大記事数</td></tr>
+    <tr><td><code>MIN_IMPORTANCE_SCORE</code></td><td>3</td><td>generate_script</td><td>台本採用の最低重要度スコア（1〜5）</td></tr>
+    <tr><td><code>SCRIPT_LINT_RETRIES</code></td><td>3</td><td>generate_script</td><td>Auto-Lint 不合格時の最大再生成回数</td></tr>
+    <tr><td><code>LINT_TRANS_SIMILARITY</code></td><td>0.7</td><td>lint_script</td><td>transition 行の類似度閾値（TRANS_VARIATION ルール）</td></tr>
+    <tr><td><code>OLLAMA_BASE_URL</code></td><td>—</td><td>generate_script, review_script</td><td>Ollama サーバーの URL（例: http://ollama:11434）</td></tr>
+    <tr><td><code>OLLAMA_MODEL</code></td><td>—</td><td>generate_script, review_script</td><td>使用する Ollama モデル名（例: qwen3:30b-a3b）</td></tr>
+    <tr><td><code>BATCH_DATE</code></td><td>（当日）</td><td>generate_script</td><td>台本の date フィールドを上書き（テスト用）。YYYY-MM-DD 形式</td></tr>
+    <tr><td><code>EPISODES_DIR</code></td><td>data/episodes</td><td>orchestrate</td><td>エピソード成果物の出力ルートディレクトリ</td></tr>
+  </table>
+
+  <h3>config.py の設定項目（台本生成に関連）</h3>
+  <pre><code>class Settings(BaseSettings):
+    ollama_base_url: str                 # OLLAMA_BASE_URL
+    ollama_model: str                    # OLLAMA_MODEL
+    voicevox_base_url: str               # VOICEVOX_BASE_URL（音声合成用）
+    voicevox_speaker_male: int           # VOICEVOX_SPEAKER_MALE
+    voicevox_speaker_female: int         # VOICEVOX_SPEAKER_FEMALE</code></pre>
+</section>
+
+<!-- ===== 95.4: ファイル参照 ===== -->
+<section id="files">
+  <div class="ch"><span class="freq">95.4</span><h2>ファイル参照</h2></div>
+  <h3>台本生成コア</h3>
+  <table>
+    <tr><th>ファイル</th><th>役割</th></tr>
+    <tr><td><code>backend/app/batch/generate_script.py</code></td><td>Narrative Arc 生成・台本執筆・Auto-Lint ループ・transition 補完のメインモジュール</td></tr>
+    <tr><td><code>backend/app/batch/review_script.py</code></td><td>5ディレクターレビュー・改訂版台本生成</td></tr>
+    <tr><td><code>backend/app/services/ollama_client.py</code></td><td>Ollama API クライアント（HTTP / JSON パース / リトライ）</td></tr>
+    <tr><td><code>backend/app/services/article_service.py</code></td><td><code>fetch_summaries_for_script()</code> / <code>mark_articles_used()</code></td></tr>
+  </table>
+
+  <h3>プロンプトテンプレート</h3>
+  <table>
+    <tr><th>ファイル</th><th>役割</th></tr>
+    <tr><td><code>backend/app/prompts/generate_narrative_arc.md</code></td><td>Narrative Arc 生成プロンプト</td></tr>
+    <tr><td><code>backend/app/prompts/generate_radio_script.md</code></td><td>台本生成プロンプト（MC定義・禁止フレーズ・出力フォーマット）</td></tr>
+    <tr><td><code>backend/app/prompts/review_genius_director.md</code></td><td>天才ディレクターレビュープロンプト</td></tr>
+    <tr><td><code>backend/app/prompts/review_beginner_director.md</code></td><td>初心者ディレクターレビュープロンプト</td></tr>
+    <tr><td><code>backend/app/prompts/review_worried_director.md</code></td><td>心配性ディレクターレビュープロンプト</td></tr>
+    <tr><td><code>backend/app/prompts/review_positive_director.md</code></td><td>ポジティブディレクターレビュープロンプト</td></tr>
+    <tr><td><code>backend/app/prompts/review_radio_director.md</code></td><td>ラジオ専門ディレクターレビュープロンプト</td></tr>
+    <tr><td><code>backend/app/prompts/review_synthesize.md</code></td><td>5レビュー統合・改訂台本生成プロンプト</td></tr>
+  </table>
+
+  <h3>テストファイル</h3>
+  <table>
+    <tr><th>ファイル</th><th>対象</th></tr>
+    <tr><td><code>backend/tests/test_transitions.py</code></td><td><code>_ensure_transitions()</code> の動作テスト</td></tr>
+    <tr><td><code>backend/tests/test_lint_rules.py</code></td><td><code>lint_script()</code> の各ルールテスト</td></tr>
+    <tr><td><code>backend/tests/test_generation.py</code></td><td>台本生成のエンドツーエンドテスト</td></tr>
+    <tr><td><code>backend/tests/test_commentary_generation.py</code></td><td>コメンタリー台本生成テスト</td></tr>
+    <tr><td><code>backend/app/batch/test_ensure_transitions.py</code></td><td>transition 挿入のユニットテスト（バッチ内）</td></tr>
+  </table>
+
+  <h3>単体実行（CLI）</h3>
+  <pre><code># 台本生成のみを手動実行
+docker compose exec api python3 /app/app/batch/generate_script.py data/episodes/99/script.json
+
+# レビューのみを手動実行
+docker compose exec api python3 /app/app/batch/review_script.py \
+  data/episodes/99/script.json \
+  data/episodes/99/
+
+# Auto-Lint 最大試行回数を変更して実行
+SCRIPT_LINT_RETRIES=5 docker compose exec api \
+  python3 /app/app/batch/generate_script.py data/episodes/99/script.json</code></pre>
+</section>
+
+</main>
+</div>
+
+<footer>
+  <p>mynews-radio 台本生成詳細ドキュメント &mdash; generated 2026-06-30 &mdash; repository: <strong>takpanda/mynews-radio</strong></p>
+</footer>
+
+</body>
+</html>
