@@ -36,12 +36,17 @@ class OllamaClient:
             return {"status": "error", "detail": f"{type(exc).__name__}: {exc}"}
 
     def generate_json(self, prompt: str) -> Optional[dict[str, Any]]:
+        # ornith 系モデルは format:json 指定時に response が空になり、
+        # thinking フィールドにのみ出力が入る不具合があるためスキップする。
+        # Qwen 系など他のモデルでは従来どおり format:json を送信する。
+        use_json_format = "ornith" not in self._model
         payload = {
             "model": self._model,
             "prompt": prompt,
             "stream": False,
-            "format": "json",
         }
+        if use_json_format:
+            payload["format"] = "json"
 
         for attempt in range(1, self._max_retries + 2):
             try:
