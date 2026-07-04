@@ -1,9 +1,12 @@
 """Fetcher for hatena_bookmark category from news.beeworks.cc API."""
 
+import ipaddress
 import logging
 import re
 import json
+import socket
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import date, timedelta
 from typing import Any
@@ -252,10 +255,16 @@ def _fetch_article_text(url: str, timeout: int = 10) -> str:
 
     Returns empty string on failure.
     """
+    try:
+        _validate_url_public(url)
+    except ValueError:
+        logger.warning("_fetch_article_text: blocked SSRF attempt for %s", url)
+        return ""
+
     req = urllib.request.Request(url)
     req.add_header("User-Agent", "Mozilla/5.0 (compatible; mynews-radio-bot/1.0)")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _SAFE_OPENER.open(req, timeout=timeout) as resp:
             raw = resp.read(512 * 1024)  # max 512 KB
             charset = resp.headers.get_content_charset() or "utf-8"
     except Exception as exc:
@@ -471,6 +480,74 @@ def import_yahoo_news_articles() -> tuple[int, int]:
     return inserted, duplicated
 
 
+# ---------------------------------------------------------------------------
+# SSRF protection: URL validation and safe redirect handler
+# ---------------------------------------------------------------------------
+
+_PRIVATE_IP_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/32"),
+    ipaddress.ip_network("100.64.0.0/10"),
+]
+_SSRF_ERROR_MESSAGE = "Access to internal network address is not allowed"
+
+
+def _validate_url_public(url: str) -> None:
+    """Validate that *url* does not resolve to an internal/private IP address.
+
+    Raises ``ValueError`` with ``_SSRF_ERROR_MESSAGE`` when the resolved
+    address is in a private, loopback, link-local, or carrier-grade NAT range.
+    """
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname
+    if host is None:
+        raise ValueError(_SSRF_ERROR_MESSAGE)
+
+    # Resolve hostname to all IP addresses (handles both IPv4 and IPv6)
+    try:
+        addrinfo = socket.getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        raise ValueError(_SSRF_ERROR_MESSAGE) from exc
+
+    for family, _type, _proto, _canonname, sockaddr in addrinfo:
+        addr_str = sockaddr[0]  # IP address string
+        try:
+            addr = ipaddress.ip_address(addr_str)
+            for net in _PRIVATE_IP_NETWORKS:
+                if addr in net:
+                    raise ValueError(_SSRF_ERROR_MESSAGE)
+        except ValueError:
+            if addr_str == _SSRF_ERROR_MESSAGE:
+                raise
+            # ip_address may raise ValueError for invalid strings;
+            # re-raise as our SSRF error
+            raise ValueError(_SSRF_ERROR_MESSAGE) from None
+
+
+class _SafeHTTPRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """HTTPRedirectHandler that validates every redirect target via _validate_url_public."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp,
+        code: int,
+        msg: str,
+        headers: dict,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        _validate_url_public(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_SAFE_OPENER = urllib.request.build_opener(_SafeHTTPRedirectHandler)
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     ins, dup = auto_fetch_hatena_articles()
@@ -524,10 +601,16 @@ def fetch_article_by_url(url: str) -> dict[str, Any]:
     Returns a dict with title, url, text, source suitable for
     ArticleService.upsert_article(). Returns all-empty dict on failure.
     """
+    try:
+        _validate_url_public(url)
+    except ValueError:
+        logger.warning("fetch_article_by_url: blocked SSRF attempt for %s", url)
+        return {"title": "", "url": url, "text": "", "source": "url_input"}
+
     req = urllib.request.Request(url)
     req.add_header("User-Agent", "Mozilla/5.0 (compatible; mynews-radio-bot/1.0)")
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with _SAFE_OPENER.open(req, timeout=15) as resp:
             raw = resp.read(512 * 1024)
             charset = resp.headers.get_content_charset() or "utf-8"
     except Exception as exc:

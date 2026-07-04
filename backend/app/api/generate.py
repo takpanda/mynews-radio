@@ -24,7 +24,7 @@ from app.config import get_settings
 from app.db.connection import get_db_connection
 from app.services.article_service import ArticleService
 from app.services.episode_service import EpisodeService, override_script_title, build_radio_title
-from app.services.hatena_fetcher import fetch_article_by_url
+from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_url
 
 logger = logging.getLogger(__name__)
 
@@ -425,8 +425,15 @@ def generate_episode(body: GenerateRequest) -> dict:
     if body.mc_gender not in VALID_GENDERS:
         raise HTTPException(status_code=400, detail="mc_gender must be 'male' or 'female'")
 
-    # Validate: url 指定時は style をチェック
+    # Validate: url 指定時は SSRFチェック + style をチェック
     if body.url:
+        try:
+            _validate_url_public(body.url)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Access to internal network address is not allowed",
+            )
         if body.style not in {"solo", "dialogue"}:
             raise HTTPException(
                 status_code=400,
