@@ -110,9 +110,22 @@ app.include_router(health_router)
 EPISODES_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
 
 
+def _safe_resolve_audio_path(*path_parts: str) -> Optional[str]:
+    """path_parts を EPISODES_DIR 下で結合し realpath 解決、配下かを検証する。"""
+    episodes_dir = os.environ.get("EPISODES_DIR", "data/episodes")
+    resolved = os.path.realpath(os.path.join(episodes_dir, *path_parts))
+    episodes_real = os.path.realpath(episodes_dir)
+    if resolved != episodes_real and not resolved.startswith(episodes_real + os.sep):
+        return None
+    return resolved
+
+
 def _locate_audio_file(episode_path: str) -> str:
     """音声ファイルのパスを特定のディレクトリから探す。"""
-    episode_dir = os.path.join(EPISODES_DIR, episode_path)
+    checked = _safe_resolve_audio_path(episode_path)
+    if checked is None:
+        raise FileNotFoundError("Audio file not found")
+    episode_dir = checked
 
     # metadata.json から audio_path を探す（デフォルト: episode.mp3）
     meta_path = os.path.join(episode_dir, "metadata.json")
@@ -203,8 +216,8 @@ def serve_audio_file(episode_path: str, request: Request):
     parts = episode_path.split("/")
     if len(parts) >= 2:
         dir_name, filename = parts[0], "/".join(parts[1:])
-        candidate = os.path.join(EPISODES_DIR, dir_name, filename)
-        if os.path.isfile(candidate):
+        candidate = _safe_resolve_audio_path(dir_name, filename)
+        if candidate is not None and os.path.isfile(candidate):
             media_type, _ = mimetypes.guess_type(candidate)
             media_type = media_type or "application/octet-stream"
             return _range_response(candidate, media_type, range_header)
@@ -214,10 +227,10 @@ def serve_audio_file(episode_path: str, request: Request):
             try:
                 episode = EpisodeService().get_episode(int(dir_name))
                 if episode and episode.get("episode_date"):
-                    fallback_candidate = os.path.join(
-                        EPISODES_DIR, episode["episode_date"], filename
+                    fallback_candidate = _safe_resolve_audio_path(
+                        episode["episode_date"], filename
                     )
-                    if os.path.isfile(fallback_candidate):
+                    if fallback_candidate is not None and os.path.isfile(fallback_candidate):
                         media_type, _ = mimetypes.guess_type(fallback_candidate)
                         media_type = media_type or "application/octet-stream"
                         return _range_response(fallback_candidate, media_type, range_header)
