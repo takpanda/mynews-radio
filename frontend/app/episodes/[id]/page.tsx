@@ -5,21 +5,17 @@ import {
   fetchEpisodeScript,
   fetchArticle,
   buildAudioUrl,
-  formatDate,
+  formatDateWithWeekday,
   type Article,
+  type Episode,
 } from '../../lib/api'
-import EpisodePlayer from '../../components/EpisodePlayer'
-import ArticleLinks from '../../components/ArticleLinks'
-import EpisodeQuickActions from '../../components/EpisodeQuickActions'
-import SynthesizeAudioButton from '../../components/SynthesizeAudioButton'
+import EpisodeDetailShell, {
+  type DetailEpisode,
+  type EpisodeSummary,
+} from '../../components/EpisodeDetailShell'
 
 interface Props {
   params: { id: string }
-}
-
-interface EpisodeSummaryContent {
-  intro: string
-  topics: string[]
 }
 
 function normalizeSummaryText(text: string): string {
@@ -42,7 +38,7 @@ function splitSummaryIntoTopics(summary: string): string[] {
   return topics.slice(0, 3)
 }
 
-function buildEpisodeSummary(episodeSubtitle: string, articles: Article[]): EpisodeSummaryContent | null {
+function buildEpisodeSummary(episodeSubtitle: string, articles: Article[]): EpisodeSummary | null {
   const titles = articles
     .map((article) => article.title.trim())
     .filter((title, index, list) => Boolean(title) && list.indexOf(title) === index)
@@ -86,6 +82,19 @@ function buildEpisodeSummary(episodeSubtitle: string, articles: Article[]): Epis
   return null
 }
 
+function toDetailEpisode(episode: Episode): DetailEpisode {
+  return {
+    id: episode.id,
+    title: episode.title,
+    subtitle: episode.subtitle,
+    dateLabel: formatDateWithWeekday(episode.date),
+    isCommentary: episode.type === 'commentary',
+    sourceUrl: episode.source_url ?? null,
+    audioUrl: episode.audio_url ? buildAudioUrl(episode.audio_url) : null,
+    durationSeconds: episode.duration_seconds || 0,
+  }
+}
+
 export default async function EpisodePage({ params }: Props) {
   const episodeId = parseInt(params.id, 10)
   if (isNaN(episodeId)) notFound()
@@ -120,148 +129,31 @@ export default async function EpisodePage({ params }: Props) {
 
   if (!episode && !error) notFound()
 
-  const hasScript = Boolean(script && script.lines.length > 0)
-  const hasArticles = articles.length > 0 || !!episode?.source_url
-  const episodeSummary = episode ? buildEpisodeSummary(episode.subtitle, articles) : null
-
   return (
-    <main className="mx-auto max-w-6xl px-4 py-6 pb-14 sm:pb-16 sm:px-6 lg:px-8 lg:py-10 lg:pb-24">
-      <div className="mb-6">
+    <main className="mx-auto max-w-3xl px-4 pb-24 pt-6 sm:px-6">
+      <div className="mb-4">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/85 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-white"
+          className="inline-flex items-center gap-1.5 text-sm text-slate-500 transition hover:text-slate-900"
         >
           <span aria-hidden="true">←</span>
-          ホームへ戻る
+          ホーム
         </Link>
       </div>
 
       {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 shadow-sm">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error}
         </div>
       )}
 
       {episode && (
-        <>
-          <header className="mb-8 rounded-[2rem] border border-white/70 bg-[radial-gradient(circle_at_top_left,_rgba(125,211,252,0.22),_transparent_26%),linear-gradient(135deg,_rgba(255,255,255,0.94),_rgba(241,245,249,0.95))] p-6 shadow-[0_24px_70px_rgba(15,23,42,0.08)] sm:p-8">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="max-w-3xl">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
-                  Episode Detail
-                </p>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <h1 className="text-3xl font-semibold leading-tight text-slate-950 sm:text-4xl">
-                    {episode.title || `エピソード #${episode.id}`}
-                  </h1>
-                  {episode.type === 'commentary' && (
-                    <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700">
-                      解説
-                    </span>
-                  )}
-                </div>
-                {episode.subtitle && (
-                  <p className="mt-3 text-base leading-7 text-sky-700">{episode.subtitle}</p>
-                )}
-                <p className="mt-4 text-sm text-slate-500">{formatDate(episode.date)}</p>
-                {episode.source_url && (
-                  <a
-                    href={episode.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-3 inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-sky-600 transition-colors"
-                  >
-                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                    </svg>
-                    <span className="truncate max-w-[400px]">{episode.source_url}</span>
-                  </a>
-                )}
-              </div>
-
-              <div className="grid min-w-[220px] gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                <a
-                  href="#player"
-                  className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-slate-900 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800"
-                >
-                  再生セクションへ
-                </a>
-                {hasArticles ? (
-                  <a
-                    href="#articles"
-                    className="inline-flex min-h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                  >
-                    元記事を見る
-                  </a>
-                ) : (
-                  <a
-                    href="#script"
-                    className="inline-flex min-h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                  >
-                    台本へ進む
-                  </a>
-                )}
-              </div>
-            </div>
-
-            {episodeSummary && (
-              <div className="mt-6 rounded-[1.75rem] border border-white/80 bg-white/80 p-5 backdrop-blur sm:p-6">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Episode Summary
-                </p>
-                <p className="mt-3 text-sm leading-7 text-slate-700 sm:text-[15px]">
-                  {episodeSummary.intro}
-                </p>
-                {episodeSummary.topics.length > 0 && (
-                  <div className="mt-3 space-y-0.5">
-                    {episodeSummary.topics.map((topic) => (
-                      <div
-                        key={topic}
-                        className="flex items-center gap-2 px-1 py-1"
-                      >
-                        <span aria-hidden="true" className="flex shrink-0 items-center gap-2">
-                          <span className="h-7 w-px rounded-full bg-slate-300" />
-                          <span className="h-2 w-2 rotate-45 rounded-[2px] bg-slate-900/80 shadow-[0_0_0_3px_rgba(255,255,255,0.9)]" />
-                        </span>
-                        <p className="flex-1 text-sm leading-[1.15rem] text-slate-700">
-                          {topic}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </header>
-
-          {episode.audio_url ? (
-            <EpisodePlayer
-              episode={episode}
-              script={script}
-              audioUrl={buildAudioUrl(episode.audio_url)}
-            />
-          ) : hasScript ? (
-            <div id="player" className="mb-8 scroll-mt-24 max-sm:scroll-mt-[52px] rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <SynthesizeAudioButton episodeId={episode.id} />
-            </div>
-          ) : (
-            <div className="bg-white rounded-2xl shadow-sm p-4 mb-8 text-sm text-gray-400 text-center">
-              音声ファイルを準備中です
-            </div>
-          )}
-
-          {(articles.length > 0 || episode.source_url) && (
-            <section id="articles" className="mb-8 scroll-mt-28 max-sm:scroll-mt-[52px]">
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">
-                元記事
-              </h2>
-              <ArticleLinks articles={articles} sourceUrl={episode.source_url} />
-            </section>
-          )}
-
-          <EpisodeQuickActions hasScript={hasScript} hasArticles={hasArticles} />
-        </>
+        <EpisodeDetailShell
+          episode={toDetailEpisode(episode)}
+          script={script}
+          articles={articles}
+          summary={buildEpisodeSummary(episode.subtitle, articles)}
+        />
       )}
     </main>
   )

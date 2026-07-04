@@ -81,6 +81,16 @@ export function formatDate(dateStr: string): string {
   })
 }
 
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']
+
+// 「7月4日（土）」形式。タイムゾーンに依存しないよう日付文字列から直接組み立てる
+export function formatDateWithWeekday(dateStr: string): string {
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number)
+  if (!y || !m || !d) return dateStr
+  const weekday = WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]
+  return `${m}月${d}日（${weekday}）`
+}
+
 export async function fetchLatestEpisode(): Promise<Episode | null> {
   const res = await fetch(`${getApiBase()}/episodes/latest`, { cache: 'no-store' })
   if (res.status === 404) return null
