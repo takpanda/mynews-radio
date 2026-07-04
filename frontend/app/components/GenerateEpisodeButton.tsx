@@ -265,14 +265,26 @@ function getCurrentEstimate(activeStep: number, isSuccess: boolean, isFailure: b
 
 function optionCardClass(isSelected: boolean, isLoading: boolean, isDisabled = false) {
   if (isSelected) {
-    return 'border-sky-500 bg-sky-50 shadow-[0_10px_25px_rgba(14,165,233,0.15)]'
+    return 'border-sky-500 bg-sky-50'
   }
 
   if (isLoading || isDisabled) {
-    return 'border-slate-200 bg-slate-50/70 opacity-70'
+    return 'border-slate-200 bg-slate-50 opacity-60'
   }
 
-  return 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+  return 'border-slate-200 bg-white hover:border-slate-300'
+}
+
+function RadioDot({ checked }: { checked: boolean }) {
+  return (
+    <span
+      className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+        checked ? 'border-sky-500' : 'border-slate-300'
+      }`}
+    >
+      {checked && <span className="h-2 w-2 rounded-full bg-sky-500" />}
+    </span>
+  )
 }
 
 const STORAGE_KEY = 'generating_episode_id'
@@ -536,31 +548,29 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
         : 'border-sky-200 bg-sky-50 text-sky-800'
 
   return (
-    <section className="rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-4 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur sm:p-5">
+    <section className="space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
-            Generate Episode
+          <h2 className="text-base font-semibold text-slate-900">{isUrlMode ? 'URLから解説を生成' : '今日の番組を生成'}</h2>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            {isUrlMode
+              ? 'URLから記事を取得して解説音声を生成します。'
+              : 'ニュースの種類と読み上げエンジンを選ぶと、取得から音声化までの進行をこの場で確認できます。'}
           </p>
-          <h2 className="mt-2 text-2xl font-semibold text-slate-950">{isUrlMode ? 'URLから解説を生成' : '今日の番組を生成'}</h2>
         </div>
-        <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+        <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-500">
           通常 2-5 分
         </span>
       </div>
 
-      <p className="mt-3 text-sm leading-7 text-slate-600">
-        {isUrlMode
-          ? 'URLから記事を取得して解説音声を生成します。読み上げエンジンを選んで生成ボタンを押してください。'
-          : 'ニュースの種類と読み上げエンジンを選ぶと、取得から音声化までの進行をこの場で確認できます。'}
-      </p>
-
-      <fieldset className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
-        <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-          URL from Web
-        </legend>
-        <div className="mt-3">
+      <div className="mt-5">
+        <label htmlFor="generate-url-input" className="block text-sm font-medium text-slate-900">
+          URLから解説を生成
+        </label>
+        <div className="mt-2">
           <input
+            id="generate-url-input"
             type="url"
             value={urlInput}
             onChange={(e) => {
@@ -576,25 +586,22 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
             }}
             placeholder="https://example.com/article"
             disabled={isLoading}
-            className="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-50"
+            className="block w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 transition focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-50"
           />
           {urlError && (
-            <p className="mt-2 text-xs text-red-500">{urlError}</p>
+            <p className="mt-1.5 text-xs text-red-500">{urlError}</p>
           )}
-          <p className="mt-2 text-xs leading-6 text-slate-500">
+          <p className="mt-1.5 text-xs leading-5 text-slate-400">
             URLを入力すると自動的に解説モードに切り替わり、ニュースソース選択が無効になります。
           </p>
         </div>
-      </fieldset>
+      </div>
 
-      <div className="mt-5 grid gap-4 2xl:grid-cols-[minmax(0,1fr)_220px]">
-        <div className="space-y-4">
-          <fieldset className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
-            <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-              News Source
-            </legend>
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(newsSource === 'hatena_bookmark', isLoading, isUrlMode)}`}>
+      <div className="mt-5 space-y-5">
+          <fieldset>
+            <legend className="text-sm font-medium text-slate-900">ニュースソース</legend>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(newsSource === 'hatena_bookmark', isLoading, isUrlMode)}`}>
                 <input
                   type="radio"
                   name="newsSource"
@@ -604,18 +611,16 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                   disabled={isLoading || isUrlMode}
                   className="sr-only"
                 />
-                <span className="flex items-start justify-between gap-3">
-                  <span>
-                    <span className="block text-sm font-semibold text-slate-900">テックニュース</span>
-                    <span className="mt-1 block text-xs leading-6 text-slate-500">
-                      はてなブックマークのテック面を中心に収集します。
-                    </span>
+                <span>
+                  <span className="block text-sm font-medium text-slate-900">テックニュース</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                    はてなブックマークのテック面を中心に収集します。
                   </span>
-                  <span className={`mt-1 h-4 w-4 rounded-full border ${newsSource === 'hatena_bookmark' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
                 </span>
+                <RadioDot checked={newsSource === 'hatena_bookmark'} />
               </label>
 
-              <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(newsSource === 'hatena_hotentry_all', isLoading, isUrlMode)}`}>
+              <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(newsSource === 'hatena_hotentry_all', isLoading, isUrlMode)}`}>
                 <input
                   type="radio"
                   name="newsSource"
@@ -625,18 +630,16 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                   disabled={isLoading || isUrlMode}
                   className="sr-only"
                 />
-                <span className="flex items-start justify-between gap-3">
-                  <span>
-                    <span className="block text-sm font-semibold text-slate-900">一般ニュース</span>
-                    <span className="mt-1 block text-xs leading-6 text-slate-500">
-                      幅広い話題をまとめて、日次のダイジェストとして届けます。
-                    </span>
+                <span>
+                  <span className="block text-sm font-medium text-slate-900">一般ニュース</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                    幅広い話題をまとめて、日次のダイジェストとして届けます。
                   </span>
-                  <span className={`mt-1 h-4 w-4 rounded-full border ${newsSource === 'hatena_hotentry_all' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
                 </span>
+                <RadioDot checked={newsSource === 'hatena_hotentry_all'} />
               </label>
 
-              <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(newsSource === 'yahoo_news', isLoading, isUrlMode)}`}>
+              <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(newsSource === 'yahoo_news', isLoading, isUrlMode)}`}>
                 <input
                   type="radio"
                   name="newsSource"
@@ -646,25 +649,21 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                   disabled={isLoading || isUrlMode}
                   className="sr-only"
                 />
-                <span className="flex items-start justify-between gap-3">
-                  <span>
-                    <span className="block text-sm font-semibold text-slate-900">Yahoo!ニュース</span>
-                    <span className="mt-1 block text-xs leading-6 text-slate-500">
-                      Yahoo!ニュース・トピックスの主要ニュースをお届けします。
-                    </span>
+                <span>
+                  <span className="block text-sm font-medium text-slate-900">Yahoo!ニュース</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                    Yahoo!ニュース・トピックスの主要ニュースをお届けします。
                   </span>
-                  <span className={`mt-1 h-4 w-4 rounded-full border ${newsSource === 'yahoo_news' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
                 </span>
+                <RadioDot checked={newsSource === 'yahoo_news'} />
               </label>
             </div>
           </fieldset>
 
-          <fieldset className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
-            <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Voice Engine
-            </legend>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(ttsEngine === 'voicevox', isLoading)}`}>
+          <fieldset>
+            <legend className="text-sm font-medium text-slate-900">音声エンジン</legend>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(ttsEngine === 'voicevox', isLoading)}`}>
                 <input
                   type="radio"
                   name="ttsEngine"
@@ -674,18 +673,16 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                   disabled={isLoading}
                   className="sr-only"
                 />
-                <span className="flex items-start justify-between gap-3">
-                  <span>
-                    <span className="block text-sm font-semibold text-slate-900">VOICEVOX</span>
-                    <span className="mt-1 block text-xs leading-6 text-slate-500">
-                      安定した読み上げで、通常の番組生成に向いています。
-                    </span>
+                <span>
+                  <span className="block text-sm font-medium text-slate-900">VOICEVOX</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                    安定した読み上げで、通常の番組生成に向いています。
                   </span>
-                  <span className={`mt-1 h-4 w-4 rounded-full border ${ttsEngine === 'voicevox' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
                 </span>
+                <RadioDot checked={ttsEngine === 'voicevox'} />
               </label>
 
-              <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(ttsEngine === 'aivispeech', isLoading)}`}>
+              <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(ttsEngine === 'aivispeech', isLoading)}`}>
                 <input
                   type="radio"
                   name="ttsEngine"
@@ -695,24 +692,20 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                   disabled={isLoading}
                   className="sr-only"
                 />
-                <span className="flex items-start justify-between gap-3">
-                  <span>
-                    <span className="block text-sm font-semibold text-slate-900">AivisSpeech</span>
-                    <span className="mt-1 block text-xs leading-6 text-slate-500">
-                      音声差分を試したいときの代替エンジンです。
-                    </span>
+                <span>
+                  <span className="block text-sm font-medium text-slate-900">AivisSpeech</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                    音声差分を試したいときの代替エンジンです。
                   </span>
-                  <span className={`mt-1 h-4 w-4 rounded-full border ${ttsEngine === 'aivispeech' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
                 </span>
+                <RadioDot checked={ttsEngine === 'aivispeech'} />
               </label>
             </div>
           </fieldset>
 
-          <fieldset className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
-            <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Article Count
-            </legend>
-            <div className="mt-3 px-1">
+          <fieldset>
+            <legend className="text-sm font-medium text-slate-900">記事数</legend>
+            <div className="mt-2 rounded-xl border border-slate-200 p-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-500">台本に使う記事数</span>
                 <span className="min-w-[2rem] text-right text-sm font-semibold tabular-nums text-slate-900">{maxArticles} 件</span>
@@ -725,7 +718,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                 value={maxArticles}
                 onChange={(e) => setMaxArticles(Number(e.target.value))}
                 disabled={isLoading}
-                className="mt-2 w-full accent-sky-500 disabled:opacity-50"
+                className="mt-2 w-full accent-sky-600 disabled:opacity-50"
               />
               <div className="mt-1 flex justify-between text-[10px] text-slate-400">
                 <span>3</span>
@@ -735,12 +728,10 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
           </fieldset>
 
           {isUrlMode && (
-            <fieldset className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
-              <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                Commentary Style
-              </legend>
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(commentaryStyle === 'solo', isLoading)}`}>
+            <fieldset>
+              <legend className="text-sm font-medium text-slate-900">解説スタイル</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(commentaryStyle === 'solo', isLoading)}`}>
                   <input
                     type="radio"
                     name="commentaryStyle"
@@ -750,18 +741,16 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                     disabled={isLoading}
                     className="sr-only"
                   />
-                  <span className="flex items-start justify-between gap-3">
-                    <span>
-                      <span className="block text-sm font-semibold text-slate-900">一人解説</span>
-                      <span className="mt-1 block text-xs leading-6 text-slate-500">
-                        1人のナレーターが記事を読み上げます。
-                      </span>
+                  <span>
+                    <span className="block text-sm font-medium text-slate-900">一人解説</span>
+                    <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                      1人のナレーターが記事を読み上げます。
                     </span>
-                    <span className={`mt-1 h-4 w-4 rounded-full border ${commentaryStyle === 'solo' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
                   </span>
+                  <RadioDot checked={commentaryStyle === 'solo'} />
                 </label>
 
-                <label className={`block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(commentaryStyle === 'dialogue', isLoading)}`}>
+                <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(commentaryStyle === 'dialogue', isLoading)}`}>
                   <input
                     type="radio"
                     name="commentaryStyle"
@@ -771,25 +760,21 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                     disabled={isLoading}
                     className="sr-only"
                   />
-                  <span className="flex items-start justify-between gap-3">
-                    <span>
-                      <span className="block text-sm font-semibold text-slate-900">対談解説</span>
-                      <span className="mt-1 block text-xs leading-6 text-slate-500">
-                        2人のパーソナリティが対談形式で解説します。
-                      </span>
+                  <span>
+                    <span className="block text-sm font-medium text-slate-900">対談解説</span>
+                    <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                      2人のパーソナリティが対談形式で解説します。
                     </span>
-                    <span className={`mt-1 h-4 w-4 rounded-full border ${commentaryStyle === 'dialogue' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
                   </span>
+                  <RadioDot checked={commentaryStyle === 'dialogue'} />
                 </label>
               </div>
 
               {commentaryStyle === 'solo' && (
-                <div className="mt-4 border-t border-slate-200 pt-4">
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    MC Gender
-                  </p>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <label className={`block cursor-pointer rounded-2xl border p-3 transition ${optionCardClass(mcGender === 'male', isLoading)}`}>
+                <div className="mt-3">
+                  <p className="text-sm font-medium text-slate-900">MCの性別</p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(mcGender === 'male', isLoading)}`}>
                       <input
                         type="radio"
                         name="mcGender"
@@ -799,16 +784,14 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                         disabled={isLoading}
                         className="sr-only"
                       />
-                      <span className="flex items-start justify-between gap-3">
-                        <span>
-                          <span className="block text-sm font-semibold text-slate-900">男性</span>
-                          <span className="mt-1 block text-xs leading-6 text-slate-500">男性のナレーター音声で生成します。</span>
-                        </span>
-                        <span className={`mt-1 h-4 w-4 shrink-0 rounded-full border ${mcGender === 'male' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
+                      <span>
+                        <span className="block text-sm font-medium text-slate-900">男性</span>
+                        <span className="mt-0.5 block text-xs leading-5 text-slate-500">男性のナレーター音声で生成します。</span>
                       </span>
+                      <RadioDot checked={mcGender === 'male'} />
                     </label>
 
-                    <label className={`block cursor-pointer rounded-2xl border p-3 transition ${optionCardClass(mcGender === 'female', isLoading)}`}>
+                    <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(mcGender === 'female', isLoading)}`}>
                       <input
                         type="radio"
                         name="mcGender"
@@ -818,13 +801,11 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
                         disabled={isLoading}
                         className="sr-only"
                       />
-                      <span className="flex items-start justify-between gap-3">
-                        <span>
-                          <span className="block text-sm font-semibold text-slate-900">女性</span>
-                          <span className="mt-1 block text-xs leading-6 text-slate-500">女性のナレーター音声で生成します。</span>
-                        </span>
-                        <span className={`mt-1 h-4 w-4 shrink-0 rounded-full border ${mcGender === 'female' ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`} />
+                      <span>
+                        <span className="block text-sm font-medium text-slate-900">女性</span>
+                        <span className="mt-0.5 block text-xs leading-5 text-slate-500">女性のナレーター音声で生成します。</span>
                       </span>
+                      <RadioDot checked={mcGender === 'female'} />
                     </label>
                   </div>
                 </div>
@@ -832,224 +813,145 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
             </fieldset>
           )}
 
-          <label className={`mt-3 block cursor-pointer rounded-2xl border p-4 transition ${optionCardClass(recreateSummary, isLoading)}`}>
-                <input
-                  type="checkbox"
-                  checked={recreateSummary}
-                  onChange={(e) => setRecreateSummary(e.target.checked)}
-                  disabled={isLoading}
-                  className="sr-only"
-                />
-                <span className="flex items-start justify-between gap-3">
-                  <span>
-                    <span className="block text-sm font-semibold text-slate-900">要約を再作成する</span>
-                    <span className="mt-1 block text-xs leading-6 text-slate-500">
-                      既存の要約を破棄して、再度生成します。
-                    </span>
-                  </span>
-                  <span className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${recreateSummary ? 'border-sky-500 bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.15)]' : 'border-slate-300 bg-white'}`}>
-                    {recreateSummary && (
-                      <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 10 8" fill="none">
-                        <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                  </span>
-                </span>
-              </label>
+          <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(recreateSummary, isLoading)}`}>
+            <input
+              type="checkbox"
+              checked={recreateSummary}
+              onChange={(e) => setRecreateSummary(e.target.checked)}
+              disabled={isLoading}
+              className="sr-only"
+            />
+            <span>
+              <span className="block text-sm font-medium text-slate-900">要約を再作成する</span>
+              <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                既存の要約を破棄して、再度生成します。
+              </span>
+            </span>
+            <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${recreateSummary ? 'border-sky-500 bg-sky-500' : 'border-slate-300 bg-white'}`}>
+              {recreateSummary && (
+                <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 10 8" fill="none">
+                  <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </span>
+          </label>
 
-          <button
-            type="button"
-            onClick={handleClick}
-            disabled={isLoading}
-            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#0f172a,#0f766e)] px-5 py-3 text-sm font-semibold text-white shadow-[0_16px_35px_rgba(15,23,42,0.25)] transition hover:translate-y-[-1px] hover:shadow-[0_20px_40px_rgba(15,23,42,0.3)] disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            <span className={`h-2.5 w-2.5 rounded-full bg-white/90 ${isLoading ? 'animate-pulse' : ''}`} />
-            {isLoading ? '生成を進めています…' : isUrlMode ? 'このURLで解説を生成する' : 'この設定で番組を生成する'}
-          </button>
-        </div>
-
-        <aside className="rounded-[1.5rem] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.95),rgba(255,255,255,0.95))] p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">今回の設定</p>
-          <dl className="mt-4 space-y-3 text-sm text-slate-600">
-            {isUrlMode ? (
-              <div>
-                <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">URL</dt>
-                <dd className="mt-1 break-all font-medium text-slate-900">
-                  {urlInput}
-                </dd>
-              </div>
-            ) : (
-              <div>
-                <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">ソース</dt>
-                <dd className="mt-1 font-medium text-slate-900">
-                  {newsSource === 'hatena_bookmark' ? 'テックニュース' : newsSource === 'hatena_hotentry_all' ? '一般ニュース' : 'Yahoo!ニュース'}
-                </dd>
-              </div>
-            )}
-            <div>
-              <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">音声</dt>
-              <dd className="mt-1 font-medium text-slate-900">
-                {ttsEngine === 'voicevox' ? 'VOICEVOX' : 'AivisSpeech'}
-              </dd>
-            </div>
-            {isUrlMode && (
-              <div>
-                <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">解説スタイル</dt>
-                <dd className="mt-1 font-medium text-slate-900">
-                  {commentaryStyle === 'solo' ? '一人解説' : '対談解説'}
-                </dd>
-                {commentaryStyle === 'solo' && (
-                  <>
-                    <dt className="mt-3 text-xs uppercase tracking-[0.16em] text-slate-400">MC 性別</dt>
-                    <dd className="mt-1 font-medium text-slate-900">
-                      {mcGender === 'male' ? '男性' : '女性'}
-                    </dd>
-                  </>
-                )}
-              </div>
-            )}
-            {!isUrlMode && (
-              <div>
-                <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">記事数</dt>
-                <dd className="mt-1 font-medium text-slate-900">{maxArticles} 件</dd>
-              </div>
-            )}
-            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-              <dt className="text-xs uppercase tracking-[0.16em] text-slate-400">要約の再作成</dt>
-              <dd className="mt-1 font-medium text-slate-900">
-                {recreateSummary ? '有効' : '無効'}
-              </dd>
-            </div>
-          </dl>
-
-          <div className="mt-5 rounded-2xl bg-slate-900 px-4 py-3 text-sm text-slate-50">
-            <p className="font-medium">生成の流れ</p>
-            <p className="mt-2 text-xs leading-6 text-slate-300">
+          <div>
+            <button
+              type="button"
+              onClick={handleClick}
+              disabled={isLoading}
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isLoading && <span className="h-2 w-2 animate-pulse rounded-full bg-white/90" />}
+              {isLoading ? '生成を進めています…' : isUrlMode ? 'このURLで解説を生成する' : 'この設定で番組を生成する'}
+            </button>
+            <p className="mt-2 text-center text-xs leading-5 text-slate-400">
               {isUrlMode
-                ? 'URL取得 → 記事抽出 → 解説生成 → 音声合成の順で処理します。'
-                : '記事取得 → 要約 → 台本生成 → 音声合成の順で処理します。'}
+                ? 'URL取得 → 記事抽出 → 解説生成 → 音声合成 の順で処理します'
+                : '記事取得 → 要約 → 台本生成 → 音声合成 の順で処理します'}
             </p>
           </div>
-        </aside>
+        </div>
       </div>
 
       {(isLoading || progress.length > 0 || message || isDuplicateError) && (
-        <div id="progress-section" className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50/80 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+        <div id="progress-section" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Progress</p>
-              <p className="mt-2 text-sm font-medium text-slate-900">
-                {phasePresentation.title}
-              </p>
-              <p className="mt-1 text-xs leading-6 text-slate-500">{phasePresentation.detail}</p>
+              <p className="text-sm font-semibold text-slate-900">{phasePresentation.title}</p>
+              <p className="mt-0.5 text-xs leading-5 text-slate-500">{phasePresentation.detail}</p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-500">
                 目安 {currentEstimate}
               </span>
               {(isLoading || message) && (
-                <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${statusTone}`}>
+                <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${statusTone}`}>
                   {isLoading ? '生成中' : isSuccess ? '完了' : isDuplicateError ? '重複' : '確認が必要'}
                 </span>
               )}
             </div>
           </div>
 
-          <div className="mt-4 rounded-2xl border border-white/80 bg-white/90 p-3 shadow-sm">
-            <div className="flex items-center justify-between gap-3 text-xs font-medium text-slate-500">
-              <span className="inline-flex items-center gap-2">
-                <span className={`flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-[11px] font-semibold ${isSuccess ? 'bg-emerald-100 text-emerald-700' : isFailure ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700'}`}>
-                  {phasePresentation.shortLabel}
-                </span>
-                <span>{isFailure ? '進行が中断されました' : isDuplicateError ? '生成できません' : '工程の進み具合'}</span>
-              </span>
-              <span className="tabular-nums text-slate-700">{visualProgressPercent}%</span>
+          <div className="mt-4">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>{isFailure ? '進行が中断されました' : isDuplicateError ? '生成できません' : '工程の進み具合'}</span>
+              <span className="tabular-nums text-slate-600">{visualProgressPercent}%</span>
             </div>
-
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
               <div
-                className={`relative h-full rounded-full transition-all duration-500 ${isSuccess ? 'bg-emerald-500' : isFailure ? 'bg-amber-500' : 'bg-[linear-gradient(90deg,#38bdf8,#14b8a6)] progress-shimmer'}`}
+                className={`relative h-full rounded-full transition-all duration-500 ${isSuccess ? 'bg-emerald-500' : isFailure ? 'bg-amber-500' : 'bg-sky-500 progress-shimmer'}`}
                 style={{ width: `${visualProgressPercent}%` }}
               />
             </div>
-
-            <div className="mt-3 grid grid-cols-4 gap-2">
-              {STEP_DEFINITIONS.map((step, index) => {
-                const isComplete = activeStep > index || isSuccess
-                const isCurrent = !isSuccess && activeStep === index
-                const markerTone = isComplete
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                  : isCurrent
-                    ? 'border-sky-200 bg-sky-50 text-sky-700'
-                    : 'border-slate-200 bg-white text-slate-400'
-
-                return (
-                  <div key={`summary-${step.title}`} className={`rounded-2xl border px-3 py-2 transition ${markerTone} ${isCurrent ? 'progress-breathe' : ''}`}>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] opacity-80">
-                      {index + 1}
-                    </p>
-                    <p className="mt-1 text-xs font-medium leading-5">{step.title}</p>
-                    <p className="mt-1 text-[11px] leading-5 opacity-75">{step.estimate}</p>
-                  </div>
-                )
-              })}
-            </div>
           </div>
 
-          <ol className="mt-4 space-y-3" aria-live="polite">
+          <ol className="mt-4 space-y-1.5" aria-live="polite">
             {STEP_DEFINITIONS.map((step, index) => {
               const isComplete = activeStep > index || isSuccess
               const isCurrent = !isSuccess && activeStep === index
-              const tone = isComplete
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                : isCurrent
-                  ? 'border-sky-200 bg-sky-50 text-sky-700'
-                  : 'border-slate-200 bg-white text-slate-400'
 
               return (
-                <li key={step.title} className={`flex items-start gap-3 rounded-2xl border p-3 transition ${tone} ${isCurrent ? 'shadow-[0_12px_24px_rgba(14,165,233,0.12)]' : ''}`}>
-                  <span className={`mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${isComplete ? 'border-emerald-300 bg-emerald-500 text-white' : isCurrent ? 'border-sky-300 bg-sky-500 text-white progress-breathe' : 'border-slate-200 bg-slate-100 text-slate-500'}`}>
-                    {index + 1}
+                <li
+                  key={step.title}
+                  className={`flex items-center gap-3 rounded-xl p-2.5 transition ${
+                    isCurrent ? 'bg-sky-50' : ''
+                  } ${!isCurrent && !isComplete ? 'opacity-50' : ''}`}
+                >
+                  <span
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                      isComplete
+                        ? 'bg-emerald-500 text-white'
+                        : isCurrent
+                          ? 'bg-sky-500 text-white progress-breathe'
+                          : 'bg-slate-100 text-slate-400'
+                    }`}
+                  >
+                    {isComplete ? (
+                      <svg className="h-3 w-3" viewBox="0 0 10 8" fill="none" aria-hidden="true">
+                        <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    ) : (
+                      index + 1
+                    )}
                   </span>
-                  <span>
-                    <span className="block text-sm font-semibold">{step.title}</span>
-                    <span className="mt-1 block text-xs leading-6 opacity-80">{step.description}</span>
-                    <span className="mt-1 block text-[11px] leading-5 opacity-70">目安 {step.estimate}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium text-slate-800">{step.title}</span>
+                    {isCurrent && (
+                      <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                        {step.description}
+                      </span>
+                    )}
                   </span>
+                  <span className="shrink-0 text-xs tabular-nums text-slate-400">{step.estimate}</span>
                 </li>
               )
             })}
           </ol>
 
           {progress.length > 0 && (
-            <div className="mt-4 rounded-2xl border border-white/80 bg-white/90 p-3 text-sm text-slate-700 shadow-sm">
+            <div className="mt-4 border-t border-slate-100 pt-3">
               <button
                 type="button"
                 onClick={() => setShowLogs((current) => !current)}
-                className="flex w-full items-center justify-between gap-3 text-left"
+                className="flex w-full items-center justify-between gap-3 text-xs text-slate-500 transition hover:text-slate-800"
                 aria-expanded={showLogs}
               >
-                <span>
-                  <span className="block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">ログ</span>
-                  <span className="mt-1 block text-xs leading-6 text-slate-500">
-                    {showLogs ? 'ログを閉じる' : '必要なときだけログを表示'}
-                  </span>
-                </span>
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
-                  {showLogs ? '隠す' : '表示'}
-                </span>
+                <span className="font-medium">ログ</span>
+                <span>{showLogs ? '隠す' : '表示'}</span>
               </button>
 
               {showLogs && (
-                <div className="mt-3 space-y-2">
+                <div className="mt-2 space-y-1.5">
                   {progress.map((entry, index) => (
-                    <div key={`${entry.phase}-${index}`} className="rounded-xl bg-slate-50 px-3 py-2.5 leading-6">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    <div key={`${entry.phase}-${index}`} className="rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                      <span className="font-medium text-slate-400">
                         {entry.status === 'skipped' && entry.phase === 'review_done'
                           ? 'レビュー省略'
                           : PHASE_PRESENTATION[entry.phase].logLabel}
-                      </p>
-                      <p className="mt-1">{entry.message}</p>
+                      </span>
+                      <p className="mt-0.5">{entry.message}</p>
                     </div>
                   ))}
                 </div>
@@ -1058,7 +960,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
           )}
 
           {message ? (
-            <div className={`mt-4 rounded-2xl border p-3 text-sm ${isSuccess ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : isDuplicateError ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+            <div className={`mt-4 rounded-xl border p-3 text-sm ${isSuccess ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
               {isSuccess
                 ? 'エピソードを更新しました。最新エピソードから再生できます。'
                 : isDuplicateError
