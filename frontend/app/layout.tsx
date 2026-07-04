@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { Toaster } from 'react-hot-toast'
+import SiteHeader from './components/SiteHeader'
 
 export const metadata: Metadata = {
   title: 'MyNews Radio',
@@ -14,7 +15,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ja">
-      <body className="bg-gray-50 min-h-screen">
+      <body className="min-h-screen">
+        <SiteHeader />
         {children}
         <Toaster position="top-center" toastOptions={{ duration: 4000 }} />
       </body>

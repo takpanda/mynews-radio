@@ -63,7 +63,7 @@ export default function EpisodePlayer({ episode, script, audioUrl }: Props) {
     <>
       <section
         id="player"
-        className={`sticky top-0 z-20 mb-8 scroll-mt-24 max-sm:scroll-mt-[52px] border border-white/80 bg-white/70 shadow-[0_18px_40px_rgba(15,23,42,0.08)] backdrop-blur transition-all duration-300 ${sectionClasses}`}
+        className={`sticky top-14 z-20 mb-8 scroll-mt-24 max-sm:scroll-mt-[108px] border border-white/80 bg-white/70 shadow-[0_18px_40px_rgba(15,23,42,0.08)] backdrop-blur transition-all duration-300 ${sectionClasses}`}
         onTouchStart={expanded ? handleTouchStart : undefined}
         onTouchEnd={expanded ? handleTouchEnd : undefined}
       >
