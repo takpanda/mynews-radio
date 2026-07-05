@@ -14,6 +14,7 @@ import datetime as dt
 import json
 import logging
 import os
+import shutil
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -102,7 +103,30 @@ def main() -> None:
         _write_manifest(status=f"error_generate_script: {exc}")
         sys.exit(1)
 
-    # Step 3: synthesize voice
+    # Step 3: review — quality gate (non-fatal; runs before synthesis)
+    logger.info("=== Step 3/5: review_script (quality gate) ===")
+    review_result: dict = {"revised": False, "review_count": 0}
+    try:
+        reviewed_episode_dir = os.path.join(episode_dir, "review")
+        os.makedirs(os.path.join(reviewed_episode_dir, "lines"), exist_ok=True)
+        news_source = os.environ.get("BATCH_NEWS_SOURCE", "hatena_bookmark")
+        program_name = "テックニュース" if news_source == "hatena_bookmark" else "ニュースのとなり"
+
+        review_result = review_script(script_path, reviewed_episode_dir)
+        logger.info(
+            "review_script: revised=%s review_count=%d",
+            review_result["revised"],
+            review_result["review_count"],
+        )
+
+        if review_result.get("revised"):
+            shutil.copy(os.path.join(reviewed_episode_dir, "script.json"), script_path)
+            override_script_title(script_path, program_name, episode_date, seq)
+            logger.info("Reviewed script copied to production script.json")
+    except Exception as _rev_exc:
+        logger.warning("Review failed (non-fatal): %s", _rev_exc, exc_info=True)
+
+    # Step 4: synthesize voice
     try:
         wav_count = synthesize_voicevox(episode_dir)
         logger.info("synthesized %d lines", wav_count)
@@ -116,7 +140,7 @@ def main() -> None:
         _write_manifest(status=f"error_synthesize: {exc}")
         sys.exit(1)
 
-    # Step 4: build episode (combine + mp3)
+    # Step 5: build episode (combine + mp3)
     try:
         metadata = build_episode(episode_dir)
         if not metadata:
@@ -139,21 +163,6 @@ def main() -> None:
     )
     print(json.dumps(metadata, ensure_ascii=False, indent=2))
     _write_manifest(status="done", metadata=metadata)
-
-    # --- Review phase (non-fatal; runs after main pipeline succeeds) ---
-    logger.info("=== review_script: reviewing script ===")
-    try:
-        reviewed_episode_dir = os.path.join(episode_dir, "review")
-        os.makedirs(os.path.join(reviewed_episode_dir, "lines"), exist_ok=True)
-
-        review_result = review_script(script_path, reviewed_episode_dir)
-        logger.info(
-            "review_script: revised=%s review_count=%d",
-            review_result["revised"],
-            review_result["review_count"],
-        )
-    except Exception as _rev_exc:
-        logger.warning("Review failed (non-fatal): %s", _rev_exc, exc_info=True)
 
 
 def _write_manifest(status: str = "", metadata: dict | None = None) -> None:

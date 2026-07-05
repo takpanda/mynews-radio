@@ -1,4 +1,5 @@
 
+import os
 import time
 from unittest.mock import patch, MagicMock
 
@@ -480,3 +481,237 @@ class TestRateLimit:
         resp = client.post("/episodes/1/synthesize", json={"tts_engine": "voicevox"})
         assert resp.status_code == 429
         assert resp.json() == {"detail": "Rate limit exceeded. Try again later."}
+
+
+class TestRunDailyReviewConsistency:
+    """run_daily.py の review 結果反映動作の検証 (BEE-375)."""
+
+    @patch("app.batch.run_daily.run_health_checks", return_value=[])
+    @patch("app.batch.run_daily.summarize_articles", return_value=5)
+    @patch("app.batch.run_daily.generate_script", return_value=5)
+    @patch("app.batch.run_daily.synthesize_voicevox", return_value=5)
+    @patch("app.batch.run_daily.build_episode", return_value={"audio_path": "episode.mp3"})
+    @patch("app.batch.run_daily.review_script",
+           return_value={"revised": True, "review_count": 5, "revision_summary": "修正", "lines_count": 5})
+    def test_review_revised_true_copies_to_production(
+        self, mock_review, mock_build, mock_synth, mock_gen, mock_sum, mock_health,
+    ):
+        """revised=True の場合、review/script.json が本番 script.json にコピーされること。"""
+        from app.batch.run_daily import main
+
+        with patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(1, 0)), \
+             patch("app.batch.run_daily.EpisodeService.update_episode_status"), \
+             patch("app.batch.run_daily.EpisodeService.update_episode_phase"), \
+             patch("app.batch.run_daily.EpisodeService.update_episode_audio_path"), \
+             patch("app.batch.run_daily.EpisodeService.get_episode", return_value={"status": "generating"}), \
+             patch("app.batch.run_daily._write_manifest"), \
+             patch("app.batch.run_daily.setup_daily_logging"), \
+             patch("app.batch.run_daily.get_settings") as mock_settings, \
+             patch("shutil.copy") as mock_copy, \
+             patch("app.batch.run_daily.override_script_title"), \
+             patch.dict(os.environ, {"BATCH_DATE": "2099-12-31", "BATCH_NEWS_SOURCE": "hatena_bookmark"}):
+
+            mock_settings_instance = mock_settings.return_value
+            mock_settings_instance.default_tts_engine = "aivispeech"
+            mock_settings_instance.ollama_base_url = "http://localhost:11434"
+            mock_settings_instance.ollama_model = "test-model"
+            mock_settings_instance.aivispeech_base_url = "http://localhost:10101"
+            mock_settings_instance.voicevox_base_url = "http://localhost:50021"
+
+            main()
+
+        # Verify review/script.json was copied to production script.json
+        mock_copy.assert_called_once()
+        call_args = mock_copy.call_args[0]
+        assert "review/script.json" in call_args[0]
+        assert call_args[1].endswith("script.json")
+        mock_review.assert_called_once()
+
+    @patch("app.batch.run_daily.run_health_checks", return_value=[])
+    @patch("app.batch.run_daily.summarize_articles", return_value=5)
+    @patch("app.batch.run_daily.generate_script", return_value=5)
+    @patch("app.batch.run_daily.synthesize_voicevox", return_value=5)
+    @patch("app.batch.run_daily.build_episode", return_value={"audio_path": "episode.mp3"})
+    @patch("app.batch.run_daily.review_script",
+           return_value={"revised": False, "review_count": 0, "revision_summary": "", "lines_count": 0})
+    def test_review_revised_false_no_copy(
+        self, mock_review, mock_build, mock_synth, mock_gen, mock_sum, mock_health,
+    ):
+        """revised=False の場合、コピーが発生せず通常フローが継続されること。"""
+        from app.batch.run_daily import main
+
+        with patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(1, 0)), \
+             patch("app.batch.run_daily.EpisodeService.update_episode_status"), \
+             patch("app.batch.run_daily.EpisodeService.update_episode_phase"), \
+             patch("app.batch.run_daily.EpisodeService.update_episode_audio_path"), \
+             patch("app.batch.run_daily.EpisodeService.get_episode", return_value={"status": "generating"}), \
+             patch("app.batch.run_daily._write_manifest"), \
+             patch("app.batch.run_daily.setup_daily_logging"), \
+             patch("app.batch.run_daily.get_settings") as mock_settings, \
+             patch("shutil.copy") as mock_copy, \
+             patch("app.batch.run_daily.override_script_title"), \
+             patch.dict(os.environ, {"BATCH_DATE": "2099-12-31", "BATCH_NEWS_SOURCE": "hatena_bookmark"}):
+
+            mock_settings_instance = mock_settings.return_value
+            mock_settings_instance.default_tts_engine = "aivispeech"
+            mock_settings_instance.ollama_base_url = "http://localhost:11434"
+            mock_settings_instance.ollama_model = "test-model"
+            mock_settings_instance.aivispeech_base_url = "http://localhost:10101"
+            mock_settings_instance.voicevox_base_url = "http://localhost:50021"
+
+            main()
+
+        mock_copy.assert_not_called()
+        mock_synth.assert_called_once()
+        mock_build.assert_called_once()
+
+    @patch("app.batch.run_daily.run_health_checks", return_value=[])
+    @patch("app.batch.run_daily.summarize_articles", return_value=5)
+    @patch("app.batch.run_daily.generate_script", return_value=5)
+    @patch("app.batch.run_daily.synthesize_voicevox", return_value=5)
+    @patch("app.batch.run_daily.build_episode", return_value={"audio_path": "episode.mp3"})
+    @patch("app.batch.run_daily.review_script", side_effect=RuntimeError("ollama down"))
+    def test_review_failure_non_fatal_continues_pipeline(
+        self, mock_review, mock_build, mock_synth, mock_gen, mock_sum, mock_health,
+    ):
+        """review の例外は non-fatal で、synthesize/build は継続されること。"""
+        from app.batch.run_daily import main
+
+        with patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(1, 0)), \
+             patch("app.batch.run_daily.EpisodeService.update_episode_status"), \
+             patch("app.batch.run_daily.EpisodeService.update_episode_phase"), \
+             patch("app.batch.run_daily.EpisodeService.update_episode_audio_path"), \
+             patch("app.batch.run_daily.EpisodeService.get_episode", return_value={"status": "generating"}), \
+             patch("app.batch.run_daily._write_manifest"), \
+             patch("app.batch.run_daily.setup_daily_logging"), \
+             patch("app.batch.run_daily.get_settings") as mock_settings, \
+             patch("shutil.copy") as mock_copy, \
+             patch("app.batch.run_daily.override_script_title"), \
+             patch.dict(os.environ, {"BATCH_DATE": "2099-12-31", "BATCH_NEWS_SOURCE": "hatena_bookmark"}):
+
+            mock_settings_instance = mock_settings.return_value
+            mock_settings_instance.default_tts_engine = "aivispeech"
+            mock_settings_instance.ollama_base_url = "http://localhost:11434"
+            mock_settings_instance.ollama_model = "test-model"
+            mock_settings_instance.aivispeech_base_url = "http://localhost:10101"
+            mock_settings_instance.voicevox_base_url = "http://localhost:50021"
+
+            main()
+
+        mock_copy.assert_not_called()
+        mock_synth.assert_called_once()
+        mock_build.assert_called_once()
+
+
+class TestOrchestrateReviewConsistency:
+    """orchestrate.py の review 結果反映動作の検証 (BEE-375)."""
+
+    @patch("app.batch.orchestrate.import_articles_by_source", return_value=(5, 0))
+    @patch("app.batch.orchestrate.summarize_articles", return_value=5)
+    @patch("app.batch.orchestrate.generate_script", return_value=5)
+    @patch("app.batch.orchestrate.synthesize_episode", return_value=5)
+    @patch("app.batch.orchestrate.build_episode", return_value={"duration_seconds": 120.0})
+    def test_orchestrate_review_revised_true_copies_to_production(
+        self, mock_build, mock_synth, mock_gen, mock_sum, mock_import,
+    ):
+        """orchestrate.py: revised=True の場合、review/script.json が本番script.jsonにコピーされること。"""
+        from app.batch.orchestrate import run
+
+        with patch("app.batch.orchestrate._create_episode_record", return_value=(1, 0)), \
+             patch("app.batch.orchestrate._set_episode_status"), \
+             patch("app.batch.orchestrate._update_episode_audio"), \
+             patch("app.batch.orchestrate.review_script",
+                   return_value={"revised": True, "review_count": 5, "revision_summary": "修正", "lines_count": 5}), \
+             patch("shutil.copy") as mock_copy, \
+             patch("app.batch.orchestrate.override_script_title"), \
+             patch("app.batch.orchestrate.Path.mkdir"):
+
+            run("2099-12-31")
+
+        # Verify review/script.json was copied to production script.json
+        mock_copy.assert_called_once()
+        call_args = mock_copy.call_args[0]
+        assert "review/script.json" in call_args[0]
+        assert call_args[1].endswith("script.json")
+        # Verify synthesize/build still run even when revised=True
+        mock_synth.assert_called_once()
+        mock_build.assert_called_once()
+
+    @patch("app.batch.orchestrate.import_articles_by_source", return_value=(5, 0))
+    @patch("app.batch.orchestrate.summarize_articles", return_value=5)
+    @patch("app.batch.orchestrate.generate_script", return_value=5)
+    @patch("app.batch.orchestrate.synthesize_episode", return_value=5)
+    @patch("app.batch.orchestrate.build_episode", return_value={"duration_seconds": 120.0})
+    def test_orchestrate_review_revised_false_no_copy(
+        self, mock_build, mock_synth, mock_gen, mock_sum, mock_import,
+    ):
+        """orchestrate.py: revised=False の場合、コピーが発生せず通常フローが継続されること。"""
+        from app.batch.orchestrate import run
+
+        with patch("app.batch.orchestrate._create_episode_record", return_value=(1, 0)), \
+             patch("app.batch.orchestrate._set_episode_status"), \
+             patch("app.batch.orchestrate._update_episode_audio"), \
+             patch("app.batch.orchestrate.review_script",
+                   return_value={"revised": False, "review_count": 0, "revision_summary": "", "lines_count": 0}), \
+             patch("shutil.copy") as mock_copy, \
+             patch("app.batch.orchestrate.override_script_title"), \
+             patch("app.batch.orchestrate.Path.mkdir"):
+
+            run("2099-12-31")
+
+        mock_copy.assert_not_called()
+        mock_synth.assert_called_once()
+        mock_build.assert_called_once()
+
+    @patch("app.batch.orchestrate.import_articles_by_source", return_value=(5, 0))
+    @patch("app.batch.orchestrate.summarize_articles", return_value=5)
+    @patch("app.batch.orchestrate.generate_script", return_value=5)
+    @patch("app.batch.orchestrate.synthesize_episode", return_value=5)
+    @patch("app.batch.orchestrate.build_episode", return_value={"duration_seconds": 120.0})
+    @patch("app.batch.orchestrate.review_script", side_effect=RuntimeError("ollama down"))
+    def test_orchestrate_review_failure_non_fatal(
+        self, mock_review, mock_build, mock_synth, mock_gen, mock_sum, mock_import,
+    ):
+        """orchestrate.py: review の例外は non-fatal で、synthesize/build は継続されること。"""
+        from app.batch.orchestrate import run
+
+        with patch("app.batch.orchestrate._create_episode_record", return_value=(1, 0)), \
+             patch("app.batch.orchestrate._set_episode_status"), \
+             patch("app.batch.orchestrate._update_episode_audio"), \
+             patch("shutil.copy") as mock_copy, \
+             patch("app.batch.orchestrate.override_script_title"), \
+             patch("app.batch.orchestrate.Path.mkdir"):
+
+            run("2099-12-31")
+
+        mock_copy.assert_not_called()
+        mock_synth.assert_called_once()
+        mock_build.assert_called_once()
+
+    @patch("app.batch.orchestrate.import_articles_by_source", return_value=(5, 0))
+    @patch("app.batch.orchestrate.summarize_articles", return_value=5)
+    @patch("app.batch.orchestrate.generate_script", return_value=5)
+    @patch("app.batch.orchestrate.synthesize_episode", return_value=5)
+    @patch("app.batch.orchestrate.build_episode", return_value={"duration_seconds": 120.0})
+    def test_orchestrate_review_writes_to_review_subdirectory(
+        self, mock_build, mock_synth, mock_gen, mock_sum, mock_import,
+    ):
+        """orchestrate.py: review 出力先が review/ サブディレクトリであること。"""
+        from app.batch.orchestrate import run
+
+        with patch("app.batch.orchestrate._create_episode_record", return_value=(1, 0)), \
+             patch("app.batch.orchestrate._set_episode_status"), \
+             patch("app.batch.orchestrate._update_episode_audio"), \
+             patch("app.batch.orchestrate.review_script") as mock_review, \
+             patch("shutil.copy") as mock_copy, \
+             patch("app.batch.orchestrate.override_script_title"), \
+             patch("app.batch.orchestrate.Path.mkdir"):
+
+            run("2099-12-31")
+
+        # Verify review output dir is episode_dir/review/, not episode_dir directly
+        mock_review.assert_called_once()
+        call_args = mock_review.call_args[0]
+        assert call_args[0].endswith("script.json")  # source script
+        assert call_args[1].endswith("/review")       # output dir
+        assert not call_args[1].endswith("episodes/1")  # not episode_dir directly
