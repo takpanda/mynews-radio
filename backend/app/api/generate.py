@@ -49,6 +49,8 @@ def verify_api_key(authorization: str | None = Header(None)) -> None:
     token = authorization[7:]
     if token != settings.api_key:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
 DEFAULT_EPISODES_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
 VALID_GENDERS = {"male", "female"}
 
