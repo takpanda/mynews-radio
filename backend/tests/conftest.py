@@ -49,6 +49,7 @@ def test_env(tmp_path, monkeypatch):
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_file}")
     monkeypatch.setenv("EPISODES_DIR", str(ep_dir))
+    monkeypatch.setenv("GENERATE_RATE_LIMIT", "100/minute")
 
     # Clear lru_cache on get_settings so lazy access picks up the new env vars
     from app import config as cfg_mod

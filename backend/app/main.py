@@ -13,10 +13,12 @@ logging.basicConfig(
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
+from slowapi import _rate_limit_exceeded_handler as slowapi_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
 from app.api.episodes import router as episodes_router
-from app.api.generate import router as generate_router
+from app.api.generate import router as generate_router, limiter
 from app.api.health import router as health_router
 from app.services.episode_service import EpisodeService
 settings = get_settings()
@@ -31,6 +33,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting – bind limiter for generate/synthesize endpoints
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, slowapi_handler)
 
 
 def _init_db() -> None:
