@@ -484,7 +484,7 @@ def import_yahoo_news_articles() -> tuple[int, int]:
 # SSRF protection: URL validation and safe redirect handler
 # ---------------------------------------------------------------------------
 
-_PRIVATE_IP_NETWORKS = [
+_INTERNAL_NETWORKS = [
     ipaddress.ip_network("127.0.0.0/8"),
     ipaddress.ip_network("::1/128"),
     ipaddress.ip_network("10.0.0.0/8"),
@@ -515,18 +515,14 @@ def _validate_url_public(url: str) -> None:
         raise ValueError(_SSRF_ERROR_MESSAGE) from exc
 
     for family, _type, _proto, _canonname, sockaddr in addrinfo:
-        addr_str = sockaddr[0]  # IP address string
+        addr_str = sockaddr[0]
         try:
             addr = ipaddress.ip_address(addr_str)
-            for net in _PRIVATE_IP_NETWORKS:
-                if addr in net:
-                    raise ValueError(_SSRF_ERROR_MESSAGE)
         except ValueError:
-            if addr_str == _SSRF_ERROR_MESSAGE:
-                raise
-            # ip_address may raise ValueError for invalid strings;
-            # re-raise as our SSRF error
-            raise ValueError(_SSRF_ERROR_MESSAGE) from None
+            continue
+        for net in _INTERNAL_NETWORKS:
+            if addr in net:
+                raise ValueError(_SSRF_ERROR_MESSAGE)
 
 
 class _SafeHTTPRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -535,7 +531,7 @@ class _SafeHTTPRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(
         self,
         req: urllib.request.Request,
-        fp,
+        fp: "http.client.HTTPResponse",  # noqa: F821
         code: int,
         msg: str,
         headers: dict,

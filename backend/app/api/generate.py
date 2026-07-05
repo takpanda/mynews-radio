@@ -425,19 +425,19 @@ def generate_episode(body: GenerateRequest) -> dict:
     if body.mc_gender not in VALID_GENDERS:
         raise HTTPException(status_code=400, detail="mc_gender must be 'male' or 'female'")
 
-    # Validate: url 指定時は SSRFチェック + style をチェック
+    # Validate: url 指定時は style をチェック → SSRFチェック
     if body.url:
+        if body.style not in {"solo", "dialogue"}:
+            raise HTTPException(
+                status_code=400,
+                detail="style must be 'solo' or 'dialogue'",
+            )
         try:
             _validate_url_public(body.url)
         except ValueError:
             raise HTTPException(
                 status_code=400,
                 detail="Access to internal network address is not allowed",
-            )
-        if body.style not in {"solo", "dialogue"}:
-            raise HTTPException(
-                status_code=400,
-                detail="style must be 'solo' or 'dialogue'",
             )
         episode_type = "commentary"
     else:
