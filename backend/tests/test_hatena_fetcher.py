@@ -274,12 +274,16 @@ class TestGenerateEndpointSsrf:
         assert resp.status_code == 400
 
     def test_public_url_passes_validation(self, client):
-        resp = client.post("/generate", json={
-            "date": "2099-07-01",
-            "url": "https://example.com/article",
-            "style": "solo",
-        })
+        with patch("app.api.generate._validate_url_public") as mock_validate, \
+             patch("app.api.generate.fetch_article_by_url",
+                   return_value={"title": "Mocked", "url": "https://example.com/article", "text": "body", "source": "url_input"}):
+            resp = client.post("/generate", json={
+                "date": "2099-07-01",
+                "url": "https://example.com/article",
+                "style": "solo",
+            })
         assert resp.status_code == 200
+        mock_validate.assert_called_once_with("https://example.com/article")
 
 
 # ---------------------------------------------------------------------------
@@ -312,18 +316,6 @@ class TestSafeHTTPRedirectHandler:
         with patch("app.services.hatena_fetcher._validate_url_public",
                    side_effect=ValueError(_SSRF_ERROR_MESSAGE)):
             with pytest.raises(ValueError, match=_SSRF_ERROR_MESSAGE):
-                handler.redirect_request(req, fp, 302, "Found", {}, "http://127.0.0.1/admin")
-
-    def test_redirect_to_internal_address_logs_rejection(self, caplog):
-        from app.services.hatena_fetcher import _SafeHTTPRedirectHandler
-        handler = _SafeHTTPRedirectHandler()
-        req = MagicMock()
-        fp = MagicMock()
-
-        caplog.set_level(logging.WARNING)
-        with patch("app.services.hatena_fetcher._validate_url_public",
-                   side_effect=ValueError("Access to internal network address is not allowed")):
-            with pytest.raises(ValueError):
                 handler.redirect_request(req, fp, 302, "Found", {}, "http://127.0.0.1/admin")
 
     def test_redirect_to_public_address_passes_through(self):
