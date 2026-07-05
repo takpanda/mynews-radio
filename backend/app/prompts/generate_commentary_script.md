@@ -51,18 +51,19 @@
 
 # 出力フォーマット
 
+**solo の場合（基本フォーマット）**:
 {{
   "title": "{article_title}",
   "subtitle": "15〜25文字の副題",
   "lines": [
-    {{ "speaker": "male",   "text": "〔introduction〕",              "article_id": {article_id}, "section": "intro", "delivery": "neutral" }},
-    {{ "speaker": "male",   "text": "〔ニュースの解説①〕",           "article_id": {article_id}, "section": "news", "delivery": "neutral" }},
-    {{ "speaker": "male",   "text": "〔ニュースの解説②〕",           "article_id": {article_id}, "section": "news", "delivery": "neutral" }},
-    {{ "speaker": "male",   "text": "〔まとめ・締めくくり〕",        "article_id": null,         "section": "outro", "delivery": "warm" }}
+    {{ "speaker": "{mc_gender}",   "text": "〔introduction〕",              "article_id": {article_id}, "section": "intro", "delivery": "neutral" }},
+    {{ "speaker": "{mc_gender}",   "text": "〔ニュースの解説①〕",           "article_id": {article_id}, "section": "news", "delivery": "neutral" }},
+    {{ "speaker": "{mc_gender}",   "text": "〔ニュースの解説②〕",           "article_id": {article_id}, "section": "news", "delivery": "neutral" }},
+    {{ "speaker": "{mc_gender}",   "text": "〔まとめ・締めくくり〕",        "article_id": null,         "section": "outro", "delivery": "warm" }}
   ]
 }}
 
-**dialogue の場合の出力フォーマット（linesの例）**:
+**dialogue の場合（linesの例）**:
 {{
   "lines": [
     {{ "speaker": "male",   "text": "〔introduction〕",              "article_id": {article_id}, "section": "intro", "delivery": "neutral" }},

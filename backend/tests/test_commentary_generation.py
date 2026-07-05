@@ -447,44 +447,62 @@ class TestBuildSectionDetails:
 
     def test_small_count_returns_small_section_details(self):
         from app.batch.generate_commentary_script import _build_section_details
-        result = _build_section_details(6)
+        result = _build_section_details(6, "solo")
         assert "intro、1〜2行" in result
         assert "news、3〜6行" in result
         assert "outro、1〜2行" in result
 
     def test_medium_count_returns_medium_section_details(self):
         from app.batch.generate_commentary_script import _build_section_details
-        result = _build_section_details(10)
+        result = _build_section_details(10, "solo")
         assert "intro、2行" in result
         assert "news、6〜9行" in result
         assert "outro、1〜2行" in result
 
     def test_large_count_returns_large_section_details(self):
         from app.batch.generate_commentary_script import _build_section_details
-        result = _build_section_details(13)
+        result = _build_section_details(13, "solo")
         assert "intro、2〜3行" in result
         assert "news、8〜12行" in result
         assert "outro、1〜2行" in result
 
     def test_boundary_8_returns_small(self):
         from app.batch.generate_commentary_script import _build_section_details
-        result = _build_section_details(8)
+        result = _build_section_details(8, "solo")
         assert "intro、1〜2行" in result
 
     def test_boundary_9_returns_medium(self):
         from app.batch.generate_commentary_script import _build_section_details
-        result = _build_section_details(9)
+        result = _build_section_details(9, "solo")
         assert "intro、2行" in result
 
     def test_boundary_12_returns_medium(self):
         from app.batch.generate_commentary_script import _build_section_details
-        result = _build_section_details(12)
+        result = _build_section_details(12, "solo")
         assert "intro、2行" in result
 
     def test_boundary_13_returns_large(self):
         from app.batch.generate_commentary_script import _build_section_details
-        result = _build_section_details(13)
+        result = _build_section_details(13, "solo")
         assert "intro、2〜3行" in result
+
+    def test_solo_contains_monologue_guidance(self):
+        from app.batch.generate_commentary_script import _build_section_details
+        result = _build_section_details(6, "solo")
+        assert "ナレーション形式" in result
+        assert "田村" not in result
+        assert "山口" not in result
+
+    def test_dialogue_contains_dialogue_guidance(self):
+        from app.batch.generate_commentary_script import _build_section_details
+        result = _build_section_details(8, "dialogue")
+        assert "田村と山口が掛け合い形式" in result
+
+    def test_solo_default_matches_solo_behavior(self):
+        from app.batch.generate_commentary_script import _build_section_details
+        result = _build_section_details(6)
+        assert "ナレーション形式" in result
+        assert "田村" not in result
 
 
 class TestSectionValidation:
@@ -915,6 +933,27 @@ class TestSoloConcreteDataInstructions:
         assert "元記事に含まれる数値" in solo_section
         dialogue_section = content[dialogue_start:]
         assert "元記事に含まれる数値" not in dialogue_section
+
+    def test_solo_output_example_uses_mc_gender_placeholder(self):
+        """solo 出力例の speaker が {mc_gender} 参照になっていることを確認"""
+        prompt_path = Path(__file__).resolve().parents[1] / "app" / "prompts" / "generate_commentary_script.md"
+        content = prompt_path.read_text(encoding="utf-8")
+        output_format_marker = "# 出力フォーマット"
+        dialogue_marker = "**dialogue の場合（linesの例）**"
+        fmt_start = content.index(output_format_marker)
+        fmt_end = content.index(dialogue_marker)
+        solo_example = content[fmt_start:fmt_end]
+        assert '"{mc_gender}"' in solo_example, \
+            "solo output example should use {mc_gender}, not hardcoded 'male'"
+        assert '"male"' not in solo_example.replace('"{mc_gender}"', ''), \
+            "solo output example should not contain hardcoded 'male'"
+
+    def test_solo_dialogue_examples_clearly_separated(self):
+        """solo と dialogue の出力例が明確に分離されていることを確認"""
+        prompt_path = Path(__file__).resolve().parents[1] / "app" / "prompts" / "generate_commentary_script.md"
+        content = prompt_path.read_text(encoding="utf-8")
+        assert "**solo の場合（基本フォーマット）**:" in content
+        assert "**dialogue の場合（linesの例）**:" in content
 
     def test_solo_generation_injects_concrete_data_instructions(self, tmp_path):
         from app.batch.generate_commentary_script import generate_commentary_script
