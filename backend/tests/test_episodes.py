@@ -150,3 +150,87 @@ class TestEpisodeScriptEndpoint:
     def test_get_script_404_when_episode_not_found(self, client):
         resp = client.get("/episodes/99999/script")
         assert resp.status_code == 404
+
+
+class TestEpisodeReviewEndpoint:
+    """GET /episodes/{id}/review のレスポンス形式テスト"""
+
+    def test_get_review_new_path(self, client):
+        import json as _json
+        import os as _os
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-31")
+
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        review_dir = _os.path.join(ep_dir, str(eid), "review")
+        _os.makedirs(review_dir, exist_ok=True)
+
+        review_data = {"reviewer": "test_reviewer", "feedback": "ok", "score": 85}
+        with open(_os.path.join(review_dir, "review.json"), "w", encoding="utf-8") as f:
+            _json.dump(review_data, f)
+
+        resp = client.get(f"/episodes/{eid}/review")
+        assert resp.status_code == 200
+        assert resp.json() == review_data
+
+    def test_get_review_fallback_old_path(self, client):
+        import json as _json
+        import os as _os
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-31")
+
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        ep_episode_dir = _os.path.join(ep_dir, str(eid))
+        _os.makedirs(ep_episode_dir, exist_ok=True)
+
+        review_data = {"reviewer": "legacy", "feedback": "old path"}
+        with open(_os.path.join(ep_episode_dir, "review.json"), "w", encoding="utf-8") as f:
+            _json.dump(review_data, f)
+
+        resp = client.get(f"/episodes/{eid}/review")
+        assert resp.status_code == 200
+        assert resp.json() == review_data
+
+    def test_get_review_new_path_preferred_over_old(self, client):
+        import json as _json
+        import os as _os
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-31")
+
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        ep_episode_dir = _os.path.join(ep_dir, str(eid))
+        _os.makedirs(ep_episode_dir, exist_ok=True)
+
+        old_data = {"reviewer": "old", "feedback": "old path"}
+        with open(_os.path.join(ep_episode_dir, "review.json"), "w", encoding="utf-8") as f:
+            _json.dump(old_data, f)
+
+        review_dir = _os.path.join(ep_dir, str(eid), "review")
+        _os.makedirs(review_dir, exist_ok=True)
+        new_data = {"reviewer": "new", "feedback": "new path preferred"}
+        with open(_os.path.join(review_dir, "review.json"), "w", encoding="utf-8") as f:
+            _json.dump(new_data, f)
+
+        resp = client.get(f"/episodes/{eid}/review")
+        assert resp.status_code == 200
+        assert resp.json() == new_data
+
+    def test_get_review_404_when_no_review_file(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-31")
+
+        resp = client.get(f"/episodes/{eid}/review")
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Review file not found"
+
+    def test_get_review_404_when_episode_not_found(self, client):
+        resp = client.get("/episodes/99999/review")
+        assert resp.status_code == 404
