@@ -188,9 +188,15 @@ def get_episode_review(episode_id: int) -> dict:
     """review.json の内容をそのまま返す"""
     episode = _require_episode(episode_id)
     base_dir = _resolve_episode_directory(episode)
-    review_path = os.path.join(base_dir, "review.json")
 
-    if not os.path.isfile(review_path):
+    new_path = os.path.join(base_dir, "review", "review.json")
+    old_path = os.path.join(base_dir, "review.json")
+
+    if os.path.isfile(new_path):
+        review_path = new_path
+    elif os.path.isfile(old_path):
+        review_path = old_path
+    else:
         raise HTTPException(status_code=404, detail="Review file not found")
 
     with open(review_path, "r", encoding="utf-8") as f:
