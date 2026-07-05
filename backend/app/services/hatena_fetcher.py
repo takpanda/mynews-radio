@@ -487,6 +487,8 @@ def import_yahoo_news_articles() -> tuple[int, int]:
 _INTERNAL_NETWORKS = [
     ipaddress.ip_network("127.0.0.0/8"),
     ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),      # Unique Local Address (ULA)
+    ipaddress.ip_network("fe80::/10"),     # Link-local
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
