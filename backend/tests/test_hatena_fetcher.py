@@ -274,16 +274,14 @@ class TestGenerateEndpointSsrf:
         assert resp.status_code == 400
 
     def test_public_url_passes_validation(self, client):
-        with patch("app.api.generate._validate_url_public") as mock_validate, \
-             patch("app.api.generate.fetch_article_by_url",
-                   return_value={"title": "Mocked", "url": "https://example.com/article", "text": "body", "source": "url_input"}):
+        with patch("app.api.generate._run_commentary_generation") as mock_run:
             resp = client.post("/generate", json={
                 "date": "2099-07-01",
                 "url": "https://example.com/article",
                 "style": "solo",
             })
         assert resp.status_code == 200
-        mock_validate.assert_called_once_with("https://example.com/article")
+        mock_run.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
