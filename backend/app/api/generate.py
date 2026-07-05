@@ -9,7 +9,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Generator
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -29,6 +29,18 @@ from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_u
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def verify_api_key(authorization: str | None = Header(None)) -> None:
+    settings = get_settings()
+    if not settings.api_key:
+        return
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    token = authorization[7:]
+    if token != settings.api_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
 
 DEFAULT_EPISODES_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
 VALID_GENDERS = {"male", "female"}
@@ -417,7 +429,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             logger.exception("[%d] commentary generation failed before service init", episode_id)
 
 
-@router.post("/generate", summary="番組を生成する（バックグラウンド実行）")
+@router.post("/generate", summary="番組を生成する（バックグラウンド実行）", dependencies=[Depends(verify_api_key)])
 def generate_episode(body: GenerateRequest) -> dict:
     """Creates episode record and returns JSON immediately; actual generation runs in background."""
 
@@ -577,7 +589,7 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
     )
 
 
-@router.post("/episodes/{episode_id}/synthesize", summary="既存エピソードの音声を生成する")
+@router.post("/episodes/{episode_id}/synthesize", summary="既存エピソードの音声を生成する", dependencies=[Depends(verify_api_key)])
 def synthesize_episode_audio(episode_id: int, body: SynthesizeRequest) -> StreamingResponse:
     return StreamingResponse(
         _stream_synthesize(episode_id, body),
