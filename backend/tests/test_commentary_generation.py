@@ -1070,6 +1070,176 @@ class TestConcreteDataQualityGuard:
         assert "no concrete data" in caplog.records[0].getMessage().lower()
 
 
+class TestPromptTemplateStyleFiltering:
+    """Verify that assembled prompt excludes dialogue sections in solo mode."""
+
+    CAPTURED_SOLO = None
+    CAPTURED_DIALOGUE = None
+
+    class _CapturingClientBase:
+        def __init__(self, *args, **kwargs):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *args, **kwargs):
+            pass
+        def generate_json(self, prompt):
+            return {"title": "Test", "subtitle": "", "lines": [{"speaker": "male", "text": "test", "section": "news", "delivery": "neutral"}]}
+
+    class _CapturingClientSolo(_CapturingClientBase):
+        def generate_json(self, prompt):
+            TestPromptTemplateStyleFiltering.CAPTURED_SOLO = prompt
+            return {"title": "Test", "subtitle": "", "lines": [{"speaker": "male", "text": "test", "section": "news", "delivery": "neutral"}]}
+
+    class _CapturingClientDialogue(_CapturingClientBase):
+        def generate_json(self, prompt):
+            TestPromptTemplateStyleFiltering.CAPTURED_DIALOGUE = prompt
+            return {"title": "Test", "subtitle": "", "lines": [{"speaker": "male", "text": "test", "section": "news", "delivery": "neutral"}]}
+
+    def test_solo_prompt_excludes_tamura_yamaguchi(self, tmp_path):
+        """solo で組み立てた prompt に田村・山口・dialogue の場合が含まれない"""
+        from app.batch.generate_commentary_script import generate_commentary_script
+        article = {"id": 1, "title": "Test", "text": "x" * 500}
+        output = tmp_path / "solo_out.json"
+        with patch("app.batch.generate_commentary_script.OllamaClient", self._CapturingClientSolo):
+            generate_commentary_script(str(output), article, style="solo", mc_gender="female")
+        prompt = self.CAPTURED_SOLO
+        assert prompt is not None
+        assert "田村" not in prompt, "solo prompt should not contain 田村"
+        assert "山口" not in prompt, "solo prompt should not contain 山口"
+        assert "dialogue の場合" not in prompt, "solo prompt should not contain dialogue sections"
+
+    def test_solo_prompt_contains_solo_sections(self, tmp_path):
+        """solo で組み立てた prompt に必要な solo セクションが含まれる"""
+        from app.batch.generate_commentary_script import generate_commentary_script
+        article = {"id": 1, "title": "Test", "text": "x" * 500}
+        output = tmp_path / "solo_out.json"
+        with patch("app.batch.generate_commentary_script.OllamaClient", self._CapturingClientSolo):
+            generate_commentary_script(str(output), article, style="solo", mc_gender="female")
+        prompt = self.CAPTURED_SOLO
+        assert prompt is not None
+        assert '話者は "female" 1名のみ' in prompt
+        assert "一人語りの文体" in prompt
+        assert "自問自答" in prompt
+
+    def test_dialogue_prompt_contains_tamura_yamaguchi(self, tmp_path):
+        """dialogue で組み立てた prompt に田村・山口が含まれる"""
+        from app.batch.generate_commentary_script import generate_commentary_script
+        article = {"id": 1, "title": "Test", "text": "x" * 500}
+        output = tmp_path / "dialogue_out.json"
+        with patch("app.batch.generate_commentary_script.OllamaClient", self._CapturingClientDialogue):
+            generate_commentary_script(str(output), article, style="dialogue", mc_gender="male")
+        prompt = self.CAPTURED_DIALOGUE
+        assert prompt is not None
+        assert "田村" in prompt, "dialogue prompt should contain 田村"
+        assert "山口" in prompt, "dialogue prompt should contain 山口"
+        assert "dialogue の場合" in prompt, "dialogue prompt should contain dialogue sections"
+        assert "掛け合い形式" in prompt, "dialogue prompt should contain 掛け合い形式"
+        assert "役割分担の鉄則" in prompt, "dialogue prompt should contain role rules"
+
+    def test_solo_male_prompt_strips_dialogue(self, tmp_path):
+        """solo+male でも dialogue セクションが含まれない"""
+        from app.batch.generate_commentary_script import generate_commentary_script
+        article = {"id": 1, "title": "Test", "text": "x" * 500}
+        output = tmp_path / "solo_male_out.json"
+
+        captured = [None]
+
+        class _Cap:
+            def __init__(self, *args, **kwargs): pass
+            def __enter__(self): return self
+            def __exit__(self, *args, **kwargs): pass
+            def generate_json(self, prompt):
+                captured[0] = prompt
+                return {"title": "Test", "subtitle": "", "lines": [{"speaker": "male", "text": "test", "section": "news", "delivery": "neutral"}]}
+
+        with patch("app.batch.generate_commentary_script.OllamaClient", _Cap):
+            generate_commentary_script(str(output), article, style="solo", mc_gender="male")
+
+        prompt = captured[0]
+        assert prompt is not None
+        assert "田村" not in prompt
+        assert "山口" not in prompt
+        assert "dialogue の場合" not in prompt
+
+
+class TestLoadPromptTemplate:
+    """Unit tests for _load_prompt_template and _strip_dialogue_only_sections."""
+
+    def test_load_solo_strips_dialogue_section(self):
+        from app.batch.generate_commentary_script import _load_prompt_template
+        template = _load_prompt_template("solo")
+        assert "田村" not in template
+        assert "山口" not in template
+        assert "dialogue の場合" not in template
+        # markers themselves are removed
+        assert "DIALOGUE_ONLY" not in template
+        assert "END_DIALOGUE_ONLY" not in template
+
+    def test_load_dialogue_keeps_dialogue_section(self):
+        from app.batch.generate_commentary_script import _load_prompt_template
+        template = _load_prompt_template("dialogue")
+        assert "田村" in template
+        assert "山口" in template
+        assert "dialogue の場合" in template
+
+    def test_load_default_is_solo(self):
+        from app.batch.generate_commentary_script import _load_prompt_template
+        template = _load_prompt_template()
+        assert "田村" not in template
+        assert "山口" not in template
+
+    def test_strip_dialogue_only_sections(self):
+        from app.batch.generate_commentary_script import _strip_dialogue_only_sections
+        text = "common\n<!-- DIALOGUE_ONLY -->\ndialogue secret\n<!-- END_DIALOGUE_ONLY -->\ncommon after"
+        result = _strip_dialogue_only_sections(text)
+        assert "dialogue secret" not in result
+        assert "common" in result
+        assert "common after" in result
+        assert "DIALOGUE_ONLY" not in result
+
+
+class TestConcreteDataQualityGuard:
+    """Tests for _check_concrete_data quality guard."""
+
+    def test_digits_present_no_warning(self, caplog):
+        from app.batch.generate_commentary_script import _check_concrete_data
+        caplog.set_level("WARNING")
+        lines = [
+            {"text": "This product costs 100 dollars and has 2 features"},
+            {"text": "Version 3.0 was released"},
+        ]
+        _check_concrete_data(lines, "solo")
+        assert len(caplog.records) == 0
+
+    def test_no_digits_triggers_warning(self, caplog):
+        from app.batch.generate_commentary_script import _check_concrete_data
+        caplog.set_level("WARNING")
+        lines = [
+            {"text": "This product is expensive"},
+            {"text": "No numbers here either"},
+        ]
+        _check_concrete_data(lines, "solo")
+        assert len(caplog.records) == 1
+        assert "no concrete data" in caplog.records[0].getMessage().lower()
+
+    def test_dialogue_skips_check(self, caplog):
+        from app.batch.generate_commentary_script import _check_concrete_data
+        caplog.set_level("WARNING")
+        lines = [
+            {"text": "totally abstract without any numbers"},
+        ]
+        _check_concrete_data(lines, "dialogue")
+        assert len(caplog.records) == 0
+
+    def test_empty_lines_no_crash(self, caplog):
+        from app.batch.generate_commentary_script import _check_concrete_data
+        caplog.set_level("WARNING")
+        _check_concrete_data([], "solo")
+        assert len(caplog.records) == 1
+        assert "no concrete data" in caplog.records[0].getMessage().lower()
+
+
 def _make_fake_open(script_json: str):
     """Return a mock `open` context manager that reads from a string."""
     def _open(*args, **kwargs):

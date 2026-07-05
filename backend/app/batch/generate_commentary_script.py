@@ -102,9 +102,22 @@ def _check_concrete_data(lines: list, style: str) -> None:
         )
 
 
-def _load_prompt_template() -> str:
+def _load_prompt_template(style: str = "solo") -> str:
     prompt_path = Path(__file__).resolve().parents[1] / "prompts" / "generate_commentary_script.md"
-    return prompt_path.read_text(encoding="utf-8")
+    text = prompt_path.read_text(encoding="utf-8")
+    if style != "dialogue":
+        text = _strip_dialogue_only_sections(text)
+    return text
+
+
+def _strip_dialogue_only_sections(text: str) -> str:
+    """Remove sections marked with <!-- DIALOGUE_ONLY -->...<!-- END_DIALOGUE_ONLY -->."""
+    import re
+    return re.sub(
+        r'(?s)<!-- DIALOGUE_ONLY -->.*?<!-- END_DIALOGUE_ONLY -->\n?',
+        '',
+        text,
+    )
 
 
 def generate_commentary_script(
@@ -124,7 +137,7 @@ def generate_commentary_script(
         Number of lines generated (0 on failure).
     """
     settings = get_settings()
-    template = _load_prompt_template()
+    template = _load_prompt_template(style)
 
     text_length = len(article.get("text", "") or "")
     suggested_lines = _calc_suggested_lines(text_length, style)
