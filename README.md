@@ -50,6 +50,8 @@
 | `AIVISPEECH_BASE_URL` | AivisSpeech API のエンドポイント | `http://192.168.1.102:10101` |
 | `AIVISPEECH_SPEAKER_MALE` | AivisSpeech 男性話者 ID | `1310138976`（阿井田茂） |
 | `AIVISPEECH_SPEAKER_FEMALE` | AivisSpeech 女性話者 ID | `1388823424`（湊音エル） |
+| `API_KEY` | API キー（設定時は `POST /generate` と `POST /episodes/{id}/synthesize` に `Authorization: Bearer <key>` が必要） | 空文字（認証無効） |
+| `GENERATE_RATE_LIMIT` | 生成系 API のレート制限（例: `5/minute`, `100/hour`） | `5/minute` |
 | `DEFAULT_TTS_ENGINE` | デフォルト TTS エンジン (`aivispeech` / `voicevox`) | `aivispeech` |
 | `CRON_SCHEDULE` | バッチ実行スケジュール（cron 形式） | `0 6 * * *` |
 | `EPISODE_RETENTION_DAYS` | エピソード保持日数 | `30` |
@@ -204,13 +206,19 @@ Irodori-TTS（OpenAI 互換 API）も利用可能です。詳細は `backend/app
 | GET | `/episodes/:id` | エピソード詳細取得 |
 | GET | `/episodes/:id/script` | スクリプト JSON 取得 |
 | GET | `/audio/:id/*` | 音声ファイル配信 |
-| POST | `/generate` | エピソード生成（SSE で進捗ストリーミング） |
+| POST | `/generate` | エピソード生成（SSE で進捗ストリーミング）※認証（API_KEY 設定時）およびレート制限対象 |
+| POST | `/episodes/:id/synthesize` | エピソード音声合成 ※認証（API_KEY 設定時）およびレート制限対象 |
 
 ### エピソード生成リクエスト
+
+> **認証**: `API_KEY` が設定されている場合、`Authorization: Bearer <API_KEY>` ヘッダーが必要です。設定がない場合は認証チェックを行いません。
+>
+> **レート制限**: 既定値 `5/minute`（環境変数 `GENERATE_RATE_LIMIT` で変更可能）。超過時は `429` `{"detail": "Rate limit exceeded. Try again later."}` を返します。
 
 ```bash
 curl -X POST http://localhost:8010/generate \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-api-key" \
   -d '{
     "date": "2026-06-14",
     "max_articles": 10,
