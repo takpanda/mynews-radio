@@ -1,16 +1,22 @@
 import { NextRequest } from "next/server"
 
 const API_BASE = process.env.API_BASE ?? "http://localhost:8010"
+const API_KEY = process.env.API_KEY
 
 export async function POST(request: NextRequest) {
   const body = await request.json()
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    }
+    if (API_KEY) {
+      headers["Authorization"] = `Bearer ${API_KEY}`
+    }
+
     const upstream = await fetch(`${API_BASE}/generate`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify(body),
     })
 

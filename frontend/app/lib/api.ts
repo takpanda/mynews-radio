@@ -129,6 +129,14 @@ export interface GenerateResponse {
   episode_id: number
 }
 
+function parseErrorDetail(body: string): string {
+  try {
+    const parsed = JSON.parse(body)
+    if (typeof parsed.detail === 'string') return parsed.detail
+  } catch {}
+  return body
+}
+
 export async function generateEpisode(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', recreateSummary = false, url?: string, style?: 'solo' | 'dialogue', mcGender?: 'male' | 'female'): Promise<GenerateResponse> {
   const res = await fetch('/api/generate', {
     method: 'POST',
@@ -147,11 +155,17 @@ export async function generateEpisode(date: string, maxArticles = 10, newsSource
     }),
   })
   if (!res.ok) {
-    const errorText = await res.text().catch(() => '')
+    const errorBody = await res.text().catch(() => '')
     if (res.status === 409) {
       throw new Error('既に生成中のタスクがあります')
     }
-    throw new Error(errorText || `Generate failed: ${res.status}`)
+    if (res.status === 401) {
+      throw new Error('API キーが設定されていません。サーバー設定が必要です。')
+    }
+    if (res.status === 429) {
+      throw new Error('レート制限に達しました。しばらく待ってから再試行してください。')
+    }
+    throw new Error(parseErrorDetail(errorBody) || `Generate failed: ${res.status}`)
   }
   return res.json() as Promise<GenerateResponse>
 }
