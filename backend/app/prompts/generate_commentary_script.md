@@ -27,6 +27,7 @@
 - 比較対象や検証条件（例：「〜との比較」「〜の環境で検証」）を具体的に記述する
 - 各 news ラインには最低1件以上の具体的な事実・数字を含める
 
+<!-- DIALOGUE_ONLY -->
 ## スタイル=dialogue（二人対談）の場合
 
 ## MC 男性：田村 誠（たむら まこと）【技術・事実担当】
@@ -48,21 +49,24 @@
 - 山口は「技術構造・制度・データの詳細解説」の台詞を言わない
 - 田村が説明した内容を山口が別の言い方で繰り返すだけの行は作らない
 - 必ず視点・情報が追加されていること
+<!-- END_DIALOGUE_ONLY -->
 
 # 出力フォーマット
 
+**solo の場合（基本フォーマット）**:
 {{
   "title": "{article_title}",
   "subtitle": "15〜25文字の副題",
   "lines": [
-    {{ "speaker": "male",   "text": "〔introduction〕",              "article_id": {article_id}, "section": "intro", "delivery": "neutral" }},
-    {{ "speaker": "male",   "text": "〔ニュースの解説①〕",           "article_id": {article_id}, "section": "news", "delivery": "neutral" }},
-    {{ "speaker": "male",   "text": "〔ニュースの解説②〕",           "article_id": {article_id}, "section": "news", "delivery": "neutral" }},
-    {{ "speaker": "male",   "text": "〔まとめ・締めくくり〕",        "article_id": null,         "section": "outro", "delivery": "warm" }}
+    {{ "speaker": "{mc_gender}",   "text": "〔introduction〕",              "article_id": {article_id}, "section": "intro", "delivery": "neutral" }},
+    {{ "speaker": "{mc_gender}",   "text": "〔ニュースの解説①〕",           "article_id": {article_id}, "section": "news", "delivery": "neutral" }},
+    {{ "speaker": "{mc_gender}",   "text": "〔ニュースの解説②〕",           "article_id": {article_id}, "section": "news", "delivery": "neutral" }},
+    {{ "speaker": "{mc_gender}",   "text": "〔まとめ・締めくくり〕",        "article_id": null,         "section": "outro", "delivery": "warm" }}
   ]
 }}
 
-**dialogue の場合の出力フォーマット（linesの例）**:
+<!-- DIALOGUE_ONLY -->
+**dialogue の場合（linesの例）**:
 {{
   "lines": [
     {{ "speaker": "male",   "text": "〔introduction〕",              "article_id": {article_id}, "section": "intro", "delivery": "neutral" }},
@@ -74,6 +78,7 @@
     {{ "speaker": "male",   "text": "〔締めくくり〕",                "article_id": null,         "section": "outro", "delivery": "warm" }}
   ]
 }}
+<!-- END_DIALOGUE_ONLY -->
 
 # 制約
 

@@ -42,11 +42,12 @@ def _calc_suggested_lines(text_length: int, style: str) -> int:
     return base
 
 
-def _build_section_details(suggested_lines_count: int) -> str:
+def _build_section_details(suggested_lines_count: int, style: str = "solo") -> str:
     """Build dynamic section composition guidance based on suggested line count.
 
     Args:
         suggested_lines_count: Calculated suggested line count.
+        style: "solo" or "dialogue".
 
     Returns:
         Section guidance string for the prompt template.
@@ -61,6 +62,11 @@ def _build_section_details(suggested_lines_count: int) -> str:
         intro_range = "2〜3"
         news_range = "8〜12"
 
+    if style == "dialogue":
+        progression_guidance = "   - dialogueの場合は田村と山口が掛け合い形式で進行"
+    else:
+        progression_guidance = "   - 一人の解説者が一貫してナレーション形式で進行"
+
     return (
         "解説は以下の流れで構成してください：\n\n"
         f"1. **導入（intro、{intro_range}行）**\n"
@@ -72,7 +78,7 @@ def _build_section_details(suggested_lines_count: int) -> str:
         "   - 背景・経緯を補足する\n"
         "   - 影響・意義を解説する\n"
         "   - 複数の視点からバランスよく伝える\n"
-        "   - dialogueの場合は田村と山口が掛け合い形式で進行\n\n"
+        f"   {progression_guidance}\n\n"
         "3. **まとめ（outro、1〜2行）**\n"
         "   - 内容を一言で振り返る\n"
         "   - リスナーへのメッセージや今後の展望に触れてもよい"
@@ -96,9 +102,22 @@ def _check_concrete_data(lines: list, style: str) -> None:
         )
 
 
-def _load_prompt_template() -> str:
+def _load_prompt_template(style: str = "solo") -> str:
     prompt_path = Path(__file__).resolve().parents[1] / "prompts" / "generate_commentary_script.md"
-    return prompt_path.read_text(encoding="utf-8")
+    text = prompt_path.read_text(encoding="utf-8")
+    if style != "dialogue":
+        text = _strip_dialogue_only_sections(text)
+    return text
+
+
+def _strip_dialogue_only_sections(text: str) -> str:
+    """Remove sections marked with <!-- DIALOGUE_ONLY -->...<!-- END_DIALOGUE_ONLY -->."""
+    import re
+    return re.sub(
+        r'(?s)<!-- DIALOGUE_ONLY -->.*?<!-- END_DIALOGUE_ONLY -->\n?',
+        '',
+        text,
+    )
 
 
 def generate_commentary_script(
@@ -118,11 +137,11 @@ def generate_commentary_script(
         Number of lines generated (0 on failure).
     """
     settings = get_settings()
-    template = _load_prompt_template()
+    template = _load_prompt_template(style)
 
     text_length = len(article.get("text", "") or "")
     suggested_lines = _calc_suggested_lines(text_length, style)
-    section_details = _build_section_details(suggested_lines)
+    section_details = _build_section_details(suggested_lines, style)
 
     article_json = json.dumps({
         "id": article.get("id"),
