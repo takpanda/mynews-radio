@@ -47,8 +47,22 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
       const response = await synthesizeEpisodeStream(episodeId)
 
       if (!response.ok) {
+        const errorBody = await response.text().catch(() => '')
+        try {
+          const parsed = JSON.parse(errorBody)
+          if (response.status === 401) {
+            setStatusMessage('API キーが設定されていません。サーバー設定が必要です。')
+          } else if (response.status === 429) {
+            setStatusMessage('レート制限に達しました。しばらく待ってから再試行してください。')
+          } else if (parsed.detail) {
+            setStatusMessage(parsed.detail)
+          } else {
+            setStatusMessage('音声合成に失敗しました。')
+          }
+        } catch {
+          setStatusMessage('音声合成に失敗しました。')
+        }
         setState('error')
-        setStatusMessage('音声合成に失敗しました。')
         return
       }
 
