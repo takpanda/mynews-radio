@@ -107,8 +107,12 @@ def review_script(source_script_path: str, output_dir: str) -> dict:
         # --- Step 2: synthesise reviews into a revised script ---
         try:
             synth_template = _load_prompt("review_synthesize.md")
+            mode = source.get("style", "dialogue")
+            mc_gender = source.get("mc_gender", "male")
             synth_prompt = synth_template.format(
                 original_script_json=script_json_str,
+                mode=mode,
+                mc_gender=mc_gender,
                 genius_review=json.dumps(reviews.get("genius", {}), ensure_ascii=False, indent=2),
                 beginner_review=json.dumps(reviews.get("beginner", {}), ensure_ascii=False, indent=2),
                 worried_review=json.dumps(reviews.get("worried", {}), ensure_ascii=False, indent=2),
