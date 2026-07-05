@@ -9,7 +9,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Generator
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter
@@ -39,6 +39,16 @@ def _get_generate_rate_limit() -> str:
 
 limiter = Limiter(key_func=get_remote_address)
 
+
+def verify_api_key(authorization: str | None = Header(None)) -> None:
+    settings = get_settings()
+    if not settings.api_key:
+        return
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    token = authorization[7:]
+    if token != settings.api_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 DEFAULT_EPISODES_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
 VALID_GENDERS = {"male", "female"}
 
@@ -426,7 +436,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             logger.exception("[%d] commentary generation failed before service init", episode_id)
 
 
-@router.post("/generate", summary="番組を生成する（バックグラウンド実行）")
+@router.post("/generate", summary="番組を生成する（バックグラウンド実行）", dependencies=[Depends(verify_api_key)])
 @limiter.limit(_get_generate_rate_limit)
 def generate_episode(request: Request, body: GenerateRequest) -> dict:
     """Creates episode record and returns JSON immediately; actual generation runs in background."""
@@ -587,7 +597,7 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
     )
 
 
-@router.post("/episodes/{episode_id}/synthesize", summary="既存エピソードの音声を生成する")
+@router.post("/episodes/{episode_id}/synthesize", summary="既存エピソードの音声を生成する", dependencies=[Depends(verify_api_key)])
 @limiter.limit(_get_generate_rate_limit)
 def synthesize_episode_audio(episode_id: int, request: Request, body: SynthesizeRequest) -> StreamingResponse:
     return StreamingResponse(
