@@ -435,3 +435,48 @@ class TestAuthGuard:
         )
         assert resp.status_code == 200
         assert resp.headers.get("content-type", "").startswith("text/event-stream")
+
+
+class TestRateLimit:
+    def test_generate_exceeds_rate_limit_returns_429(self, client, monkeypatch):
+        monkeypatch.setenv("GENERATE_RATE_LIMIT", "0/minute")
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        resp = client.post("/generate", json={"date": "2099-12-01", "max_articles": 5})
+        assert resp.status_code == 429
+        assert resp.json() == {"detail": "Rate limit exceeded. Try again later."}
+
+    def test_rate_limit_clears_after_limit_increase(self, client, monkeypatch):
+        monkeypatch.setenv("GENERATE_RATE_LIMIT", "0/minute")
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        resp = client.post("/generate", json={"date": "2099-12-03", "max_articles": 5})
+        assert resp.status_code == 429
+
+        monkeypatch.setenv("GENERATE_RATE_LIMIT", "100/minute")
+        get_settings.cache_clear()
+
+        resp2 = client.post("/generate", json={"date": "2099-12-04", "max_articles": 5})
+        assert resp2.status_code == 200
+
+    def test_get_endpoints_not_rate_limited(self, client, monkeypatch):
+        monkeypatch.setenv("GENERATE_RATE_LIMIT", "1/minute")
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        client.post("/generate", json={"date": "2099-12-06", "max_articles": 5})
+        client.post("/generate", json={"date": "2099-12-07", "max_articles": 5})
+
+        resp = client.get("/episodes")
+        assert resp.status_code == 200
+
+    def test_synthesize_exceeds_rate_limit_returns_429(self, client, monkeypatch):
+        monkeypatch.setenv("GENERATE_RATE_LIMIT", "0/minute")
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        resp = client.post("/episodes/1/synthesize", json={"tts_engine": "voicevox"})
+        assert resp.status_code == 429
+        assert resp.json() == {"detail": "Rate limit exceeded. Try again later."}
