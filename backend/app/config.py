@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     aivispeech_speaker_male: int = 1310138976   # 阿井田 茂 ノーマル
     #aivispeech_speaker_male: int = 5306848      # 猩々博士（雑談ボイス）ノーマル
     aivispeech_speaker_female: int = 1388823424  # 湊音エル ノーマル
+    api_key: str = ""
     default_tts_engine: str = "aivispeech"
     episode_retention_days: int = 30
     jingle_opening_path: str = "/app/data/jingles/opening.mp3"
@@ -26,6 +27,7 @@ class Settings(BaseSettings):
     jingle_transition_path: str = "/app/data/jingles/transition.mp3"
     jingle_news_no_tonari_opening_path: str = "/app/data/jingles/news-no-tonari.mp3"
     jingle_news_no_tonari_ending_path: str = "/app/data/jingles/news-no-tonari.mp3"
+    generate_rate_limit: str = "5/minute"
     jingle_duration: float = 10.0
     jingle_fade_duration: float = 1.0
 

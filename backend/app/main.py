@@ -12,11 +12,12 @@ logging.basicConfig(
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
 from app.api.episodes import router as episodes_router
-from app.api.generate import router as generate_router
+from app.api.generate import router as generate_router, limiter
 from app.api.health import router as health_router
 from app.services.episode_service import EpisodeService
 settings = get_settings()
@@ -31,6 +32,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting – bind limiter for generate/synthesize endpoints
+app.state.limiter = limiter
+
+
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Try again later."},
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 
 def _init_db() -> None:

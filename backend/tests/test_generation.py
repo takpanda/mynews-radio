@@ -361,3 +361,122 @@ class TestRunGenerationPipeline:
         mock_build.assert_called_once()
         ep = svc.get_episode(ep_id)
         assert ep["status"] == "completed"
+
+
+class TestAuthGuard:
+    def test_no_api_key_skips_auth_compatibility(self, client):
+        resp = client.post("/generate", json={"date": "2099-12-31", "max_articles": 5})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "episode_id" in data
+
+    def test_missing_auth_header_returns_401(self, client, monkeypatch):
+        monkeypatch.setenv("API_KEY", "test-key-123")
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        resp = client.post("/generate", json={"date": "2099-12-31", "max_articles": 5})
+        assert resp.status_code == 401
+        assert resp.json() == {"detail": "Invalid or missing API key"}
+
+    def test_wrong_api_key_returns_401(self, client, monkeypatch):
+        monkeypatch.setenv("API_KEY", "test-key-123")
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        resp = client.post(
+            "/generate",
+            json={"date": "2099-12-31", "max_articles": 5},
+            headers={"Authorization": "Bearer wrong-key-999"},
+        )
+        assert resp.status_code == 401
+        assert resp.json() == {"detail": "Invalid or missing API key"}
+
+    def test_valid_api_key_succeeds(self, client, monkeypatch):
+        monkeypatch.setenv("API_KEY", "test-key-123")
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        resp = client.post(
+            "/generate",
+            json={"date": "2099-12-31", "max_articles": 5},
+            headers={"Authorization": "Bearer test-key-123"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "episode_id" in data
+
+    def test_get_endpoints_are_not_protected(self, client, monkeypatch):
+        monkeypatch.setenv("API_KEY", "test-key-123")
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        resp = client.get("/episodes")
+        assert resp.status_code == 200
+
+    def test_synthesize_without_auth_returns_401(self, client, monkeypatch):
+        monkeypatch.setenv("API_KEY", "test-key-123")
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        resp = client.post("/episodes/999/synthesize", json={"tts_engine": "voicevox"})
+        assert resp.status_code == 401
+        assert resp.json() == {"detail": "Invalid or missing API key"}
+
+    def test_synthesize_with_valid_auth_returns_streaming(self, client, monkeypatch):
+        monkeypatch.setenv("API_KEY", "test-key-123")
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        resp = client.post(
+            "/episodes/999/synthesize",
+            json={"tts_engine": "voicevox"},
+            headers={"Authorization": "Bearer test-key-123"},
+        )
+        assert resp.status_code == 200
+        assert resp.headers.get("content-type", "").startswith("text/event-stream")
+
+
+class TestRateLimit:
+    def test_generate_exceeds_rate_limit_returns_429(self, client, monkeypatch):
+        monkeypatch.setenv("GENERATE_RATE_LIMIT", "0/minute")
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        resp = client.post("/generate", json={"date": "2099-12-01", "max_articles": 5})
+        assert resp.status_code == 429
+        assert resp.json() == {"detail": "Rate limit exceeded. Try again later."}
+
+    def test_rate_limit_clears_after_limit_increase(self, client, monkeypatch):
+        monkeypatch.setenv("GENERATE_RATE_LIMIT", "0/minute")
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        resp = client.post("/generate", json={"date": "2099-12-03", "max_articles": 5})
+        assert resp.status_code == 429
+
+        monkeypatch.setenv("GENERATE_RATE_LIMIT", "100/minute")
+        get_settings.cache_clear()
+
+        resp2 = client.post("/generate", json={"date": "2099-12-04", "max_articles": 5})
+        assert resp2.status_code == 200
+
+    def test_get_endpoints_not_rate_limited(self, client, monkeypatch):
+        monkeypatch.setenv("GENERATE_RATE_LIMIT", "1/minute")
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        client.post("/generate", json={"date": "2099-12-06", "max_articles": 5})
+        client.post("/generate", json={"date": "2099-12-07", "max_articles": 5})
+
+        resp = client.get("/episodes")
+        assert resp.status_code == 200
+
+    def test_synthesize_exceeds_rate_limit_returns_429(self, client, monkeypatch):
+        monkeypatch.setenv("GENERATE_RATE_LIMIT", "0/minute")
+        from app.config import get_settings
+        get_settings.cache_clear()
+
+        resp = client.post("/episodes/1/synthesize", json={"tts_engine": "voicevox"})
+        assert resp.status_code == 429
+        assert resp.json() == {"detail": "Rate limit exceeded. Try again later."}
