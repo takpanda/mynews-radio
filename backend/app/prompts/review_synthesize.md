@@ -51,6 +51,15 @@
 - 2人の関係性：田村が事実と構造を提示し、山口がそれをリスナーの日常に引き寄せる補完関係。加えて、山口からの問題提起を田村が事実で受け止め、議論を発展させる相互作用を持つ。
 <!-- END_DIALOGUE_ONLY -->
 
+## solo モードのMCについて
+
+- 話者は 1名（{mc_gender}）のみ
+- 落ち着いて知的かつわかりやすい一人解説。リスナーに寄り添い、専門用語は適宜噛み砕いて説明する
+- ニュースの背景・事実・影響をバランスよく伝える
+- 対話相手を前提とする語尾（「〜ですね」「〜ですか」「〜ことなのですね」「〜なのでしょうか」など）を一切使わない
+- すべての台詞は解説者による一貫したナレーションとして自然に流れること
+- 元の台本に含まれる数値・金額・日時・固有名詞をぼかさず元の値をそのまま使う
+
 # 元の台本 (JSON)
 
 {original_script_json}
@@ -79,7 +88,8 @@
 
 1. 各ディレクターの指摘のうち、複数が共通して挙げた問題を優先して対処する。radioディレクターの指摘も加味する
 2. 台本の全体的な構造（ニュースの順序・セクション構成）は維持する
-3. MCのキャラクターと話し方のトーン・役割を維持する（口癖の使い回しは禁止）
+<!-- DIALOGUE_ONLY -->3. MCのキャラクターと話し方のトーン・役割を維持する（口癖の使い回しは禁止）<!-- END_DIALOGUE_ONLY -->
+<!-- solo -->3. 一人解説の語り口・トーン・スタイルを維持する<!-- END_SOLO -->
 4. 元の台本の lines 数をできる限り維持する（大幅な増減は避ける）
 5. article_id・section は元の値を維持する
 <!-- DIALOGUE_ONLY -->（transition/discussion の構造を崩さない）<!-- END_DIALOGUE_ONLY -->
@@ -90,7 +100,24 @@
 
 必ず JSON のみを返してください。
 
+## 出力例（solo モード）
+{{
+  "title": "ニュースのとなり",
+  "subtitle": "改善されたサブタイトル【レビュー版】",
+  "lines": [
+    {{"speaker": "{mc_gender}", "text": "台本テキスト", "article_id": null, "section": "intro", "delivery": "neutral"}}
+  ],
+  "revision_summary": "どのディレクターの指摘をどう反映したか、変更点を3〜5文で要約する"
+}}
+
+## 共通条件
+- title は常に「ニュースのとなり」とする
+- lines の各要素は必ず speaker/text/article_id/section/delivery の 5 フィールドを含める
+- text に記事IDや「（ID: XX）」などの参照を含めないこと
+- revision_summary は日本語で記述すること
+
 <!-- DIALOGUE_ONLY -->
+## 出力例（dialogue モード）
 {{
   "title": "ニュースのとなり",
   "subtitle": "改善されたサブタイトル【レビュー版】",
@@ -101,11 +128,11 @@
   "revision_summary": "どのディレクターの指摘をどう反映したか、変更点を3〜5文で要約する"
 }}
 
-条件:
-- title は常に「ニュースのとなり」とする
-- lines の各要素は必ず speaker/text/article_id/section/delivery の 5 フィールドを含める
+## dialogue モードの条件
 - speaker は "male" または "female" のみ
 - section は intro/news/transition/discussion/outro のいずれか
 <!-- END_DIALOGUE_ONLY -->
-- text に記事IDや「（ID: XX）」などの参照を含めないこと
-- revision_summary は日本語で記述すること
+
+## solo モードの条件
+- speaker は "{mc_gender}" のみ
+- section は intro/news/outro のいずれか
