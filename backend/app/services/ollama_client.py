@@ -48,6 +48,10 @@ class OllamaClient:
         if use_json_format:
             payload["format"] = "json"
 
+        options = payload.get("options", {})
+        options["num_ctx"] = 65536
+        payload["options"] = options
+
         for attempt in range(1, self._max_retries + 2):
             try:
                 resp = self.client.post("/api/generate", json=payload)
