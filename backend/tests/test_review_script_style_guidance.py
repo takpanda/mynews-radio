@@ -255,3 +255,160 @@ class TestReviewScriptRadioDirectorPrompt:
         assert "対話バランス" in radio_prompt
         # solo ガイダンスが含まれないことを確認
         assert "一人喋り" not in radio_prompt, "radio 台本に solo ガイダンスが含まれていてはならない"
+
+
+class TestBuildOutputIssueExample:
+    """_build_output_issue_example() の戻り値を検証するテスト。"""
+
+    def test_solo_contains_solo_issue(self):
+        """style="solo" に一人喋り用の issue 例が含まれること。"""
+        from app.batch.review_script import _build_output_issue_example
+
+        result = _build_output_issue_example("solo")
+
+        assert "一人喋りが単調" in result
+        assert "メリハリに欠ける" in result
+        assert "transition" not in result, "solo モードに transition の例が含まれていてはならない"
+
+    def test_dialogue_contains_transition_issue(self):
+        """style="dialogue" に transition 用の issue 例が含まれること。"""
+        from app.batch.review_script import _build_output_issue_example
+
+        result = _build_output_issue_example("dialogue")
+
+        assert "transition" in result
+        assert "前の話題への言及" in result
+        assert "一人喋り" not in result, "dialogue に solo 例が含まれていてはならない"
+
+    def test_empty_style_defaults_to_dialogue_issue(self):
+        """style="" (radio) は dialogue 用の issue 例が返ること。"""
+        from app.batch.review_script import _build_output_issue_example
+
+        result = _build_output_issue_example("")
+
+        assert "transition" in result
+        assert "一人喋り" not in result
+
+
+class TestReviewScriptOutputIssueExample:
+    """プロンプト全体の出力例部分を検証するテスト。"""
+
+    def test_solo_prompt_does_not_contain_transition_example(self, tmp_path):
+        """solo スクリプトの radio director プロンプトに transition issue 例が含まれないこと。"""
+        source_script = {
+            "date": "2026-07-09",
+            "title": "テスト解説",
+            "subtitle": "",
+            "style": "solo",
+            "mc_gender": "male",
+            "lines": [
+                {"speaker": "male", "text": "解説開始", "article_id": 1, "section": "intro", "delivery": "neutral"},
+            ],
+        }
+
+        script_path = os.path.join(tmp_path, "script.json")
+        with open(script_path, "w", encoding="utf-8") as f:
+            json.dump(source_script, f, ensure_ascii=False)
+
+        output_dir = os.path.join(tmp_path, "output")
+        os.makedirs(output_dir, exist_ok=True)
+
+        captured_prompts = []
+
+        def side_effect(prompt_text, **_kw):
+            captured_prompts.append(prompt_text)
+            return {"overall_score": 7, "issues": [], "general_feedback": ""}
+
+        mock_client = MagicMock()
+        mock_client.generate_json.side_effect = side_effect
+        mock_cls = MagicMock()
+        mock_cls.__enter__.return_value = mock_client
+
+        with patch("app.batch.review_script.OllamaClient", return_value=mock_cls):
+            from app.batch.review_script import review_script
+            review_script(script_path, output_dir)
+
+        radio_prompt = captured_prompts[4]
+        # solo モードでは transition の具体例が出力例として含まれていないことを厳格に確認
+        assert "transitionで前の話題への言及がなく" not in radio_prompt, \
+            "solo モードで transition の issue 例が出力例に残っていてはならない"
+        assert "一人喋りが単調" in radio_prompt, \
+            "solo モードでは一人喋り用の issue 例が出力例に含まれること"
+
+    def test_dialogue_prompt_contains_transition_example(self, tmp_path):
+        """dialogue スクリプトの radio director プロンプトに transition issue 例が含まれること。"""
+        source_script = {
+            "date": "2026-07-09",
+            "title": "テスト番組",
+            "subtitle": "",
+            "style": "dialogue",
+            "mc_gender": "male",
+            "lines": [
+                {"speaker": "male", "text": "開始", "article_id": 1, "section": "intro", "delivery": "neutral"},
+            ],
+        }
+
+        script_path = os.path.join(tmp_path, "script.json")
+        with open(script_path, "w", encoding="utf-8") as f:
+            json.dump(source_script, f, ensure_ascii=False)
+
+        output_dir = os.path.join(tmp_path, "output")
+        os.makedirs(output_dir, exist_ok=True)
+
+        captured_prompts = []
+
+        def side_effect(prompt_text, **_kw):
+            captured_prompts.append(prompt_text)
+            return {"overall_score": 7, "issues": [], "general_feedback": ""}
+
+        mock_client = MagicMock()
+        mock_client.generate_json.side_effect = side_effect
+        mock_cls = MagicMock()
+        mock_cls.__enter__.return_value = mock_client
+
+        with patch("app.batch.review_script.OllamaClient", return_value=mock_cls):
+            from app.batch.review_script import review_script
+            review_script(script_path, output_dir)
+
+        radio_prompt = captured_prompts[4]
+        assert "transitionで前の話題への言及がなく" in radio_prompt, \
+            "dialogue モードでは transition の issue 例が出力例に含まれること"
+        assert "一人喋りが単調" not in radio_prompt, \
+            "dialogue モードに solo 用の issue 例が含まれていてはならない"
+
+    def test_radio_prompt_contains_transition_example(self, tmp_path):
+        """radio 台本（style なし）の radio director プロンプトに transition issue 例が含まれること。"""
+        source_script = {
+            "date": "2026-07-09",
+            "title": "ラジオ番組",
+            "subtitle": "",
+            "lines": [
+                {"speaker": "male", "text": "番組開始", "article_id": 1, "section": "intro", "delivery": "neutral"},
+            ],
+        }
+
+        script_path = os.path.join(tmp_path, "script.json")
+        with open(script_path, "w", encoding="utf-8") as f:
+            json.dump(source_script, f, ensure_ascii=False)
+
+        output_dir = os.path.join(tmp_path, "output")
+        os.makedirs(output_dir, exist_ok=True)
+
+        captured_prompts = []
+
+        def side_effect(prompt_text, **_kw):
+            captured_prompts.append(prompt_text)
+            return {"overall_score": 7, "issues": [], "general_feedback": ""}
+
+        mock_client = MagicMock()
+        mock_client.generate_json.side_effect = side_effect
+        mock_cls = MagicMock()
+        mock_cls.__enter__.return_value = mock_client
+
+        with patch("app.batch.review_script.OllamaClient", return_value=mock_cls):
+            from app.batch.review_script import review_script
+            review_script(script_path, output_dir)
+
+        radio_prompt = captured_prompts[4]
+        assert "transitionで前の話題への言及がなく" in radio_prompt, \
+            "radio 台本でも transition の issue 例が出力例に含まれること"

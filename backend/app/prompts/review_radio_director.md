@@ -13,18 +13,7 @@
 
 必ず JSON のみを返してください。
 
-{{
-  "character": "ラジオディレクター",
-  "overall_score": 7,
-  "issues": [
-    {{
-      "line_index": 3,
-      "issue": "transitionで前の話題への言及がなく、唐突に次の話題に移っている",
-      "suggestion": "「そういったリスクを踏まえた上で、次はこちらの話題に目を向けてみましょう」のように前の話題に一言触れてから次に移る"
-    }}
-  ],
-  "general_feedback": "音声メディアとしての聴きやすさについて一言コメント"
-}}
+{output_issue_example}
 
 条件:
 - overall_score は 0（最低）〜 10（最高）の整数
