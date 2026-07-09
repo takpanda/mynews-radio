@@ -44,6 +44,54 @@ def _load_prompt(filename: str) -> str:
     return (_PROMPTS_DIR / filename).read_text(encoding="utf-8")
 
 
+def _build_radio_director_style_guidance(style: str) -> str:
+    """Return style-specific evaluation guidance for the radio director prompt.
+
+    Args:
+        style: Script style — "solo", "dialogue", or empty string (radio script).
+
+    Returns:
+        A Japanese-language guidance string that tells the LLM which evaluation
+        axes to use and which to skip based on *style*.
+    """
+    if style == "solo":
+        return (
+            "## 本台本の形式\n"
+            "この台本は **一人喋り（solo）** のコメンタリー形式です。\n"
+            "MC は1人であり、対話・掛け合いは存在しません。\n"
+            "\n"
+            "### 評価の観点（solo モード）\n"
+            "- 一人の語り手としてのテンポ・聞きやすさ・飽きさせない工夫\n"
+            "- 「聴く」メディアに適した一文の長さ・語彙レベル\n"
+            "- 番組の音楽・間合いを考慮した展開\n"
+            "- ナレーションとしての自然な流れ（話題の繋ぎ方）\n"
+            "\n"
+            "### 評価対象外（solo では成立しない観点）\n"
+            "- ❌ MC間の対話バランス（一人なので該当しない）\n"
+            "- ❌ 男女交互発話（一人なので成立しない）\n"
+            "- ❌ transition での前の話題への言及（Contextual Bridge）\n"
+            "  これは必須ではありません。一人語りでは「次は〜についてです」\n"
+            "  のような単純な繋ぎで十分な場合があります。\n"
+            "  （ただし、自然な話題転換ができているかは引き続き評価してよい）\n"
+        )
+    # dialogue mode (including radio script without style field)
+    return (
+        "## 本台本の形式\n"
+        "この台本は **二人対談（dialogue）** 形式です。\n"
+        "MC（male / female）が交互に発話します。\n"
+        "\n"
+        "### 評価の観点（dialogue モード）\n"
+        "- transition が前の話題に自然に言及しているか（Contextual Bridge の有無）\n"
+        "  - 「続いては気象に関する話題です」→ △（前の話題への言及なし）\n"
+        "  - 「そういった極限的な脅威から視点を移して、次に〜」→ ○\n"
+        "- MC間の対話バランス（片方だけが情報発信していないか）\n"
+        "- discussion が対話形式として成立しているか（男女交互に喋っているか）\n"
+        "- リスナーが無理なく聴き続けられるテンポ・抑揚・飽きの防止\n"
+        "- 「聴く」メディアに適した一文の長さ・語彙レベル\n"
+        "- 番組の音楽・間合いを考慮した展開\n"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -83,10 +131,19 @@ def review_script(source_script_path: str, output_dir: str) -> dict:
     with OllamaClient(settings.ollama_base_url, settings.ollama_model) as client:
 
         # --- Step 1: collect individual director reviews ---
+        style = source.get("style", "")  # "solo", "dialogue", or "" (radio)
+
         for key in _DIRECTOR_KEYS:
             try:
                 template = _load_prompt(_PROMPT_FILES[key])
-                prompt = template.format(script_json=script_json_str)
+                if key == "radio":
+                    style_guidance = _build_radio_director_style_guidance(style)
+                    prompt = template.format(
+                        script_json=script_json_str,
+                        style_guidance=style_guidance,
+                    )
+                else:
+                    prompt = template.format(script_json=script_json_str)
                 result = client.generate_json(prompt)
                 if result and isinstance(result, dict):
                     reviews[key] = result
