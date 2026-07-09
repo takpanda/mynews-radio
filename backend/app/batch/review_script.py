@@ -105,31 +105,32 @@ def _build_output_issue_example(style: str) -> str:
     """
     if style == "solo":
         return (
-            '{{\n'
+            '{\n'
             '  "character": "ラジオディレクター",\n'
             '  "overall_score": 7,\n'
             '  "issues": [\n'
-            '    {{\n'
+            '    {\n'
             '      "line_index": 5,\n'
             '      "issue": "一人喋りが単調で同じトーンが続いており、メリハリに欠ける",\n'
-            '      "suggestion": "数字を読み上げる箇所で語気を強めたり、意見を述べる前に一拍間を置くなど、強弱をつけると聴きやすい"}}\n'
+            '      "suggestion": "数字を読み上げる箇所で語気を強めたり、意見を述べる前に一拍間を置くなど、強弱をつけると聴きやすい"\n'
+            '    }\n'
             '  ],\n'
             '  "general_feedback": "一人喋りとしての聞きやすさについて一言コメント"\n'
-            '}}'
+            '}'
         )
     return (
-        '{{\n'
+        '{\n'
         '  "character": "ラジオディレクター",\n'
         '  "overall_score": 7,\n'
         '  "issues": [\n'
-        '    {{\n'
+        '    {\n'
         '      "line_index": 3,\n'
         '      "issue": "transitionで前の話題への言及がなく、唐突に次の話題に移っている",\n'
         '      "suggestion": "「そういったリスクを踏まえた上で、次はこちらの話題に目を向けてみましょう」のように前の話題に一言触れてから次に移る"\n'
-        '    }}\n'
+        '    }\n'
         '  ],\n'
         '  "general_feedback": "音声メディアとしての聴きやすさについて一言コメント"\n'
-        '}}'
+        '}'
     )
 
 

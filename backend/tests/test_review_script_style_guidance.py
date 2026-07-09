@@ -412,3 +412,26 @@ class TestReviewScriptOutputIssueExample:
         radio_prompt = captured_prompts[4]
         assert "transitionで前の話題への言及がなく" in radio_prompt, \
             "radio 台本でも transition の issue 例が出力例に含まれること"
+
+    def test_prompt_has_no_unescaped_template_braces(self, tmp_path):
+        """radio director プロンプト全体に {{ が残っていないこと。"""
+        from app.batch.review_script import _load_prompt, _build_radio_director_style_guidance, _build_output_issue_example
+
+        template = _load_prompt("review_radio_director.md")
+        # Verify the template itself has no {{ (output_example replaced it)
+        assert "{{" not in template, \
+            "review_radio_director.md に {{ が残っています"
+
+        # Verify for all three styles
+        for style in ("solo", "dialogue", ""):
+            style_guidance = _build_radio_director_style_guidance(style)
+            output_issue_example = _build_output_issue_example(style)
+            prompt = template.format(
+                script_json='{"lines": []}',
+                style_guidance=style_guidance,
+                output_issue_example=output_issue_example,
+            )
+            assert "{{" not in prompt, \
+                f"style='{style}' のプロンプトに {{ が残っています"
+            assert "}}" not in prompt, \
+                f"style='{style}' のプロンプトに }} が残っています"
