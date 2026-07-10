@@ -98,10 +98,22 @@ export async function fetchLatestEpisode(): Promise<Episode | null> {
   return res.json() as Promise<Episode>
 }
 
-export async function fetchEpisodes(): Promise<EpisodeListItem[]> {
-  const res = await fetch(`${getApiBase()}/episodes`, { cache: 'no-store' })
+export interface PaginatedEpisodesResponse {
+  items: EpisodeListItem[]
+  total: number
+  has_next: boolean
+}
+
+export async function fetchEpisodes(): Promise<EpisodeListItem[]>
+export async function fetchEpisodes(limit: number, offset: number): Promise<PaginatedEpisodesResponse>
+export async function fetchEpisodes(limit?: number, offset?: number): Promise<EpisodeListItem[] | PaginatedEpisodesResponse> {
+  let url = `${getApiBase()}/episodes`
+  if (limit !== undefined && offset !== undefined) {
+    url += `?limit=${limit}&offset=${offset}`
+  }
+  const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) throw new Error(`Failed to fetch episodes: ${res.status}`)
-  return res.json() as Promise<EpisodeListItem[]>
+  return res.json()
 }
 
 export async function fetchEpisode(id: number): Promise<Episode | null> {

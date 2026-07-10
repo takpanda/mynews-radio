@@ -5,7 +5,7 @@ import {
   buildAudioUrl,
   formatDateWithWeekday,
   type Episode,
-  type EpisodeListItem,
+  type PaginatedEpisodesResponse,
 } from './lib/api'
 import { buildChapters, type Chapter } from './lib/chapters'
 import HomeShell, { type HeroEpisode } from './components/HomeShell'
@@ -23,13 +23,18 @@ function toHeroEpisode(episode: Episode): HeroEpisode {
   }
 }
 
+const PAGE_SIZE = 20
+
 export default async function Home() {
   let latestEpisode: Episode | null = null
-  let episodes: EpisodeListItem[] = []
+  let initialData: PaginatedEpisodesResponse | null = null
   let error: string | null = null
 
   try {
-    ;[latestEpisode, episodes] = await Promise.all([fetchLatestEpisode(), fetchEpisodes()])
+    ;[latestEpisode, initialData] = await Promise.all([
+      fetchLatestEpisode(),
+      fetchEpisodes(PAGE_SIZE, 0) as Promise<PaginatedEpisodesResponse>,
+    ])
   } catch {
     error = 'エラーが発生しました。しばらく後でもう一度お試しください。'
   }
@@ -53,7 +58,8 @@ export default async function Home() {
         <HomeShell
           latest={latestEpisode ? toHeroEpisode(latestEpisode) : null}
           chapters={chapters}
-          episodes={episodes}
+          initialEpisodes={initialData!.items}
+          initialHasNext={initialData!.has_next}
         />
       )}
     </main>
