@@ -58,7 +58,7 @@ export interface Article {
 }
 
 const SERVER_API_BASE = process.env.API_BASE ?? 'http://api:8010'
-const CLIENT_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? ''
+const CLIENT_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '/api'
 
 function getApiBase(): string {
   return typeof window === 'undefined' ? SERVER_API_BASE : CLIENT_API_BASE
@@ -98,10 +98,22 @@ export async function fetchLatestEpisode(): Promise<Episode | null> {
   return res.json() as Promise<Episode>
 }
 
-export async function fetchEpisodes(): Promise<EpisodeListItem[]> {
-  const res = await fetch(`${getApiBase()}/episodes`, { cache: 'no-store' })
+export interface PaginatedEpisodesResponse {
+  items: EpisodeListItem[]
+  total: number
+  has_next: boolean
+}
+
+export async function fetchEpisodes(): Promise<EpisodeListItem[]>
+export async function fetchEpisodes(limit: number, offset: number, signal?: AbortSignal): Promise<PaginatedEpisodesResponse>
+export async function fetchEpisodes(limit?: number, offset?: number, signal?: AbortSignal): Promise<EpisodeListItem[] | PaginatedEpisodesResponse> {
+  let url = `${getApiBase()}/episodes`
+  if (limit !== undefined && offset !== undefined) {
+    url += `?limit=${limit}&offset=${offset}`
+  }
+  const res = await fetch(url, { cache: 'no-store', signal })
   if (!res.ok) throw new Error(`Failed to fetch episodes: ${res.status}`)
-  return res.json() as Promise<EpisodeListItem[]>
+  return res.json()
 }
 
 export async function fetchEpisode(id: number): Promise<Episode | null> {

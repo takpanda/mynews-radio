@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback, useRef } from 'react'
 import Link from 'next/link'
-import type { EpisodeListItem } from '../lib/api'
+import type { EpisodeListItem, PaginatedEpisodesResponse } from '../lib/api'
+import { fetchEpisodes } from '../lib/api'
 import type { Chapter } from '../lib/chapters'
 import EpisodeAudioPlayer from './EpisodeAudioPlayer'
 import SynthesizeAudioButton from './SynthesizeAudioButton'
@@ -21,7 +22,8 @@ export interface HeroEpisode {
 interface Props {
   latest: HeroEpisode | null
   chapters: Chapter[]
-  episodes: EpisodeListItem[]
+  initialEpisodes: EpisodeListItem[]
+  initialHasNext: boolean
 }
 
 type CategoryKey = 'all' | 'tech' | 'general' | 'commentary'
@@ -33,7 +35,7 @@ const CATEGORY_TABS: Array<{ key: CategoryKey; label: string }> = [
   { key: 'commentary', label: '解説' },
 ]
 
-const INITIAL_VISIBLE_COUNT = 10
+const PAGE_SIZE = 20
 
 function categorize(ep: EpisodeListItem): Exclude<CategoryKey, 'all'> {
   if (ep.type === 'commentary') return 'commentary'
@@ -58,14 +60,19 @@ function durationLabel(seconds: number): string {
   return `${Math.max(1, Math.round(seconds / 60))}分`
 }
 
-export default function HomeShell({ latest, chapters, episodes }: Props) {
+export default function HomeShell({ latest, chapters, initialEpisodes, initialHasNext }: Props) {
   const [category, setCategory] = useState<CategoryKey>('all')
   const [query, setQuery] = useState('')
-  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT)
+  const [items, setItems] = useState<EpisodeListItem[]>(initialEpisodes)
+  const [hasNext, setHasNext] = useState(initialHasNext)
+  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const searchLoadRef = useRef<boolean>(false)
 
   const filteredEpisodes = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return episodes.filter((ep) => {
+    return items.filter((ep) => {
       if (category !== 'all' && categorize(ep) !== category) return false
       if (!q) return true
       return (
@@ -73,13 +80,11 @@ export default function HomeShell({ latest, chapters, episodes }: Props) {
         (ep.subtitle || '').toLowerCase().includes(q)
       )
     })
-  }, [episodes, category, query])
-
-  const visibleEpisodes = filteredEpisodes.slice(0, visibleCount)
+  }, [items, category, query])
 
   const groupedByMonth = useMemo(() => {
     const groups: Array<{ month: string; items: EpisodeListItem[] }> = []
-    for (const ep of visibleEpisodes) {
+    for (const ep of filteredEpisodes) {
       const month = monthLabel(ep.date)
       const last = groups.at(-1)
       if (last && last.month === month) {
@@ -89,7 +94,72 @@ export default function HomeShell({ latest, chapters, episodes }: Props) {
       }
     }
     return groups
-  }, [visibleEpisodes])
+  }, [filteredEpisodes])
+
+  const loadAllRemaining = useCallback(async (currentItems: EpisodeListItem[], currentHasNext: boolean) => {
+    if (!currentHasNext || searchLoadRef.current) return
+    searchLoadRef.current = true
+    setLoading(true)
+    let allItems = [...currentItems]
+    let offset = allItems.length
+    let more: boolean = currentHasNext
+    while (more) {
+      abortRef.current?.abort()
+      const ctrl = new AbortController()
+      abortRef.current = ctrl
+      try {
+        const data = await fetchEpisodes(PAGE_SIZE, offset, ctrl.signal) as PaginatedEpisodesResponse
+        if (ctrl.signal.aborted) { setLoading(false); searchLoadRef.current = false; return }
+        allItems = [...allItems, ...data.items]
+        offset += data.items.length
+        more = data.has_next
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') { setLoading(false); searchLoadRef.current = false; return }
+        setLoadError('読み込みに失敗しました')
+        searchLoadRef.current = false
+        setLoading(false)
+        return
+      }
+    }
+    setItems(allItems)
+    setHasNext(false)
+    setLoading(false)
+    searchLoadRef.current = false
+  }, [])
+
+  const handleLoadMore = useCallback(async () => {
+    abortRef.current?.abort()
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const data = await fetchEpisodes(PAGE_SIZE, items.length, ctrl.signal) as PaginatedEpisodesResponse
+      if (ctrl.signal.aborted) return
+      setItems(prev => [...prev, ...data.items])
+      setHasNext(data.has_next)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      setLoadError('読み込みに失敗しました')
+    } finally {
+      setLoading(false)
+    }
+  }, [items.length])
+
+  const handleCategoryChange = (key: CategoryKey) => {
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
+    searchLoadRef.current = false
+    setCategory(key)
+    setItems(initialEpisodes)
+    setHasNext(initialHasNext)
+    setLoadError(null)
+  }
+
+  const handleSearchChange = (value: string) => {
+    setQuery(value)
+    loadAllRemaining(items, hasNext)
+  }
 
   return (
     <div className="space-y-6">
@@ -150,10 +220,7 @@ export default function HomeShell({ latest, chapters, episodes }: Props) {
             <button
               key={tab.key}
               type="button"
-              onClick={() => {
-                setCategory(tab.key)
-                setVisibleCount(INITIAL_VISIBLE_COUNT)
-              }}
+              onClick={() => handleCategoryChange(tab.key)}
               className={`rounded-full px-3.5 py-1.5 text-xs transition ${
                 category === tab.key
                   ? 'bg-slate-900 font-medium text-white'
@@ -179,10 +246,7 @@ export default function HomeShell({ latest, chapters, episodes }: Props) {
             <input
               type="search"
               value={query}
-              onChange={(e) => {
-                setQuery(e.target.value)
-                setVisibleCount(INITIAL_VISIBLE_COUNT)
-              }}
+              onChange={(e) => handleSearchChange(e.target.value)}
               placeholder="検索"
               className="w-full rounded-full border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100"
               aria-label="エピソードを検索"
@@ -192,7 +256,7 @@ export default function HomeShell({ latest, chapters, episodes }: Props) {
 
         {filteredEpisodes.length === 0 ? (
           <p className="py-10 text-center text-sm text-slate-400">
-            該当するエピソードがありません
+            {loading ? '読み込み中...' : '該当するエピソードがありません'}
           </p>
         ) : (
           <div className="mt-4">
@@ -248,14 +312,25 @@ export default function HomeShell({ latest, chapters, episodes }: Props) {
               </div>
             ))}
 
-            {filteredEpisodes.length > visibleCount && (
+            {loadError && (
+              <p className="mt-3 text-center text-xs text-red-500">{loadError}</p>
+            )}
+
+            {hasNext && !loadError && (
               <button
                 type="button"
-                onClick={() => setVisibleCount((count) => count + INITIAL_VISIBLE_COUNT)}
-                className="mt-1 w-full rounded-lg py-2.5 text-center text-sm text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+                onClick={handleLoadMore}
+                disabled={loading}
+                className="mt-1 w-full rounded-lg py-2.5 text-center text-sm text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                もっと見る（残り {filteredEpisodes.length - visibleCount} 件）
+                {loading ? '読み込み中...' : 'もっと見る'}
               </button>
+            )}
+
+            {!hasNext && items.length > 0 && (
+              <p className="mt-4 text-center text-xs text-slate-400">
+                これ以上ありません
+              </p>
             )}
           </div>
         )}
