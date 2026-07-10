@@ -2,9 +2,9 @@
 
 import json
 import os
-from typing import Optional
+from typing import Optional, Union
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService
@@ -55,10 +55,17 @@ def _build_audio_url(episode: dict) -> Optional[str]:
 
 
 @router.get("/episodes", summary="エピソード一覧を取得")
-def list_episodes() -> list[dict]:
-    """登録されているエピソードの一覧を返す"""
+def list_episodes(
+    limit: Optional[int] = Query(None, ge=1, description="取得件数"),
+    offset: int = Query(0, ge=0, description="取得開始位置"),
+) -> Union[list[dict], dict]:
+    """登録されているエピソードの一覧を返す。
+
+    limit を指定しない場合は全件返却（従来動作）。
+    limit を指定した場合はページネーション情報を含む辞書を返す。
+    """
     service = EpisodeService()
-    items = service.get_episode_list()
+    items = service.get_episode_list(limit=limit, offset=offset)
     output: list[dict] = []
     for ep in items:
         output.append(
@@ -86,6 +93,14 @@ def list_episodes() -> list[dict]:
     for entry in output:
         entry.pop("audio_path", None)
         entry.setdefault("has_script", False)
+
+    if limit is not None:
+        total = service.count_episodes()
+        return {
+            "items": output,
+            "total": total,
+            "has_next": (offset + limit) < total,
+        }
 
     return output
 

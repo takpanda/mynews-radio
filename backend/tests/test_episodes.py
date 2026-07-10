@@ -234,3 +234,115 @@ class TestEpisodeReviewEndpoint:
     def test_get_review_404_when_episode_not_found(self, client):
         resp = client.get("/episodes/99999/review")
         assert resp.status_code == 404
+
+
+class TestEpisodeListPagination:
+    """GET /episodes のページネーションテスト"""
+
+    def _create_n_episodes(self, n: int):
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        for i in range(n):
+            svc.create_episode(
+                episode_date=f"2099-12-{31 - i:02d}",
+                type="radio",
+            )
+
+    def test_no_params_returns_all(self, client):
+        self._create_n_episodes(5)
+        resp = client.get("/episodes")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) == 5
+
+    def test_paginated_response_shape(self, client):
+        self._create_n_episodes(10)
+        resp = client.get("/episodes?limit=3&offset=0")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, dict)
+        assert "items" in data
+        assert "total" in data
+        assert "has_next" in data
+        assert len(data["items"]) == 3
+        assert data["total"] == 10
+        assert data["has_next"] is True
+
+    def test_pagination_offset(self, client):
+        self._create_n_episodes(10)
+        resp = client.get("/episodes?limit=3&offset=6")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["items"]) == 3
+        assert data["total"] == 10
+        assert data["has_next"] is True
+
+    def test_pagination_last_page(self, client):
+        self._create_n_episodes(10)
+        resp = client.get("/episodes?limit=3&offset=9")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["items"]) == 1
+        assert data["total"] == 10
+        assert data["has_next"] is False
+
+    def test_pagination_exact_fit(self, client):
+        self._create_n_episodes(10)
+        resp = client.get("/episodes?limit=10&offset=0")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["items"]) == 10
+        assert data["has_next"] is False
+
+    def test_pagination_empty_result(self, client):
+        resp = client.get("/episodes?limit=5&offset=100")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["items"]) == 0
+        assert data["total"] == 0
+        assert data["has_next"] is False
+
+    def test_pagination_maintains_sort_order(self, client):
+        self._create_n_episodes(10)
+        resp = client.get("/episodes?limit=5&offset=0")
+        data = resp.json()
+        dates = [ep["date"] for ep in data["items"]]
+        assert dates == sorted(dates, reverse=True), "日付降順になっていない"
+
+    def test_limit_negative_rejected(self, client):
+        resp = client.get("/episodes?limit=-1")
+        assert resp.status_code == 422
+
+    def test_limit_zero_rejected(self, client):
+        resp = client.get("/episodes?limit=0")
+        assert resp.status_code == 422
+
+    def test_offset_negative_rejected(self, client):
+        resp = client.get("/episodes?limit=5&offset=-1")
+        assert resp.status_code == 422
+
+    def test_offset_without_limit(self, client):
+        self._create_n_episodes(5)
+        resp = client.get("/episodes?offset=2")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) == 3
+
+    def test_offset_exceeds_total(self, client):
+        self._create_n_episodes(5)
+        resp = client.get("/episodes?offset=10")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) == 0
+
+    def test_same_date_episodes_tie_break_by_id(self, client):
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        for i in range(5):
+            svc.create_episode(episode_date="2099-12-31", type="radio")
+        episodes = svc.get_episode_list()
+        ids = [ep["id"] for ep in episodes[:5]]
+        assert ids == sorted(ids, reverse=True), "同日エピソードは id DESC で並ぶ必要があります"
