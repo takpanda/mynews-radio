@@ -109,12 +109,12 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
       abortRef.current = ctrl
       try {
         const data = await fetchEpisodes(PAGE_SIZE, offset, ctrl.signal) as PaginatedEpisodesResponse
-        if (ctrl.signal.aborted) { searchLoadRef.current = false; return }
+        if (ctrl.signal.aborted) { setLoading(false); searchLoadRef.current = false; return }
         allItems = [...allItems, ...data.items]
         offset += data.items.length
         more = data.has_next
       } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') { searchLoadRef.current = false; return }
+        if (err instanceof DOMException && err.name === 'AbortError') { setLoading(false); searchLoadRef.current = false; return }
         setLoadError('読み込みに失敗しました')
         searchLoadRef.current = false
         setLoading(false)
@@ -142,9 +142,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
       if (err instanceof DOMException && err.name === 'AbortError') return
       setLoadError('読み込みに失敗しました')
     } finally {
-      if (!ctrl.signal.aborted) {
-        setLoading(false)
-      }
+      setLoading(false)
     }
   }, [items.length])
 
