@@ -321,3 +321,28 @@ class TestEpisodeListPagination:
     def test_offset_negative_rejected(self, client):
         resp = client.get("/episodes?limit=5&offset=-1")
         assert resp.status_code == 422
+
+    def test_offset_without_limit(self, client):
+        self._create_n_episodes(5)
+        resp = client.get("/episodes?offset=2")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) == 3
+
+    def test_offset_exceeds_total(self, client):
+        self._create_n_episodes(5)
+        resp = client.get("/episodes?offset=10")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) == 0
+
+    def test_same_date_episodes_tie_break_by_id(self, client):
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        for i in range(5):
+            svc.create_episode(episode_date="2099-12-31", type="radio")
+        episodes = svc.get_episode_list()
+        ids = [ep["id"] for ep in episodes[:5]]
+        assert ids == sorted(ids, reverse=True), "同日エピソードは id DESC で並ぶ必要があります"

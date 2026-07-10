@@ -153,6 +153,9 @@ class EpisodeService:
             if limit is not None:
                 query += " LIMIT ? OFFSET ?"
                 params.extend([limit, offset])
+            elif offset > 0:
+                query += " LIMIT -1 OFFSET ?"
+                params.append(offset)
             rows = conn.execute(query, params).fetchall()
             return [dict(row) for row in rows]
 
