@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
   const offset = searchParams.get("offset")
 
   let url = `${API_BASE}/episodes`
-  if (limit && offset) {
+  if (limit !== null && offset !== null) {
     url += `?limit=${limit}&offset=${offset}`
   }
 

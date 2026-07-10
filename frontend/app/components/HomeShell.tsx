@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import type { EpisodeListItem, PaginatedEpisodesResponse } from '../lib/api'
 import { fetchEpisodes } from '../lib/api'
@@ -67,6 +67,8 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
   const [hasNext, setHasNext] = useState(initialHasNext)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const searchLoadRef = useRef<boolean>(false)
 
   const filteredEpisodes = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -94,19 +96,72 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
     return groups
   }, [filteredEpisodes])
 
+  const loadAllRemaining = useCallback(async (currentItems: EpisodeListItem[], currentHasNext: boolean) => {
+    if (!currentHasNext || searchLoadRef.current) return
+    searchLoadRef.current = true
+    setLoading(true)
+    let allItems = [...currentItems]
+    let offset = allItems.length
+    let more: boolean = currentHasNext
+    while (more) {
+      abortRef.current?.abort()
+      const ctrl = new AbortController()
+      abortRef.current = ctrl
+      try {
+        const data = await fetchEpisodes(PAGE_SIZE, offset, ctrl.signal) as PaginatedEpisodesResponse
+        if (ctrl.signal.aborted) { searchLoadRef.current = false; return }
+        allItems = [...allItems, ...data.items]
+        offset += data.items.length
+        more = data.has_next
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') { searchLoadRef.current = false; return }
+        setLoadError('読み込みに失敗しました')
+        searchLoadRef.current = false
+        setLoading(false)
+        return
+      }
+    }
+    setItems(allItems)
+    setHasNext(false)
+    setLoading(false)
+    searchLoadRef.current = false
+  }, [])
+
   const handleLoadMore = useCallback(async () => {
+    abortRef.current?.abort()
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
     setLoading(true)
     setLoadError(null)
     try {
-      const data = await fetchEpisodes(PAGE_SIZE, items.length) as PaginatedEpisodesResponse
+      const data = await fetchEpisodes(PAGE_SIZE, items.length, ctrl.signal) as PaginatedEpisodesResponse
+      if (ctrl.signal.aborted) return
       setItems(prev => [...prev, ...data.items])
       setHasNext(data.has_next)
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       setLoadError('読み込みに失敗しました')
     } finally {
-      setLoading(false)
+      if (!ctrl.signal.aborted) {
+        setLoading(false)
+      }
     }
   }, [items.length])
+
+  const handleCategoryChange = (key: CategoryKey) => {
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
+    searchLoadRef.current = false
+    setCategory(key)
+    setItems(initialEpisodes)
+    setHasNext(initialHasNext)
+    setLoadError(null)
+  }
+
+  const handleSearchChange = (value: string) => {
+    setQuery(value)
+    loadAllRemaining(items, hasNext)
+  }
 
   return (
     <div className="space-y-6">
@@ -167,12 +222,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
             <button
               key={tab.key}
               type="button"
-              onClick={() => {
-                setCategory(tab.key)
-                setItems(initialEpisodes)
-                setHasNext(initialHasNext)
-                setLoadError(null)
-              }}
+              onClick={() => handleCategoryChange(tab.key)}
               className={`rounded-full px-3.5 py-1.5 text-xs transition ${
                 category === tab.key
                   ? 'bg-slate-900 font-medium text-white'
@@ -198,9 +248,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
             <input
               type="search"
               value={query}
-              onChange={(e) => {
-                setQuery(e.target.value)
-              }}
+              onChange={(e) => handleSearchChange(e.target.value)}
               placeholder="検索"
               className="w-full rounded-full border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100"
               aria-label="エピソードを検索"
