@@ -140,16 +140,26 @@ class EpisodeService:
                 (episode_id, article_id, item_order, segment_text),
             )
 
-    def get_episode_list(self) -> list[dict[str, Any]]:
+    def get_episode_list(
+        self, limit: Optional[int] = None, offset: int = 0
+    ) -> list[dict[str, Any]]:
         with get_db_connection() as conn:
-            rows = conn.execute(
-                """
+            query = """
                 SELECT id, episode_date, audio_path, status, type, source_url
                 FROM episodes
                 ORDER BY episode_date DESC, id DESC
-                """
-            ).fetchall()
+            """
+            params: list[Any] = []
+            if limit is not None:
+                query += " LIMIT ? OFFSET ?"
+                params.extend([limit, offset])
+            rows = conn.execute(query, params).fetchall()
             return [dict(row) for row in rows]
+
+    def count_episodes(self) -> int:
+        with get_db_connection() as conn:
+            row = conn.execute("SELECT COUNT(*) AS cnt FROM episodes").fetchone()
+            return row["cnt"] if row else 0
 
     def get_latest_episode(self) -> Optional[dict[str, Any]]:
         with get_db_connection() as conn:
