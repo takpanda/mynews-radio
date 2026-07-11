@@ -19,6 +19,7 @@ from app.config import get_settings
 from app.api.episodes import router as episodes_router
 from app.api.generate import router as generate_router, limiter
 from app.api.health import router as health_router
+from app.api.feed import router as feed_router
 from app.services.episode_service import EpisodeService
 settings = get_settings()
 app = FastAPI(title="MyNews Radio API", version="0.1.0")
@@ -116,6 +117,7 @@ def health() -> dict[str, str]:
 
 app.include_router(episodes_router)
 app.include_router(generate_router)
+app.include_router(feed_router)
 app.include_router(health_router)
 
 

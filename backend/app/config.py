@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     jingle_news_no_tonari_opening_path: str = "/app/data/jingles/news-no-tonari.mp3"
     jingle_news_no_tonari_ending_path: str = "/app/data/jingles/news-no-tonari.mp3"
     generate_rate_limit: str = "5/minute"
+    rss_base_url: str = "http://localhost:8010"
     jingle_duration: float = 10.0
     jingle_fade_duration: float = 1.0
 
