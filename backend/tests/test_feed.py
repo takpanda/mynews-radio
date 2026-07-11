@@ -183,13 +183,16 @@ class TestFeedEpisodeFiltering:
         assert len(channel.findall("item")) == 0
 
     def test_completed_missing_audio_file_excluded(self, client):
-        """DB上は completed + audio_path ありでも実ファイルが存在しない場合は item 化しない"""
+        """DB上は completed + audio_path ありだが、ディレクトリのみ存在し mp3 がない場合は item 化しない"""
         from app.services.episode_service import EpisodeService
 
         svc = EpisodeService()
-        svc.create_episode(
+        eid = svc.create_episode(
             episode_date="2099-12-31", audio_path="missing.mp3", status="completed"
         )
+        ep_dir = os.environ.get("EPISODES_DIR", "data/episodes")
+        episode_dir = os.path.join(ep_dir, str(eid))
+        os.makedirs(episode_dir, exist_ok=True)
         resp = client.get("/feed.xml")
         root, channel = _parse_rss(resp.content)
         assert len(channel.findall("item")) == 0

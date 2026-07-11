@@ -64,6 +64,9 @@ def _build_absolute_audio_url(episode: dict, rss_base_url: str) -> Optional[str]
     base_dir = _resolve_episode_directory(episode)
     if not os.path.isdir(base_dir):
         return None
+    full_path = os.path.join(base_dir, audio_path)
+    if not os.path.isfile(full_path):
+        return None
     dir_name = os.path.basename(base_dir)
     if not dir_name:
         return None
