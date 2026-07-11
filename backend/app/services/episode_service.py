@@ -285,6 +285,21 @@ class EpisodeService:
                 (audio_path, episode_id),
             )
 
+    def get_completed_episodes_for_feed(self, limit: int = 50) -> list[dict[str, Any]]:
+        """RSSフィード用に completed かつ audio_path が設定されているエピソードを返す。"""
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, episode_date, seq, audio_path, status, type, updated_at
+                FROM episodes
+                WHERE status = 'completed' AND audio_path IS NOT NULL AND audio_path != ''
+                ORDER BY episode_date DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     def get_expired_episodes(self, retention_days: int) -> list[dict[str, Any]]:
         """保持期間を超過したエピソードの一覧を取得する"""
         cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime("%Y-%m-%d")
