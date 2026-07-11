@@ -91,20 +91,22 @@ def _build_rss_xml() -> bytes:
     ET.SubElement(channel, "language").text = "ja"
 
     for ep in episodes:
+        audio_url = _build_absolute_audio_url(ep, settings.rss_base_url)
+        if not audio_url or not ep.get("audio_path"):
+            continue
+
         item = ET.SubElement(channel, "item")
 
         ET.SubElement(item, "title").text = _build_item_title(ep) or ""
         ET.SubElement(item, "guid", {"isPermaLink": "false"}).text = str(ep["id"])
         ET.SubElement(item, "pubDate").text = _format_rss_date(ep.get("updated_at", ""))
 
-        audio_url = _build_absolute_audio_url(ep, settings.rss_base_url)
-        if audio_url and ep.get("audio_path"):
-            file_size = _get_audio_file_size(ep)
-            ET.SubElement(item, "enclosure", {
-                "url": audio_url,
-                "type": "audio/mpeg",
-                "length": str(file_size),
-            })
+        file_size = _get_audio_file_size(ep)
+        ET.SubElement(item, "enclosure", {
+            "url": audio_url,
+            "type": "audio/mpeg",
+            "length": str(file_size),
+        })
 
         ET.SubElement(item, "description").text = ""
 

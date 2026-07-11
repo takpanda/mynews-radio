@@ -182,6 +182,30 @@ class TestFeedEpisodeFiltering:
         root, channel = _parse_rss(resp.content)
         assert len(channel.findall("item")) == 0
 
+    def test_completed_missing_audio_file_excluded(self, client):
+        """DB上は completed + audio_path ありでも実ファイルが存在しない場合は item 化しない"""
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        svc.create_episode(
+            episode_date="2099-12-31", audio_path="missing.mp3", status="completed"
+        )
+        resp = client.get("/feed.xml")
+        root, channel = _parse_rss(resp.content)
+        assert len(channel.findall("item")) == 0
+
+    def test_commentary_type_excluded(self, client):
+        """commentary タイプは feed に含まれない"""
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        svc.create_episode(
+            episode_date="2099-12-31", audio_path="ep.mp3", status="completed", type="commentary"
+        )
+        resp = client.get("/feed.xml")
+        root, channel = _parse_rss(resp.content)
+        assert len(channel.findall("item")) == 0
+
     def test_mixed_statuses_only_completed_included(self, client):
         from app.services.episode_service import EpisodeService
 
@@ -200,15 +224,17 @@ class TestFeedItemOrder:
     """エピソードが日付降順に並ぶことのテスト"""
 
     def test_items_ordered_by_date_desc(self, client):
-        _create_completed_episode_with_audio(client, "2099-12-03")
-        _create_completed_episode_with_audio(client, "2099-12-01")
-        _create_completed_episode_with_audio(client, "2099-12-02")
+        eid3 = _create_completed_episode_with_audio(client, "2099-12-03")
+        eid1 = _create_completed_episode_with_audio(client, "2099-12-01")
+        eid2 = _create_completed_episode_with_audio(client, "2099-12-02")
 
         resp = client.get("/feed.xml")
         root, channel = _parse_rss(resp.content)
         items = channel.findall("item")
-        pubdates = [item.findtext("pubDate", "") for item in items]
-        assert len(pubdates) == 3
+        assert len(items) == 3
+        # 日付降順: 12-03, 12-02, 12-01
+        guids = [item.findtext("guid", "") for item in items]
+        assert guids == [str(eid3), str(eid2), str(eid1)]
 
 
 class TestFeedRssNamespace:

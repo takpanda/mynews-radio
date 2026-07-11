@@ -286,13 +286,15 @@ class EpisodeService:
             )
 
     def get_completed_episodes_for_feed(self, limit: int = 50) -> list[dict[str, Any]]:
-        """RSSフィード用に completed かつ audio_path が設定されているエピソードを返す。"""
+        """RSSフィード用に completed かつ audio_path が設定されている radio エピソードを返す。"""
         with get_db_connection() as conn:
             rows = conn.execute(
                 """
                 SELECT id, episode_date, seq, audio_path, status, type, updated_at
                 FROM episodes
-                WHERE status = 'completed' AND audio_path IS NOT NULL AND audio_path != ''
+                WHERE status = 'completed'
+                  AND type = 'radio'
+                  AND audio_path IS NOT NULL AND audio_path != ''
                 ORDER BY episode_date DESC, id DESC
                 LIMIT ?
                 """,
