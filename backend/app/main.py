@@ -106,7 +106,15 @@ def _apply_db_migrations() -> None:
         idx = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='dictionary_entries' AND name LIKE 'sqlite_autoindex_dictionary_entries%'"
         ).fetchone()
+        need_migrate = False
         if idx:
+            cols = conn.execute(
+                f"PRAGMA index_info('{idx['name']}')"
+            ).fetchall()
+            # UNIQUE(surface) 単独なら1カラム、UNIQUE(surface, reading) なら2カラム
+            if len(cols) == 1 and cols[0]['name'] == 'surface':
+                need_migrate = True
+        if need_migrate:
             conn.execute("ALTER TABLE dictionary_entries RENAME TO dictionary_entries_old")
             conn.execute(
                 "CREATE TABLE dictionary_entries ("

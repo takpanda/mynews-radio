@@ -1,5 +1,9 @@
 """Tests for dictionary entries CRUD API with UNIQUE(surface, reading) constraint."""
 
+import pytest
+import sqlite3
+from pathlib import Path
+
 
 class TestCreateDictionaryEntry:
     """POST /admin/dictionary のテスト"""
@@ -151,3 +155,254 @@ class TestDictionaryEntryStatus:
         )
         assert resp.status_code == 200
         assert resp.json()["status"] == "active"
+
+
+def _old_schema_sql():
+    """UNIQUE(surface) の旧スキーマSQLを返す。"""
+    return """
+    CREATE TABLE IF NOT EXISTS dictionary_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        surface TEXT NOT NULL UNIQUE,
+        reading TEXT NOT NULL,
+        category TEXT DEFAULT '',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    """
+
+
+class TestMigrationFromOldSchema:
+    """UNIQUE(surface) → UNIQUE(surface, reading) マイグレーションのテスト"""
+
+    def _create_old_schema_db(self, db_path):
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        conn.executescript(_old_schema_sql())
+        conn.executescript(
+            "ALTER TABLE dictionary_entries ADD COLUMN notes TEXT DEFAULT ''"
+        )
+        conn.commit()
+        conn.close()
+
+    def _run_migration(self, db_path):
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        idx = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='dictionary_entries' AND name LIKE 'sqlite_autoindex_dictionary_entries%'"
+        ).fetchone()
+        need_migrate = False
+        if idx:
+            cols = conn.execute(
+                f"PRAGMA index_info('{idx['name']}')"
+            ).fetchall()
+            if len(cols) == 1 and cols[0]['name'] == 'surface':
+                need_migrate = True
+        if need_migrate:
+            conn.execute("ALTER TABLE dictionary_entries RENAME TO dictionary_entries_old")
+            conn.execute(
+                "CREATE TABLE dictionary_entries ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "surface TEXT NOT NULL, "
+                "reading TEXT NOT NULL, "
+                "category TEXT DEFAULT '', "
+                "enabled INTEGER NOT NULL DEFAULT 1, "
+                "notes TEXT DEFAULT '', "
+                "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "UNIQUE(surface, reading))"
+            )
+            conn.execute(
+                "INSERT INTO dictionary_entries "
+                "SELECT id, surface, reading, category, enabled, COALESCE(notes, ''), created_at, updated_at "
+                "FROM dictionary_entries_old"
+            )
+            conn.execute("DROP TABLE dictionary_entries_old")
+        conn.commit()
+        conn.close()
+
+    def _assert_migrated(self, db_path):
+        """マイグレーション後のDBが UNIQUE(surface, reading) になっていることを確認"""
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        idx = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='dictionary_entries' AND name LIKE 'sqlite_autoindex_dictionary_entries%'"
+        ).fetchone()
+        assert idx is not None, "複合UNIQUEの自動インデックスが見つかりません"
+        cols = conn.execute(
+            f"PRAGMA index_info('{idx['name']}')"
+        ).fetchall()
+        assert len(cols) == 2, f"複合UNIQUEは2カラム必要: {[c['name'] for c in cols]}"
+        assert cols[0]['name'] == 'surface'
+        assert cols[1]['name'] == 'reading'
+        conn.close()
+
+    def test_migration_preserves_data(self, tmp_path):
+        """旧スキーマのデータがマイグレーション後も保持される"""
+        db_path = tmp_path / "test_migrate.db"
+        self._create_old_schema_db(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "INSERT INTO dictionary_entries(surface, reading, category) VALUES (?, ?, ?)",
+            ("テスト", "てすと", "general"),
+        )
+        conn.execute(
+            "INSERT INTO dictionary_entries(surface, reading, category) VALUES (?, ?, ?)",
+            ("東京", "とうきょう", "place"),
+        )
+        conn.commit()
+        conn.close()
+
+        self._run_migration(db_path)
+        self._assert_migrated(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT surface AS word, reading, category FROM dictionary_entries ORDER BY id"
+        ).fetchall()
+        assert len(rows) == 2
+        assert rows[0]['word'] == "テスト"
+        assert rows[1]['word'] == "東京"
+
+        # 新制約: 同表面別読みは登録できる
+        conn.execute(
+            "INSERT INTO dictionary_entries(surface, reading, category) VALUES (?, ?, ?)",
+            ("東京", "トウキョウ", "place"),
+        )
+        conn.commit()
+
+        # 新制約: 完全重複は弾く
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO dictionary_entries(surface, reading, category) VALUES (?, ?, ?)",
+                ("東京", "トウキョウ", "place"),
+            )
+            conn.commit()
+        conn.close()
+
+    def test_migration_idempotent(self, tmp_path):
+        """2回目のマイグレーションは実行されない"""
+        db_path = tmp_path / "test_idempotent.db"
+        self._create_old_schema_db(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "INSERT INTO dictionary_entries(surface, reading, category) VALUES (?, ?, ?)",
+            ("テスト", "てすと", "general"),
+        )
+        conn.commit()
+        conn.close()
+
+        # 1回目: マイグレーション実行
+        self._run_migration(db_path)
+        self._assert_migrated(db_path)
+
+        ids_after_first = []
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        for r in conn.execute("SELECT id, surface FROM dictionary_entries").fetchall():
+            ids_after_first.append((r['id'], r['surface']))
+        conn.close()
+
+        # 2回目: 再度マイグレーション（何も変わらないこと）
+        self._run_migration(db_path)
+        self._assert_migrated(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        ids_after_second = []
+        for r in conn.execute("SELECT id, surface FROM dictionary_entries").fetchall():
+            ids_after_second.append((r['id'], r['surface']))
+        conn.close()
+
+        assert ids_after_first == ids_after_second, "2回目のマイグレーションでデータが変わっています"
+
+    def test_old_schema_detect_constraint(self, tmp_path):
+        """旧スキーマ UNIQUE(surface) が正しく検出される"""
+        db_path = tmp_path / "test_detect_old.db"
+        self._create_old_schema_db(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        idx = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='dictionary_entries' AND name LIKE 'sqlite_autoindex_dictionary_entries%'"
+        ).fetchone()
+        assert idx is not None
+        cols = conn.execute(f"PRAGMA index_info('{idx['name']}')").fetchall()
+        assert len(cols) == 1
+        assert cols[0]['name'] == 'surface'
+        conn.close()
+
+    def test_migrated_db_rejects_old_surface_only_duplicate(self, tmp_path):
+        """移行後DBで旧制約 (surface単独の重複) を許容してしまうバグがない"""
+        db_path = tmp_path / "test_reject_old_dup.db"
+        self._create_old_schema_db(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "INSERT INTO dictionary_entries(surface, reading, category) VALUES (?, ?, ?)",
+            ("東京", "とうきょう", "place"),
+        )
+        conn.commit()
+        conn.close()
+
+        self._run_migration(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "INSERT INTO dictionary_entries(surface, reading, category) VALUES (?, ?, ?)",
+            ("東京", "トウキョウ", "place"),
+        )
+        conn.commit()
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO dictionary_entries(surface, reading, category) VALUES (?, ?, ?)",
+                ("東京", "トウキョウ", "place"),
+            )
+            conn.commit()
+        conn.close()
+
+    def test_migration_through_client_with_old_schema(self, tmp_path, monkeypatch):
+        """旧スキーマDBでアプリを起動したとき、マイグレーション後に同表記別読みが登録できる"""
+        db_path = tmp_path / "test_client_migrate.db"
+        self._create_old_schema_db(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "INSERT INTO dictionary_entries(surface, reading, category) VALUES (?, ?, ?)",
+            ("東京", "とうきょう", "place"),
+        )
+        conn.commit()
+        conn.close()
+
+        monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+        from app import config as cfg_mod
+        if hasattr(cfg_mod.get_settings, "cache_clear"):
+            cfg_mod.get_settings.cache_clear()
+
+        import importlib
+        import app.main as main_mod
+        importlib.reload(main_mod)
+
+        from app.main import app
+        from fastapi.testclient import TestClient
+        client = TestClient(app)
+
+        self._assert_migrated(db_path)
+
+        # 同表記別読みの登録
+        resp = client.post(
+            "/admin/dictionary",
+            json={"word": "東京", "reading": "トウキョウ", "category": "place"},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["reading"] == "トウキョウ"
+
+        # 完全重複は409
+        resp = client.post(
+            "/admin/dictionary",
+            json={"word": "東京", "reading": "トウキョウ", "category": "place"},
+        )
+        assert resp.status_code == 409
