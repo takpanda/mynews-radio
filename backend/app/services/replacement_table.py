@@ -1,5 +1,10 @@
+import logging
 import re
-from typing import Dict
+from typing import Dict, List, Optional
+
+from app.db.connection import get_db_connection
+
+logger = logging.getLogger(__name__)
 
 REPLACEMENT_TABLE: Dict[str, str] = {
     # Companies / Products
@@ -27,24 +32,68 @@ REPLACEMENT_TABLE: Dict[str, str] = {
     "TensorFlow": "\u30c6\u30f3\u30bd\u30fc\u30d5\u30ed\u30fc",
 }
 
-_REPLACEMENT_PATTERNS = sorted(
-    [(re.escape(k), v) for k, v in REPLACEMENT_TABLE.items()],
-    key=lambda pair: len(pair[0]),
-    reverse=True,
-)
 
-_COMPILED_PATTERN = re.compile("|".join(p[0] for p in _REPLACEMENT_PATTERNS))
+def get_active_entries() -> List[Dict[str, str]]:
+    """辞書テーブルから有効な (enabled=1) エントリを取得する。
+
+    Returns:
+        [{surface, reading}, ...] のリスト。
+        DBが空の場合は空リストを返す。
+    """
+    try:
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                "SELECT surface, reading FROM dictionary_entries WHERE enabled = 1"
+            ).fetchall()
+            return [{"surface": r["surface"], "reading": r["reading"]} for r in rows]
+    except Exception as exc:
+        logger.warning("Failed to fetch active dictionary entries: %s", exc)
+        return []
+
+
+def _build_patterns(
+    entries: Optional[List[Dict[str, str]]] = None,
+) -> tuple[list[tuple[str, str]], "re.Pattern"]:
+    """エントリ一覧から正規表現パターンを構築する。"""
+    if not entries:
+        mapping: list[tuple[str, str]] = []
+    else:
+        mapping = [(re.escape(e["surface"]), e["reading"]) for e in entries]
+    mapping = sorted(mapping, key=lambda pair: len(pair[0]), reverse=True)
+    if not mapping:
+        pattern = re.compile(r"(?!)")  # 空パターン = 決してマッチしない
+    else:
+        pattern = re.compile("|".join(p[0] for p in mapping))
+    return mapping, pattern
 
 
 def apply_replacements(text: str) -> str:
-    """Apply pronunciation replacement from display text to spoken text.
+    """Display text → spoken text への発音置換を適用する。
 
-    - Longest key first ensures "GitHub" matches before "Git".
-    - Returns a new string; original is unchanged.
+    DB の有効な辞書エントリ (enabled=1) を優先して使用する。
+    DB が空の場合は REPLACEMENT_TABLE のハードコード値をフォールバックとして使用する。
+
+    既存エピソードの spoken_text は変更されず、音声合成時の新規生成にのみ影響する。
     """
-    _map = dict(_REPLACEMENT_PATTERNS)
+    entries = get_active_entries()
+    if not entries:
+        entries_data = [
+            {"surface": k, "reading": v} for k, v in REPLACEMENT_TABLE.items()
+        ]
+    else:
+        entries_data = entries
+
+    _map = {e["surface"]: e["reading"] for e in entries_data}
+    _patterns = sorted(
+        [(re.escape(k), v) for k, v in _map.items()],
+        key=lambda pair: len(pair[0]),
+        reverse=True,
+    )
+    if not _patterns:
+        return text
+    _pattern = re.compile("|".join(p[0] for p in _patterns))
 
     def _replacer(m: re.Match) -> str:
         return _map.get(m.group(0), m.group(0))
 
-    return _COMPILED_PATTERN.sub(_replacer, text)
+    return _pattern.sub(_replacer, text)

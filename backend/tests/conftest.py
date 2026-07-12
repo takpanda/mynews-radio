@@ -36,6 +36,10 @@ def _fresh_db(tmp_path):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_episodes_date_type ON episodes(episode_date, type)")
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE dictionary_entries ADD COLUMN notes TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
