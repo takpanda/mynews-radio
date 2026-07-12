@@ -103,6 +103,28 @@ def _apply_db_migrations() -> None:
         except sqlite3.OperationalError:
             pass
 
+        from app.services.replacement_table import REPLACEMENT_TABLE
+
+        row = conn.execute("SELECT COUNT(*) FROM dictionary_entries").fetchone()
+        if row[0] == 0:
+            category_groups = [
+                ("companies_products", ["Google", "Microsoft", "Amazon", "Apple", "Meta"]),
+                ("cloud", ["Google Cloud", "AWS", "Azure"]),
+                ("developer_tools", ["GitHub", "GitLab"]),
+                ("container_infra", ["Docker", "Kubernetes", "Prometheus", "Grafana", "Ansible", "Terraform"]),
+                ("ml_ai", ["PyTorch", "TensorFlow"]),
+            ]
+            cat_of_surface = {}
+            for cat, surfaces in category_groups:
+                for s in surfaces:
+                    cat_of_surface[s] = cat
+            for surface, reading in REPLACEMENT_TABLE.items():
+                cat = cat_of_surface.get(surface, "")
+                conn.execute(
+                    "INSERT OR IGNORE INTO dictionary_entries(surface, reading, category) VALUES (?, ?, ?)",
+                    (surface, reading, cat),
+                )
+
 
 _init_db()
 _apply_db_migrations()
