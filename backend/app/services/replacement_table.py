@@ -1,6 +1,8 @@
 import logging
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional
+
+from app.db.connection import get_db_connection
 
 logger = logging.getLogger(__name__)
 
@@ -30,72 +32,68 @@ REPLACEMENT_TABLE: Dict[str, str] = {
     "TensorFlow": "\u30c6\u30f3\u30bd\u30fc\u30d5\u30ed\u30fc",
 }
 
-_REPLACEMENT_PATTERNS = sorted(
-    [(re.escape(k), v) for k, v in REPLACEMENT_TABLE.items()],
-    key=lambda pair: len(pair[0]),
-    reverse=True,
-)
 
-_COMPILED_PATTERN = re.compile("|".join(p[0] for p in _REPLACEMENT_PATTERNS))
-
-
-def _build_replacement_entries(entries: List[Tuple[str, str]]) -> Tuple[Dict[str, str], re.Pattern]:
-    sorted_entries = sorted(
-        entries,
-        key=lambda pair: len(pair[0]),
-        reverse=True,
-    )
-    _map = dict(sorted_entries)
-    pattern = re.compile("|".join(re.escape(k) for k, _v in sorted_entries))
-    return _map, pattern
-
-
-def _get_active_entries() -> Tuple[bool, List[Tuple[str, str]]]:
-    """Query DB for dictionary entries.
+def get_active_entries() -> List[Dict[str, str]]:
+    """辞書テーブルから有効な (is_active=1) エントリを取得する。
 
     Returns:
-        (has_any_entry, active_entries)
-        - (True, [...]): DB has active entries
-        - (True, []): DB has entries but all are disabled
-        - (False, []): DB is empty (0 rows) or unreachable
+        [{surface, reading}, ...] のリスト。
+        DBが空の場合は空リストを返す。
     """
     try:
-        from app.db.connection import get_db_connection
         with get_db_connection() as conn:
-            total = conn.execute("SELECT COUNT(*) FROM dictionary_entries").fetchone()[0]
-            if total == 0:
-                return False, []
             rows = conn.execute(
                 "SELECT surface, reading FROM dictionary_entries WHERE is_active = 1"
             ).fetchall()
-            return True, [(r["surface"], r["reading"]) for r in rows]
-    except Exception:
-        logger.warning("Failed to read dictionary_entries from DB, falling back to static table")
-        return False, []
+            return [{"surface": r["surface"], "reading": r["reading"]} for r in rows]
+    except Exception as exc:
+        logger.warning("Failed to fetch active dictionary entries: %s", exc)
+        return []
+
+
+def _build_patterns(
+    entries: Optional[List[Dict[str, str]]] = None,
+) -> tuple[list[tuple[str, str]], "re.Pattern"]:
+    """エントリ一覧から正規表現パターンを構築する。"""
+    if not entries:
+        mapping: list[tuple[str, str]] = []
+    else:
+        mapping = [(re.escape(e["surface"]), e["reading"]) for e in entries]
+    mapping = sorted(mapping, key=lambda pair: len(pair[0]), reverse=True)
+    if not mapping:
+        pattern = re.compile(r"(?!)")  # 空パターン = 決してマッチしない
+    else:
+        pattern = re.compile("|".join(p[0] for p in mapping))
+    return mapping, pattern
 
 
 def apply_replacements(text: str) -> str:
-    """Apply pronunciation replacement from display text to spoken text.
+    """Display text → spoken text への発音置換を適用する。
 
-    - Queries DB for enabled dictionary_entries first.
-    - If DB has entries but all are disabled: no replacements (text unchanged).
-    - If DB is empty (0 rows) or unreachable: falls back to static REPLACEMENT_TABLE.
-    - Longest key first ensures "GitHub" matches before "Git".
-    - Returns a new string; original is unchanged.
+    DB の有効な辞書エントリ (is_active=1) を優先して使用する。
+    DB が空の場合は REPLACEMENT_TABLE のハードコード値をフォールバックとして使用する。
+
+    既存エピソードの spoken_text は変更されず、音声合成時の新規生成にのみ影響する。
     """
-    has_any_entry, active_entries = _get_active_entries()
-
-    if has_any_entry and not active_entries:
-        return text
-
-    if has_any_entry and active_entries:
-        entries = active_entries
+    entries = get_active_entries()
+    if not entries:
+        entries_data = [
+            {"surface": k, "reading": v} for k, v in REPLACEMENT_TABLE.items()
+        ]
     else:
-        entries = list(REPLACEMENT_TABLE.items())
+        entries_data = entries
 
-    _map, pattern = _build_replacement_entries(entries)
+    _map = {e["surface"]: e["reading"] for e in entries_data}
+    _patterns = sorted(
+        [(re.escape(k), v) for k, v in _map.items()],
+        key=lambda pair: len(pair[0]),
+        reverse=True,
+    )
+    if not _patterns:
+        return text
+    _pattern = re.compile("|".join(p[0] for p in _patterns))
 
     def _replacer(m: re.Match) -> str:
         return _map.get(m.group(0), m.group(0))
 
-    return pattern.sub(_replacer, text)
+    return _pattern.sub(_replacer, text)

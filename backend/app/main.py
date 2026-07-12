@@ -114,6 +114,11 @@ def _apply_db_migrations() -> None:
         except sqlite3.OperationalError:
             pass
 
+        try:
+            conn.execute("ALTER TABLE dictionary_entries ADD COLUMN notes TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+
         from app.services.replacement_table import REPLACEMENT_TABLE
 
         row = conn.execute("SELECT COUNT(*) FROM dictionary_entries").fetchone()
