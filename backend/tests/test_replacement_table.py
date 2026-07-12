@@ -71,3 +71,54 @@ class TestApplyReplacements:
 
         result = apply_replacements("Google is a search engine")
         assert "グーグる" in result
+
+    def test_regex_metachar_c_plus_plus(self, test_env):
+        """re.escape メタ文字（C++）が正しく置換される"""
+        from app.db.connection import get_db_connection
+
+        with get_db_connection() as conn:
+            _insert_entry(conn, "C++", "シープラスプラス", enabled=1)
+
+        from app.services.replacement_table import apply_replacements
+
+        result = apply_replacements("C++ is a language")
+        assert "シープラスプラス" in result
+        assert "C++" not in result.replace("シープラスプラス", "")
+
+    def test_regex_metachar_dot_js(self, test_env):
+        """re.escape メタ文字（node.js）が正しく置換される"""
+        from app.db.connection import get_db_connection
+
+        with get_db_connection() as conn:
+            _insert_entry(conn, "node.js", "ノードジェイエス", enabled=1)
+
+        from app.services.replacement_table import apply_replacements
+
+        result = apply_replacements("Use node.js for backend")
+        assert "ノードジェイエス" in result
+
+    def test_regex_metachar_brackets(self, test_env):
+        """re.escape メタ文字（[test]）が正しく置換される"""
+        from app.db.connection import get_db_connection
+
+        with get_db_connection() as conn:
+            _insert_entry(conn, "[test]", "テスト", enabled=1)
+
+        from app.services.replacement_table import apply_replacements
+
+        result = apply_replacements("This is [test] data")
+        assert "テスト" in result
+
+    def test_regex_metachar_mixed_with_normal(self, test_env):
+        """メタ文字を含むエントリと通常エントリが混在する場合、両方正しく置換される"""
+        from app.db.connection import get_db_connection
+
+        with get_db_connection() as conn:
+            _insert_entry(conn, "C++", "シープラスプラス", enabled=1)
+            _insert_entry(conn, "Google", "グーグル", enabled=1)
+
+        from app.services.replacement_table import apply_replacements
+
+        result = apply_replacements("Google uses C++ for performance")
+        assert "グーグル" in result
+        assert "シープラスプラス" in result

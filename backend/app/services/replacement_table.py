@@ -40,13 +40,13 @@ _COMPILED_PATTERN = re.compile("|".join(p[0] for p in _REPLACEMENT_PATTERNS))
 
 
 def _build_replacement_entries(entries: List[Tuple[str, str]]) -> Tuple[Dict[str, str], re.Pattern]:
-    patterns = sorted(
-        [(re.escape(k), v) for k, v in entries],
+    sorted_entries = sorted(
+        entries,
         key=lambda pair: len(pair[0]),
         reverse=True,
     )
-    _map = dict(patterns)
-    pattern = re.compile("|".join(p[0] for p in patterns))
+    _map = dict(sorted_entries)
+    pattern = re.compile("|".join(re.escape(k) for k, _v in sorted_entries))
     return _map, pattern
 
 
