@@ -52,19 +52,27 @@ app.include_router(dictionary_router)
 
 ### エラー形式
 
-全てのエラーは FastAPI 標準の形式で返却する:
+全てのエラーは FastAPI 標準の形式で返却する。401/404/409 は文字列の `detail`、422 は Pydantic が自動生成する配列の `detail` となる。
+
+**401/404/409（文字列 detail）:**
 
 ```json
 {"detail": "<エラーメッセージ>"}
 ```
 
+**422（配列 detail）:**
+
+```json
+{"detail": [{"loc": ["body", "word"], "msg": "ensure this value has at most 100 characters", "type": "value_error"}]}
+```
+
 | ステータス | 条件 | 例 |
 |-----------|------|-----|
 | 400 Bad Request | アプリケーション固有の業務バリデーション（Pydanticが自動検出しない条件） | SSRFチェック、業務ルール違反、依存関係の不整合。辞書管理APIでは現状 400 を返す条件は定義しない |
-| 401 Unauthorized | APIキーなし / 不一致 | `{"detail": "Invalid or missing API key"}` |
-| 404 Not Found | 指定したIDのリソースが存在しない | `{"detail": "Dictionary entry not found"}` |
-| 409 Conflict | 同一 `word` + `reading` の重複 | `{"detail": "Dictionary entry already exists"}` |
-| 422 Unprocessable Entity | Pydantic が自動検出するスキーマバリデーション | `max_length` 超過、`ge`/`le` 制約違反、必須フィールド欠落、型不正 |
+| 401 Unauthorized | APIキーなし / 不一致 | `{"detail": "Invalid or missing API key"}`（文字列 detail） |
+| 404 Not Found | 指定したIDのリソースが存在しない | `{"detail": "Dictionary entry not found"}`（文字列 detail） |
+| 409 Conflict | 同一 `word` + `reading` の重複 | `{"detail": "Dictionary entry already exists"}`（文字列 detail） |
+| 422 Unprocessable Entity | Pydantic が自動検出するスキーマバリデーション | `max_length` 超過、`ge`/`le` 制約違反、必須フィールド欠落、型不正（**配列 detail**） |
 
 ---
 
@@ -227,7 +235,7 @@ app.include_router(dictionary_router)
 | 条件 | ステータス | 内容 |
 |------|-----------|------|
 | 同一 `word` + `reading` が既存 | 409 | `{"detail": "Dictionary entry already exists"}` |
-| スキーマバリデーション（必須フィールド欠落、`max_length` 超過、型不正） | 422 | Pydantic エラー形式 |
+| スキーマバリデーション（必須フィールド欠落、`max_length` 超過、型不正） | 422 | Pydantic エラー形式（配列 detail） |
 
 ---
 
@@ -284,7 +292,7 @@ app.include_router(dictionary_router)
 |------|-----------|------|
 | 存在しないID | 404 | `{"detail": "Dictionary entry not found"}` |
 | 同一 `word` + `reading` が別エントリに存在 | 409 | `{"detail": "Dictionary entry already exists"}` |
-| スキーマバリデーション（必須フィールド欠落、`max_length` 超過、型不正） | 422 | Pydantic エラー形式 |
+| スキーマバリデーション（必須フィールド欠落、`max_length` 超過、型不正） | 422 | Pydantic エラー形式（配列 detail） |
 
 ---
 
@@ -334,7 +342,7 @@ app.include_router(dictionary_router)
 | 条件 | ステータス | 内容 |
 |------|-----------|------|
 | 存在しないID | 404 | `{"detail": "Dictionary entry not found"}` |
-| `status` が `active` / `inactive` 以外 | 422 | Pydantic スキーマバリデーション |
+| `status` が `active` / `inactive` 以外 | 422 | Pydantic スキーマバリデーション（配列 detail） |
 
 > **注**: 物理削除（DELETE）は初回対象外（BEE-408 の方針）。状態切替による論理削除で代替する。
 
@@ -366,7 +374,7 @@ app.include_router(dictionary_router)
 |------|------|
 | パラメータ | `limit`（任意, ge=1）, `offset`（任意, デフォルト0, ge=0） |
 | limit 未指定時 | 配列を返す（全件返却、従来動作に準拠） |
-| limit 指定時 | `{"items": [...], "total": N, "has_next": bool}` 形式 |
+| limit 指定時 | `{"items": [...], "total": N, "has_next": bool, "stats": {...}}` 形式 |
 | `total` | フィルタ適用後の総件数 |
 | `has_next` | 次ページが存在するか（`offset + limit < total`） |
 | `stats` | limit指定時のみ付与。フィルタ（search/category）非依存の全件実数。`{total, active, inactive}` |
