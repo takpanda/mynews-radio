@@ -60,11 +60,11 @@ app.include_router(dictionary_router)
 
 | ステータス | 条件 | 例 |
 |-----------|------|-----|
-| 400 Bad Request | 入力値のバリデーションエラー | 長さ超過、型不正 |
+| 400 Bad Request | アプリケーション固有の業務バリデーション（Pydanticが自動検出しない条件） | SSRFチェック、業務ルール違反、依存関係の不整合。辞書管理APIでは現状 400 を返す条件は定義しない |
 | 401 Unauthorized | APIキーなし / 不一致 | `{"detail": "Invalid or missing API key"}` |
 | 404 Not Found | 指定したIDのリソースが存在しない | `{"detail": "Dictionary entry not found"}` |
 | 409 Conflict | 同一 `word` + `reading` の重複 | `{"detail": "Dictionary entry already exists"}` |
-| 422 Unprocessable Entity | Pydantic バリデーションエラー | 必須フィールド欠落、型違反 |
+| 422 Unprocessable Entity | Pydantic が自動検出するスキーマバリデーション | `max_length` 超過、`ge`/`le` 制約違反、必須フィールド欠落、型不正 |
 
 ---
 
@@ -109,23 +109,36 @@ app.include_router(dictionary_router)
     }
   ],
   "total": 42,
-  "has_next": true
+  "has_next": true,
+  "stats": {
+    "total": 100,
+    "active": 80,
+    "inactive": 20
+  }
 }
 ```
 
-`limit` 未指定時（既存APIと同様に全件返却）:
+`limit` 未指定時（既存API `episodes.py` と同一動作）:
 
 ```json
-{
-  "items": [...],
-  "total": 42,
-  "has_next": false
-}
+[
+  {
+    "id": 1,
+    "word": "サンプル",
+    "reading": "サンプル",
+    "category": "ニュース",
+    "status": "active",
+    "notes": "備考",
+    "updated_at": "2026-07-12T12:00:00Z"
+  }
+]
 ```
+
+> **BEE-420 への注意**: `limit` 未指定で呼び出すと配列が返る。管理画面はページネーションが前提のため、常に `limit` を指定して呼び出すこと。
 
 #### エラーケース
 
-なし（空の場合は `items: []`, `total: 0`, `has_next: false` を返す）
+なし（空の場合は `[]` を返す）
 
 ---
 
@@ -188,10 +201,12 @@ app.include_router(dictionary_router)
 
 | フィールド | 型 | 必須 | 制約 | 説明 |
 |-----------|-----|------|------|------|
-| `word` | string | 必須 | 1〜255文字 | 単語（表層形） |
-| `reading` | string | 必須 | 1〜255文字 | 読み |
+| `word` | string | 必須 | 1〜100文字 | 単語（表層形）。BEE-420のUI制約に合わせる |
+| `reading` | string | 必須 | 1〜200文字 | 読み。BEE-420のUI制約に合わせる |
 | `category` | string | 必須 | 1〜100文字 | カテゴリ |
-| `notes` | string | 任意 | 最大1000文字 | 備考 |
+| `notes` | string | 任意 | 最大500文字 | 備考。BEE-420のUI制約に合わせる |
+
+> **入力制限の根拠**: BEE-420 の UI 制約（word:100, reading:200, notes:500）に API 側を合わせる。UI で入力可能な値が API で弾かれることを防ぎ、かつ UI 制約を超える値の API 直投入も防止する。100/200/500 は辞書エントリとして十分な長さである。
 
 #### レスポンス（成功時: 201）
 
@@ -212,7 +227,7 @@ app.include_router(dictionary_router)
 | 条件 | ステータス | 内容 |
 |------|-----------|------|
 | 同一 `word` + `reading` が既存 | 409 | `{"detail": "Dictionary entry already exists"}` |
-| バリデーションエラー | 422 | Pydantic エラー形式 |
+| スキーマバリデーション（必須フィールド欠落、`max_length` 超過、型不正） | 422 | Pydantic エラー形式 |
 
 ---
 
@@ -244,10 +259,10 @@ app.include_router(dictionary_router)
 
 | フィールド | 型 | 必須 | 制約 | 説明 |
 |-----------|-----|------|------|------|
-| `word` | string | 必須 | 1〜255文字 | 単語（表層形） |
-| `reading` | string | 必須 | 1〜255文字 | 読み |
+| `word` | string | 必須 | 1〜100文字 | 単語（表層形） |
+| `reading` | string | 必須 | 1〜200文字 | 読み |
 | `category` | string | 必須 | 1〜100文字 | カテゴリ |
-| `notes` | string | 任意 | 最大1000文字 | 備考 |
+| `notes` | string | 任意 | 最大500文字 | 備考 |
 
 #### レスポンス（成功時: 200）
 
@@ -269,7 +284,7 @@ app.include_router(dictionary_router)
 |------|-----------|------|
 | 存在しないID | 404 | `{"detail": "Dictionary entry not found"}` |
 | 同一 `word` + `reading` が別エントリに存在 | 409 | `{"detail": "Dictionary entry already exists"}` |
-| バリデーションエラー | 422 | Pydantic エラー形式 |
+| スキーマバリデーション（必須フィールド欠落、`max_length` 超過、型不正） | 422 | Pydantic エラー形式 |
 
 ---
 
@@ -319,7 +334,7 @@ app.include_router(dictionary_router)
 | 条件 | ステータス | 内容 |
 |------|-----------|------|
 | 存在しないID | 404 | `{"detail": "Dictionary entry not found"}` |
-| `status` が `active` / `inactive` 以外 | 422 | Pydantic バリデーションエラー |
+| `status` が `active` / `inactive` 以外 | 422 | Pydantic スキーマバリデーション |
 
 > **注**: 物理削除（DELETE）は初回対象外（BEE-408 の方針）。状態切替による論理削除で代替する。
 
@@ -350,10 +365,13 @@ app.include_router(dictionary_router)
 | 項目 | 仕様 |
 |------|------|
 | パラメータ | `limit`（任意, ge=1）, `offset`（任意, デフォルト0, ge=0） |
-| limit 未指定時 | 全件返却（従来動作に準拠） |
+| limit 未指定時 | 配列を返す（全件返却、従来動作に準拠） |
 | limit 指定時 | `{"items": [...], "total": N, "has_next": bool}` 形式 |
 | `total` | フィルタ適用後の総件数 |
 | `has_next` | 次ページが存在するか（`offset + limit < total`） |
+| `stats` | limit指定時のみ付与。フィルタ（search/category）非依存の全件実数。`{total, active, inactive}` |
+
+> **重要**: `limit` 未指定時は配列を返すため、`stats` も `total` も含まれない。BEE-420 は必ず `limit` を指定すること。`stats` の数値は初期表示時に1回取得し、エントリ追加/削除後に必要に応じて再取得する。
 
 ---
 
@@ -363,7 +381,7 @@ app.include_router(dictionary_router)
 - **追加画面**: `POST /admin/dictionary` — Create form
 - **編集画面**: `PUT /admin/dictionary/{id}` — Edit form
 - **状態切替UI**: `PATCH /admin/dictionary/{id}/status` — トグルスイッチ or ボタン
-- **統計表示**: 一覧レスポンスの `total` を利用
+- **統計表示**: 一覧レスポンスの `stats: {total, active, inactive}` を利用。フィルタ非依存の全件実数で、統計バー（全件数・有効数・無効数）の表示に使う。初期表示時に1回取得し、エントリ追加/削除後に必要に応じて再取得する。`total`（フィルタ適用後）とは別値であることに注意
 - **生成時の辞書適用**: `status: inactive` のエントリは生成（番組台本生成・解説生成）の辞書適用対象から除外する。
   - 一覧APIは常に全状態を返却可能（`status` クエリでフィルタ）。`inactive` 除外は生成ロジック側の責務である。
 - **削除ボタン**: 初回画面要件に含めない（BEE-408 論理削除方針による）
@@ -379,8 +397,8 @@ app.include_router(dictionary_router)
 | ページ境界 | `limit=1` + `offset=0`／`limit=1` + `offset=超出`（空リストが返ること）、`limit=0` または負値 → 422 |
 | フィルタ | `search` 単体、`category` 単体、`status` 単体（active/inactive 各々）、複合フィルタ（`search` + `category` + `status` の組み合わせ） |
 | 空結果フィルタ | 存在しない `search` 語、存在しない `category`、該当なしの複合フィルタ → `{items:[], total:0, has_next:false}` |
-| 作成 | 正常作成 → 201、同一 `word` + `reading` の重複登録 → 409、必須フィールド欠落 → 422、文字数超過（word 256文字等）→ 422 |
-| 更新 | 正常更新 → 200、存在しないID → 404、重複更新（別エントリと同一 word+reading）→ 409、バリデーションエラー → 422 |
+| 作成 | 正常作成 → 201、同一 `word` + `reading` の重複登録 → 409、必須フィールド欠落 → 422、文字数超過（word 101文字等）→ 422 |
+| 更新 | 正常更新 → 200、存在しないID → 404、重複更新（別エントリと同一 word+reading）→ 409、スキーマバリデーション → 422 |
 | 状態切替 | `active` → `inactive` → 200、`inactive` → `active` → 200、存在しないID → 404、不正値（`status: "invalid"`）→ 422、同一状態への切替 → 200（冪等） |
 | 生成連携 | `status: inactive` のエントリが生成（台本生成・解説生成）の辞書適用対象から除外されること。inactive→active に戻した後に生成対象に含まれること。 |
 
@@ -406,3 +424,6 @@ app.include_router(dictionary_router)
 |------|-----------|------|------|
 | 2026-07-12 | 藤崎 奈緒 | 事前レビュー | must: DELETE 除外、limit/offset + `{items,total,has_next}`、`updated_by` 注釈、422エラー対応； should: `/api` prefix 統一、認証前提条件明記 |
 | 2026-07-12 | 白石 綾乃 | 統合確定 | 案A採用を決定 |
+| 2026-07-12 | 藤崎 奈緒 | 確定レビュー(1回目) | must: limit未指定時の形式統一（配列 vs {items,total,has_next}）、入力制限不整合、stats未定義； should: 400/422境界不明瞭 |
+| 2026-07-12 | 長谷川 優香 | 修正案提示 | 4件の修正案を提示（limit未指定=配列、word:100/reading:200/notes:500、stats追加、400/422境界明確化） |
+| 2026-07-12 | 白石 綾乃 | 修正指示 | 上記4件の契約書反映を指示 |
