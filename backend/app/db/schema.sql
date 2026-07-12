@@ -43,3 +43,13 @@ CREATE INDEX IF NOT EXISTS idx_episode_items_episode_id ON episode_items(episode
 CREATE INDEX IF NOT EXISTS idx_episode_items_order ON episode_items(item_order);
 CREATE INDEX IF NOT EXISTS idx_articles_status ON articles(status);
 CREATE INDEX IF NOT EXISTS idx_articles_importance_score ON articles(importance_score);
+
+CREATE TABLE IF NOT EXISTS dictionary_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    surface TEXT NOT NULL UNIQUE,
+    reading TEXT NOT NULL,
+    category TEXT DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
