@@ -1,5 +1,8 @@
+import logging
 import re
-from typing import Dict
+from typing import Dict, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 REPLACEMENT_TABLE: Dict[str, str] = {
     # Companies / Products
@@ -36,15 +39,63 @@ _REPLACEMENT_PATTERNS = sorted(
 _COMPILED_PATTERN = re.compile("|".join(p[0] for p in _REPLACEMENT_PATTERNS))
 
 
+def _build_replacement_entries(entries: List[Tuple[str, str]]) -> Tuple[Dict[str, str], re.Pattern]:
+    patterns = sorted(
+        [(re.escape(k), v) for k, v in entries],
+        key=lambda pair: len(pair[0]),
+        reverse=True,
+    )
+    _map = dict(patterns)
+    pattern = re.compile("|".join(p[0] for p in patterns))
+    return _map, pattern
+
+
+def _get_active_entries() -> Tuple[bool, List[Tuple[str, str]]]:
+    """Query DB for dictionary entries.
+
+    Returns:
+        (has_any_entry, active_entries)
+        - (True, [...]): DB has active entries
+        - (True, []): DB has entries but all are disabled
+        - (False, []): DB is empty (0 rows) or unreachable
+    """
+    try:
+        from app.db.connection import get_db_connection
+        with get_db_connection() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM dictionary_entries").fetchone()[0]
+            if total == 0:
+                return False, []
+            rows = conn.execute(
+                "SELECT surface, reading FROM dictionary_entries WHERE enabled = 1"
+            ).fetchall()
+            return True, [(r["surface"], r["reading"]) for r in rows]
+    except Exception:
+        logger.warning("Failed to read dictionary_entries from DB, falling back to static table")
+        return False, []
+
+
 def apply_replacements(text: str) -> str:
     """Apply pronunciation replacement from display text to spoken text.
 
+    - Queries DB for enabled dictionary_entries first.
+    - If DB has entries but all are disabled: no replacements (text unchanged).
+    - If DB is empty (0 rows) or unreachable: falls back to static REPLACEMENT_TABLE.
     - Longest key first ensures "GitHub" matches before "Git".
     - Returns a new string; original is unchanged.
     """
-    _map = dict(_REPLACEMENT_PATTERNS)
+    has_any_entry, active_entries = _get_active_entries()
+
+    if has_any_entry and not active_entries:
+        return text
+
+    if has_any_entry and active_entries:
+        entries = active_entries
+    else:
+        entries = list(REPLACEMENT_TABLE.items())
+
+    _map, pattern = _build_replacement_entries(entries)
 
     def _replacer(m: re.Match) -> str:
         return _map.get(m.group(0), m.group(0))
 
-    return _COMPILED_PATTERN.sub(_replacer, text)
+    return pattern.sub(_replacer, text)
