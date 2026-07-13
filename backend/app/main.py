@@ -119,23 +119,29 @@ def _apply_db_migrations() -> None:
         except sqlite3.OperationalError:
             pass
 
-        from app.services.replacement_table import REPLACEMENT_TABLE
-
         row = conn.execute("SELECT COUNT(*) FROM dictionary_entries").fetchone()
         if row[0] == 0:
-            category_groups = [
-                ("companies_products", ["Google", "Microsoft", "Amazon", "Apple", "Meta"]),
-                ("cloud", ["Google Cloud", "AWS", "Azure"]),
-                ("developer_tools", ["GitHub", "GitLab"]),
-                ("container_infra", ["Docker", "Kubernetes", "Prometheus", "Grafana", "Ansible", "Terraform"]),
-                ("ml_ai", ["PyTorch", "TensorFlow"]),
+            seed_entries = [
+                ("Google", "グーグル", "companies_products"),
+                ("Microsoft", "マイクロソフト", "companies_products"),
+                ("Amazon", "アマゾン", "companies_products"),
+                ("Apple", "アップル", "companies_products"),
+                ("Meta", "メタ", "companies_products"),
+                ("Google Cloud", "グーグル クラウド", "cloud"),
+                ("AWS", "エー・ダブリュー・エス", "cloud"),
+                ("Azure", "アジュール", "cloud"),
+                ("GitHub", "ギットハブ", "developer_tools"),
+                ("GitLab", "ギットラブ", "developer_tools"),
+                ("Docker", "ドッカー", "container_infra"),
+                ("Kubernetes", "キューベルネティース", "container_infra"),
+                ("Prometheus", "プロミーテゥス", "container_infra"),
+                ("Grafana", "グラファナ", "container_infra"),
+                ("Ansible", "アンシホル", "container_infra"),
+                ("Terraform", "テラフォーム", "container_infra"),
+                ("PyTorch", "パイトッチ", "ml_ai"),
+                ("TensorFlow", "テンソーフロー", "ml_ai"),
             ]
-            cat_of_surface = {}
-            for cat, surfaces in category_groups:
-                for s in surfaces:
-                    cat_of_surface[s] = cat
-            for surface, reading in REPLACEMENT_TABLE.items():
-                cat = cat_of_surface.get(surface, "")
+            for surface, reading, cat in seed_entries:
                 conn.execute(
                     "INSERT OR IGNORE INTO dictionary_entries(surface, reading, category) VALUES (?, ?, ?)",
                     (surface, reading, cat),
