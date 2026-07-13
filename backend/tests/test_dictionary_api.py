@@ -185,44 +185,17 @@ class TestMigrationFromOldSchema:
         conn.commit()
         conn.close()
 
-    def _run_migration(self, db_path):
+    def _run_migration_on_db(self, db_path):
+        """実際の migrate_dictionary_constraint を実行する。"""
+        from app.db.migration import migrate_dictionary_constraint
         conn = sqlite3.connect(str(db_path))
         conn.row_factory = sqlite3.Row
-        idx = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='dictionary_entries' AND name LIKE 'sqlite_autoindex_dictionary_entries%'"
-        ).fetchone()
-        need_migrate = False
-        if idx:
-            cols = conn.execute(
-                f"PRAGMA index_info('{idx['name']}')"
-            ).fetchall()
-            if len(cols) == 1 and cols[0]['name'] == 'surface':
-                need_migrate = True
-        if need_migrate:
-            conn.execute("ALTER TABLE dictionary_entries RENAME TO dictionary_entries_old")
-            conn.execute(
-                "CREATE TABLE dictionary_entries ("
-                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                "surface TEXT NOT NULL, "
-                "reading TEXT NOT NULL, "
-                "category TEXT DEFAULT '', "
-                "enabled INTEGER NOT NULL DEFAULT 1, "
-                "notes TEXT DEFAULT '', "
-                "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                "UNIQUE(surface, reading))"
-            )
-            conn.execute(
-                "INSERT INTO dictionary_entries "
-                "SELECT id, surface, reading, category, enabled, COALESCE(notes, ''), created_at, updated_at "
-                "FROM dictionary_entries_old"
-            )
-            conn.execute("DROP TABLE dictionary_entries_old")
+        result = migrate_dictionary_constraint(conn)
         conn.commit()
         conn.close()
+        return result
 
     def _assert_migrated(self, db_path):
-        """マイグレーション後のDBが UNIQUE(surface, reading) になっていることを確認"""
         conn = sqlite3.connect(str(db_path))
         conn.row_factory = sqlite3.Row
         idx = conn.execute(
@@ -254,7 +227,8 @@ class TestMigrationFromOldSchema:
         conn.commit()
         conn.close()
 
-        self._run_migration(db_path)
+        result = self._run_migration_on_db(db_path)
+        assert result is True, "1回目のマイグレーションが実行されませんでした"
         self._assert_migrated(db_path)
 
         conn = sqlite3.connect(str(db_path))
@@ -266,14 +240,12 @@ class TestMigrationFromOldSchema:
         assert rows[0]['word'] == "テスト"
         assert rows[1]['word'] == "東京"
 
-        # 新制約: 同表面別読みは登録できる
         conn.execute(
             "INSERT INTO dictionary_entries(surface, reading, category) VALUES (?, ?, ?)",
             ("東京", "トウキョウ", "place"),
         )
         conn.commit()
 
-        # 新制約: 完全重複は弾く
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "INSERT INTO dictionary_entries(surface, reading, category) VALUES (?, ?, ?)",
@@ -283,7 +255,7 @@ class TestMigrationFromOldSchema:
         conn.close()
 
     def test_migration_idempotent(self, tmp_path):
-        """2回目のマイグレーションは実行されない"""
+        """2回目の migrate_dictionary_constraint は何も変更しない"""
         db_path = tmp_path / "test_idempotent.db"
         self._create_old_schema_db(db_path)
 
@@ -295,8 +267,8 @@ class TestMigrationFromOldSchema:
         conn.commit()
         conn.close()
 
-        # 1回目: マイグレーション実行
-        self._run_migration(db_path)
+        result1 = self._run_migration_on_db(db_path)
+        assert result1 is True, "1回目のマイグレーションが実行されませんでした"
         self._assert_migrated(db_path)
 
         ids_after_first = []
@@ -306,8 +278,8 @@ class TestMigrationFromOldSchema:
             ids_after_first.append((r['id'], r['surface']))
         conn.close()
 
-        # 2回目: 再度マイグレーション（何も変わらないこと）
-        self._run_migration(db_path)
+        result2 = self._run_migration_on_db(db_path)
+        assert result2 is False, "2回目のマイグレーションは実行されるべきではありません"
         self._assert_migrated(db_path)
 
         conn = sqlite3.connect(str(db_path))
@@ -317,7 +289,7 @@ class TestMigrationFromOldSchema:
             ids_after_second.append((r['id'], r['surface']))
         conn.close()
 
-        assert ids_after_first == ids_after_second, "2回目のマイグレーションでデータが変わっています"
+        assert ids_after_first == ids_after_second
 
     def test_old_schema_detect_constraint(self, tmp_path):
         """旧スキーマ UNIQUE(surface) が正しく検出される"""
@@ -348,7 +320,7 @@ class TestMigrationFromOldSchema:
         conn.commit()
         conn.close()
 
-        self._run_migration(db_path)
+        self._run_migration_on_db(db_path)
 
         conn = sqlite3.connect(str(db_path))
         conn.execute(
@@ -365,7 +337,8 @@ class TestMigrationFromOldSchema:
         conn.close()
 
     def test_migration_through_client_with_old_schema(self, tmp_path, monkeypatch):
-        """旧スキーマDBでアプリを起動したとき、マイグレーション後に同表記別読みが登録できる"""
+        """旧スキーマDBでアプリを起動したとき、マイグレーション後に同表記別読みが登録でき、
+        かつ2回目のアプリ起動ではテーブル再構築が発生しないことを確認"""
         db_path = tmp_path / "test_client_migrate.db"
         self._create_old_schema_db(db_path)
 
@@ -392,7 +365,6 @@ class TestMigrationFromOldSchema:
 
         self._assert_migrated(db_path)
 
-        # 同表記別読みの登録
         resp = client.post(
             "/admin/dictionary",
             json={"word": "東京", "reading": "トウキョウ", "category": "place"},
@@ -400,9 +372,26 @@ class TestMigrationFromOldSchema:
         assert resp.status_code == 201
         assert resp.json()["reading"] == "トウキョウ"
 
-        # 完全重複は409
         resp = client.post(
             "/admin/dictionary",
             json={"word": "東京", "reading": "トウキョウ", "category": "place"},
         )
         assert resp.status_code == 409
+
+        # 2回目のアプリ起動: テーブル再構築が発生しないことを確認
+        conn2 = sqlite3.connect(str(db_path))
+        conn2.row_factory = sqlite3.Row
+        tables = conn2.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()
+        table_names = [r['name'] for r in tables]
+        assert 'dictionary_entries_old' not in table_names, \
+            "2回目の起動で RENAME が発行されました"
+
+        # スキーマが正しいことも確認
+        self._assert_migrated(db_path)
+        conn2.close()
+
+        # 3回目の起動でも問題ないことを確認（migrate_dictionary_constraint を直接）
+        result3 = self._run_migration_on_db(db_path)
+        assert result3 is False, "3回目のマイグレーションは実行されるべきではありません"

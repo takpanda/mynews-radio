@@ -103,37 +103,8 @@ def _apply_db_migrations() -> None:
             pass
 
         # UNIQUE(surface) → UNIQUE(surface, reading) へのマイグレーション
-        idx = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='dictionary_entries' AND name LIKE 'sqlite_autoindex_dictionary_entries%'"
-        ).fetchone()
-        need_migrate = False
-        if idx:
-            cols = conn.execute(
-                f"PRAGMA index_info('{idx['name']}')"
-            ).fetchall()
-            # UNIQUE(surface) 単独なら1カラム、UNIQUE(surface, reading) なら2カラム
-            if len(cols) == 1 and cols[0]['name'] == 'surface':
-                need_migrate = True
-        if need_migrate:
-            conn.execute("ALTER TABLE dictionary_entries RENAME TO dictionary_entries_old")
-            conn.execute(
-                "CREATE TABLE dictionary_entries ("
-                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                "surface TEXT NOT NULL, "
-                "reading TEXT NOT NULL, "
-                "category TEXT DEFAULT '', "
-                "enabled INTEGER NOT NULL DEFAULT 1, "
-                "notes TEXT DEFAULT '', "
-                "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                "UNIQUE(surface, reading))"
-            )
-            conn.execute(
-                "INSERT INTO dictionary_entries "
-                "SELECT id, surface, reading, category, enabled, COALESCE(notes, ''), created_at, updated_at "
-                "FROM dictionary_entries_old"
-            )
-            conn.execute("DROP TABLE dictionary_entries_old")
+        from app.db.migration import migrate_dictionary_constraint
+        migrate_dictionary_constraint(conn)
 
         try:
             conn.execute(
