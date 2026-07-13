@@ -102,10 +102,20 @@ def _apply_db_migrations() -> None:
         except sqlite3.OperationalError:
             pass
 
+        # UNIQUE(surface) → UNIQUE(surface, reading) へのマイグレーション
+        from app.db.migration import migrate_dictionary_constraint, migrate_enabled_to_is_active
+        migrate_dictionary_constraint(conn)
+        migrate_enabled_to_is_active(conn)
+
         try:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_episodes_date_type ON episodes(episode_date, type)"
             )
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE dictionary_entries ADD COLUMN notes TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass
 

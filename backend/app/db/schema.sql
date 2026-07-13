@@ -46,10 +46,12 @@ CREATE INDEX IF NOT EXISTS idx_articles_importance_score ON articles(importance_
 
 CREATE TABLE IF NOT EXISTS dictionary_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    surface TEXT NOT NULL UNIQUE,
+    surface TEXT NOT NULL,
     reading TEXT NOT NULL,
     category TEXT DEFAULT '',
-    enabled INTEGER NOT NULL DEFAULT 1,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    notes TEXT DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(surface, reading)
 );

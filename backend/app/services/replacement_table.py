@@ -33,22 +33,27 @@ REPLACEMENT_TABLE: Dict[str, str] = {
 }
 
 
-def get_active_entries() -> List[Dict[str, str]]:
-    """辞書テーブルから有効な (enabled=1) エントリを取得する。
+def get_active_entries() -> tuple[bool, List[Dict[str, str]]]:
+    """辞書テーブルから有効な (is_active=1) エントリを取得する。
 
     Returns:
-        [{surface, reading}, ...] のリスト。
-        DBが空の場合は空リストを返す。
+        (has_any_entry, active_entries)
+        - (True, [{surface, reading}, ...]): DBにエントリが存在し、有効なものも存在する
+        - (True, []): DBにエントリは存在するが、全て無効
+        - (False, []): DBが空、または接続不可
     """
     try:
         with get_db_connection() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM dictionary_entries").fetchone()[0]
+            if total == 0:
+                return False, []
             rows = conn.execute(
-                "SELECT surface, reading FROM dictionary_entries WHERE enabled = 1"
+                "SELECT surface, reading FROM dictionary_entries WHERE is_active = 1"
             ).fetchall()
-            return [{"surface": r["surface"], "reading": r["reading"]} for r in rows]
+            return True, [{"surface": r["surface"], "reading": r["reading"]} for r in rows]
     except Exception as exc:
         logger.warning("Failed to fetch active dictionary entries: %s", exc)
-        return []
+        return False, []
 
 
 def _build_patterns(
@@ -70,13 +75,18 @@ def _build_patterns(
 def apply_replacements(text: str) -> str:
     """Display text → spoken text への発音置換を適用する。
 
-    DB の有効な辞書エントリ (enabled=1) を優先して使用する。
+    DB の有効な辞書エントリ (is_active=1) を優先して使用する。
     DB が空の場合は REPLACEMENT_TABLE のハードコード値をフォールバックとして使用する。
+    DB にエントリは存在するが全て無効 (is_active=0) の場合は、入力テキストをそのまま返す。
 
     既存エピソードの spoken_text は変更されず、音声合成時の新規生成にのみ影響する。
     """
-    entries = get_active_entries()
-    if not entries:
+    has_any_entry, entries = get_active_entries()
+
+    if has_any_entry and not entries:
+        return text
+
+    if not has_any_entry:
         entries_data = [
             {"surface": k, "reading": v} for k, v in REPLACEMENT_TABLE.items()
         ]

@@ -15,9 +15,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(verify_api_key)])
 
 
-# ─── Pydantic models ────────────────────────────────────────────────
-
-
 class DictionaryCreate(BaseModel):
     word: str = Field(..., min_length=1, max_length=100)
     reading: str = Field(..., min_length=1, max_length=200)
@@ -36,21 +33,18 @@ class DictionaryStatusUpdate(BaseModel):
     status: str = Field(..., pattern=r"^(active|inactive)$")
 
 
-# ─── Helpers ────────────────────────────────────────────────────────
-
-
-def _enabled_to_status(enabled: int) -> str:
-    return "active" if enabled == 1 else "inactive"
+def _is_active_to_status(is_active: int) -> str:
+    return "active" if is_active else "inactive"
 
 
 def _row_to_dict(row) -> dict:
     d = dict(row)
     return {
         "id": d["id"],
-        "word": d["surface"],
+        "word": d["word"],
         "reading": d["reading"],
         "category": d["category"],
-        "status": _enabled_to_status(d["enabled"]),
+        "status": _is_active_to_status(d["is_active"]),
         "notes": d.get("notes", ""),
         "updated_at": _format_updated_at(d["updated_at"]),
     }
@@ -69,14 +63,15 @@ def _require_entry(entry_id: int) -> dict:
     """辞書エントリが存在することを確認し、なければ 404 を返す。"""
     with get_db_connection() as conn:
         row = conn.execute(
-            "SELECT * FROM dictionary_entries WHERE id = ?", (entry_id,)
+            "SELECT id, surface AS word, reading, category, is_active, notes, created_at, updated_at FROM dictionary_entries WHERE id = ?",
+            (entry_id,),
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Dictionary entry not found")
     return dict(row)
 
 
-# ─── Endpoints ──────────────────────────────────────────────────────
+COLUMNS = "id, surface AS word, reading, category, is_active, notes, created_at, updated_at"
 
 
 @router.get("/admin/dictionary", summary="辞書エントリ一覧を取得")
@@ -105,20 +100,17 @@ def list_dictionary_entries(
         params.append(category)
 
     if status == "active":
-        conditions.append("enabled = 1")
+        conditions.append("is_active = 1")
     elif status == "inactive":
-        conditions.append("enabled = 0")
+        conditions.append("is_active = 0")
 
-    where_clause = ""
-    if conditions:
-        where_clause = " WHERE " + " AND ".join(conditions)
+    where_clause = " AND ".join(conditions) if conditions else "1=1"
 
     with get_db_connection() as conn:
-        # 全件数（集計用、フィルタ非依存）
         stats_row = conn.execute(
             "SELECT COUNT(*) AS total, "
-            "SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) AS active, "
-            "SUM(CASE WHEN enabled = 0 THEN 1 ELSE 0 END) AS inactive "
+            "SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS active, "
+            "SUM(CASE WHEN is_active = 0 THEN 1 ELSE 0 END) AS inactive "
             "FROM dictionary_entries"
         ).fetchone()
         stats = {
@@ -127,14 +119,12 @@ def list_dictionary_entries(
             "inactive": stats_row["inactive"],
         }
 
-        # フィルタ適用後の総件数
         count_row = conn.execute(
-            f"SELECT COUNT(*) AS cnt FROM dictionary_entries{where_clause}", params
+            f"SELECT COUNT(*) AS cnt FROM dictionary_entries WHERE {where_clause}", params
         ).fetchone()
         filtered_total = count_row["cnt"] if count_row else 0
 
-        # データ取得
-        query = f"SELECT * FROM dictionary_entries{where_clause} ORDER BY id DESC"
+        query = f"SELECT {COLUMNS} FROM dictionary_entries WHERE {where_clause} ORDER BY id DESC"
         query_params: list = list(params)
         if limit is not None:
             query += " LIMIT ? OFFSET ?"
@@ -185,7 +175,7 @@ def create_dictionary_entry(body: DictionaryCreate) -> dict:
         new_id = cursor.lastrowid
 
         row = conn.execute(
-            "SELECT * FROM dictionary_entries WHERE id = ?", (new_id,)
+            f"SELECT {COLUMNS} FROM dictionary_entries WHERE id = ?", (new_id,)
         ).fetchone()
 
     return _row_to_dict(row)
@@ -212,7 +202,7 @@ def update_dictionary_entry(entry_id: int, body: DictionaryUpdate) -> dict:
         )
 
         row = conn.execute(
-            "SELECT * FROM dictionary_entries WHERE id = ?", (entry_id,)
+            f"SELECT {COLUMNS} FROM dictionary_entries WHERE id = ?", (entry_id,)
         ).fetchone()
 
     return _row_to_dict(row)
@@ -227,15 +217,15 @@ def toggle_dictionary_entry_status(entry_id: int, body: DictionaryStatusUpdate) 
     """
     _require_entry(entry_id)
 
-    enabled = 1 if body.status == "active" else 0
+    is_active = 1 if body.status == "active" else 0
 
     with get_db_connection() as conn:
         conn.execute(
-            "UPDATE dictionary_entries SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (enabled, entry_id),
+            "UPDATE dictionary_entries SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (is_active, entry_id),
         )
         row = conn.execute(
-            "SELECT * FROM dictionary_entries WHERE id = ?", (entry_id,)
+            f"SELECT {COLUMNS} FROM dictionary_entries WHERE id = ?", (entry_id,)
         ).fetchone()
 
     return _row_to_dict(row)
