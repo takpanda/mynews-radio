@@ -51,6 +51,7 @@ def _row_to_dict(row) -> dict:
 
 
 def _format_updated_at(updated_at: str) -> str:
+    """SQLite CURRENT_TIMESTAMP → ISO 8601 (UTC) に変換する。"""
     try:
         dt = datetime.strptime(updated_at, "%Y-%m-%d %H:%M:%S")
         return dt.replace(tzinfo=timezone.utc).isoformat()

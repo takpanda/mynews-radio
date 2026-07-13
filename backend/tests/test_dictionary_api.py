@@ -219,6 +219,10 @@ class TestDictionaryList:
         resp = client.get("/admin/dictionary?limit=5&offset=-1")
         assert resp.status_code == 422
 
+    def test_list_status_invalid_value(self, client):
+        resp = client.get("/admin/dictionary?status=invalid")
+        assert resp.status_code == 422
+
 
 class TestDictionaryGet:
     """GET /admin/dictionary/{id} のテスト"""
@@ -379,8 +383,8 @@ class TestReplacementTableActiveFilter:
 
     def test_fallback_to_hardcoded(self, client):
         """DB が空の場合、REPLACEMENT_TABLE がフォールバックとして使用される"""
-        conn = __import__("app.db.connection", fromlist=["get_db_connection"]).get_db_connection()
-        with conn as c:
+        from app.db.connection import get_db_connection
+        with get_db_connection() as c:
             c.execute("DELETE FROM dictionary_entries")
         from app.services.replacement_table import apply_replacements
         result = apply_replacements("Google is testing")
@@ -394,6 +398,63 @@ class TestReplacementTableActiveFilter:
         from app.services.replacement_table import apply_replacements
         result = apply_replacements("Test Reactivate Now")
         assert "リアクティベート" in result
+
+    def test_all_disabled_returns_text_unchanged(self, client):
+        """全エントリが無効 (is_active=0) の場合、入力テキストがそのまま返される"""
+        _seed_entry(client, word="Google", reading="グーグル")
+        _seed_entry(client, word="AWS", reading="エーエスシーリリー")
+        client.patch("/admin/dictionary/1/status", json={"status": "inactive"})
+        client.patch("/admin/dictionary/2/status", json={"status": "inactive"})
+        from app.services.replacement_table import apply_replacements
+        result = apply_replacements("Google and AWS are testing")
+        assert "グーグル" not in result
+        assert "エーエスシーリリー" not in result
+        assert result == "Google and AWS are testing"
+
+
+class TestExistingEpisodeSpokenText:
+    """既存エピソードの spoken_text が辞書変更後も変わらないことの確認"""
+
+    def test_spoken_text_preserved_after_dictionary_change(self, client, tmp_path):
+        """辞書エントリを変更しても、既存 script.json の spoken_text は変わらない"""
+        _seed_entry(client, word="Google", reading="グーグル")
+
+        episode_dir = tmp_path / "episodes" / "1"
+        episode_dir.mkdir(parents=True)
+        script = {
+            "title": "Test Episode",
+            "lines": [
+                {
+                    "text": "Google announced new AI",
+                    "display_text": "Google announced new AI",
+                    "spoken_text": "グーグル announced new AI",
+                    "speaker": "male",
+                    "section": "news",
+                },
+                {
+                    "text": "AWS is also competing",
+                    "display_text": "AWS is also competing",
+                    "spoken_text": "エーエスシーリリー is also competing",
+                    "speaker": "male",
+                    "section": "news",
+                },
+            ],
+        }
+        script_path = episode_dir / "script.json"
+        with open(script_path, "w", encoding="utf-8") as f:
+            json.dump(script, f, ensure_ascii=False, indent=2)
+
+        expected = dict(script)
+
+        client.patch("/admin/dictionary/1/status", json={"status": "inactive"})
+        _seed_entry(client, word="AWS", reading="アマゾンウェブサービス")
+
+        with open(script_path, "r", encoding="utf-8") as f:
+            actual = json.load(f)
+
+        assert actual == expected
+        assert actual["lines"][0]["spoken_text"] == "グーグル announced new AI"
+        assert actual["lines"][1]["spoken_text"] == "エーエスシーリリー is also competing"
 
 
 def _old_schema_sql():
