@@ -1,12 +1,13 @@
 'use client'
 
-import { useRef, useState, useMemo } from 'react'
+import { useRef, useState, useMemo, useCallback } from 'react'
 import type { Script, Article } from '../lib/api'
 import { buildChapters } from '../lib/chapters'
 import EpisodeAudioPlayer, { type PlayerHandle } from './EpisodeAudioPlayer'
 import ScriptViewer from './ScriptViewer'
 import ArticleLinks from './ArticleLinks'
 import SynthesizeAudioButton from './SynthesizeAudioButton'
+import MisreadingReportForm, { type PlaybackContext } from './MisreadingReportForm'
 
 export interface DetailEpisode {
   id: number
@@ -31,15 +32,57 @@ interface Props {
   summary: EpisodeSummary | null
 }
 
+function findCurrentLine(lines: Script['lines'], currentTime: number): Script['lines'][number] | null {
+  if (!lines || lines.length === 0) return null
+  let active = null
+  for (const line of lines) {
+    if (line.start_time !== undefined && line.start_time <= currentTime) {
+      active = line
+    }
+  }
+  return active
+}
+
 export default function EpisodeDetailShell({ episode, script, articles, summary }: Props) {
   const playerRef = useRef<PlayerHandle>(null)
   const [currentTime, setCurrentTime] = useState(0)
+  const [reportContext, setReportContext] = useState<PlaybackContext | null>(null)
+  const [reportOpen, setReportOpen] = useState(false)
 
   const chapters = useMemo(() => buildChapters(script), [script])
 
   const hasScript = Boolean(script && script.lines.length > 0)
   const hasArticles = articles.some((a) => a.url) || Boolean(episode.sourceUrl)
   const title = episode.title || `エピソード #${episode.id}`
+
+  const openPlaybackReport = useCallback(() => {
+    const currentLine = findCurrentLine(script?.lines ?? [], currentTime)
+    const lineArticleId = currentLine?.article_id ?? null
+    setReportContext({
+      episodeId: episode.id,
+      articleId: lineArticleId,
+      generationId: null,
+      playbackPosition: currentTime > 0 ? currentTime : null,
+      targetSentence: currentLine?.text ?? '',
+    })
+    setReportOpen(true)
+  }, [script, currentTime, episode.id])
+
+  const openArticleReport = useCallback((article: Article) => {
+    setReportContext({
+      episodeId: episode.id,
+      articleId: article.id,
+      generationId: null,
+      playbackPosition: null,
+      targetSentence: '',
+    })
+    setReportOpen(true)
+  }, [episode.id])
+
+  const closeReport = useCallback(() => {
+    setReportOpen(false)
+    setReportContext(null)
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -136,6 +179,7 @@ export default function EpisodeDetailShell({ episode, script, articles, summary 
             durationSeconds={episode.durationSeconds}
             chapters={chapters}
             onTimeUpdate={setCurrentTime}
+            onMisreadingReport={openPlaybackReport}
           />
         ) : hasScript ? (
           <SynthesizeAudioButton episodeId={episode.id} />
@@ -160,8 +204,13 @@ export default function EpisodeDetailShell({ episode, script, articles, summary 
       {hasArticles && (
         <section id="articles" className="scroll-mt-20">
           <h2 className="mb-2 px-1 text-sm font-semibold text-slate-900">元記事</h2>
-          <ArticleLinks articles={articles} sourceUrl={episode.sourceUrl} />
+          <ArticleLinks articles={articles} sourceUrl={episode.sourceUrl} onReportArticle={openArticleReport} />
         </section>
+      )}
+
+      {/* 読み間違い報告フォーム */}
+      {reportOpen && (
+        <MisreadingReportForm playbackContext={reportContext} onClose={closeReport} />
       )}
     </div>
   )

@@ -21,6 +21,7 @@ interface Props {
   durationSeconds?: number
   chapters?: Chapter[]
   onTimeUpdate?: (time: number) => void
+  onMisreadingReport?: () => void
 }
 
 const SPEEDS = [1.0, 1.25, 1.5]
@@ -55,16 +56,18 @@ function PauseIcon({ className }: { className: string }) {
  * スクロールしたときだけ画面下に現れるミニプレーヤーを描画する。
  */
 const EpisodeAudioPlayer = forwardRef<PlayerHandle, Props>(function EpisodeAudioPlayer(
-  { audioUrl, title, durationSeconds = 0, chapters = [], onTimeUpdate },
+  { audioUrl, title, durationSeconds = 0, chapters = [], onTimeUpdate, onMisreadingReport },
   ref,
 ) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(durationSeconds)
   const [speed, setSpeed] = useState(1.0)
   const [containerVisible, setContainerVisible] = useState(true)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
     const audio = audioRef.current
@@ -107,6 +110,17 @@ const EpisodeAudioPlayer = forwardRef<PlayerHandle, Props>(function EpisodeAudio
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const handleClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [menuOpen])
 
   const togglePlay = useCallback(async () => {
     const audio = audioRef.current
@@ -236,6 +250,61 @@ const EpisodeAudioPlayer = forwardRef<PlayerHandle, Props>(function EpisodeAudio
                     <path d="M5 17.5h14" />
                   </svg>
                 </a>
+
+                {onMisreadingReport && (
+                  <div ref={menuRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setMenuOpen((v) => !v)}
+                      className="rounded-full p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                      aria-label="その他"
+                      aria-haspopup="true"
+                      aria-expanded={menuOpen}
+                    >
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        className="h-4 w-4"
+                        fill="currentColor"
+                      >
+                        <circle cx="12" cy="5.5" r="1.5" />
+                        <circle cx="12" cy="12" r="1.5" />
+                        <circle cx="12" cy="18.5" r="1.5" />
+                      </svg>
+                    </button>
+                    {menuOpen && (
+                      <div
+                        className="absolute right-0 top-full z-20 mt-1 min-w-40 rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+                        role="menu"
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setMenuOpen(false)
+                            onMisreadingReport()
+                          }}
+                          className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+                        >
+                          <svg
+                            aria-hidden="true"
+                            viewBox="0 0 24 24"
+                            className="h-4 w-4 text-slate-400"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M12 20h9" />
+                            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                          </svg>
+                          読み間違いを報告
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </span>
             </div>
           </div>
