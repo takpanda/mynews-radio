@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import toast from 'react-hot-toast'
 import {
   fetchDictionaryEntries,
@@ -48,6 +48,7 @@ export default function AdminDictionaryShell({ initialData }: Props) {
 
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [mounted, setMounted] = useState(false)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editingEntry, setEditingEntry] = useState<DictionaryEntry | null>(null)
@@ -55,6 +56,8 @@ export default function AdminDictionaryShell({ initialData }: Props) {
 
   const abortRef = useRef<AbortController | null>(null)
   const fetchGenRef = useRef(0)
+
+  useEffect(() => { setMounted(true) }, [])
 
   const fetchData = useCallback(
     async (
@@ -386,7 +389,7 @@ export default function AdminDictionaryShell({ initialData }: Props) {
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-400">
-                      {formatDate(entry.updated_at)}
+                      {mounted ? formatDate(entry.updated_at) : ''}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
