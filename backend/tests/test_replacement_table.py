@@ -131,7 +131,7 @@ _SEED_ENTRIES: list[tuple[str, str]] = [
     ("Apple", "アップル"),
     ("Meta", "メタ"),
     ("Google Cloud", "グーグル クラウド"),
-    ("AWS", "エースシーリー"),
+    ("AWS", "エー・ダブリュー・エス"),
     ("Azure", "アジュール"),
     ("GitHub", "ギットハブ"),
     ("GitLab", "ギットラブ"),
@@ -163,7 +163,7 @@ class TestSeedDataReplacements:
         self._seed_all()
         from app.services.replacement_table import apply_replacements
         result = apply_replacements("AWS announced new services")
-        assert "エースシーリー" in result
+        assert "エー・ダブリュー・エス" in result
 
     def test_seed_data_google(self, test_env):
         self._seed_all()
@@ -184,7 +184,7 @@ class TestSeedDataReplacements:
         text = "Google uses AWS and Docker for cloud infrastructure"
         result = apply_replacements(text)
         assert "グーグル" in result
-        assert "エースシーリー" in result
+        assert "エー・ダブリュー・エス" in result
         assert "ドッカー" in result
 
 

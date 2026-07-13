@@ -128,7 +128,7 @@ def _apply_db_migrations() -> None:
                 ("Apple", "アップル", "companies_products"),
                 ("Meta", "メタ", "companies_products"),
                 ("Google Cloud", "グーグル クラウド", "cloud"),
-                ("AWS", "エースシーリー", "cloud"),
+                ("AWS", "エー・ダブリュー・エス", "cloud"),
                 ("Azure", "アジュール", "cloud"),
                 ("GitHub", "ギットハブ", "developer_tools"),
                 ("GitLab", "ギットラブ", "developer_tools"),
