@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS dictionary_entries (
     surface TEXT NOT NULL,
     reading TEXT NOT NULL,
     category TEXT DEFAULT '',
-    enabled INTEGER NOT NULL DEFAULT 1,
+    is_active INTEGER NOT NULL DEFAULT 1,
     notes TEXT DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
