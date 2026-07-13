@@ -30,6 +30,11 @@ function formatDate(dateStr: string): string {
   })
 }
 
+function matchesStatusFilter(status: string, filter: string): boolean {
+  if (!filter) return true
+  return status === filter
+}
+
 export default function AdminDictionaryShell({ initialData }: Props) {
   const [items, setItems] = useState<DictionaryEntry[]>(initialData.items)
   const [total, setTotal] = useState(initialData.total)
@@ -49,6 +54,7 @@ export default function AdminDictionaryShell({ initialData }: Props) {
   const [togglingIds, setTogglingIds] = useState<Set<number>>(new Set())
 
   const abortRef = useRef<AbortController | null>(null)
+  const fetchGenRef = useRef(0)
 
   const fetchData = useCallback(
     async (
@@ -59,6 +65,7 @@ export default function AdminDictionaryShell({ initialData }: Props) {
       abortRef.current?.abort()
       const ctrl = new AbortController()
       abortRef.current = ctrl
+      const gen = ++fetchGenRef.current
       setLoading(true)
       setLoadError(null)
       try {
@@ -86,7 +93,9 @@ export default function AdminDictionaryShell({ initialData }: Props) {
         if (err instanceof DOMException && err.name === 'AbortError') return
         setLoadError('読み込みに失敗しました')
       } finally {
-        setLoading(false)
+        if (gen === fetchGenRef.current) {
+          setLoading(false)
+        }
       }
     },
     [],
@@ -125,15 +134,23 @@ export default function AdminDictionaryShell({ initialData }: Props) {
     setTogglingIds((prev) => new Set(prev).add(entry.id))
     const delta = newStatus === 'active' ? 1 : -1
     try {
-      const updated = await updateDictionaryStatus(entry.id, newStatus)
-      setItems((prev) => prev.map((item) => (item.id === entry.id ? updated : item)))
+      await updateDictionaryStatus(entry.id, newStatus)
+      const stillMatches = matchesStatusFilter(newStatus, statusFilter)
+      setItems((prev) =>
+        stillMatches
+          ? prev.map((item) => (item.id === entry.id ? { ...item, status: newStatus } : item))
+          : prev.filter((item) => item.id !== entry.id),
+      )
+      if (!stillMatches) {
+        setTotal((prev) => prev - 1)
+      }
       setStats((prev) => ({
         total: prev.total,
         active: prev.active + delta,
         inactive: prev.inactive - delta,
       }))
       toast.success(
-        `「${updated.word}」を${newStatus === 'active' ? '有効' : '無効'}にしました`,
+        `「${entry.word}」を${newStatus === 'active' ? '有効' : '無効'}にしました`,
       )
     } catch {
       toast.error('状態の更新に失敗しました')
@@ -445,6 +462,7 @@ export default function AdminDictionaryShell({ initialData }: Props) {
           entry={editingEntry}
           onClose={handleModalClose}
           onSuccess={handleModalSuccess}
+          currentFilters={currentFilters()}
         />
       )}
     </div>

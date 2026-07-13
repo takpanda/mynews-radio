@@ -6,6 +6,7 @@ import {
   createDictionaryEntry,
   updateDictionaryEntry,
   updateDictionaryStatus,
+  fetchDictionaryEntries,
   type DictionaryEntry,
 } from '../lib/admin-dictionary'
 
@@ -13,6 +14,7 @@ interface Props {
   entry: DictionaryEntry | null
   onClose: () => void
   onSuccess: () => void
+  currentFilters: { search: string; category: string; status: string }
 }
 
 const CATEGORIES = ['固有名詞', '地名', '人名', '技術用語', '業界用語', 'その他']
@@ -23,7 +25,7 @@ const MAX_WORD = 100
 const MAX_READING = 200
 const MAX_NOTES = 500
 
-export default function DictionaryFormModal({ entry, onClose, onSuccess }: Props) {
+export default function DictionaryFormModal({ entry, onClose, onSuccess, currentFilters }: Props) {
   const isEdit = entry !== null
   const [word, setWord] = useState(entry?.word ?? '')
   const [reading, setReading] = useState(entry?.reading ?? '')
@@ -68,7 +70,14 @@ export default function DictionaryFormModal({ entry, onClose, onSuccess }: Props
           notes: notes.trim() || undefined,
         })
         if (status !== entry!.status) {
-          await updateDictionaryStatus(entry!.id, status)
+          try {
+            await updateDictionaryStatus(entry!.id, status)
+          } catch {
+            toast.error('本文は保存しましたが、状態の更新に失敗しました。一覧を再読み込みします。')
+            setSubmitting(false)
+            onSuccess()
+            return
+          }
         }
         toast.success('辞書を更新しました')
       } else {

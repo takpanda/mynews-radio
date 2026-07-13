@@ -22,13 +22,7 @@ export interface PaginatedDictionaryResponse {
 }
 
 const SERVER_API_BASE = process.env.API_BASE ?? 'http://api:8010'
-const CLIENT_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? ''
-
-function dictionaryPath(): string {
-  return typeof window === 'undefined'
-    ? `${SERVER_API_BASE}/admin/dictionary`
-    : `${CLIENT_API_BASE}/admin/dictionary`
-}
+const API_KEY = process.env.API_KEY
 
 function toQueryString(params: Record<string, string | number | undefined>): string {
   const parts: string[] = []
@@ -38,6 +32,27 @@ function toQueryString(params: Record<string, string | number | undefined>): str
     }
   }
   return parts.length ? `?${parts.join('&')}` : ''
+}
+
+/** サーバーサイド専用：バックエンドへ直接アクセス（認証ヘッダー付与） */
+function serverHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (API_KEY) {
+    headers['Authorization'] = `Bearer ${API_KEY}`
+  }
+  return headers
+}
+
+async function serverFetch(path: string, options?: RequestInit): Promise<Response> {
+  return fetch(`${SERVER_API_BASE}${path}`, {
+    ...options,
+    headers: { ...serverHeaders(), ...(options?.headers as Record<string, string>) },
+  })
+}
+
+/** クライアントサイド専用：同一オリジンの Route Handler 経由 */
+async function clientFetch(path: string, options?: RequestInit): Promise<Response> {
+  return fetch(`/api${path}`, options)
 }
 
 export async function fetchDictionaryEntries(
@@ -50,7 +65,6 @@ export async function fetchDictionaryEntries(
   } = {},
   signal?: AbortSignal,
 ): Promise<PaginatedDictionaryResponse> {
-  const base = dictionaryPath()
   const qs = toQueryString({
     search: params.search,
     category: params.category,
@@ -58,16 +72,15 @@ export async function fetchDictionaryEntries(
     limit: params.limit ?? 20,
     offset: params.offset ?? 0,
   })
-  const res = await fetch(`${base}${qs}`, { cache: 'no-store', signal })
+  const isServer = typeof window === 'undefined'
+  const res = await (isServer
+    ? serverFetch(`/admin/dictionary${qs}`, { cache: 'no-store' as RequestCache, signal })
+    : clientFetch(`/admin/dictionary${qs}`, { cache: 'no-store' as RequestCache, signal }))
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     throw new Error(body || `Failed to fetch dictionary: ${res.status}`)
   }
   return res.json() as Promise<PaginatedDictionaryResponse>
-}
-
-function clientBase(): string {
-  return process.env.NEXT_PUBLIC_API_BASE ?? ''
 }
 
 export async function createDictionaryEntry(data: {
@@ -76,8 +89,7 @@ export async function createDictionaryEntry(data: {
   category: string
   notes?: string
 }): Promise<DictionaryEntry> {
-  const base = clientBase()
-  const res = await fetch(`${base}/admin/dictionary`, {
+  const res = await clientFetch('/admin/dictionary', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -98,8 +110,7 @@ export async function updateDictionaryEntry(
     notes?: string
   },
 ): Promise<DictionaryEntry> {
-  const base = clientBase()
-  const res = await fetch(`${base}/admin/dictionary/${id}`, {
+  const res = await clientFetch(`/admin/dictionary/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -115,8 +126,7 @@ export async function updateDictionaryStatus(
   id: number,
   status: 'active' | 'inactive',
 ): Promise<DictionaryEntry> {
-  const base = clientBase()
-  const res = await fetch(`${base}/admin/dictionary/${id}/status`, {
+  const res = await clientFetch(`/admin/dictionary/${id}/status`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
