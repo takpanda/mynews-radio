@@ -165,7 +165,7 @@ def synthesize_episode(
         filename = f"{file_counter:03d}.wav"
         filepath = os.path.join(wav_dir, filename)
 
-        original_text = line.get("text", "")
+        original_text = line.get("text", "") or ""
         spoken_text = apply_replacements(original_text)
         speaker = line.get("speaker", "male")
         delivery = line.get("delivery", "neutral")
