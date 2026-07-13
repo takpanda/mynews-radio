@@ -124,6 +124,70 @@ class TestApplyReplacements:
         assert "シープラスプラス" in result
 
 
+_SEED_ENTRIES: list[tuple[str, str]] = [
+    ("Google", "グーグル"),
+    ("Microsoft", "マイクロソフト"),
+    ("Amazon", "アマゾン"),
+    ("Apple", "アップル"),
+    ("Meta", "メタ"),
+    ("Google Cloud", "グーグル クラウド"),
+    ("AWS", "エースシーリー"),
+    ("Azure", "アジュール"),
+    ("GitHub", "ギットハブ"),
+    ("GitLab", "ギットラブ"),
+    ("Docker", "ドッカー"),
+    ("Kubernetes", "キューベルネティース"),
+    ("Prometheus", "プロミーテゥス"),
+    ("Grafana", "グラファナ"),
+    ("Ansible", "アンシホル"),
+    ("Terraform", "テラフォーム"),
+    ("PyTorch", "パイトッチ"),
+    ("TensorFlow", "テンソーフロー"),
+]
+
+
+class TestSeedDataReplacements:
+    """元 REPLACEMENT_TABLE と同じ seed データで置換結果が一致することの回帰テスト"""
+
+    def _seed_all(self):
+        from app.db.connection import get_db_connection
+        with get_db_connection() as conn:
+            for surface, reading in _SEED_ENTRIES:
+                conn.execute(
+                    "INSERT INTO dictionary_entries(surface, reading, is_active) VALUES (?, ?, 1)",
+                    (surface, reading),
+                )
+            conn.commit()
+
+    def test_seed_data_aws(self, test_env):
+        self._seed_all()
+        from app.services.replacement_table import apply_replacements
+        result = apply_replacements("AWS announced new services")
+        assert "エースシーリー" in result
+
+    def test_seed_data_google(self, test_env):
+        self._seed_all()
+        from app.services.replacement_table import apply_replacements
+        result = apply_replacements("Google and Google Cloud are expanding")
+        assert "グーグル" in result
+        assert "グーグル クラウド" in result
+
+    def test_seed_data_microsoft(self, test_env):
+        self._seed_all()
+        from app.services.replacement_table import apply_replacements
+        result = apply_replacements("Microsoft released a new Windows update")
+        assert "マイクロソフト" in result
+
+    def test_seed_data_multi_replacements(self, test_env):
+        self._seed_all()
+        from app.services.replacement_table import apply_replacements
+        text = "Google uses AWS and Docker for cloud infrastructure"
+        result = apply_replacements(text)
+        assert "グーグル" in result
+        assert "エースシーリー" in result
+        assert "ドッカー" in result
+
+
 class TestSynthesizeEpisodeNullText:
     """synthesize_episode が text: null を含む script.json を空文字として処理するテスト"""
 

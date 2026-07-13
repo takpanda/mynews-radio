@@ -128,18 +128,18 @@ def _apply_db_migrations() -> None:
                 ("Apple", "アップル", "companies_products"),
                 ("Meta", "メタ", "companies_products"),
                 ("Google Cloud", "グーグル クラウド", "cloud"),
-                ("AWS", "エー・ダブリュー・エス", "cloud"),
+                ("AWS", "エースシーリー", "cloud"),
                 ("Azure", "アジュール", "cloud"),
                 ("GitHub", "ギットハブ", "developer_tools"),
                 ("GitLab", "ギットラブ", "developer_tools"),
                 ("Docker", "ドッカー", "container_infra"),
                 ("Kubernetes", "キューベルネティース", "container_infra"),
-                ("Prometheus", "プロミーティウス", "container_infra"),
+                ("Prometheus", "プロミーテゥス", "container_infra"),
                 ("Grafana", "グラファナ", "container_infra"),
                 ("Ansible", "アンシホル", "container_infra"),
                 ("Terraform", "テラフォーム", "container_infra"),
                 ("PyTorch", "パイトッチ", "ml_ai"),
-                ("TensorFlow", "テンソーフロウ", "ml_ai"),
+                ("TensorFlow", "テンソーフロー", "ml_ai"),
             ]
             for surface, reading, cat in seed_entries:
                 conn.execute(
