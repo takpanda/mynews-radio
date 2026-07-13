@@ -38,12 +38,12 @@ class TestApplyReplacements:
         result = apply_replacements(text)
         assert result == text
 
-    def test_empty_db_falls_back_to_static_table(self, test_env):
-        """DBが空の場合、REPLACEMENT_TABLEの値で置換される"""
+    def test_empty_db_returns_text_unchanged(self, test_env):
+        """DBが空の場合、入力テキストがそのまま返される"""
         from app.services.replacement_table import apply_replacements
 
         result = apply_replacements("Google announced a new product")
-        assert result == "グーグル announced a new product"
+        assert result == "Google announced a new product"
 
     def test_mixed_enabled_disabled(self, test_env):
         """有効・無効が混在する場合、有効エントリのみ適用される"""
