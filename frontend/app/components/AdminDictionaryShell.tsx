@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import toast from 'react-hot-toast'
 import {
   fetchDictionaryEntries,
@@ -16,9 +16,6 @@ const PAGE_SIZE = 20
 interface Props {
   initialData: PaginatedDictionaryResponse
 }
-
-type SortField = 'word' | 'reading' | 'category' | 'status' | 'updated_at'
-type SortDirection = 'asc' | 'desc'
 
 const CATEGORIES = ['固有名詞', '地名', '人名', '技術用語', '業界用語', 'その他']
 
@@ -47,9 +44,6 @@ export default function AdminDictionaryShell({ initialData }: Props) {
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  const [sortField, setSortField] = useState<SortField>('updated_at')
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
-
   const [modalOpen, setModalOpen] = useState(false)
   const [editingEntry, setEditingEntry] = useState<DictionaryEntry | null>(null)
   const [togglingIds, setTogglingIds] = useState<Set<number>>(new Set())
@@ -57,20 +51,27 @@ export default function AdminDictionaryShell({ initialData }: Props) {
   const abortRef = useRef<AbortController | null>(null)
 
   const fetchData = useCallback(
-    async (newOffset: number, append = false) => {
+    async (
+      newOffset: number,
+      append: boolean,
+      filters: { category: string; status: string; search: string },
+    ) => {
       abortRef.current?.abort()
       const ctrl = new AbortController()
       abortRef.current = ctrl
       setLoading(true)
       setLoadError(null)
       try {
-        const data = await fetchDictionaryEntries({
-          search: query || undefined,
-          category: categoryFilter || undefined,
-          status: statusFilter || undefined,
-          limit: PAGE_SIZE,
-          offset: newOffset,
-        })
+        const data = await fetchDictionaryEntries(
+          {
+            search: filters.search || undefined,
+            category: filters.category || undefined,
+            status: filters.status || undefined,
+            limit: PAGE_SIZE,
+            offset: newOffset,
+          },
+          ctrl.signal,
+        )
         if (ctrl.signal.aborted) return
         if (append) {
           setItems((prev) => [...prev, ...data.items])
@@ -88,32 +89,49 @@ export default function AdminDictionaryShell({ initialData }: Props) {
         setLoading(false)
       }
     },
-    [query, categoryFilter, statusFilter],
+    [],
   )
 
+  const currentFilters = useCallback(() => ({
+    search: query,
+    category: categoryFilter,
+    status: statusFilter,
+  }), [query, categoryFilter, statusFilter])
+
   const handleSearch = () => {
-    fetchData(0, false)
+    fetchData(0, false, currentFilters())
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') handleSearch()
   }
 
-  const handleFilterChange = () => {
-    fetchData(0, false)
+  const handleCategoryChange = (value: string) => {
+    setCategoryFilter(value)
+    fetchData(0, false, { search: query, category: value, status: statusFilter })
+  }
+
+  const handleStatusChange = (value: string) => {
+    setStatusFilter(value)
+    fetchData(0, false, { search: query, category: categoryFilter, status: value })
   }
 
   const handleLoadMore = () => {
-    fetchData(offset + PAGE_SIZE, true)
+    fetchData(offset + PAGE_SIZE, true, currentFilters())
   }
 
   const handleToggleStatus = async (entry: DictionaryEntry) => {
     const newStatus: 'active' | 'inactive' = entry.status === 'active' ? 'inactive' : 'active'
     setTogglingIds((prev) => new Set(prev).add(entry.id))
+    const delta = newStatus === 'active' ? 1 : -1
     try {
       const updated = await updateDictionaryStatus(entry.id, newStatus)
       setItems((prev) => prev.map((item) => (item.id === entry.id ? updated : item)))
-      setTotal((prev) => prev)
+      setStats((prev) => ({
+        total: prev.total,
+        active: prev.active + delta,
+        inactive: prev.inactive - delta,
+      }))
       toast.success(
         `「${updated.word}」を${newStatus === 'active' ? '有効' : '無効'}にしました`,
       )
@@ -125,15 +143,6 @@ export default function AdminDictionaryShell({ initialData }: Props) {
         next.delete(entry.id)
         return next
       })
-    }
-  }
-
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))
-    } else {
-      setSortField(field)
-      setSortDirection('asc')
     }
   }
 
@@ -154,16 +163,7 @@ export default function AdminDictionaryShell({ initialData }: Props) {
 
   const handleModalSuccess = () => {
     handleModalClose()
-    fetchData(0, false)
-  }
-
-  const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) return null
-    return (
-      <span className="ml-0.5 inline-block text-[10px]">
-        {sortDirection === 'asc' ? '▲' : '▼'}
-      </span>
-    )
+    fetchData(0, false, currentFilters())
   }
 
   return (
@@ -253,10 +253,7 @@ export default function AdminDictionaryShell({ initialData }: Props) {
             <label className="mb-1 block text-xs font-medium text-slate-500">カテゴリ</label>
             <select
               value={categoryFilter}
-              onChange={(e) => {
-                setCategoryFilter(e.target.value)
-                handleFilterChange()
-              }}
+              onChange={(e) => handleCategoryChange(e.target.value)}
               className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100 sm:w-40"
               aria-label="カテゴリで絞り込み"
             >
@@ -272,10 +269,7 @@ export default function AdminDictionaryShell({ initialData }: Props) {
             <label className="mb-1 block text-xs font-medium text-slate-500">状態</label>
             <select
               value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value)
-                handleFilterChange()
-              }}
+              onChange={(e) => handleStatusChange(e.target.value)}
               className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100 sm:w-32"
               aria-label="状態で絞り込み"
             >
@@ -333,21 +327,11 @@ export default function AdminDictionaryShell({ initialData }: Props) {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-100">
-                  <Th onClick={() => handleSort('word')}>
-                    単語<SortIcon field="word" />
-                  </Th>
-                  <Th onClick={() => handleSort('reading')}>
-                    読み仮名<SortIcon field="reading" />
-                  </Th>
-                  <Th onClick={() => handleSort('category')}>
-                    カテゴリ<SortIcon field="category" />
-                  </Th>
-                  <Th onClick={() => handleSort('status')}>
-                    状態<SortIcon field="status" />
-                  </Th>
-                  <Th onClick={() => handleSort('updated_at')}>
-                    更新日<SortIcon field="updated_at" />
-                  </Th>
+                  <Th>単語</Th>
+                  <Th>読み仮名</Th>
+                  <Th>カテゴリ</Th>
+                  <Th>状態</Th>
+                  <Th>更新日</Th>
                   <Th>操作</Th>
                 </tr>
               </thead>
@@ -467,12 +451,9 @@ export default function AdminDictionaryShell({ initialData }: Props) {
   )
 }
 
-function Th({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+function Th({ children }: { children: React.ReactNode }) {
   return (
-    <th
-      onClick={onClick}
-      className={`cursor-pointer select-none whitespace-nowrap px-4 py-3 text-xs font-medium text-slate-500 transition hover:text-slate-700 ${onClick ? 'cursor-pointer' : ''}`}
-    >
+    <th className="whitespace-nowrap px-4 py-3 text-xs font-medium text-slate-500">
       {children}
     </th>
   )

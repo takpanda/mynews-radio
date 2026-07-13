@@ -21,6 +21,25 @@ export interface PaginatedDictionaryResponse {
   stats: DictionaryStats
 }
 
+const SERVER_API_BASE = process.env.API_BASE ?? 'http://api:8010'
+const CLIENT_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? ''
+
+function dictionaryPath(): string {
+  return typeof window === 'undefined'
+    ? `${SERVER_API_BASE}/admin/dictionary`
+    : `${CLIENT_API_BASE}/admin/dictionary`
+}
+
+function toQueryString(params: Record<string, string | number | undefined>): string {
+  const parts: string[] = []
+  for (const [key, val] of Object.entries(params)) {
+    if (val !== undefined && val !== '') {
+      parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(val))}`)
+    }
+  }
+  return parts.length ? `?${parts.join('&')}` : ''
+}
+
 export async function fetchDictionaryEntries(
   params: {
     search?: string
@@ -29,19 +48,26 @@ export async function fetchDictionaryEntries(
     limit?: number
     offset?: number
   } = {},
+  signal?: AbortSignal,
 ): Promise<PaginatedDictionaryResponse> {
-  const url = new URL('/admin/dictionary', window.location.origin)
-  if (params.search) url.searchParams.set('search', params.search)
-  if (params.category) url.searchParams.set('category', params.category)
-  if (params.status) url.searchParams.set('status', params.status)
-  url.searchParams.set('limit', String(params.limit ?? 20))
-  url.searchParams.set('offset', String(params.offset ?? 0))
-  const res = await fetch(url.pathname + url.search, { cache: 'no-store' })
+  const base = dictionaryPath()
+  const qs = toQueryString({
+    search: params.search,
+    category: params.category,
+    status: params.status,
+    limit: params.limit ?? 20,
+    offset: params.offset ?? 0,
+  })
+  const res = await fetch(`${base}${qs}`, { cache: 'no-store', signal })
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     throw new Error(body || `Failed to fetch dictionary: ${res.status}`)
   }
   return res.json() as Promise<PaginatedDictionaryResponse>
+}
+
+function clientBase(): string {
+  return process.env.NEXT_PUBLIC_API_BASE ?? ''
 }
 
 export async function createDictionaryEntry(data: {
@@ -50,7 +76,8 @@ export async function createDictionaryEntry(data: {
   category: string
   notes?: string
 }): Promise<DictionaryEntry> {
-  const res = await fetch('/admin/dictionary', {
+  const base = clientBase()
+  const res = await fetch(`${base}/admin/dictionary`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -71,7 +98,8 @@ export async function updateDictionaryEntry(
     notes?: string
   },
 ): Promise<DictionaryEntry> {
-  const res = await fetch(`/admin/dictionary/${id}`, {
+  const base = clientBase()
+  const res = await fetch(`${base}/admin/dictionary/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -87,7 +115,8 @@ export async function updateDictionaryStatus(
   id: number,
   status: 'active' | 'inactive',
 ): Promise<DictionaryEntry> {
-  const res = await fetch(`/admin/dictionary/${id}/status`, {
+  const base = clientBase()
+  const res = await fetch(`${base}/admin/dictionary/${id}/status`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
@@ -97,12 +126,4 @@ export async function updateDictionaryStatus(
     throw new Error(body || `Status update failed: ${res.status}`)
   }
   return res.json() as Promise<DictionaryEntry>
-}
-
-function parseErrorDetail(body: string): string {
-  try {
-    const parsed = JSON.parse(body)
-    if (typeof parsed.detail === 'string') return parsed.detail
-  } catch {}
-  return body
 }
