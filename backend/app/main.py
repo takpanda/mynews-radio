@@ -103,8 +103,9 @@ def _apply_db_migrations() -> None:
             pass
 
         # UNIQUE(surface) → UNIQUE(surface, reading) へのマイグレーション
-        from app.db.migration import migrate_dictionary_constraint
+        from app.db.migration import migrate_dictionary_constraint, migrate_enabled_to_is_active
         migrate_dictionary_constraint(conn)
+        migrate_enabled_to_is_active(conn)
 
         try:
             conn.execute(

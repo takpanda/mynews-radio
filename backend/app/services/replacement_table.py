@@ -66,7 +66,7 @@ def _get_active_entries() -> Tuple[bool, List[Tuple[str, str]]]:
             if total == 0:
                 return False, []
             rows = conn.execute(
-                "SELECT surface, reading FROM dictionary_entries WHERE enabled = 1"
+                "SELECT surface, reading FROM dictionary_entries WHERE is_active = 1"
             ).fetchall()
             return True, [(r["surface"], r["reading"]) for r in rows]
     except Exception:

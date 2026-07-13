@@ -3,10 +3,10 @@ import sqlite3
 import pytest
 
 
-def _insert_entry(conn: sqlite3.Connection, surface: str, reading: str, enabled: int = 1):
+def _insert_entry(conn: sqlite3.Connection, surface: str, reading: str, is_active: int = 1):
     conn.execute(
-        "INSERT INTO dictionary_entries(surface, reading, enabled) VALUES (?, ?, ?)",
-        (surface, reading, enabled),
+        "INSERT INTO dictionary_entries(surface, reading, is_active) VALUES (?, ?, ?)",
+        (surface, reading, is_active),
     )
     conn.commit()
 
@@ -17,7 +17,7 @@ class TestApplyReplacements:
         from app.db.connection import get_db_connection
 
         with get_db_connection() as conn:
-            _insert_entry(conn, "Google", "グーグル", enabled=0)
+            _insert_entry(conn, "Google", "グーグル", is_active=0)
 
         from app.services.replacement_table import apply_replacements
 
@@ -29,8 +29,8 @@ class TestApplyReplacements:
         from app.db.connection import get_db_connection
 
         with get_db_connection() as conn:
-            _insert_entry(conn, "Google", "グーグル", enabled=0)
-            _insert_entry(conn, "AWS", "エー・ダブリュー・エス", enabled=0)
+            _insert_entry(conn, "Google", "グーグル", is_active=0)
+            _insert_entry(conn, "AWS", "エー・ダブリュー・エス", is_active=0)
 
         from app.services.replacement_table import apply_replacements
 
@@ -50,8 +50,8 @@ class TestApplyReplacements:
         from app.db.connection import get_db_connection
 
         with get_db_connection() as conn:
-            _insert_entry(conn, "Google", "グーグル", enabled=1)
-            _insert_entry(conn, "Microsoft", "マクロソフト", enabled=0)
+            _insert_entry(conn, "Google", "グーグル", is_active=1)
+            _insert_entry(conn, "Microsoft", "マクロソフト", is_active=0)
 
         from app.services.replacement_table import apply_replacements
 
@@ -65,7 +65,7 @@ class TestApplyReplacements:
         from app.db.connection import get_db_connection
 
         with get_db_connection() as conn:
-            _insert_entry(conn, "Google", "グーグる", enabled=1)
+            _insert_entry(conn, "Google", "グーグる", is_active=1)
 
         from app.services.replacement_table import apply_replacements
 
@@ -77,7 +77,7 @@ class TestApplyReplacements:
         from app.db.connection import get_db_connection
 
         with get_db_connection() as conn:
-            _insert_entry(conn, "C++", "シープラスプラス", enabled=1)
+            _insert_entry(conn, "C++", "シープラスプラス", is_active=1)
 
         from app.services.replacement_table import apply_replacements
 
@@ -90,7 +90,7 @@ class TestApplyReplacements:
         from app.db.connection import get_db_connection
 
         with get_db_connection() as conn:
-            _insert_entry(conn, "node.js", "ノードジェイエス", enabled=1)
+            _insert_entry(conn, "node.js", "ノードジェイエス", is_active=1)
 
         from app.services.replacement_table import apply_replacements
 
@@ -102,7 +102,7 @@ class TestApplyReplacements:
         from app.db.connection import get_db_connection
 
         with get_db_connection() as conn:
-            _insert_entry(conn, "[test]", "テスト", enabled=1)
+            _insert_entry(conn, "[test]", "テスト", is_active=1)
 
         from app.services.replacement_table import apply_replacements
 
@@ -114,8 +114,8 @@ class TestApplyReplacements:
         from app.db.connection import get_db_connection
 
         with get_db_connection() as conn:
-            _insert_entry(conn, "C++", "シープラスプラス", enabled=1)
-            _insert_entry(conn, "Google", "グーグル", enabled=1)
+            _insert_entry(conn, "C++", "シープラスプラス", is_active=1)
+            _insert_entry(conn, "Google", "グーグル", is_active=1)
 
         from app.services.replacement_table import apply_replacements
 

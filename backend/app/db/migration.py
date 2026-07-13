@@ -30,7 +30,7 @@ def migrate_dictionary_constraint(conn: sqlite3.Connection) -> bool:
         "surface TEXT NOT NULL, "
         "reading TEXT NOT NULL, "
         "category TEXT DEFAULT '', "
-        "enabled INTEGER NOT NULL DEFAULT 1, "
+        "is_active INTEGER NOT NULL DEFAULT 1, "
         "notes TEXT DEFAULT '', "
         "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
         "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
@@ -42,4 +42,24 @@ def migrate_dictionary_constraint(conn: sqlite3.Connection) -> bool:
         "FROM dictionary_entries_old"
     )
     conn.execute("DROP TABLE dictionary_entries_old")
+    return True
+
+
+def migrate_enabled_to_is_active(conn: sqlite3.Connection) -> bool:
+    """dictionary_entries.enabled → is_active にリネームする。
+
+    PRAGMA table_info で enabled カラムの存在を確認し、
+    存在する場合のみ ALTER TABLE RENAME COLUMN を実行する。
+
+    Returns:
+        True if migration was performed, False otherwise.
+    """
+    columns = conn.execute(
+        "PRAGMA table_info(dictionary_entries)"
+    ).fetchall()
+    has_enabled = any(c["name"] == "enabled" for c in columns)
+    if not has_enabled:
+        return False
+
+    conn.execute("ALTER TABLE dictionary_entries RENAME COLUMN enabled TO is_active")
     return True

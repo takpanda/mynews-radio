@@ -15,7 +15,7 @@ def _require_dictionary_entry(entry_id: int) -> dict:
     """辞書エントリが存在するか確認し、なければ 404 を返す"""
     with get_db_connection() as conn:
         row = conn.execute(
-            "SELECT id, surface AS word, reading, category, enabled, notes, created_at, updated_at FROM dictionary_entries WHERE id = ?",
+            "SELECT id, surface AS word, reading, category, is_active, notes, created_at, updated_at FROM dictionary_entries WHERE id = ?",
             (entry_id,),
         ).fetchone()
     if row is None:
@@ -25,7 +25,7 @@ def _require_dictionary_entry(entry_id: int) -> dict:
 
 def _row_to_entry(row) -> dict:
     entry = dict(row)
-    entry["status"] = "active" if entry.pop("enabled") else "inactive"
+    entry["status"] = "active" if entry.pop("is_active") else "inactive"
     entry.setdefault("notes", "")
     return entry
 
@@ -69,15 +69,15 @@ def list_dictionary_entries(
         params.append(category)
 
     if status == "active":
-        conditions.append("enabled = 1")
+        conditions.append("is_active = 1")
     elif status == "inactive":
-        conditions.append("enabled = 0")
+        conditions.append("is_active = 0")
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
     with get_db_connection() as conn:
         items = conn.execute(
-            f"SELECT id, surface AS word, reading, category, enabled, notes, created_at, updated_at FROM dictionary_entries WHERE {where_clause} ORDER BY id DESC LIMIT ? OFFSET ?",
+            f"SELECT id, surface AS word, reading, category, is_active, notes, created_at, updated_at FROM dictionary_entries WHERE {where_clause} ORDER BY id DESC LIMIT ? OFFSET ?",
             (*params, limit if limit is not None else -1, offset),
         ).fetchall()
 
@@ -89,7 +89,7 @@ def list_dictionary_entries(
             total = total_row["cnt"]
 
             stats_row = conn.execute(
-                "SELECT COUNT(*) AS total, SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) AS active, SUM(CASE WHEN enabled = 0 THEN 1 ELSE 0 END) AS inactive FROM dictionary_entries"
+                "SELECT COUNT(*) AS total, SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS active, SUM(CASE WHEN is_active = 0 THEN 1 ELSE 0 END) AS inactive FROM dictionary_entries"
             ).fetchone()
 
     entries = [_row_to_entry(r) for r in items]
@@ -131,7 +131,7 @@ def create_dictionary_entry(body: DictionaryCreateRequest) -> dict:
             )
 
         row = conn.execute(
-            "SELECT id, surface AS word, reading, category, enabled, notes, created_at, updated_at FROM dictionary_entries WHERE id = ?",
+            "SELECT id, surface AS word, reading, category, is_active, notes, created_at, updated_at FROM dictionary_entries WHERE id = ?",
             (entry_id,),
         ).fetchone()
 
@@ -155,7 +155,7 @@ def update_dictionary_entry(entry_id: int, body: DictionaryUpdateRequest) -> dic
             )
 
         row = conn.execute(
-            "SELECT id, surface AS word, reading, category, enabled, notes, created_at, updated_at FROM dictionary_entries WHERE id = ?",
+            "SELECT id, surface AS word, reading, category, is_active, notes, created_at, updated_at FROM dictionary_entries WHERE id = ?",
             (entry_id,),
         ).fetchone()
 
@@ -169,15 +169,15 @@ def update_dictionary_entry_status(
     """辞書エントリの有効/無効状態を切り替える"""
     _require_dictionary_entry(entry_id)
 
-    enabled = 1 if body.status == "active" else 0
+    is_active = 1 if body.status == "active" else 0
 
     with get_db_connection() as conn:
         conn.execute(
-            "UPDATE dictionary_entries SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (enabled, entry_id),
+            "UPDATE dictionary_entries SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (is_active, entry_id),
         )
         row = conn.execute(
-            "SELECT id, surface AS word, reading, category, enabled, notes, created_at, updated_at FROM dictionary_entries WHERE id = ?",
+            "SELECT id, surface AS word, reading, category, is_active, notes, created_at, updated_at FROM dictionary_entries WHERE id = ?",
             (entry_id,),
         ).fetchone()
 
