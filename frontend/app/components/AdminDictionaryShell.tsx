@@ -142,7 +142,9 @@ export default function AdminDictionaryShell({ initialData }: Props) {
           : prev.filter((item) => item.id !== entry.id),
       )
       if (!stillMatches) {
-        setTotal((prev) => prev - 1)
+        const newTotal = total - 1
+        setTotal(newTotal)
+        setHasNext(offset + PAGE_SIZE < newTotal)
       }
       setStats((prev) => ({
         total: prev.total,
