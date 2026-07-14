@@ -251,11 +251,13 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
                 script = json.load(f)
             for idx, line in enumerate(script.get("lines", []), start=1):
                 aid = line.get("article_id")
+                audio_generation_id = f"ep{episode_id}-seg{idx}"
                 service.add_episode_item(
                     episode_id=episode_id,
                     article_id=int(aid) if aid is not None else None,
                     item_order=idx,
                     segment_text=line.get("text", ""),
+                    audio_generation_id=audio_generation_id,
                 )
         except Exception:
             logger.exception("failed to persist episode_items")
@@ -415,11 +417,13 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
                 script = json.load(f)
             for idx, line in enumerate(script.get("lines", []), start=1):
                 aid = line.get("article_id")
+                audio_generation_id = f"ep{episode_id}-seg{idx}"
                 service.add_episode_item(
                     episode_id=episode_id,
                     article_id=int(aid) if aid is not None else None,
                     item_order=idx,
                     segment_text=line.get("text", ""),
+                    audio_generation_id=audio_generation_id,
                 )
         except Exception:
             logger.exception("failed to persist episode_items")

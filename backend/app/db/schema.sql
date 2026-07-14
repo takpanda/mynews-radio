@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS episode_items (
     article_id INTEGER,
     item_order INTEGER NOT NULL,
     segment_text TEXT,
+    audio_generation_id TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE,
     FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE SET NULL
