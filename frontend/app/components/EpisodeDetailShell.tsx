@@ -63,15 +63,14 @@ export default function EpisodeDetailShell({ episode, script, articles, summary 
     setReportContext({
       episodeId: episode.id,
       articleId: lineArticleId,
-      generationId: episode.generationPhase && episode.audioUrl
-        ? `${episode.generationPhase}:${episode.audioUrl}`
-        : null,
+      generationId: null,
       playbackPosition: currentTime > 0 ? currentTime : null,
       targetSentence: hasTargetSentence ? currentLine!.text : '',
       allowEditTarget: !hasTargetSentence,
+      needsGenerationId: true,
     })
     setReportOpen(true)
-  }, [script, currentTime, episode.id, episode.generationPhase, episode.audioUrl])
+  }, [script, currentTime, episode.id])
 
   const openArticleReport = useCallback((article: Article) => {
     setReportContext({
@@ -81,6 +80,7 @@ export default function EpisodeDetailShell({ episode, script, articles, summary 
       playbackPosition: null,
       targetSentence: '',
       allowEditTarget: true,
+      needsGenerationId: false,
     })
     setReportOpen(true)
   }, [episode.id])

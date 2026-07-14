@@ -10,6 +10,7 @@ export interface PlaybackContext {
   playbackPosition: number | null
   targetSentence: string
   allowEditTarget?: boolean
+  needsGenerationId?: boolean
 }
 
 interface Props {
@@ -40,6 +41,9 @@ export default function MisreadingReportForm({ playbackContext, onClose }: Props
 
   const isFromPlayback = playbackContext !== null
   const showReadonlyTarget = isFromPlayback && !playbackContext.allowEditTarget
+  const generationIdMissing = Boolean(
+    playbackContext?.needsGenerationId && !playbackContext.generationId,
+  )
 
   useEffect(() => {
     if (showReadonlyTarget && closeButtonRef.current) {
@@ -84,6 +88,12 @@ export default function MisreadingReportForm({ playbackContext, onClose }: Props
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!validate()) return
+    if (generationIdMissing) {
+      setSubmitError(
+        '音声生成IDの連携が未確定のため、再生画面からの報告は一時的にご利用いただけません。Backend APIで音声生成IDが提供されるまでお待ちください。',
+      )
+      return
+    }
     setSubmitting(true)
     setSubmitError(null)
     try {
@@ -313,8 +323,9 @@ export default function MisreadingReportForm({ playbackContext, onClose }: Props
             </button>
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || generationIdMissing}
               className="inline-flex items-center gap-1.5 rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+              title={generationIdMissing ? '音声生成IDの連携が未確定のため送信できません' : undefined}
             >
               {submitting && (
                 <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
