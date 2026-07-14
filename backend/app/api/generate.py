@@ -243,9 +243,8 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
         service.update_episode_audio_path(
             episode_id, ep_metadata.get("audio_path") or ""
         )
-        service.update_episode_status(episode_id, "completed")
 
-        # -- PERSIST ITEMS --
+        # -- PERSIST ITEMS (before marking completed, so failure keeps episode in failed state) --
         try:
             with open(script_path, "r", encoding="utf-8") as f:
                 script = json.load(f)
@@ -261,7 +260,10 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
                 )
         except Exception:
             logger.exception("failed to persist episode_items")
+            service.update_episode_status(episode_id, "failed")
+            return
 
+        service.update_episode_status(episode_id, "completed")
         service.update_episode_phase(episode_id, "complete", "生成が完了しました")
         logger.info("[%d] completed successfully", episode_id)
     except Exception as exc:
@@ -409,9 +411,8 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         service.update_episode_audio_path(
             episode_id, ep_metadata.get("audio_path") or ""
         )
-        service.update_episode_status(episode_id, "completed")
 
-        # -- PERSIST ITEMS --
+        # -- PERSIST ITEMS (before marking completed, so failure keeps episode in failed state) --
         try:
             with open(script_path, "r", encoding="utf-8") as f:
                 script = json.load(f)
@@ -427,7 +428,10 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
                 )
         except Exception:
             logger.exception("failed to persist episode_items")
+            service.update_episode_status(episode_id, "failed")
+            return
 
+        service.update_episode_status(episode_id, "completed")
         service.update_episode_phase(episode_id, "complete", "解説の生成が完了しました")
         logger.info("[%d] commentary completed successfully", episode_id)
 
