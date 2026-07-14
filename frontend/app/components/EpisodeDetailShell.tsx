@@ -3,6 +3,10 @@
 import { useRef, useState, useMemo, useCallback } from 'react'
 import type { Script, Article } from '../lib/api'
 import { buildChapters } from '../lib/chapters'
+import {
+  buildPlaybackReportContext,
+  buildArticleReportContext,
+} from '../lib/misreading-report-context'
 import EpisodeAudioPlayer, { type PlayerHandle } from './EpisodeAudioPlayer'
 import ScriptViewer from './ScriptViewer'
 import ArticleLinks from './ArticleLinks'
@@ -33,17 +37,6 @@ interface Props {
   summary: EpisodeSummary | null
 }
 
-function findCurrentLine(lines: Script['lines'], currentTime: number): Script['lines'][number] | null {
-  if (!lines || lines.length === 0) return null
-  let active = null
-  for (const line of lines) {
-    if (line.start_time !== undefined && line.start_time <= currentTime) {
-      active = line
-    }
-  }
-  return active
-}
-
 export default function EpisodeDetailShell({ episode, script, articles, summary }: Props) {
   const playerRef = useRef<PlayerHandle>(null)
   const [currentTime, setCurrentTime] = useState(0)
@@ -57,31 +50,12 @@ export default function EpisodeDetailShell({ episode, script, articles, summary 
   const title = episode.title || `エピソード #${episode.id}`
 
   const openPlaybackReport = useCallback(() => {
-    const currentLine = findCurrentLine(script?.lines ?? [], currentTime)
-    const lineArticleId = currentLine?.article_id ?? null
-    const hasTargetSentence = Boolean(currentLine?.text?.trim())
-    setReportContext({
-      episodeId: episode.id,
-      articleId: lineArticleId,
-      generationId: null,
-      playbackPosition: currentTime > 0 ? currentTime : null,
-      targetSentence: hasTargetSentence ? currentLine!.text : '',
-      allowEditTarget: !hasTargetSentence,
-      needsGenerationId: true,
-    })
+    setReportContext(buildPlaybackReportContext(episode, script, currentTime))
     setReportOpen(true)
-  }, [script, currentTime, episode.id])
+  }, [script, currentTime, episode.id, episode.audioUrl, episode.generationPhase])
 
   const openArticleReport = useCallback((article: Article) => {
-    setReportContext({
-      episodeId: episode.id,
-      articleId: article.id,
-      generationId: null,
-      playbackPosition: null,
-      targetSentence: '',
-      allowEditTarget: true,
-      needsGenerationId: false,
-    })
+    setReportContext(buildArticleReportContext(episode.id, article.id))
     setReportOpen(true)
   }, [episode.id])
 
