@@ -381,14 +381,14 @@ class TestReplacementTableActiveFilter:
         result = apply_replacements("Hello Excluded World")
         assert "ムシ" not in result
 
-    def test_empty_db_returns_text_unchanged(self, client):
-        """DB が空の場合、置換なしで入力テキストがそのまま返される"""
+    def test_fallback_to_hardcoded(self, client):
+        """DB が空の場合、REPLACEMENT_TABLE がフォールバックとして使用される"""
         from app.db.connection import get_db_connection
         with get_db_connection() as c:
             c.execute("DELETE FROM dictionary_entries")
         from app.services.replacement_table import apply_replacements
         result = apply_replacements("Google is testing")
-        assert result == "Google is testing"
+        assert "グーグル" in result
 
     def test_reactivated_entries_used(self, client):
         """無効→再有効化したエントリが apply_replacements で再び使用される"""

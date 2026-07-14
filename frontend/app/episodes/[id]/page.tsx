@@ -92,6 +92,7 @@ function toDetailEpisode(episode: Episode): DetailEpisode {
     sourceUrl: episode.source_url ?? null,
     audioUrl: episode.audio_url ? buildAudioUrl(episode.audio_url) : null,
     durationSeconds: episode.duration_seconds || 0,
+    generationPhase: episode.generation_phase,
   }
 }
 

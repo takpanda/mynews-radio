@@ -18,6 +18,7 @@ export interface DetailEpisode {
   sourceUrl: string | null
   audioUrl: string | null
   durationSeconds: number
+  generationPhase?: string
 }
 
 export interface EpisodeSummary {
@@ -58,15 +59,19 @@ export default function EpisodeDetailShell({ episode, script, articles, summary 
   const openPlaybackReport = useCallback(() => {
     const currentLine = findCurrentLine(script?.lines ?? [], currentTime)
     const lineArticleId = currentLine?.article_id ?? null
+    const hasTargetSentence = Boolean(currentLine?.text?.trim())
     setReportContext({
       episodeId: episode.id,
       articleId: lineArticleId,
-      generationId: null,
+      generationId: episode.generationPhase && episode.audioUrl
+        ? `${episode.generationPhase}:${episode.audioUrl}`
+        : null,
       playbackPosition: currentTime > 0 ? currentTime : null,
-      targetSentence: currentLine?.text ?? '',
+      targetSentence: hasTargetSentence ? currentLine!.text : '',
+      allowEditTarget: !hasTargetSentence,
     })
     setReportOpen(true)
-  }, [script, currentTime, episode.id])
+  }, [script, currentTime, episode.id, episode.generationPhase, episode.audioUrl])
 
   const openArticleReport = useCallback((article: Article) => {
     setReportContext({
@@ -75,6 +80,7 @@ export default function EpisodeDetailShell({ episode, script, articles, summary 
       generationId: null,
       playbackPosition: null,
       targetSentence: '',
+      allowEditTarget: true,
     })
     setReportOpen(true)
   }, [episode.id])

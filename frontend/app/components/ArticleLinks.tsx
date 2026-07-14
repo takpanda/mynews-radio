@@ -114,13 +114,13 @@ export default function ArticleLinks({ articles, sourceUrl, onReportArticle }: P
       {articlesWithUrl.map((article) => (
         <div
           key={article.id}
-          className="group flex items-start gap-3 border-b border-slate-100 py-3.5 transition last:border-b-0"
+          className="group flex items-start gap-3 border-b border-slate-100 py-3.5 transition last:border-b-0 hover:bg-slate-50"
         >
           <a
             href={article.url!}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex min-w-0 flex-1 items-start gap-3 hover:bg-slate-50"
+            className="flex min-w-0 flex-1 items-start gap-3"
           >
             <LinkIcon />
             <div className="min-w-0">
@@ -129,7 +129,7 @@ export default function ArticleLinks({ articles, sourceUrl, onReportArticle }: P
             </div>
           </a>
           {onReportArticle && (
-            <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="shrink-0 opacity-60 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
               <ArticleActions article={article} onReport={onReportArticle} />
             </div>
           )}

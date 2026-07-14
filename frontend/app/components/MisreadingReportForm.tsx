@@ -9,6 +9,7 @@ export interface PlaybackContext {
   generationId: string | null
   playbackPosition: number | null
   targetSentence: string
+  allowEditTarget?: boolean
 }
 
 interface Props {
@@ -34,8 +35,20 @@ export default function MisreadingReportForm({ playbackContext, onClose }: Props
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   const backdropRef = useRef<HTMLDivElement>(null)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const initialFocusRef = useRef<HTMLTextAreaElement>(null)
 
   const isFromPlayback = playbackContext !== null
+  const showReadonlyTarget = isFromPlayback && !playbackContext.allowEditTarget
+
+  useEffect(() => {
+    if (showReadonlyTarget && closeButtonRef.current) {
+      closeButtonRef.current.focus()
+    } else {
+      const el = initialFocusRef.current ?? closeButtonRef.current
+      if (el) el.focus()
+    }
+  }, [showReadonlyTarget])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -48,7 +61,11 @@ export default function MisreadingReportForm({ playbackContext, onClose }: Props
   const validate = useCallback((): boolean => {
     const errs: FormErrors = {}
     if (!targetSentence.trim()) {
-      errs.target_sentence = isFromPlayback ? '対象文が取得できませんでした' : '対象の箇所を入力してください'
+      if (showReadonlyTarget) {
+        errs.target_sentence = '対象文が取得できませんでした'
+      } else {
+        errs.target_sentence = '対象の箇所を入力してください'
+      }
     } else if (targetSentence.length > MAX_TARGET) {
       errs.target_sentence = `対象文は${MAX_TARGET}文字以内で入力してください`
     }
@@ -62,7 +79,7 @@ export default function MisreadingReportForm({ playbackContext, onClose }: Props
     }
     setErrors(errs)
     return Object.keys(errs).length === 0
-  }, [targetSentence, correctReading, incorrectReading, isFromPlayback])
+  }, [targetSentence, correctReading, incorrectReading, showReadonlyTarget])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -90,8 +107,7 @@ export default function MisreadingReportForm({ playbackContext, onClose }: Props
 
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === backdropRef.current && !submitting) {
-      if (success) onClose()
-      else onClose()
+      onClose()
     }
   }
 
@@ -154,6 +170,7 @@ export default function MisreadingReportForm({ playbackContext, onClose }: Props
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <h2 className="text-base font-semibold text-slate-900">読み間違いを報告</h2>
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={onClose}
             disabled={submitting}
@@ -174,7 +191,7 @@ export default function MisreadingReportForm({ playbackContext, onClose }: Props
           </button>
         </div>
 
-        {isFromPlayback && (
+        {showReadonlyTarget && (
           <div className="mx-5 mt-4 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3">
             <p className="text-xs font-medium text-sky-700">再生中に聞こえた箇所</p>
             <p className="mt-1 text-sm leading-6 text-sky-900">
@@ -184,13 +201,15 @@ export default function MisreadingReportForm({ playbackContext, onClose }: Props
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto px-5 py-4">
-          {!isFromPlayback && (
+          {(!isFromPlayback || playbackContext?.allowEditTarget) && (
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">
                 対象の箇所 <span className="text-red-500">*</span>
               </label>
               <textarea
+                ref={initialFocusRef}
                 value={targetSentence}
+                id="misreading-target-sentence"
                 onChange={(e) => setTargetSentence(e.target.value)}
                 maxLength={MAX_TARGET}
                 rows={3}
