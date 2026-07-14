@@ -63,8 +63,13 @@ jest.mock('../components/SynthesizeAudioButton', () => ({
   default: () => <div data-testid="mock-synthesize-btn" />,
 }))
 
+jest.mock('../lib/misreading-report', () => ({
+  submitMisreadingReport: jest.fn(),
+}))
+
 import EpisodeDetailShell from '../components/EpisodeDetailShell'
 import ArticleLinks from '../components/ArticleLinks'
+import { submitMisreadingReport } from '../lib/misreading-report'
 import type { DetailEpisode, EpisodeSummary } from '../components/EpisodeDetailShell'
 import type { Article } from '../lib/api'
 import type { Script } from '../lib/api'
@@ -258,5 +263,180 @@ describe('ArticleLinks 導線（回帰テスト）', () => {
   it('記事がないときArticleLinksは何も表示しない', () => {
     const { container } = render(<ArticleLinks articles={[]} />)
     expect(container.innerHTML).toBe('')
+  })
+})
+
+// ============================================================
+// Context→payload 記事ID保持テスト（generation_id注入可）
+// ============================================================
+
+import MisreadingReportForm, {
+  type PlaybackContext,
+} from '../components/MisreadingReportForm'
+
+describe('Context→payload 記事ID連携（generation_id注入）', () => {
+  beforeEach(() => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+      text: async () => '{}',
+    }) as jest.Mock
+    ;(submitMisreadingReport as jest.Mock).mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    ;(submitMisreadingReport as jest.Mock).mockReset()
+  })
+
+  it('generation_id注入＋article_id保持→payloadに含まれる', async () => {
+    const user = userEvent.setup()
+    const ctx: PlaybackContext = {
+      episodeId: 1,
+      articleId: 5,
+      generationId: 'test_gen_abc123',
+      playbackPosition: 30,
+      targetSentence: '自動取得行',
+      allowEditTarget: false,
+      needsGenerationId: false,
+    }
+    render(<MisreadingReportForm playbackContext={ctx} onClose={jest.fn()} />)
+
+    await user.type(screen.getByPlaceholderText('例: じんこうえいせい'), 'じんこうえいせい')
+    await user.click(screen.getByRole('button', { name: /送信する/i }))
+
+    await screen.findByRole('dialog', { name: /報告完了/i })
+
+    expect(submitMisreadingReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        episode_id: 1,
+        article_id: 5,
+        audio_generation_id: 'test_gen_abc123',
+        playback_position: 30,
+        target_sentence: '自動取得行',
+        correct_reading: 'じんこうえいせい',
+      }),
+    )
+  })
+
+  it('article_id null → payload の article_id が null', async () => {
+    const user = userEvent.setup()
+    const ctx: PlaybackContext = {
+      episodeId: 1,
+      articleId: null,
+      generationId: 'test_gen_xyz',
+      playbackPosition: null,
+      targetSentence: '',
+      allowEditTarget: true,
+      needsGenerationId: false,
+    }
+    render(<MisreadingReportForm playbackContext={ctx} onClose={jest.fn()} />)
+
+    await user.type(
+      screen.getByPlaceholderText('読み間違いがあった箇所を入力してください'),
+      '手動入力',
+    )
+    await user.type(screen.getByPlaceholderText('例: じんこうえいせい'), 'てきせい')
+    await user.click(screen.getByRole('button', { name: /送信する/i }))
+
+    await screen.findByRole('dialog', { name: /報告完了/i })
+
+    expect(submitMisreadingReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        episode_id: 1,
+        article_id: null,
+        audio_generation_id: 'test_gen_xyz',
+      }),
+    )
+  })
+})
+
+describe('記事詳細経由 統合回帰', () => {
+  const baseEpisode: DetailEpisode = {
+    id: 1,
+    title: 'テストエピソード',
+    subtitle: '',
+    dateLabel: '2026/07/14(火)',
+    isCommentary: false,
+    sourceUrl: null,
+    audioUrl: null,
+    durationSeconds: 120,
+  }
+
+  const script: Script | null = null
+
+  const articles: Article[] = [
+    { id: 10, title: 'テスト記事', url: 'https://example.com/test', source: 'テストソース' },
+  ]
+
+  const summary: EpisodeSummary = { intro: '概要', topics: [] }
+
+  beforeEach(() => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+      text: async () => '{}',
+    }) as jest.Mock
+    ;(submitMisreadingReport as jest.Mock).mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    ;(submitMisreadingReport as jest.Mock).mockReset()
+  })
+
+  it('記事の「…」→「読み間違いを報告」でShell経由フォームが開く', async () => {
+    const user = userEvent.setup()
+    render(
+      <EpisodeDetailShell
+        episode={baseEpisode}
+        script={script}
+        articles={articles}
+        summary={summary}
+      />,
+    )
+
+    await user.click(screen.getByLabelText('その他'))
+    await user.click(screen.getByText('読み間違いを報告'))
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText('読み間違いがあった箇所を入力してください'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /送信する/i })).not.toBeDisabled()
+  })
+
+  it('記事詳細→対象文＋正しい読み→送信→payload に article_id が含まれる', async () => {
+    const user = userEvent.setup()
+    render(
+      <EpisodeDetailShell
+        episode={baseEpisode}
+        script={script}
+        articles={articles}
+        summary={summary}
+      />,
+    )
+
+    await user.click(screen.getByLabelText('その他'))
+    await user.click(screen.getByText('読み間違いを報告'))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+    await user.type(
+      screen.getByPlaceholderText('読み間違いがあった箇所を入力してください'),
+      '対象の箇所',
+    )
+    await user.type(screen.getByPlaceholderText('例: じんこうえいせい'), 'じんこうえいせい')
+    await user.click(screen.getByRole('button', { name: /送信する/i }))
+
+    await screen.findByRole('dialog', { name: /報告完了/i })
+
+    expect(submitMisreadingReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        episode_id: 1,
+        article_id: 10,
+        target_sentence: '対象の箇所',
+        correct_reading: 'じんこうえいせい',
+      }),
+    )
   })
 })
