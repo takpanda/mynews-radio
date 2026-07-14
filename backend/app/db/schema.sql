@@ -55,3 +55,18 @@ CREATE TABLE IF NOT EXISTS dictionary_entries (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(surface, reading)
 );
+
+CREATE TABLE IF NOT EXISTS misreading_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_text TEXT NOT NULL,
+    correct_reading TEXT NOT NULL,
+    article_id INTEGER,
+    audio_generation_id TEXT,
+    playback_position REAL,
+    notes TEXT DEFAULT '',
+    app_version TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_misreading_reports_target ON misreading_reports(target_text);
+CREATE INDEX IF NOT EXISTS idx_misreading_reports_created_at ON misreading_reports(created_at);

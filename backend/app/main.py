@@ -21,6 +21,7 @@ from app.api.generate import router as generate_router, limiter
 from app.api.health import router as health_router
 from app.api.feed import router as feed_router
 from app.api.dictionary import router as dictionary_router
+from app.api.reports import router as reports_router
 from app.services.episode_service import EpisodeService
 settings = get_settings()
 app = FastAPI(title="MyNews Radio API", version="0.1.0")
@@ -119,6 +120,35 @@ def _apply_db_migrations() -> None:
         except sqlite3.OperationalError:
             pass
 
+        # misreading_reports テーブルが存在しない場合のみ作成（旧DBからの移行用）
+        try:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS misreading_reports ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "target_text TEXT NOT NULL, "
+                "correct_reading TEXT NOT NULL, "
+                "article_id INTEGER, "
+                "audio_generation_id TEXT, "
+                "playback_position REAL, "
+                "notes TEXT DEFAULT '', "
+                "app_version TEXT DEFAULT '', "
+                "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_misreading_reports_target ON misreading_reports(target_text)"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_misreading_reports_created_at ON misreading_reports(created_at)"
+            )
+        except sqlite3.OperationalError:
+            pass
+
         row = conn.execute("SELECT COUNT(*) FROM dictionary_entries").fetchone()
         if row[0] == 0:
             seed_entries = [
@@ -164,6 +194,7 @@ app.include_router(generate_router)
 app.include_router(feed_router)
 app.include_router(health_router)
 app.include_router(dictionary_router)
+app.include_router(reports_router)
 
 
 # -- Audio file serving --
