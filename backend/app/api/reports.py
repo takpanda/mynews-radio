@@ -1,7 +1,7 @@
 """Misreading report submission API (BEE-432)."""
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -17,7 +17,7 @@ router = APIRouter(tags=["reports"])
 class MisreadingReportCreate(BaseModel):
     target_text: str = Field(..., min_length=1, max_length=2000)
     correct_reading: str = Field(..., min_length=1, max_length=500)
-    article_id: Optional[int] = None
+    article_id: Optional[int] = Field(None, ge=1)
     audio_generation_id: Optional[str] = Field(None, max_length=100)
     playback_position: Optional[float] = Field(None, ge=0)
     notes: Optional[str] = Field(None, max_length=2000)
@@ -47,33 +47,40 @@ def _row_to_report(row) -> dict:
     }
 
 
+def _require_article(article_id: int) -> None:
+    """articles テーブルに指定IDが存在することを確認する。"""
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM articles WHERE id = ?", (article_id,)
+        ).fetchone()
+    if row is None:
+        raise HTTPException(
+            status_code=404, detail="Referenced article not found"
+        )
+
+
 @router.post("/reports/misreading", summary="読み間違い報告を送信", status_code=201)
 def create_misreading_report(body: MisreadingReportCreate) -> dict:
     """読み間違い報告を新規登録する。
 
+    article_id が指定された場合、articles テーブルに存在することを確認する。
     同一 target_text + correct_reading の組み合わせで直近24時間以内に
-    登録済みの場合は 409 Conflict を返す。
+    登録済みの場合は 409 Conflict を返す（原子的な判定）。
     """
-    since = datetime.now(timezone.utc) - timedelta(hours=24)
-    since_str = since.strftime("%Y-%m-%d %H:%M:%S")
+    if body.article_id is not None:
+        _require_article(body.article_id)
 
     with get_db_connection() as conn:
-        existing = conn.execute(
-            "SELECT id FROM misreading_reports "
-            "WHERE target_text = ? AND correct_reading = ? AND created_at >= ?",
-            (body.target_text, body.correct_reading, since_str),
-        ).fetchone()
-        if existing:
-            raise HTTPException(
-                status_code=409,
-                detail="Duplicate report: same target_text and correct_reading within 24 hours",
-            )
-
         cursor = conn.execute(
             "INSERT INTO misreading_reports "
             "(target_text, correct_reading, article_id, audio_generation_id, "
             " playback_position, notes, app_version) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "SELECT ?, ?, ?, ?, ?, ?, ? "
+            "WHERE NOT EXISTS ("
+            "  SELECT 1 FROM misreading_reports "
+            "  WHERE target_text = ? AND correct_reading = ? "
+            "  AND created_at >= datetime('now', '-24 hours')"
+            ")",
             (
                 body.target_text,
                 body.correct_reading,
@@ -82,8 +89,15 @@ def create_misreading_report(body: MisreadingReportCreate) -> dict:
                 body.playback_position,
                 body.notes,
                 body.app_version,
+                body.target_text,
+                body.correct_reading,
             ),
         )
+        if cursor.rowcount == 0:
+            raise HTTPException(
+                status_code=409,
+                detail="Duplicate report: same target_text and correct_reading within 24 hours",
+            )
         new_id = cursor.lastrowid
 
         row = conn.execute(
