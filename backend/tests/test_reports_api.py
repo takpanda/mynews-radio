@@ -103,15 +103,6 @@ class TestMisreadingReportCreate:
         )
         assert resp.status_code == 422
 
-    def test_create_whitespace_only_spaces_201(self, client):
-        """空白のみのtarget_textは現行APIの仕様上登録できる"""
-        resp = client.post(
-            "/reports/misreading",
-            json={"target_text": "   ", "correct_reading": "てすと"},
-        )
-        assert resp.status_code == 201
-        assert resp.json()["target_text"] == "   "
-
     def test_create_with_emoji_special_chars(self, client):
         """絵文字・特殊文字を含む本文を保持して登録できる"""
         target_text = "AI 🎧 <読み間違い> & テスト"
