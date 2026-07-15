@@ -233,7 +233,7 @@ class TestMisreadingReportCreate:
         resp = client.post(
             "/reports/misreading",
             headers={"Content-Type": "application/json"},
-            data=b"",
+            content=b"",
         )
         assert resp.status_code == 422
 
