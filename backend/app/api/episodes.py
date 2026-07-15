@@ -135,9 +135,12 @@ def get_latest_episode() -> dict:
     # スクリプト・メディア情報で補完
     _enrich_episode(result)
 
-    # DB に items が存在しない場合は script.json から articles を構築
+    # DB に items が存在する場合はそのまま articles に設定、なければ script.json から構築
     db_items = service.get_episode_items(episode["id"])
-    if not db_items:
+    if db_items:
+        result["articles"] = db_items
+        result["article_count"] = len(db_items)
+    else:
         result["articles"] = _load_articles_from_script(episode)
         result["article_count"] = len(result["articles"])
 

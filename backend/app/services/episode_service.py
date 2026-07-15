@@ -130,14 +130,15 @@ class EpisodeService:
         article_id: Optional[int],
         item_order: int,
         segment_text: str,
+        audio_generation_id: Optional[str] = None,
     ) -> None:
         with get_db_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO episode_items (episode_id, article_id, item_order, segment_text)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO episode_items (episode_id, article_id, item_order, segment_text, audio_generation_id)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (episode_id, article_id, item_order, segment_text),
+                (episode_id, article_id, item_order, segment_text, audio_generation_id),
             )
 
     def get_episode_list(

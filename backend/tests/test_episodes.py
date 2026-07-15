@@ -346,3 +346,82 @@ class TestEpisodeListPagination:
         episodes = svc.get_episode_list()
         ids = [ep["id"] for ep in episodes[:5]]
         assert ids == sorted(ids, reverse=True), "同日エピソードは id DESC で並ぶ必要があります"
+
+
+class TestAudioGenerationId:
+    """エピソード詳細APIのレスポンスに audio_generation_id が含まれることのテスト"""
+
+    def test_detail_episode_articles_contain_audio_generation_id(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-01")
+        svc.add_episode_item(eid, article_id=None, item_order=1, segment_text="セグメント1",
+                             audio_generation_id=f"ep{eid}-seg1")
+        svc.add_episode_item(eid, article_id=None, item_order=2, segment_text="セグメント2",
+                             audio_generation_id=f"ep{eid}-seg2")
+
+        resp = client.get(f"/episodes/{eid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "articles" in data
+        assert len(data["articles"]) == 2
+        for article in data["articles"]:
+            assert "audio_generation_id" in article
+        assert data["articles"][0]["audio_generation_id"] == f"ep{eid}-seg1"
+        assert data["articles"][1]["audio_generation_id"] == f"ep{eid}-seg2"
+
+    def test_add_episode_item_without_audio_generation_id(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-02")
+        svc.add_episode_item(eid, article_id=None, item_order=1, segment_text="セグメント")
+
+        resp = client.get(f"/episodes/{eid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["articles"]) == 1
+        assert data["articles"][0]["audio_generation_id"] is None
+
+    def test_latest_episode_contains_audio_generation_id_when_db_items_exist(self, client):
+        """GET /episodes/latest で DB に items がある場合に audio_generation_id が含まれること"""
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-03")
+        svc.add_episode_item(eid, article_id=None, item_order=1, segment_text="最新セグメント1",
+                             audio_generation_id=f"ep{eid}-seg1")
+        svc.add_episode_item(eid, article_id=None, item_order=2, segment_text="最新セグメント2",
+                             audio_generation_id=f"ep{eid}-seg2")
+
+        resp = client.get("/episodes/latest")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "articles" in data
+        assert len(data["articles"]) == 2
+        for article in data["articles"]:
+            assert "audio_generation_id" in article
+        assert data["articles"][0]["audio_generation_id"] == f"ep{eid}-seg1"
+        assert data["articles"][1]["audio_generation_id"] == f"ep{eid}-seg2"
+
+    def test_generation_style_ids_are_non_null_and_unique(self, client):
+        """生成パイプラインと同様のパターンで add_episode_item した時の ID 非NULL・一意性確認"""
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-04")
+        ids = set()
+        for i in range(1, 6):
+            gen_id = f"ep{eid}-seg{i}"
+            svc.add_episode_item(eid, article_id=None, item_order=i, segment_text=f"セグメント{i}",
+                                 audio_generation_id=gen_id)
+            ids.add(gen_id)
+
+        assert len(ids) == 5, "5件のIDがすべて一意であること"
+        assert None not in ids, "すべてのIDがNoneでないこと"
+
+        items = svc.get_episode_items(eid)
+        for item in items:
+            assert item["audio_generation_id"] is not None
+            assert item["audio_generation_id"].startswith(f"ep{eid}-seg")

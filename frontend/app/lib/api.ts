@@ -33,6 +33,7 @@ export interface EpisodeItem {
   article_id: number | null
   item_order: number
   segment_text: string
+  audio_generation_id?: string | null
 }
 
 export interface Script {
