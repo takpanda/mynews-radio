@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.db.connection import get_db_connection
 
@@ -22,6 +22,13 @@ class MisreadingReportCreate(BaseModel):
     playback_position: Optional[float] = Field(None, ge=0)
     notes: Optional[str] = Field(None, max_length=2000)
     app_version: Optional[str] = Field(None, max_length=50)
+
+    @field_validator("target_text", "correct_reading")
+    @classmethod
+    def not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be blank or whitespace only")
+        return v
 
 
 def _format_dt(dt_str: str) -> str:
