@@ -10,6 +10,7 @@ export interface PlaybackContext {
   playbackPosition: number | null
   targetSentence: string
   allowEditTarget?: boolean
+  needsGenerationId?: boolean
 }
 
 interface Props {
@@ -34,6 +35,7 @@ export default function MisreadingReportForm({ playbackContext, onClose }: Props
 
   const isFromPlayback = playbackContext !== null
   const showReadonlyTarget = isFromPlayback && !playbackContext.allowEditTarget
+  const blockedByGenerationId = isFromPlayback && !!playbackContext.needsGenerationId && !playbackContext.generationId
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -70,6 +72,7 @@ export default function MisreadingReportForm({ playbackContext, onClose }: Props
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (blockedByGenerationId) return
     if (!validate()) return
     setSubmitting(true)
     setSubmitError(null)
@@ -217,6 +220,15 @@ export default function MisreadingReportForm({ playbackContext, onClose }: Props
             </p>
           </div>
 
+          {blockedByGenerationId && (
+            <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
+              <p className="font-medium">音声データの生成が完了していません</p>
+              <p className="mt-1 text-xs text-sky-600">
+                再生中の読み間違いを報告するには、音声データの生成が完了している必要があります。しばらく待ってから再度お試しください。
+              </p>
+            </div>
+          )}
+
           {submitError && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
               <p>{submitError}</p>
@@ -235,7 +247,7 @@ export default function MisreadingReportForm({ playbackContext, onClose }: Props
             </button>
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || blockedByGenerationId}
               className="inline-flex items-center gap-1.5 rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitting && (

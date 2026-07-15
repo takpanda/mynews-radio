@@ -148,15 +148,79 @@ describe('MisreadingReportForm (再生経由)', () => {
     })
   })
 
-  it('generationIdがnullでも送信をブロックしない', async () => {
-    submitMisreadingReport.mockResolvedValueOnce(undefined)
-    const ctxWithNullGen = { ...playbackContext, generationId: null }
+  it('generationIdがnullの再生経由では送信をブロックする', async () => {
+    const ctxWithNullGen = { ...playbackContext, generationId: null, needsGenerationId: true }
     const user = userEvent.setup()
 
     render(
       <MisreadingReportForm playbackContext={ctxWithNullGen} onClose={onClose} />
     )
 
+    expect(screen.getByText('音声データの生成が完了していません')).toBeInTheDocument()
+    expect(getSubmitButton()).toBeDisabled()
+
+    await user.type(getCorrectReadingInput(), 'てすとよみ')
+    await user.click(getSubmitButton())
+
+    expect(submitMisreadingReport).not.toHaveBeenCalled()
+  })
+
+  it('再生経由でgenerationIdがnull→利用可能になったら送信できる', async () => {
+    submitMisreadingReport.mockResolvedValueOnce(undefined)
+    const { rerender } = render(
+      <MisreadingReportForm
+        playbackContext={{ ...playbackContext, generationId: null, needsGenerationId: true }}
+        onClose={onClose}
+      />
+    )
+
+    expect(getSubmitButton()).toBeDisabled()
+
+    const user = userEvent.setup()
+
+    rerender(
+      <MisreadingReportForm
+        playbackContext={{ ...playbackContext, generationId: 'gen_new_123', needsGenerationId: true }}
+        onClose={onClose}
+      />
+    )
+
+    expect(getSubmitButton()).not.toBeDisabled()
+    expect(screen.queryByText('音声データの生成が完了していません')).not.toBeInTheDocument()
+
+    await user.type(getCorrectReadingInput(), 'さいじっこうよみ')
+    await user.click(getSubmitButton())
+
+    await waitFor(() => {
+      expect(submitMisreadingReport).toHaveBeenCalledWith(
+        expect.objectContaining({ audio_generation_id: 'gen_new_123' })
+      )
+    })
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('記事詳細経由（needsGenerationIdなし）ではgenerationIdがnullでも送信できる', async () => {
+    submitMisreadingReport.mockResolvedValueOnce(undefined)
+    const ctxArticleDetail = {
+      episodeId: 1,
+      articleId: 100,
+      generationId: null,
+      playbackPosition: null,
+      targetSentence: '',
+      allowEditTarget: true,
+    }
+    const user = userEvent.setup()
+
+    render(
+      <MisreadingReportForm playbackContext={ctxArticleDetail} onClose={onClose} />
+    )
+
+    expect(screen.queryByText('音声データの生成が完了していません')).not.toBeInTheDocument()
+
+    await user.type(
+      screen.getByPlaceholderText('読み間違いがあった箇所を入力してください'),
+      '記事内の対象文'
+    )
     await user.type(getCorrectReadingInput(), 'てすとよみ')
     await user.click(getSubmitButton())
 

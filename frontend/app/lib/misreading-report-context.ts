@@ -55,6 +55,7 @@ export function buildPlaybackReportContext(
     playbackPosition: currentTime > 0 ? currentTime : null,
     targetSentence: hasTargetSentence ? currentLine!.text : '',
     allowEditTarget: !hasTargetSentence,
+    needsGenerationId: true,
   }
 }
 
