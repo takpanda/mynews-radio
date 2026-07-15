@@ -3,6 +3,7 @@ import type { Article } from '../lib/api'
 interface Props {
   articles: Article[]
   sourceUrl?: string | null
+  onReportArticle?: (article: Article) => void
 }
 
 function LinkIcon() {
@@ -23,7 +24,33 @@ function LinkIcon() {
   )
 }
 
-export default function ArticleLinks({ articles, sourceUrl }: Props) {
+function ArticleActions({ article, onReport }: { article: Article; onReport: (a: Article) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onReport(article)}
+      className="flex items-center gap-1 rounded-full px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+      title="読み間違いを報告"
+    >
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-3.5 w-3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+      </svg>
+      報告
+    </button>
+  )
+}
+
+export default function ArticleLinks({ articles, sourceUrl, onReportArticle }: Props) {
   const articlesWithUrl = articles.filter((a) => a.url)
 
   if (articlesWithUrl.length === 0 && !sourceUrl) return null
@@ -47,19 +74,28 @@ export default function ArticleLinks({ articles, sourceUrl }: Props) {
         </a>
       )}
       {articlesWithUrl.map((article) => (
-        <a
+        <div
           key={article.id}
-          href={article.url!}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-start gap-3 border-b border-slate-100 py-3.5 transition last:border-b-0 hover:bg-slate-50"
+          className="group flex items-start gap-3 border-b border-slate-100 py-3.5 transition last:border-b-0 hover:bg-slate-50"
         >
-          <LinkIcon />
-          <div className="min-w-0">
-            <p className="text-sm text-sky-700 line-clamp-2 hover:underline">{article.title}</p>
-            {article.source && <p className="mt-0.5 text-xs text-slate-400">{article.source}</p>}
-          </div>
-        </a>
+          <a
+            href={article.url!}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex min-w-0 flex-1 items-start gap-3"
+          >
+            <LinkIcon />
+            <div className="min-w-0">
+              <p className="text-sm text-sky-700 line-clamp-2 hover:underline">{article.title}</p>
+              {article.source && <p className="mt-0.5 text-xs text-slate-400">{article.source}</p>}
+            </div>
+          </a>
+          {onReportArticle && (
+            <div className="shrink-0 opacity-60 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+              <ArticleActions article={article} onReport={onReportArticle} />
+            </div>
+          )}
+        </div>
       ))}
     </div>
   )

@@ -152,6 +152,7 @@ export default async function EpisodePage({ params }: Props) {
           episode={toDetailEpisode(episode)}
           script={script}
           articles={articles}
+          episodeItems={episode.articles}
           summary={buildEpisodeSummary(episode.subtitle, articles)}
         />
       )}
