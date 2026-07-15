@@ -223,6 +223,118 @@ class TestMisreadingReportCreate:
         )
         assert resp.status_code == 201
 
+    def test_create_missing_required_fields_422(self, client):
+        """必須フィールドなし（空JSON）は 422"""
+        resp = client.post("/reports/misreading", json={})
+        assert resp.status_code == 422
+
+    def test_create_truly_empty_body_422(self, client):
+        """HTTPボディ自体が空の場合は 422"""
+        resp = client.post(
+            "/reports/misreading",
+            headers={"Content-Type": "application/json"},
+            content=b"",
+        )
+        assert resp.status_code == 422
+
+    def test_create_correct_reading_too_long_422(self, client):
+        """correct_reading が500文字を超えると 422"""
+        resp = client.post(
+            "/reports/misreading",
+            json={
+                "target_text": "テスト",
+                "correct_reading": "あ" * 501,
+            },
+        )
+        assert resp.status_code == 422
+
+    def test_create_correct_reading_max_length_201(self, client):
+        """correct_reading が500文字ちょうどで登録できる"""
+        resp = client.post(
+            "/reports/misreading",
+            json={
+                "target_text": "テスト",
+                "correct_reading": "あ" * 500,
+            },
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert len(data["correct_reading"]) == 500
+
+    def test_create_notes_too_long_422(self, client):
+        """notes が2000文字を超えると 422"""
+        resp = client.post(
+            "/reports/misreading",
+            json={
+                "target_text": "テスト",
+                "correct_reading": "てすと",
+                "notes": "x" * 2001,
+            },
+        )
+        assert resp.status_code == 422
+
+    def test_create_notes_max_length_201(self, client):
+        """notes が2000文字ちょうどで登録できる"""
+        resp = client.post(
+            "/reports/misreading",
+            json={
+                "target_text": "テスト",
+                "correct_reading": "てすと",
+                "notes": "x" * 2000,
+            },
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert len(data["notes"]) == 2000
+
+    def test_create_target_text_max_length_201(self, client):
+        """target_text が2000文字ちょうどで登録できる"""
+        resp = client.post(
+            "/reports/misreading",
+            json={
+                "target_text": "a" * 2000,
+                "correct_reading": "てすと",
+            },
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert len(data["target_text"]) == 2000
+
+    def test_create_whitespace_only_target_text_422(self, client):
+        """空白のみの target_text は 422"""
+        resp = client.post(
+            "/reports/misreading",
+            json={
+                "target_text": "   ",
+                "correct_reading": "てすと",
+            },
+        )
+        assert resp.status_code == 422
+
+    def test_create_whitespace_only_correct_reading_422(self, client):
+        """空白のみの correct_reading は 422"""
+        resp = client.post(
+            "/reports/misreading",
+            json={
+                "target_text": "テスト",
+                "correct_reading": "   ",
+            },
+        )
+        assert resp.status_code == 422
+
+    def test_create_with_emoji_special_chars(self, client):
+        """絵文字や特殊文字を含むテキストが登録できる"""
+        resp = client.post(
+            "/reports/misreading",
+            json={
+                "target_text": "テスト🔥💯 & < > ' \"",
+                "correct_reading": "てすと えもじ",
+            },
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert "🔥💯 & < > ' \"" in data["target_text"]
+
 
 class TestMisreadingReportMigration:
     """旧スキーマDB（misreading_reports 未作成）からの起動テスト"""
@@ -309,4 +421,3 @@ class TestMisreadingReportMigration:
             json={"target_text": "二回目起動", "correct_reading": "にかいめきどう"},
         )
         assert resp2.status_code == 201
-
