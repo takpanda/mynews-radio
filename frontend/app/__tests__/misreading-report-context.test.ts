@@ -1,6 +1,7 @@
 import {
   findCurrentLine,
   buildPlaybackReportContext,
+  buildScriptLineReportContext,
   buildArticleReportContext,
 } from '../lib/misreading-report-context'
 import type { Script } from '../lib/api'
@@ -111,6 +112,31 @@ describe('buildPlaybackReportContext', () => {
     const script = { lines, title: '', date: '' }
     const ctx = buildPlaybackReportContext(episode, script, items, 0)
     expect(ctx.playbackPosition).toBeNull()
+  })
+})
+
+// ============================================================
+// buildScriptLineReportContext のテスト
+// ============================================================
+
+describe('buildScriptLineReportContext', () => {
+  it('行のテキストをtargetSentenceに設定しallowEditTargetはtrue', () => {
+    const line = { speaker: 'male' as const, text: 'この行を報告', article_id: 100, section: 'news', start_time: 5 }
+    const ctx = buildScriptLineReportContext(1, line)
+    expect(ctx.episodeId).toBe(1)
+    expect(ctx.targetSentence).toBe('この行を報告')
+    expect(ctx.allowEditTarget).toBe(true)
+    expect(ctx.articleId).toBe(100)
+    expect(ctx.generationId).toBeNull()
+    expect(ctx.playbackPosition).toBeNull()
+  })
+
+  it('article_idがnullでも動作する', () => {
+    const line = { speaker: 'female' as const, text: '記事なし行', article_id: null, section: 'intro' }
+    const ctx = buildScriptLineReportContext(99, line)
+    expect(ctx.episodeId).toBe(99)
+    expect(ctx.targetSentence).toBe('記事なし行')
+    expect(ctx.articleId).toBeNull()
   })
 })
 
