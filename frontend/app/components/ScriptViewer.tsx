@@ -134,7 +134,7 @@ export default function ScriptViewer({ lines, currentTime, onSeek, onMisreadingR
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onMisreadingReport(line) }}
-                      className="flex shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 min-h-[44px] min-w-[44px]"
+                      className="flex shrink-0 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 min-h-[44px] min-w-[44px]"
                       aria-label={`この行を報告: ${line.text.slice(0, 30)}`}
                     >
                       <svg

@@ -9,6 +9,12 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = jest.fn()
 })
 
+function setMobileViewport(width = 375, height = 667) {
+  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width })
+  Object.defineProperty(window, 'innerHeight', { writable: true, configurable: true, value: height })
+  window.dispatchEvent(new Event('resize'))
+}
+
 const lines: ScriptLine[] = [
   { speaker: 'male', text: '最初の行です', article_id: null, section: 'intro', start_time: 0 },
   { speaker: 'female', text: '二番目の行です', article_id: 100, section: 'news', start_time: 10 },
@@ -69,6 +75,27 @@ describe('ScriptViewer', () => {
     it('男性行と女性行の両方でアイコンが表示される', () => {
       render(<ScriptViewer lines={lines} onMisreadingReport={jest.fn()} />)
       expect(screen.getAllByRole('button').length).toBe(3)
+    })
+  })
+
+  describe('モバイル幅表示（375px）', () => {
+    beforeEach(() => setMobileViewport(375, 667))
+
+    it('アイコンボタンがすべての行に存在する', () => {
+      render(<ScriptViewer lines={lines} onMisreadingReport={jest.fn()} />)
+      const buttons = screen.getAllByRole('button')
+      expect(buttons.length).toBe(lines.length)
+      buttons.forEach((btn) => {
+        expect(btn).toHaveAttribute('aria-label', expect.stringContaining('この行を報告'))
+        expect(btn).toBeVisible()
+      })
+    })
+
+    it('台本のテキストが表示されている', () => {
+      render(<ScriptViewer lines={lines} onMisreadingReport={jest.fn()} />)
+      expect(screen.getByText('最初の行です')).toBeInTheDocument()
+      expect(screen.getByText('二番目の行です')).toBeInTheDocument()
+      expect(screen.getByText('三番目の行です')).toBeInTheDocument()
     })
   })
 
