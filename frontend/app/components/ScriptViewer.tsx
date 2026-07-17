@@ -104,7 +104,7 @@ export default function ScriptViewer({ lines, currentTime, onSeek, onMisreadingR
                 <div
                   key={globalIndex}
                   ref={(el) => { lineRefs.current[globalIndex] = el }}
-                  className={`flex items-start group ${speakerMeta.align === 'justify-end' ? 'flex-row-reverse' : ''}`}
+                  className={`flex items-start gap-1.5 group ${speakerMeta.align === 'justify-end' ? 'flex-row-reverse' : ''}`}
                 >
                   <div
                     className={`max-w-none rounded-2xl px-4 py-3 transition sm:max-w-[80%] ${
@@ -134,22 +134,22 @@ export default function ScriptViewer({ lines, currentTime, onSeek, onMisreadingR
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onMisreadingReport(line) }}
-                      className="shrink-0 rounded-full p-1.5 text-slate-300 transition hover:bg-slate-100 hover:text-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+                      className="flex shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 min-h-[44px] min-w-[44px]"
                       aria-label={`この行を報告: ${line.text.slice(0, 30)}`}
                     >
                       <svg
                         aria-hidden="true"
                         viewBox="0 0 24 24"
-                        className="h-4 w-4"
+                        className="h-5 w-5"
                         fill="none"
                         stroke="currentColor"
                         strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                       >
-                        <path d="M12 2a10 10 0 1 0 10 10h-1a9 9 0 1 1-9-9" />
-                        <line x1="12" y1="8" x2="12" y2="12" />
-                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                        <line x1="12" y1="9" x2="12" y2="13" />
+                        <line x1="12" y1="17" x2="12.01" y2="17" />
                       </svg>
                     </button>
                   )}

@@ -138,6 +138,12 @@ describe('buildScriptLineReportContext', () => {
     expect(ctx.targetSentence).toBe('記事なし行')
     expect(ctx.articleId).toBeNull()
   })
+
+  it('needsGenerationIdは未設定（再生経路と異なり音声生成IDを要求しない）', () => {
+    const line = { speaker: 'male' as const, text: '台本行', article_id: null, section: 'news' }
+    const ctx = buildScriptLineReportContext(1, line)
+    expect(ctx.needsGenerationId).toBeUndefined()
+  })
 })
 
 // ============================================================

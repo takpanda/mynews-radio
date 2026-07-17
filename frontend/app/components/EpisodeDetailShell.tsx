@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState, useMemo, useCallback } from 'react'
-import type { Script, Article, EpisodeItem } from '../lib/api'
+import type { Script, ScriptLine, Article, EpisodeItem } from '../lib/api'
 import { buildChapters } from '../lib/chapters'
 import {
   buildPlaybackReportContext,
@@ -9,7 +9,6 @@ import {
   buildArticleReportContext,
   type PlaybackContext,
 } from '../lib/misreading-report-context'
-import type { ScriptLine } from '../lib/api'
 import EpisodeAudioPlayer, { type PlayerHandle } from './EpisodeAudioPlayer'
 import ScriptViewer from './ScriptViewer'
 import ArticleLinks from './ArticleLinks'
