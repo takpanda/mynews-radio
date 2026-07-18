@@ -250,37 +250,38 @@ def _range_response(file_path: str, media_type: str, range_header: Optional[str]
     file_size = os.path.getsize(file_path)
 
     if range_header:
-        m = re.match(r"bytes=(\d*)-(\d*)", range_header)
-        if m:
-            start = int(m.group(1)) if m.group(1) else 0
-            end = int(m.group(2)) if m.group(2) else file_size - 1
-            end = min(end, file_size - 1)
-            if start > end:
-                raise HTTPException(status_code=416, detail="Range Not Satisfiable")
-            content_length = end - start + 1
+        m = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header)
+        if not m:
+            raise HTTPException(status_code=416, detail="Range Not Satisfiable")
+        start = int(m.group(1)) if m.group(1) else 0
+        end = int(m.group(2)) if m.group(2) else file_size - 1
+        end = min(end, file_size - 1)
+        if start > end:
+            raise HTTPException(status_code=416, detail="Range Not Satisfiable")
+        content_length = end - start + 1
 
-            def _iter_range():
-                with open(file_path, "rb") as f:
-                    f.seek(start)
-                    remaining = content_length
-                    while remaining > 0:
-                        chunk = f.read(min(65536, remaining))
-                        if not chunk:
-                            break
-                        remaining -= len(chunk)
-                        yield chunk
+        def _iter_range():
+            with open(file_path, "rb") as f:
+                f.seek(start)
+                remaining = content_length
+                while remaining > 0:
+                    chunk = f.read(min(65536, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
 
-            return StreamingResponse(
-                _iter_range(),
-                status_code=206,
-                media_type=media_type,
-                headers={
-                    "Content-Range": f"bytes {start}-{end}/{file_size}",
-                    "Accept-Ranges": "bytes",
-                    "Content-Length": str(content_length),
-                    "Cache-Control": "no-cache",
-                },
-            )
+        return StreamingResponse(
+            _iter_range(),
+            status_code=206,
+            media_type=media_type,
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(content_length),
+                "Cache-Control": "public, max-age=31536000, immutable",
+            },
+        )
 
     # Range なし: ファイル全体を返しつつ Accept-Ranges を宣言
     def _iter_full():
@@ -297,9 +298,11 @@ def _range_response(file_path: str, media_type: str, range_header: Optional[str]
         headers={
             "Accept-Ranges": "bytes",
             "Content-Length": str(file_size),
-            "Cache-Control": "no-cache",
+            "Cache-Control": "public, max-age=31536000, immutable",
         },
     )
+
+
 
 
 @app.get("/audio/{episode_path:path}")
