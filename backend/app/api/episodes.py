@@ -140,13 +140,14 @@ def list_episodes(
 def search_episodes_by_source_url(
     source_url: str = Query(..., description="検索するソースURL"),
 ) -> list[dict]:
-    if not source_url or not source_url.strip():
+    stripped = source_url.strip()
+    if not stripped:
         raise HTTPException(status_code=400, detail="source_url is required")
-    parsed = urllib.parse.urlparse(source_url.strip())
+    parsed = urllib.parse.urlparse(stripped)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise HTTPException(status_code=400, detail="Invalid URL format")
     service = EpisodeService()
-    episodes = service.get_episodes_by_source_url(source_url.strip())
+    episodes = service.get_episodes_by_source_url(source_url)
     output = []
     for ep in episodes:
         entry = {

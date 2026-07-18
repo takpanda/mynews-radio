@@ -786,6 +786,13 @@ class TestSearchEpisodesBySourceUrl:
         )
         assert resp.status_code == 400
 
+    def test_whitespace_only_returns_400(self, client):
+        resp = client.get(
+            "/episodes/search/by-source-url",
+            params={"source_url": "   "},
+        )
+        assert resp.status_code == 400
+
     def test_invalid_url_format_returns_400(self, client):
         resp = client.get(
             "/episodes/search/by-source-url",
