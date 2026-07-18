@@ -1,3 +1,14 @@
+export interface DuplicateEpisodeInfo {
+  id: number
+  status: string
+  type: string
+  source_url: string
+  episode_date: string
+  created_at: string
+  title: string
+  has_script: boolean
+}
+
 export interface EpisodeListItem {
   id: number
   title: string
@@ -187,6 +198,14 @@ export async function fetchEpisodeStatus(id: number): Promise<Episode> {
   const res = await fetch(`${getApiBase()}/episodes/${id}`, { cache: 'no-store' })
   if (!res.ok) throw new Error(`Failed to fetch episode status: ${res.status}`)
   return res.json() as Promise<Episode>
+}
+
+export async function searchEpisodesBySourceUrl(sourceUrl: string): Promise<DuplicateEpisodeInfo[]> {
+  const res = await fetch(`/api/episodes/search/by-source-url?source_url=${encodeURIComponent(sourceUrl)}`, {
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error('重複の確認に失敗しました')
+  return res.json() as Promise<DuplicateEpisodeInfo[]>
 }
 
 export async function synthesizeEpisodeStream(episodeId: number, ttsEngine = 'aivispeech'): Promise<Response> {

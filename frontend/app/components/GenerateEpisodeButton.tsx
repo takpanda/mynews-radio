@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'react-hot-toast'
-import { generateEpisode, fetchEpisode, type EpisodeListItem } from '../lib/api'
+import { generateEpisode, fetchEpisode, searchEpisodesBySourceUrl, type EpisodeListItem, type DuplicateEpisodeInfo } from '../lib/api'
+import DuplicateUrlConfirmDialog from './DuplicateUrlConfirmDialog'
 
 type PhaseCode =
   | 'start'
@@ -287,6 +288,16 @@ function RadioDot({ checked }: { checked: boolean }) {
   )
 }
 
+interface GenerationParams {
+  url: string
+  newsSource: 'hatena_bookmark' | 'hatena_hotentry_all' | 'yahoo_news'
+  commentaryStyle: 'solo' | 'dialogue'
+  mcGender: 'male' | 'female'
+  ttsEngine: 'voicevox' | 'aivispeech'
+  maxArticles: number
+  recreateSummary: boolean
+}
+
 const STORAGE_KEY = 'generating_episode_id'
 
 interface Props {
@@ -308,6 +319,12 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   const [commentaryStyle, setCommentaryStyle] = useState<'solo' | 'dialogue'>('solo')
   const [mcGender, setMcGender] = useState<'male' | 'female'>('male')
   const [urlError, setUrlError] = useState<string | null>(null)
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false)
+  const [duplicateDialog, setDuplicateDialog] = useState<{
+    type: 'duplicate-found' | 'search-error'
+    episodes: DuplicateEpisodeInfo[]
+    snapshot: GenerationParams
+  } | null>(null)
   const router = useRouter()
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isLoadingRef = useRef(false)
@@ -407,7 +424,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
           if (shouldScrollToProgress.current) {
             setTimeout(() => {
               const progressSection = document.getElementById('progress-section')
-              if (progressSection) {
+              if (progressSection && typeof progressSection.scrollIntoView === 'function') {
                 progressSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
               }
             }, 200)
@@ -482,7 +499,15 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
     }
   }).current
 
-  const runGeneration = async () => {
+  const runGeneration = async (params?: GenerationParams) => {
+    const url = params ? params.url : (isUrlMode ? urlInput.trim() : undefined)
+    const source = params ? params.newsSource : newsSource
+    const style = params ? params.commentaryStyle : commentaryStyle
+    const gender = params ? params.mcGender : mcGender
+    const engine = params ? params.ttsEngine : ttsEngine
+    const articles = params ? params.maxArticles : maxArticles
+    const recreate = params ? params.recreateSummary : recreateSummary
+
     setIsLoading(true)
     setProgress([{ phase: 'start', message: '番組の生成を準備しています…', updatedAt: Date.now() }])
     setMessage(null)
@@ -493,7 +518,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
     shouldScrollToProgress.current = true
     setTimeout(() => {
       const progressSection = document.getElementById('progress-section')
-      if (progressSection) {
+      if (progressSection && typeof progressSection.scrollIntoView === 'function') {
         progressSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }
     }, 200)
@@ -501,7 +526,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
 
     try {
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
-      const { episode_id } = await generateEpisode(today, maxArticles, newsSource, ttsEngine, recreateSummary, isUrlMode ? urlInput.trim() : undefined, isUrlMode ? commentaryStyle : undefined, isUrlMode && commentaryStyle === 'solo' ? mcGender : undefined)
+      const { episode_id } = await generateEpisode(today, articles, source, engine, recreate, url, url ? style : undefined, url && style === 'solo' ? gender : undefined)
       localStorage.setItem(STORAGE_KEY, String(episode_id))
       setEpisodeId(episode_id)
       toast('番組の生成を開始しました', { icon: '🎙️' })
@@ -515,6 +540,32 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
     }
   }
 
+  const checkDuplicateAndRun = async () => {
+    const snapshot: GenerationParams = {
+      url: urlInput.trim(),
+      newsSource,
+      commentaryStyle,
+      mcGender,
+      ttsEngine,
+      maxArticles,
+      recreateSummary,
+    }
+    setIsCheckingDuplicate(true)
+    setDuplicateDialog(null)
+    try {
+      const episodes = await searchEpisodesBySourceUrl(snapshot.url)
+      if (episodes.length > 0) {
+        setDuplicateDialog({ type: 'duplicate-found', episodes, snapshot })
+      } else {
+        await runGeneration(snapshot)
+      }
+    } catch {
+      setDuplicateDialog({ type: 'search-error', episodes: [], snapshot })
+    } finally {
+      setIsCheckingDuplicate(false)
+    }
+  }
+
   const handleClick = async () => {
     if (!isLoading && episodes?.some((ep) => ep.status === 'generating')) {
       setMessage('先に生成中のタスクがあります')
@@ -524,7 +575,11 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
       setUrlError('「http(s)://...」の形式で有効なURLを入力してください')
       return
     }
-    await runGeneration()
+    if (isUrlMode) {
+      await checkDuplicateAndRun()
+    } else {
+      await runGeneration()
+    }
   }
 
   const retryGeneration = async () => {
@@ -840,11 +895,11 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
             <button
               type="button"
               onClick={handleClick}
-              disabled={isLoading}
+              disabled={isLoading || isCheckingDuplicate}
               className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isLoading && <span className="h-2 w-2 animate-pulse rounded-full bg-white/90" />}
-              {isLoading ? '生成を進めています…' : isUrlMode ? 'このURLで解説を生成する' : 'この設定で番組を生成する'}
+              {(isLoading || isCheckingDuplicate) && <span className="h-2 w-2 animate-pulse rounded-full bg-white/90" />}
+              {isLoading ? '生成を進めています…' : isCheckingDuplicate ? '確認中…' : isUrlMode ? 'このURLで解説を生成する' : 'この設定で番組を生成する'}
             </button>
             <p className="mt-2 text-center text-xs leading-5 text-slate-400">
               {isUrlMode
@@ -980,6 +1035,19 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
             </button>
           )}
         </div>
+      )}
+      {duplicateDialog && (
+        <DuplicateUrlConfirmDialog
+          type={duplicateDialog.type}
+          episodes={duplicateDialog.episodes}
+          sourceUrl={duplicateDialog.snapshot.url}
+          onCancel={() => { setDuplicateDialog(null) }}
+          onContinue={() => {
+            const snap = duplicateDialog.snapshot
+            setDuplicateDialog(null)
+            runGeneration(snap)
+          }}
+        />
       )}
     </section>
   )
