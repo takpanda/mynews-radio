@@ -84,7 +84,7 @@ class TestEpisodeApiTypeSourceUrl:
 
         svc = EpisodeService()
         svc.create_episode(episode_date="2099-12-30", type="radio")
-        svc.create_episode(episode_date="2099-12-31", type="commentary", source_url="https://example.com/latest")
+        svc.create_episode(episode_date="2099-12-31", type="commentary", source_url="https://example.com/latest", audio_path="latest.mp3")
 
         resp = client.get("/episodes/latest")
         assert resp.status_code == 200
@@ -389,7 +389,7 @@ class TestAudioGenerationId:
         from app.services.episode_service import EpisodeService
 
         svc = EpisodeService()
-        eid = svc.create_episode(episode_date="2099-12-03")
+        eid = svc.create_episode(episode_date="2099-12-03", audio_path="test.mp3")
         svc.add_episode_item(eid, article_id=None, item_order=1, segment_text="最新セグメント1",
                              audio_generation_id=f"ep{eid}-seg1")
         svc.add_episode_item(eid, article_id=None, item_order=2, segment_text="最新セグメント2",
@@ -583,3 +583,64 @@ class TestPublicArchiveFiltering:
         data = resp.json()
         assert isinstance(data, list)
         assert len(data) == 0
+
+    def test_excludes_episode_with_null_title_in_script(self, client):
+        """script.json の title が null の場合も除外される（AttributeError にならない）"""
+        import json as _json
+        import os as _os
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-01")
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        d = _os.path.join(ep_dir, str(eid))
+        _os.makedirs(d, exist_ok=True)
+        with open(_os.path.join(d, "script.json"), "w", encoding="utf-8") as f:
+            _json.dump({"title": None, "subtitle": "", "lines": []}, f)
+
+        resp = client.get("/episodes")
+        assert resp.status_code == 200
+        ids = [ep["id"] for ep in resp.json()]
+        assert eid not in ids
+
+    def test_does_not_crash_on_null_title_in_list(self, client):
+        """title が null の script.json でも GET /episodes が500にならない"""
+        import json as _json
+        import os as _os
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-01", audio_path="test.mp3")
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        d = _os.path.join(ep_dir, str(eid))
+        _os.makedirs(d, exist_ok=True)
+        with open(_os.path.join(d, "script.json"), "w", encoding="utf-8") as f:
+            _json.dump({"title": None, "subtitle": "", "lines": []}, f)
+
+        resp = client.get("/episodes")
+        assert resp.status_code == 200
+        ids = [ep["id"] for ep in resp.json()]
+        assert eid in ids
+
+    def test_latest_skips_failed_episodes(self, client):
+        """最新が失敗エピソードの場合、次点の公開可能エピソードが返る"""
+        import os as _os
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+
+        eid_audio = svc.create_episode(episode_date="2099-12-01", audio_path="latest.mp3")
+        eid_failed = svc.create_episode(episode_date="2099-12-02")
+
+        resp = client.get("/episodes/latest")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["id"] == eid_audio
+
+    def test_latest_returns_404_when_all_are_failed(self, client):
+        """全エピソードが失敗の場合、/episodes/latest は404を返す"""
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        for i in range(3):
+            svc.create_episode(episode_date=f"2099-12-{i + 1:02d}")
+
+        resp = client.get("/episodes/latest")
+        assert resp.status_code == 404
