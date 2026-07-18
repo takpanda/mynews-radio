@@ -2,6 +2,7 @@
 
 import json
 import os
+import urllib.parse
 from typing import Optional, Union
 
 from fastapi import APIRouter, HTTPException, Query
@@ -132,6 +133,35 @@ def list_episodes(
     if not include_failed and offset > 0:
         output = output[offset:]
 
+    return output
+
+
+@router.get("/episodes/search/by-source-url", summary="source_url で解説エピソードを検索")
+def search_episodes_by_source_url(
+    source_url: str = Query(..., description="検索するソースURL"),
+) -> list[dict]:
+    stripped = source_url.strip()
+    if not stripped:
+        raise HTTPException(status_code=400, detail="source_url is required")
+    parsed = urllib.parse.urlparse(stripped)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="Invalid URL format")
+    service = EpisodeService()
+    episodes = service.get_episodes_by_source_url(source_url)
+    output = []
+    for ep in episodes:
+        entry = {
+            "id": ep["id"],
+            "status": ep["status"],
+            "type": ep["type"],
+            "source_url": ep["source_url"],
+            "episode_date": ep["episode_date"],
+            "created_at": ep["created_at"],
+            "title": None,
+            "has_script": False,
+        }
+        _enrich_episode(entry)
+        output.append(entry)
     return output
 
 

@@ -644,3 +644,229 @@ class TestPublicArchiveFiltering:
 
         resp = client.get("/episodes/latest")
         assert resp.status_code == 404
+
+
+class TestSearchEpisodesBySourceUrl:
+    """GET /episodes/search/by-source-url のテスト"""
+
+    def test_returns_matching_episodes(self, client):
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        svc.create_episode(episode_date="2099-12-01", type="radio")
+        eid = svc.create_episode(
+            episode_date="2099-12-02",
+            type="commentary",
+            source_url="https://example.com/article",
+        )
+        svc.create_episode(
+            episode_date="2099-12-03",
+            type="commentary",
+            source_url="https://example.com/other",
+        )
+        resp = client.get(
+            "/episodes/search/by-source-url",
+            params={"source_url": "https://example.com/article"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["id"] == eid
+        assert data[0]["status"] == "pending"
+        assert data[0]["type"] == "commentary"
+        assert data[0]["source_url"] == "https://example.com/article"
+        assert "created_at" in data[0]
+        assert "title" in data[0]
+        assert "has_script" in data[0]
+
+    def test_returns_empty_when_no_match(self, client):
+        resp = client.get(
+            "/episodes/search/by-source-url",
+            params={"source_url": "https://example.com/nonexistent"},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_returns_multiple_matches(self, client):
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        e1 = svc.create_episode(
+            episode_date="2099-12-01",
+            type="commentary",
+            source_url="https://example.com/article",
+            status="completed",
+        )
+        e2 = svc.create_episode(
+            episode_date="2099-12-02",
+            type="commentary",
+            source_url="https://example.com/article",
+            status="failed",
+        )
+        resp = client.get(
+            "/episodes/search/by-source-url",
+            params={"source_url": "https://example.com/article"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 2
+        returned_ids = {ep["id"] for ep in data}
+        assert e1 in returned_ids
+        assert e2 in returned_ids
+
+    def test_returns_all_statuses(self, client):
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        svc.create_episode(
+            episode_date="2099-12-01",
+            type="commentary",
+            source_url="https://example.com/article",
+            status="pending",
+        )
+        svc.create_episode(
+            episode_date="2099-12-02",
+            type="commentary",
+            source_url="https://example.com/article",
+            status="generating",
+        )
+        svc.create_episode(
+            episode_date="2099-12-03",
+            type="commentary",
+            source_url="https://example.com/article",
+            status="completed",
+        )
+        svc.create_episode(
+            episode_date="2099-12-04",
+            type="commentary",
+            source_url="https://example.com/article",
+            status="failed",
+        )
+        resp = client.get(
+            "/episodes/search/by-source-url",
+            params={"source_url": "https://example.com/article"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 4
+        returned_statuses = {ep["status"] for ep in data}
+        assert returned_statuses == {"pending", "generating", "completed", "failed"}
+
+    def test_excludes_radio_episodes(self, client):
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        svc.create_episode(
+            episode_date="2099-12-01",
+            type="radio",
+            source_url="https://example.com/article",
+        )
+        resp = client.get(
+            "/episodes/search/by-source-url",
+            params={"source_url": "https://example.com/article"},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_excludes_different_source_url(self, client):
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        svc.create_episode(
+            episode_date="2099-12-01",
+            type="commentary",
+            source_url="https://example.com/a",
+        )
+        resp = client.get(
+            "/episodes/search/by-source-url",
+            params={"source_url": "https://example.com/b"},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_empty_string_returns_400(self, client):
+        resp = client.get(
+            "/episodes/search/by-source-url",
+            params={"source_url": ""},
+        )
+        assert resp.status_code == 400
+
+    def test_whitespace_only_returns_400(self, client):
+        resp = client.get(
+            "/episodes/search/by-source-url",
+            params={"source_url": "   "},
+        )
+        assert resp.status_code == 400
+
+    def test_invalid_url_format_returns_400(self, client):
+        resp = client.get(
+            "/episodes/search/by-source-url",
+            params={"source_url": "not-a-url"},
+        )
+        assert resp.status_code == 400
+
+    def test_missing_param_returns_422(self, client):
+        resp = client.get("/episodes/search/by-source-url")
+        assert resp.status_code == 422
+
+    def test_invalid_url_scheme_only_https(self, client):
+        resp = client.get(
+            "/episodes/search/by-source-url",
+            params={"source_url": "https://"},
+        )
+        assert resp.status_code == 400
+
+    def test_invalid_url_scheme_only_http(self, client):
+        resp = client.get(
+            "/episodes/search/by-source-url",
+            params={"source_url": "http://"},
+        )
+        assert resp.status_code == 400
+
+    def test_invalid_url_no_scheme(self, client):
+        resp = client.get(
+            "/episodes/search/by-source-url",
+            params={"source_url": "example.com"},
+        )
+        assert resp.status_code == 400
+
+    def test_response_includes_title(self, client):
+        import json as _json
+        import os as _os
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        eid = svc.create_episode(
+            episode_date="2099-12-01",
+            type="commentary",
+            source_url="https://example.com/article",
+            status="completed",
+        )
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        d = _os.path.join(ep_dir, str(eid))
+        _os.makedirs(d, exist_ok=True)
+        with open(_os.path.join(d, "script.json"), "w", encoding="utf-8") as f:
+            _json.dump({"title": "テスト解説", "subtitle": "", "lines": []}, f)
+
+        resp = client.get(
+            "/episodes/search/by-source-url",
+            params={"source_url": "https://example.com/article"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["title"] == "テスト解説"
+        assert data[0]["has_script"] is True
+
+    def test_response_title_null_when_no_script(self, client):
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        svc.create_episode(
+            episode_date="2099-12-01",
+            type="commentary",
+            source_url="https://example.com/article",
+            status="pending",
+        )
+        resp = client.get(
+            "/episodes/search/by-source-url",
+            params={"source_url": "https://example.com/article"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["title"] is None
+        assert data[0]["has_script"] is False

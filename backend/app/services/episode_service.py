@@ -209,6 +209,14 @@ class EpisodeService:
             ).fetchall()
             return [dict(row) for row in rows]
 
+    def get_episodes_by_source_url(self, source_url: str) -> list[dict[str, Any]]:
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                "SELECT id, episode_date, status, type, source_url, audio_path, created_at FROM episodes WHERE source_url = ? AND type = 'commentary'",
+                (source_url,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     def get_episode_audio_path(self, episode_id: int) -> Optional[str]:
         with get_db_connection() as conn:
             row = conn.execute(
