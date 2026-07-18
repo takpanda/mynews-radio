@@ -1,10 +1,11 @@
 'use client'
 
 import { useRef, useState, useMemo, useCallback } from 'react'
-import type { Script, Article, EpisodeItem } from '../lib/api'
+import type { Script, ScriptLine, Article, EpisodeItem } from '../lib/api'
 import { buildChapters } from '../lib/chapters'
 import {
   buildPlaybackReportContext,
+  buildScriptLineReportContext,
   buildArticleReportContext,
   type PlaybackContext,
 } from '../lib/misreading-report-context'
@@ -55,6 +56,11 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
     setReportContext(buildPlaybackReportContext(episode, script, episodeItems, currentTime))
     setReportOpen(true)
   }, [script, episodeItems, currentTime, episode.id, episode.audioUrl, episode.generationPhase])
+
+  const openScriptLineReport = useCallback((line: ScriptLine) => {
+    setReportContext(buildScriptLineReportContext(episode.id, line))
+    setReportOpen(true)
+  }, [episode.id])
 
   const openArticleReport = useCallback((article: Article) => {
     setReportContext(buildArticleReportContext(episode.id, article.id, episodeItems))
@@ -178,6 +184,7 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
             lines={script!.lines}
             currentTime={currentTime}
             onSeek={episode.audioUrl ? (time) => playerRef.current?.seekTo(time) : undefined}
+            onMisreadingReport={openScriptLineReport}
           />
         </section>
       )}

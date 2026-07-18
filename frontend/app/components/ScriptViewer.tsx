@@ -8,6 +8,7 @@ interface Props {
   lines: ScriptLine[]
   currentTime?: number
   onSeek?: (time: number) => void
+  onMisreadingReport?: (line: ScriptLine) => void
 }
 
 interface SectionGroup {
@@ -63,7 +64,7 @@ function findActiveIndex(lines: ScriptLine[], currentTime: number): number {
   return active
 }
 
-export default function ScriptViewer({ lines, currentTime, onSeek }: Props) {
+export default function ScriptViewer({ lines, currentTime, onSeek, onMisreadingReport }: Props) {
   const lineRefs = useRef<(HTMLDivElement | null)[]>([])
 
   const activeIndex =
@@ -103,8 +104,7 @@ export default function ScriptViewer({ lines, currentTime, onSeek }: Props) {
                 <div
                   key={globalIndex}
                   ref={(el) => { lineRefs.current[globalIndex] = el }}
-                  className={`flex ${speakerMeta.align}`}
-                  onClick={() => canSeek && onSeek!(line.start_time!)}
+                  className={`flex items-start gap-1.5 group ${speakerMeta.align === 'justify-end' ? 'flex-row-reverse' : ''}`}
                 >
                   <div
                     className={`max-w-none rounded-2xl px-4 py-3 transition sm:max-w-[80%] ${
@@ -112,6 +112,7 @@ export default function ScriptViewer({ lines, currentTime, onSeek }: Props) {
                     } ${canSeek ? 'cursor-pointer hover:brightness-[0.98]' : ''} ${
                       isActive ? speakerMeta.activeBubble : ''
                     }`}
+                    onClick={() => canSeek && onSeek!(line.start_time!)}
                   >
                     <div className="mb-1 flex items-center justify-between gap-3 text-[11px]">
                       <span className={`font-medium ${speakerMeta.badge}`}>
@@ -129,6 +130,29 @@ export default function ScriptViewer({ lines, currentTime, onSeek }: Props) {
                     </div>
                     <p className="text-sm leading-7">{line.text}</p>
                   </div>
+                  {onMisreadingReport && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onMisreadingReport(line) }}
+                      className="flex shrink-0 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 min-h-[44px] min-w-[44px]"
+                      aria-label={`この行を報告: ${line.text.slice(0, 30)}`}
+                    >
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        className="h-5 w-5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                        <line x1="12" y1="9" x2="12" y2="13" />
+                        <line x1="12" y1="17" x2="12.01" y2="17" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               )
             })}

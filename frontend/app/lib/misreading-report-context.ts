@@ -59,6 +59,20 @@ export function buildPlaybackReportContext(
   }
 }
 
+export function buildScriptLineReportContext(
+  episodeId: number,
+  line: Script['lines'][number],
+): PlaybackContext {
+  return {
+    episodeId,
+    articleId: line.article_id,
+    generationId: null,
+    playbackPosition: null,
+    targetSentence: line.text,
+    allowEditTarget: true,
+  }
+}
+
 export function buildArticleReportContext(
   episodeId: number,
   articleId: number,
