@@ -7,7 +7,7 @@ services:
       - .env
     environment:
       - TZ=Asia/Tokyo
-      - CRON_SCHEDULE=${CRON_SCHEDULE:-0 6 * * *}
+      - CRON_SCHEDULE=${CRON_SCHEDULE:-30 16 * * *}
     volumes:
       - ./backend:/app
       - ./data:/app/data
