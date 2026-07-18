@@ -250,7 +250,7 @@ def _range_response(file_path: str, media_type: str, range_header: Optional[str]
     file_size = os.path.getsize(file_path)
 
     if range_header:
-        m = re.match(r"bytes=(\d*)-(\d*)", range_header)
+        m = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header)
         if not m:
             raise HTTPException(status_code=416, detail="Range Not Satisfiable")
         start = int(m.group(1)) if m.group(1) else 0

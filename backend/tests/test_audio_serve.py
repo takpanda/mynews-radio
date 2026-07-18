@@ -185,6 +185,20 @@ class TestAudioServeCacheControl:
         )
         assert resp.status_code == 416
 
+    def test_invalid_range_trailing_junk_returns_416(self, client, tmp_path):
+        """不正Range (bytes=0-99junk) で416が返ること"""
+        ep_dir = tmp_path / "episodes"
+        ep_sub = ep_dir / "invalid-range-junk"
+        ep_sub.mkdir(parents=True)
+        audio_file = ep_sub / "episode.mp3"
+        audio_file.write_text("x" * 1000)
+
+        resp = client.get(
+            "/audio/invalid-range-junk/episode.mp3",
+            headers={"Range": "bytes=0-99junk"},
+        )
+        assert resp.status_code == 416
+
     def test_404_no_cache_control(self, client, tmp_path):
         """存在しないファイルで404が返り、Cache-Controlヘッダが付与されないこと"""
         (tmp_path / "episodes").mkdir(parents=True, exist_ok=True)
