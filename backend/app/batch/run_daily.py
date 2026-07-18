@@ -24,7 +24,7 @@ from app.batch.generate_script import generate_script        # noqa: E402
 from app.batch.review_script import review_script            # noqa: E402
 from app.batch.synthesize_voicevox import synthesize_episode as synthesize_voicevox  # noqa: E402
 from app.batch.build_episode import build_episode           # noqa: E402
-from app.batch.health_check import run_health_checks         # noqa: E402
+from app.batch.import_articles import import_articles_by_source         # noqa: E402
 from app.logging_config import setup_daily_logging           # noqa: E402
 from app.config import get_settings                          # noqa: E402
 from app.services.episode_service import EpisodeService, override_script_title, build_radio_title      # noqa: E402
@@ -39,17 +39,15 @@ def main() -> None:
 
     settings = get_settings()
 
-    # Pre-flight health checks for Ollama and the default TTS engine
-    health_results = run_health_checks(
-        ollama_url=settings.ollama_base_url,
-        ollama_model=settings.ollama_model,
-        tts_url=settings.aivispeech_base_url if settings.default_tts_engine == "aivispeech" else settings.voicevox_base_url,
-        tts_engine=settings.default_tts_engine,
-    )
-
-    if not all(r.status == "ok" for r in health_results):
-        failed = [r.service for r in health_results if r.status != "ok"]
-        logger.error("Service(s) unhealthy: %s — continuing but risks failure", ", ".join(failed))
+    # Import articles first (same as web UI flow)
+    news_source = os.environ.get("BATCH_NEWS_SOURCE", "hatena_bookmark")
+    try:
+        ins, dup = import_articles_by_source(news_source)
+        logger.info("RSS import done: inserted=%d duplicated=%d", ins, dup)
+    except Exception as exc:
+        logger.error("RSS import failed: %s", exc, exc_info=True)
+        _write_manifest(status=f"error_import: {exc}")
+        sys.exit(1)
 
     # date for today's episode record
     if os.environ.get("BATCH_DATE"):
