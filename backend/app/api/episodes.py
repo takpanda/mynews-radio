@@ -54,18 +54,36 @@ def _build_audio_url(episode: dict) -> Optional[str]:
     return f"/audio/{dir_name}/{audio_path}"
 
 
+def _is_failed_episode(entry: dict) -> bool:
+    """音声がなくタイトルも空のエピソードを失敗痕跡と判定する。"""
+    has_audio = bool(entry.get("audio_path"))
+    has_title = bool(entry.get("title", "").strip())
+    return not has_audio and not has_title
+
+
 @router.get("/episodes", summary="エピソード一覧を取得")
 def list_episodes(
     limit: Optional[int] = Query(None, ge=1, description="取得件数"),
     offset: int = Query(0, ge=0, description="取得開始位置"),
+    include_failed: bool = Query(
+        False,
+        description="管理画面用: 失敗エピソードを含めて全件取得",
+    ),
 ) -> Union[list[dict], dict]:
     """登録されているエピソードの一覧を返す。
 
-    limit を指定しない場合は全件返却（従来動作）。
+    limit を指定しない場合は全件返却。
     limit を指定した場合はページネーション情報を含む辞書を返す。
+
+    include_failed=True で管理画面向けの全件取得（従来動作）。
+    デフォルトでは音声がなくタイトルも空の失敗エピソードを除外する。
     """
     service = EpisodeService()
-    items = service.get_episode_list(limit=limit, offset=offset)
+    if include_failed:
+        items = service.get_episode_list(limit=limit, offset=offset)
+    else:
+        items = service.get_episode_list(limit=None, offset=0)
+
     output: list[dict] = []
     for ep in items:
         output.append(
@@ -90,17 +108,29 @@ def list_episodes(
             entry["audio_url"] = audio
         _enrich_episode(entry)
 
+    # 公開アーカイブ: 音声がなくタイトルもないエピソードを除外
+    if not include_failed:
+        output = [e for e in output if not _is_failed_episode(e)]
+
     for entry in output:
         entry.pop("audio_path", None)
         entry.setdefault("has_script", False)
 
     if limit is not None:
-        total = service.count_episodes()
+        if include_failed:
+            total = service.count_episodes()
+        else:
+            total = len(output)
+            output = output[offset:offset + limit]
+
         return {
             "items": output,
             "total": total,
             "has_next": (offset + limit) < total,
         }
+
+    if not include_failed and offset > 0:
+        output = output[offset:]
 
     return output
 
