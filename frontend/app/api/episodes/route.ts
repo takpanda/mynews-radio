@@ -6,11 +6,16 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const limit = searchParams.get("limit")
   const offset = searchParams.get("offset")
+  const include_failed = searchParams.get("include_failed")
+
+  const params = new URLSearchParams()
+  if (limit !== null) params.set("limit", limit)
+  if (offset !== null) params.set("offset", offset)
+  if (include_failed !== null) params.set("include_failed", include_failed)
 
   let url = `${API_BASE}/episodes`
-  if (limit !== null && offset !== null) {
-    url += `?limit=${limit}&offset=${offset}`
-  }
+  const qs = params.toString()
+  if (qs) url += `?${qs}`
 
   try {
     const upstream = await fetch(url, { cache: "no-store" })

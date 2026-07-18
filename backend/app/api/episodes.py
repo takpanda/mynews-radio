@@ -54,18 +54,36 @@ def _build_audio_url(episode: dict) -> Optional[str]:
     return f"/audio/{dir_name}/{audio_path}"
 
 
+def _is_failed_episode(entry: dict) -> bool:
+    """音声がなくタイトルも空のエピソードを失敗痕跡と判定する。"""
+    has_audio = bool(entry.get("audio_path"))
+    has_title = bool((entry.get("title") or "").strip())
+    return not has_audio and not has_title
+
+
 @router.get("/episodes", summary="エピソード一覧を取得")
 def list_episodes(
     limit: Optional[int] = Query(None, ge=1, description="取得件数"),
     offset: int = Query(0, ge=0, description="取得開始位置"),
+    include_failed: bool = Query(
+        False,
+        description="管理画面用: 失敗エピソードを含めて全件取得",
+    ),
 ) -> Union[list[dict], dict]:
     """登録されているエピソードの一覧を返す。
 
-    limit を指定しない場合は全件返却（従来動作）。
+    limit を指定しない場合は全件返却。
     limit を指定した場合はページネーション情報を含む辞書を返す。
+
+    include_failed=True で管理画面向けの全件取得（従来動作）。
+    デフォルトでは音声がなくタイトルも空の失敗エピソードを除外する。
     """
     service = EpisodeService()
-    items = service.get_episode_list(limit=limit, offset=offset)
+    if include_failed:
+        items = service.get_episode_list(limit=limit, offset=offset)
+    else:
+        items = service.get_episode_list(limit=None, offset=0)
+
     output: list[dict] = []
     for ep in items:
         output.append(
@@ -90,61 +108,76 @@ def list_episodes(
             entry["audio_url"] = audio
         _enrich_episode(entry)
 
+    # 公開アーカイブ: 音声がなくタイトルもないエピソードを除外
+    if not include_failed:
+        output = [e for e in output if not _is_failed_episode(e)]
+
     for entry in output:
         entry.pop("audio_path", None)
         entry.setdefault("has_script", False)
 
     if limit is not None:
-        total = service.count_episodes()
+        if include_failed:
+            total = service.count_episodes()
+        else:
+            total = len(output)
+            output = output[offset:offset + limit]
+
         return {
             "items": output,
             "total": total,
             "has_next": (offset + limit) < total,
         }
 
+    if not include_failed and offset > 0:
+        output = output[offset:]
+
     return output
 
 
 @router.get("/episodes/latest", summary="最新エピソードを取得")
 def get_latest_episode() -> dict:
-    """最新（日付降順で最も新しい）エピソードを返す"""
+    """最新の公開可能エピソードを返す。失敗エピソードはスキップする。"""
     service = EpisodeService()
-    episode = service.get_latest_episode()
-    if episode is None:
-        raise HTTPException(
-            status_code=404, detail="No episodes found"
-        )
+    all_episodes = service.get_episode_list(limit=None, offset=0)
 
-    result: dict = {
-        "id": episode["id"],
-        "title": "",
-        "subtitle": "",
-        "date": episode["episode_date"],
-        "duration_seconds": 0.0,
-        "status": episode.get("status", "pending"),
-        "type": episode.get("type", "radio"),
-        "source_url": episode.get("source_url"),
-        "article_count": 0,
-        "audio_url": None,
-        "articles": [],
-    }
+    for episode in all_episodes:
+        result: dict = {
+            "id": episode["id"],
+            "title": "",
+            "subtitle": "",
+            "date": episode["episode_date"],
+            "duration_seconds": 0.0,
+            "status": episode.get("status", "pending"),
+            "type": episode.get("type", "radio"),
+            "source_url": episode.get("source_url"),
+            "audio_path": episode.get("audio_path"),
+            "article_count": 0,
+            "audio_url": None,
+            "articles": [],
+        }
 
-    if episode.get("audio_path"):
-        result["audio_url"] = _build_audio_url(episode)
+        if episode.get("audio_path"):
+            result["audio_url"] = _build_audio_url(episode)
 
-    # スクリプト・メディア情報で補完
-    _enrich_episode(result)
+        _enrich_episode(result)
 
-    # DB に items が存在する場合はそのまま articles に設定、なければ script.json から構築
-    db_items = service.get_episode_items(episode["id"])
-    if db_items:
-        result["articles"] = db_items
-        result["article_count"] = len(db_items)
-    else:
-        result["articles"] = _load_articles_from_script(episode)
-        result["article_count"] = len(result["articles"])
+        if _is_failed_episode(result):
+            continue
 
-    return result
+        db_items = service.get_episode_items(episode["id"])
+        if db_items:
+            result["articles"] = db_items
+            result["article_count"] = len(db_items)
+        else:
+            result["articles"] = _load_articles_from_script(episode)
+            result["article_count"] = len(result["articles"])
+
+        return result
+
+    raise HTTPException(
+        status_code=404, detail="No episodes found"
+    )
 
 
 @router.get("/episodes/{episode_id}", summary="エピソード詳細を取得")
