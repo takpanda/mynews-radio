@@ -17,7 +17,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 CRONTAB_HEADER
 ) > /etc/cron.d/mynews-batch
 
-echo "$SCHEDULE cron /app/app/batch/run_daily.py >> /app/data/logs/crontab.log 2>&1" >> /etc/cron.d/mynews-batch
+echo "$SCHEDULE cd /app && python3 /app/app/batch/run_daily.py >> /app/data/logs/crontab.log 2>&1" >> /etc/cron.d/mynews-batch
 chmod 0644 /etc/cron.d/mynews-batch
 
 # Install the crontab
