@@ -566,6 +566,11 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
     }
   }
 
+  const handleClearUrl = () => {
+    setUrlInput('')
+    setUrlError(null)
+  }
+
   const handleClick = async () => {
     if (!isLoading && episodes?.some((ep) => ep.status === 'generating')) {
       setMessage('先に生成中のタスクがあります')
@@ -623,7 +628,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
         <label htmlFor="generate-url-input" className="block text-sm font-medium text-slate-900">
           URLから解説を生成
         </label>
-        <div className="mt-2">
+        <div className="relative mt-2">
           <input
             id="generate-url-input"
             type="url"
@@ -641,8 +646,20 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
             }}
             placeholder="https://example.com/article"
             disabled={isLoading}
-            className="block w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 transition focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-50"
+            className="block w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 pr-10 text-sm text-slate-900 placeholder:text-slate-400 transition focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-50"
           />
+          {urlInput.trim().length > 0 && !isLoading && (
+            <button
+              type="button"
+              onClick={handleClearUrl}
+              aria-label="URLをクリア"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center justify-center rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-400"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
           {urlError && (
             <p className="mt-1.5 text-xs text-red-500">{urlError}</p>
           )}
