@@ -10,6 +10,7 @@ import {
   useState,
 } from 'react'
 import type { Chapter } from '../lib/chapters'
+import { sanitizeFilename } from '../lib/filename'
 
 export interface PlayerHandle {
   seekTo: (time: number) => void
@@ -18,6 +19,7 @@ export interface PlayerHandle {
 interface Props {
   audioUrl: string
   title: string
+  date?: string
   durationSeconds?: number
   chapters?: Chapter[]
   onTimeUpdate?: (time: number) => void
@@ -56,9 +58,12 @@ function PauseIcon({ className }: { className: string }) {
  * スクロールしたときだけ画面下に現れるミニプレーヤーを描画する。
  */
 const EpisodeAudioPlayer = forwardRef<PlayerHandle, Props>(function EpisodeAudioPlayer(
-  { audioUrl, title, durationSeconds = 0, chapters = [], onTimeUpdate, onMisreadingReport },
+  { audioUrl, title, date, durationSeconds = 0, chapters = [], onTimeUpdate, onMisreadingReport },
   ref,
 ) {
+  const downloadFilename = date
+    ? `${date}_${sanitizeFilename(title)}.mp3`
+    : `${sanitizeFilename(title)}.mp3`
   const audioRef = useRef<HTMLAudioElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -230,7 +235,7 @@ const EpisodeAudioPlayer = forwardRef<PlayerHandle, Props>(function EpisodeAudio
                 </button>
                 <a
                   href={audioUrl}
-                  download={`${title}.mp3`}
+                  download={downloadFilename}
                   className="rounded-full p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
                   aria-label="音声をダウンロード"
                   title="音声をダウンロード"

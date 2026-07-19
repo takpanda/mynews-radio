@@ -1,5 +1,7 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
+import type { Metadata } from 'next'
+import { headers } from 'next/headers'
 import {
   fetchEpisode,
   fetchEpisodeScript,
@@ -16,6 +18,47 @@ import EpisodeDetailShell, {
 
 interface Props {
   params: { id: string }
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const episodeId = parseInt(params.id, 10)
+  if (isNaN(episodeId)) return {}
+
+  try {
+    const episode = await fetchEpisode(episodeId)
+    if (!episode) return {}
+
+    const headersList = headers()
+    const host = headersList.get('x-forwarded-host') || headersList.get('host') || 'localhost:3010'
+    const proto = headersList.get('x-forwarded-proto') || 'http'
+    const origin = `${proto}://${host}`
+
+    const audioUrl = episode.audio_url ? buildAudioUrl(episode.audio_url) : null
+    const absoluteAudioUrl = audioUrl && !audioUrl.startsWith('http')
+      ? new URL(audioUrl, origin).href
+      : audioUrl
+
+    return {
+      title: `${episode.title} - MyNews Radio`,
+      description: episode.subtitle || 'あなた専用のニュース番組',
+      openGraph: {
+        title: episode.title,
+        description: episode.subtitle || 'あなた専用のニュース番組',
+        type: 'website',
+        url: `${origin}/episodes/${episodeId}`,
+        siteName: 'MyNews Radio',
+        ...(absoluteAudioUrl ? { audio: absoluteAudioUrl } : {}),
+        locale: 'ja_JP',
+      },
+      twitter: {
+        card: 'summary',
+        title: episode.title,
+        description: episode.subtitle || 'あなた専用のニュース番組',
+      },
+    }
+  } catch {
+    return {}
+  }
 }
 
 function normalizeSummaryText(text: string): string {
@@ -87,6 +130,7 @@ function toDetailEpisode(episode: Episode): DetailEpisode {
     id: episode.id,
     title: episode.title,
     subtitle: episode.subtitle,
+    date: episode.date.slice(0, 10),
     dateLabel: formatDateWithWeekday(episode.date),
     isCommentary: episode.type === 'commentary',
     sourceUrl: episode.source_url ?? null,
