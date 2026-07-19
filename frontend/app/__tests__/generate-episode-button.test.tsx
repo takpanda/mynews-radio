@@ -331,3 +331,113 @@ describe('GenerateEpisodeButton — 通常ラジオ生成（回帰）', () => {
     expect(mockSearchEpisodesBySourceUrl).not.toHaveBeenCalled()
   })
 })
+
+describe('GenerateEpisodeButton — URLクリアボタン', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGenerateEpisode.mockResolvedValue({ episode_id: 100 })
+    localStorage.clear()
+  })
+
+  const clearButton = () => screen.queryByRole('button', { name: 'URLをクリア' })
+
+  it('URL入力時にクリアボタンが表示される', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    expect(clearButton()).not.toBeInTheDocument()
+
+    await user.type(screen.getByPlaceholderText('https://example.com/article'), 'https://example.com/test')
+
+    expect(clearButton()).toBeInTheDocument()
+  })
+
+  it('空白のみのURLではクリアボタンが表示されない', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.type(screen.getByPlaceholderText('https://example.com/article'), '   ')
+
+    expect(clearButton()).not.toBeInTheDocument()
+  })
+
+  it('URL空欄ではクリアボタンが表示されない', () => {
+    render(<GenerateEpisodeButton />)
+
+    expect(clearButton()).not.toBeInTheDocument()
+  })
+
+  it('生成中はクリアボタンが表示されない', async () => {
+    let resolveGenerate!: (value: unknown) => void
+    mockGenerateEpisode.mockReturnValue(new Promise((resolve) => { resolveGenerate = resolve }))
+    mockSearchEpisodesBySourceUrl.mockResolvedValue([])
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.type(screen.getByPlaceholderText('https://example.com/article'), 'https://example.com/test')
+    await user.click(screen.getByRole('button', { name: /このURLで解説を生成する/ }))
+
+    await waitFor(() => {
+      expect(clearButton()).not.toBeInTheDocument()
+    })
+
+    resolveGenerate({ episode_id: 100 })
+  })
+
+  it('クリアボタンクリックでurlInputが空になりurlErrorが消える', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    const input = screen.getByPlaceholderText('https://example.com/article')
+    await user.type(input, 'invalid-url')
+
+    input.blur()
+    await waitFor(() => {
+      expect(screen.getByText('「http(s)://...」の形式で入力してください')).toBeInTheDocument()
+    })
+
+    await user.click(clearButton()!)
+
+    expect(input).toHaveValue('')
+    expect(screen.queryByText('「http(s)://...」の形式で入力してください')).not.toBeInTheDocument()
+  })
+
+  it('クリア後にニュースソースのラジオボタンが選択可能になる', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    const input = screen.getByPlaceholderText('https://example.com/article')
+    await user.type(input, 'https://example.com/test')
+
+    const techRadio = screen.getByDisplayValue('hatena_bookmark')
+    expect(techRadio).toBeDisabled()
+
+    await user.click(clearButton()!)
+
+    expect(techRadio).not.toBeDisabled()
+  })
+
+  it('クリア後も最後に選択していたニュースソースが維持される', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.click(screen.getByText('一般ニュース'))
+    const input = screen.getByPlaceholderText('https://example.com/article')
+    await user.type(input, 'https://example.com/test')
+
+    await user.click(clearButton()!)
+
+    expect(screen.getByDisplayValue('hatena_hotentry_all')).toBeChecked()
+  })
+
+  it('クリアボタンにaria-labelが付与されている', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.type(screen.getByPlaceholderText('https://example.com/article'), 'https://example.com/test')
+
+    const btn = clearButton()
+    expect(btn).toBeInTheDocument()
+    expect(btn).toHaveAttribute('aria-label', 'URLをクリア')
+  })
+})
