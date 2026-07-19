@@ -421,3 +421,141 @@ class TestMisreadingReportMigration:
             json={"target_text": "二回目起動", "correct_reading": "にかいめきどう"},
         )
         assert resp2.status_code == 201
+
+
+class TestAdminMisreadingReportList:
+    """GET /admin/reports/misreading のテスト（管理者認証付き一覧取得）"""
+
+    def _set_api_key(self, monkeypatch, key="test-admin-key"):
+        monkeypatch.setenv("API_KEY", key)
+        from app import config as cfg_mod
+        if hasattr(cfg_mod.get_settings, "cache_clear"):
+            cfg_mod.get_settings.cache_clear()
+
+    def _seed_reports(self, client, count=3):
+        """テストデータを投入し、登録されたIDリストを返す。"""
+        ids = []
+        for i in range(count):
+            resp = client.post(
+                "/reports/misreading",
+                json={
+                    "target_text": f"テスト文章{i}",
+                    "correct_reading": f"てすとぶんしょう{i}",
+                    "notes": f"メモ{i}",
+                },
+            )
+            assert resp.status_code == 201
+            ids.append(resp.json()["id"])
+        return ids
+
+    def test_list_with_auth(self, client, monkeypatch):
+        """認証ありで全件取得できる"""
+        self._set_api_key(monkeypatch)
+        self._seed_reports(client, 3)
+
+        resp = client.get(
+            "/admin/reports/misreading",
+            headers={"Authorization": "Bearer test-admin-key"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) == 3
+
+    def test_list_required_fields(self, client, monkeypatch):
+        """レスポンスに必要なフィールドのみ含まれる"""
+        self._set_api_key(monkeypatch)
+        self._seed_reports(client, 1)
+
+        resp = client.get(
+            "/admin/reports/misreading",
+            headers={"Authorization": "Bearer test-admin-key"},
+        )
+        assert resp.status_code == 200
+        item = resp.json()[0]
+        assert "id" in item
+        assert "target_text" in item
+        assert "correct_reading" in item
+        assert "article_id" in item
+        assert "notes" in item
+        assert "created_at" in item
+        assert "audio_generation_id" not in item
+        assert "playback_position" not in item
+        assert "app_version" not in item
+
+    def test_list_ordered_by_created_at_id_desc(self, client, monkeypatch):
+        """作成日時降順、同一時刻は id 降順で返ること"""
+        self._set_api_key(monkeypatch)
+        from app.db.connection import get_db_connection
+        with get_db_connection() as conn:
+            conn.execute(
+                "INSERT INTO misreading_reports (target_text, correct_reading, created_at) "
+                "VALUES ('古い', 'ふるい', '2026-01-01 00:00:00')"
+            )
+            conn.execute(
+                "INSERT INTO misreading_reports (target_text, correct_reading, created_at) "
+                "VALUES ('中', 'なか', '2026-01-02 00:00:00')"
+            )
+            conn.execute(
+                "INSERT INTO misreading_reports (target_text, correct_reading, created_at) "
+                "VALUES ('新しい', 'あたらしい', '2026-01-03 00:00:00')"
+            )
+            conn.execute(
+                "INSERT INTO misreading_reports (target_text, correct_reading, created_at) "
+                "VALUES ('同秒B', 'どうびょうびー', '2026-01-03 00:00:00')"
+            )
+            conn.execute(
+                "INSERT INTO misreading_reports (target_text, correct_reading, created_at) "
+                "VALUES ('同秒A', 'どうびょうえー', '2026-01-03 00:00:00')"
+            )
+
+        resp = client.get(
+            "/admin/reports/misreading",
+            headers={"Authorization": "Bearer test-admin-key"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        texts = [item["target_text"] for item in data]
+        expected = ["同秒A", "同秒B", "新しい", "中", "古い"]
+        assert texts == expected
+
+    def test_list_empty(self, client, monkeypatch):
+        """報告がない場合は空の配列を返す"""
+        self._set_api_key(monkeypatch)
+
+        resp = client.get(
+            "/admin/reports/misreading",
+            headers={"Authorization": "Bearer test-admin-key"},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_list_no_auth_header(self, client, monkeypatch):
+        """Authorization ヘッダなしは 401"""
+        self._set_api_key(monkeypatch)
+
+        resp = client.get("/admin/reports/misreading")
+        assert resp.status_code == 401
+        assert "api key" in resp.json()["detail"].lower()
+
+    def test_list_wrong_api_key(self, client, monkeypatch):
+        """誤った Bearer トークンは 401"""
+        self._set_api_key(monkeypatch)
+
+        resp = client.get(
+            "/admin/reports/misreading",
+            headers={"Authorization": "Bearer wrong-key"},
+        )
+        assert resp.status_code == 401
+        assert "api key" in resp.json()["detail"].lower()
+
+    def test_list_no_api_key_env(self, client, monkeypatch):
+        """API_KEY 未設定時は 503 で拒否される"""
+        monkeypatch.delenv("API_KEY", raising=False)
+        from app import config as cfg_mod
+        if hasattr(cfg_mod.get_settings, "cache_clear"):
+            cfg_mod.get_settings.cache_clear()
+
+        resp = client.get("/admin/reports/misreading")
+        assert resp.status_code == 503
+        assert "api_key" in resp.json()["detail"].lower()

@@ -1,12 +1,13 @@
-"""Misreading report submission API (BEE-432)."""
+"""Misreading report submission and admin list API (BEE-432 / BEE-453)."""
 
 import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+from app.api.generate import require_admin_key
 from app.db.connection import get_db_connection
 
 logger = logging.getLogger(__name__)
@@ -112,3 +113,35 @@ def create_misreading_report(body: MisreadingReportCreate) -> dict:
         ).fetchone()
 
     return _row_to_report(row)
+
+
+def _row_to_admin_report(row) -> dict:
+    d = dict(row)
+    return {
+        "id": d["id"],
+        "target_text": d["target_text"],
+        "correct_reading": d["correct_reading"],
+        "article_id": d.get("article_id"),
+        "notes": d.get("notes") or "",
+        "created_at": _format_dt(d["created_at"]),
+    }
+
+
+@router.get(
+    "/admin/reports/misreading",
+    summary="読み間違い報告一覧を取得（管理者用）",
+    dependencies=[Depends(require_admin_key)],
+)
+def list_misreading_reports() -> list[dict]:
+    """保存済みの読み間違い報告を全件取得する。
+
+    作成日時の降順（新しい順）で返却する。
+    audio_generation_id, playback_position, app_version はレスポンスに含めない。
+    """
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, target_text, correct_reading, article_id, notes, created_at "
+            "FROM misreading_reports ORDER BY created_at DESC, id DESC"
+        ).fetchall()
+
+    return [_row_to_admin_report(row) for row in rows]
