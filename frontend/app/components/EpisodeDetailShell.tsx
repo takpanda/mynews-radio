@@ -19,6 +19,7 @@ export interface DetailEpisode {
   id: number
   title: string
   subtitle: string
+  date: string
   dateLabel: string
   isCommentary: boolean
   sourceUrl: string | null
@@ -164,6 +165,7 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
             ref={playerRef}
             audioUrl={episode.audioUrl}
             title={title}
+            date={episode.date}
             durationSeconds={episode.durationSeconds}
             chapters={chapters}
             onTimeUpdate={setCurrentTime}
