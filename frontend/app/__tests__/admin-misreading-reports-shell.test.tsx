@@ -1,8 +1,17 @@
 import '@testing-library/jest-dom'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import AdminMisreadingReportsShell from '../components/AdminMisreadingReportsShell'
 import type { AdminMisreadingReport } from '../lib/admin-misreading-reports'
+
+const mockApprove = jest.fn()
+jest.mock('../lib/admin-misreading-reports', () => {
+  const actual = jest.requireActual('../lib/admin-misreading-reports')
+  return {
+    ...actual,
+    approveMisreadingReport: (...args: unknown[]) => mockApprove(...args),
+  }
+})
 
 const sampleReports: AdminMisreadingReport[] = [
   {
@@ -11,6 +20,9 @@ const sampleReports: AdminMisreadingReport[] = [
     correct_reading: 'じんこうちのう',
     article_id: 42,
     notes: '契約顧客の会話内で発生',
+    approved: false,
+    approved_at: null,
+    approved_dictionary_entry_id: null,
     created_at: '2026-07-20T00:00:00+00:00',
   },
   {
@@ -19,7 +31,21 @@ const sampleReports: AdminMisreadingReport[] = [
     correct_reading: 'きかいがくしゅう',
     article_id: null,
     notes: '',
+    approved: true,
+    approved_at: '2026-07-20T01:00:00+00:00',
+    approved_dictionary_entry_id: 5,
     created_at: '2026-07-19T12:00:00+00:00',
+  },
+  {
+    id: 3,
+    target_text: '深層学習',
+    correct_reading: 'しんそうがくしゅう',
+    article_id: null,
+    notes: 'ニュース番組内で発生',
+    approved: false,
+    approved_at: null,
+    approved_dictionary_entry_id: null,
+    created_at: '2026-07-18T12:00:00+00:00',
   },
 ]
 
@@ -33,14 +59,15 @@ describe('AdminMisreadingReportsShell', () => {
     expect(screen.getByText('42')).toBeInTheDocument()
   })
 
-  it('ヘッダーにID/対象テキスト/正しい読み/記事ID/報告日時/メモの列が存在する', () => {
+  it('ヘッダーにID/対象テキスト/正しい読み/記事ID/報告日時/状態/操作の列が存在する', () => {
     render(<AdminMisreadingReportsShell initialData={sampleReports} />)
     expect(screen.getByText('ID')).toBeInTheDocument()
     expect(screen.getByText('対象テキスト')).toBeInTheDocument()
     expect(screen.getByText('正しい読み')).toBeInTheDocument()
     expect(screen.getByText('記事ID')).toBeInTheDocument()
     expect(screen.getByText('報告日時')).toBeInTheDocument()
-    expect(screen.getByText('メモ')).toBeInTheDocument()
+    expect(screen.getByText('状態')).toBeInTheDocument()
+    expect(screen.getByText('操作')).toBeInTheDocument()
   })
 
   it('0件：空データの場合はメッセージを表示する', () => {
@@ -48,32 +75,35 @@ describe('AdminMisreadingReportsShell', () => {
     expect(screen.getByText('読み間違い報告はまだありません。')).toBeInTheDocument()
   })
 
-  it('notesがある行に「表示」ボタンが表示される', () => {
+  it('notesがある行に「メモ」ボタンが表示される', () => {
     render(<AdminMisreadingReportsShell initialData={sampleReports} />)
-    const showBtn = screen.getByRole('button', { name: '表示' })
-    expect(showBtn).toBeInTheDocument()
+    const memoBtns = screen.getAllByRole('button', { name: 'メモ' })
+    expect(memoBtns).toHaveLength(2)
   })
 
-  it('notesがない行に「表示」ボタンは表示されない', () => {
+  it('notesのある2行のみ「メモ」ボタンが表示される', () => {
     render(<AdminMisreadingReportsShell initialData={sampleReports} />)
-    expect(screen.queryAllByRole('button', { name: '表示' })).toHaveLength(1)
+    expect(screen.queryAllByRole('button', { name: 'メモ' })).toHaveLength(2)
   })
 
-  it('「表示」クリックでnotesが展開される', async () => {
+  it('「メモ」クリックでnotesが展開される', async () => {
     const user = userEvent.setup()
     render(<AdminMisreadingReportsShell initialData={sampleReports} />)
-    await user.click(screen.getByRole('button', { name: '表示' }))
+    const memoBtns = screen.getAllByRole('button', { name: 'メモ' })
+    await user.click(memoBtns[0])
     expect(screen.getByText('契約顧客の会話内で発生')).toBeInTheDocument()
   })
 
-  it('展開後「閉じる」クリックでnotesが非表示になる', async () => {
+  it('展開後「メモを閉じる」クリックでnotesが非表示になる', async () => {
     const user = userEvent.setup()
     render(<AdminMisreadingReportsShell initialData={sampleReports} />)
 
-    await user.click(screen.getByRole('button', { name: '表示' }))
+    const memoBtns = screen.getAllByRole('button', { name: 'メモ' })
+    await user.click(memoBtns[0])
     expect(screen.getByText('契約顧客の会話内で発生')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: '閉じる' }))
+    const closeBtns = screen.getAllByRole('button', { name: 'メモを閉じる' })
+    await user.click(closeBtns[0])
     expect(screen.queryByText('契約顧客の会話内で発生')).not.toBeInTheDocument()
   })
 
@@ -85,6 +115,105 @@ describe('AdminMisreadingReportsShell', () => {
 
   it('全件数がフッターに表示される', () => {
     render(<AdminMisreadingReportsShell initialData={sampleReports} />)
-    expect(screen.getByText('全2件')).toBeInTheDocument()
+    expect(screen.getByText('全3件')).toBeInTheDocument()
+  })
+
+  it('未承認の報告に「承認」ボタンが表示される', () => {
+    render(<AdminMisreadingReportsShell initialData={sampleReports} />)
+    const approveBtns = screen.getAllByRole('button', { name: '承認' })
+    expect(approveBtns).toHaveLength(2)
+  })
+
+  it('承認済みの報告に「承認」ボタンが表示されず「承認済み」ラベルが表示される', () => {
+    render(<AdminMisreadingReportsShell initialData={sampleReports} />)
+    expect(screen.getByText('承認済み')).toBeInTheDocument()
+    expect(screen.getAllByText('未承認')).toHaveLength(2)
+  })
+
+  it('「承認済み」が1件、「未承認」が2件表示される', () => {
+    render(<AdminMisreadingReportsShell initialData={sampleReports} />)
+    expect(screen.getAllByText('承認済み')).toHaveLength(1)
+    expect(screen.getAllByText('未承認')).toHaveLength(2)
+  })
+
+  it('承認成功(approved) → 承認済みが2件、承認ボタンが1つになる', async () => {
+    mockApprove.mockResolvedValueOnce({
+      status: 'approved',
+      report_id: 1,
+      dictionary_entry_id: 10,
+    })
+    const user = userEvent.setup()
+    render(<AdminMisreadingReportsShell initialData={sampleReports} />)
+    const approveBtns = screen.getAllByRole('button', { name: '承認' })
+
+    await user.click(approveBtns[0])
+    await waitFor(() => {
+      expect(screen.getAllByText('承認済み')).toHaveLength(2)
+      expect(screen.getAllByRole('button', { name: '承認' })).toHaveLength(1)
+    })
+  })
+
+  it('重複スキップ(skipped) → 承認済みが2件、承認ボタンが1つになる', async () => {
+    mockApprove.mockResolvedValueOnce({
+      status: 'skipped',
+      report_id: 1,
+      reason: 'duplicate_original',
+      existing_entry_id: 10,
+    })
+    const user = userEvent.setup()
+    render(<AdminMisreadingReportsShell initialData={sampleReports} />)
+    const approveBtns = screen.getAllByRole('button', { name: '承認' })
+
+    await user.click(approveBtns[0])
+    await waitFor(() => {
+      expect(screen.getAllByText('承認済み')).toHaveLength(2)
+      expect(screen.getAllByRole('button', { name: '承認' })).toHaveLength(1)
+    })
+  })
+
+  it('既承認(already_approved) → 承認済みが2件になる', async () => {
+    mockApprove.mockResolvedValueOnce({
+      status: 'already_approved',
+      report_id: 1,
+      dictionary_entry_id: 10,
+    })
+    const user = userEvent.setup()
+    render(<AdminMisreadingReportsShell initialData={sampleReports} />)
+    const approveBtns = screen.getAllByRole('button', { name: '承認' })
+
+    await user.click(approveBtns[0])
+    await waitFor(() => {
+      expect(screen.getAllByText('承認済み')).toHaveLength(2)
+    })
+  })
+
+  it('API失敗 → 未承認は2件のまま', async () => {
+    mockApprove.mockRejectedValueOnce(new Error('Network error'))
+    const user = userEvent.setup()
+    render(<AdminMisreadingReportsShell initialData={sampleReports} />)
+    const approveBtns = screen.getAllByRole('button', { name: '承認' })
+
+    await user.click(approveBtns[0])
+    await waitFor(() => {
+      expect(screen.getAllByText('未承認')).toHaveLength(2)
+    })
+  })
+
+  it('承認中はボタンがdisabledになり処理中が表示される', async () => {
+    let deferredResolve: (v: unknown) => void = () => {}
+    mockApprove.mockImplementationOnce(
+      () => new Promise((resolve) => { deferredResolve = resolve }),
+    )
+    const user = userEvent.setup()
+    render(<AdminMisreadingReportsShell initialData={sampleReports} />)
+    const approveBtns = screen.getAllByRole('button', { name: '承認' })
+
+    await user.click(approveBtns[0])
+    expect(screen.getByText('処理中...')).toBeInTheDocument()
+
+    await act(async () => {
+      deferredResolve({ status: 'approved', report_id: 1, dictionary_entry_id: 10 })
+    })
+    expect(screen.queryByText('処理中...')).not.toBeInTheDocument()
   })
 })

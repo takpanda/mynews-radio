@@ -5,6 +5,7 @@ export interface DictionaryEntry {
   category: string
   status: 'active' | 'inactive'
   notes: string
+  source_misreading_report_id: number | null
   updated_at: string
 }
 

@@ -1,31 +1,3 @@
-export function unauthorized(detail: string): Response {
-  return new Response(JSON.stringify({ detail }), {
-    status: 401,
-    headers: { "Content-Type": "application/json" },
-  })
-}
-
-export function authCheck(
-  request: { headers: { get: (k: string) => string | null } },
-  adminKey: string | undefined,
-): Response | null {
-  if (!adminKey) {
-    return new Response(
-      JSON.stringify({ detail: "Admin API requires API_KEY to be configured" }),
-      { status: 503, headers: { "Content-Type": "application/json" } },
-    )
-  }
-  const auth = request.headers.get("authorization") || ""
-  if (!auth.startsWith("Bearer ")) {
-    return unauthorized("Invalid or missing admin key")
-  }
-  const token = auth.slice(7)
-  if (token !== adminKey) {
-    return unauthorized("Invalid or missing admin key")
-  }
-  return null
-}
-
 export function buildUpstreamUrl(
   requestUrl: string,
   apiBase: string,
@@ -56,15 +28,17 @@ export function buildHeaders(adminKey: string | undefined): Record<string, strin
 export async function proxyToUpstream(
   url: string,
   headers: Record<string, string>,
+  method: "GET" | "POST" = "GET",
+  body?: string,
 ) {
   try {
-    const upstream = await fetch(url, { method: "GET", headers })
+    const upstream = await fetch(url, { method, headers, body })
     const data = await upstream.text()
     return new Response(data, {
       status: upstream.status,
       headers: { "Content-Type": "application/json" },
     })
-  } catch (err) {
+  } catch {
     return new Response(JSON.stringify({ error: "upstream error" }), {
       status: 504,
       headers: { "Content-Type": "application/json" },
@@ -80,12 +54,11 @@ export interface HandlerConfig {
 }
 
 export async function handleAdminReportRequest(
-  request: { url: string; headers: { get: (k: string) => string | null } },
+  request: { url: string },
   config: HandlerConfig,
+  method: "GET" | "POST" = "GET",
+  body?: string,
 ): Promise<Response> {
-  const authError = authCheck(request, config.adminKey)
-  if (authError) return authError
-
   const upstreamUrl = buildUpstreamUrl(
     request.url,
     config.apiBase,
@@ -93,5 +66,5 @@ export async function handleAdminReportRequest(
     config.backendPath,
   )
   const upstreamHeaders = buildHeaders(config.adminKey)
-  return proxyToUpstream(upstreamUrl, upstreamHeaders)
+  return proxyToUpstream(upstreamUrl, upstreamHeaders, method, body)
 }
