@@ -1,4 +1,6 @@
 import os
+import threading
+import time
 from pathlib import Path
 import sqlite3
 
@@ -63,8 +65,37 @@ def test_env(tmp_path, monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def no_daemon_thread_leaks():
+    """Make all threads non-daemon so background threads from API tests
+    can be tracked and joined before fixture cleanup, preventing orphaned
+    threads from writing to cleaned-up temp dirs (//app errors)."""
+    original_start = threading.Thread.start
+    threads = []
+
+    def _tracked_start(self):
+        self.daemon = False
+        threads.append(self)
+        return original_start(self)
+
+    threading.Thread.start = _tracked_start
+    yield
+    threading.Thread.start = original_start
+
+    deadline = time.monotonic() + 5.0
+    for t in threads:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        if t.is_alive():
+            t.join(timeout=max(0.01, remaining))
+
+
 @pytest.fixture
 def client():
     from app.main import app
     from fastapi.testclient import TestClient
-    return TestClient(app)
+    from unittest.mock import patch
+
+    with patch("app.api.generate.run_radio_pipeline", return_value=None):
+        yield TestClient(app)
