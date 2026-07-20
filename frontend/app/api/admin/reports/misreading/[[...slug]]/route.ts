@@ -9,5 +9,10 @@ const CONFIG = {
 }
 
 export async function GET(request: NextRequest) {
-  return handleAdminReportRequest(request, CONFIG)
+  return handleAdminReportRequest(request, CONFIG, "GET")
+}
+
+export async function POST(request: NextRequest) {
+  const body = await request.text()
+  return handleAdminReportRequest(request, CONFIG, "POST", body)
 }

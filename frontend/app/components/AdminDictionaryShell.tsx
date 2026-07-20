@@ -354,6 +354,7 @@ export default function AdminDictionaryShell({ initialData }: Props) {
                   <Th>カテゴリ</Th>
                   <Th>状態</Th>
                   <Th>更新日</Th>
+                  <Th>承認元</Th>
                   <Th>操作</Th>
                 </tr>
               </thead>
@@ -390,6 +391,32 @@ export default function AdminDictionaryShell({ initialData }: Props) {
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-400">
                       {mounted ? formatDate(entry.updated_at) : ''}
+                    </td>
+                    <td className="px-4 py-3">
+                      {entry.source_misreading_report_id ? (
+                        <a
+                          href={`/admin/misreading-reports#report-${entry.source_misreading_report_id}`}
+                          className="inline-flex items-center gap-1 text-xs text-sky-600 transition hover:text-sky-800"
+                          title={`報告#${entry.source_misreading_report_id} から承認`}
+                        >
+                          <svg
+                            aria-hidden="true"
+                            viewBox="0 0 24 24"
+                            className="h-3.5 w-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                          >
+                            <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+                            <polyline points="15 3 21 3 21 9" />
+                            <line x1="10" y1="14" x2="21" y2="3" />
+                          </svg>
+                          報告#{entry.source_misreading_report_id}
+                        </a>
+                      ) : (
+                        <span className="text-xs text-slate-300">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">

@@ -4,7 +4,18 @@ export interface AdminMisreadingReport {
   correct_reading: string
   article_id: number | null
   notes: string
+  approved: boolean
+  approved_at: string | null
+  approved_dictionary_entry_id: number | null
   created_at: string
+}
+
+export interface ApproveResult {
+  status: 'approved' | 'skipped' | 'already_approved'
+  report_id: number
+  dictionary_entry_id?: number
+  reason?: string
+  existing_entry_id?: number
 }
 
 const API_BASE = process.env.API_BASE ?? 'http://api:8010'
@@ -29,4 +40,20 @@ export async function fetchAdminMisreadingReports(): Promise<AdminMisreadingRepo
     throw new Error(body || `Failed to fetch misreading reports: ${res.status}`)
   }
   return res.json() as Promise<AdminMisreadingReport[]>
+}
+
+/** クライアントサイド専用：読み間違い報告を承認し辞書登録する */
+export async function approveMisreadingReport(
+  reportId: number,
+): Promise<ApproveResult> {
+  const res = await fetch(`/api/admin/reports/misreading/${reportId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(body || `Approve failed: ${res.status}`)
+  }
+  return res.json() as Promise<ApproveResult>
 }
