@@ -154,6 +154,27 @@ def _apply_db_migrations() -> None:
         except sqlite3.OperationalError:
             pass
 
+        try:
+            conn.execute("ALTER TABLE misreading_reports ADD COLUMN approved INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE misreading_reports ADD COLUMN approved_at TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE misreading_reports ADD COLUMN approved_dictionary_entry_id INTEGER")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_misreading_reports_approved ON misreading_reports(approved)")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE dictionary_entries ADD COLUMN source_misreading_report_id INTEGER")
+        except sqlite3.OperationalError:
+            pass
+
         row = conn.execute("SELECT COUNT(*) FROM dictionary_entries").fetchone()
         if row[0] == 0:
             seed_entries = [

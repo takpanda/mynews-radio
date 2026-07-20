@@ -46,6 +46,7 @@ def _row_to_dict(row) -> dict:
         "category": d["category"],
         "status": _is_active_to_status(d["is_active"]),
         "notes": d.get("notes", ""),
+        "source_misreading_report_id": d.get("source_misreading_report_id"),
         "updated_at": _format_updated_at(d["updated_at"]),
     }
 
@@ -63,7 +64,7 @@ def _require_entry(entry_id: int) -> dict:
     """辞書エントリが存在することを確認し、なければ 404 を返す。"""
     with get_db_connection() as conn:
         row = conn.execute(
-            "SELECT id, surface AS word, reading, category, is_active, notes, created_at, updated_at FROM dictionary_entries WHERE id = ?",
+            "SELECT id, surface AS word, reading, category, is_active, notes, source_misreading_report_id, created_at, updated_at FROM dictionary_entries WHERE id = ?",
             (entry_id,),
         ).fetchone()
     if row is None:
@@ -71,7 +72,7 @@ def _require_entry(entry_id: int) -> dict:
     return dict(row)
 
 
-COLUMNS = "id, surface AS word, reading, category, is_active, notes, created_at, updated_at"
+COLUMNS = "id, surface AS word, reading, category, is_active, notes, source_misreading_report_id, created_at, updated_at"
 
 
 @router.get("/admin/dictionary", summary="辞書エントリ一覧を取得")
