@@ -80,9 +80,7 @@ class TestGenerateEndpoint:
         ep_id = svc.create_episode(episode_date="2099-09-01", status="generating")
         body = GenerateRequest(date="2099-09-01")
 
-        # Patch an early operation outside any inner try-except so the outer
-        # except catches it and sets status to "failed".
-        with patch("pathlib.Path.mkdir", side_effect=OSError("disk full")):
+        with patch("app.batch.radio_pipeline.import_articles_by_source", side_effect=OSError("disk full")):
             _run_generation(ep_id, body)
 
         assert svc.get_episode(ep_id)["status"] == "failed"
@@ -136,7 +134,7 @@ def _make_fake_open(script_json: str):
 
 
 class TestRunGenerationPipeline:
-    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     def test_fails_gracefully_on_summarize_error(self, mock_import):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
@@ -145,13 +143,13 @@ class TestRunGenerationPipeline:
         ep_id = svc.create_episode(episode_date="2099-05-01", status="generating")
         body = GenerateRequest(date="2099-05-01")
 
-        with patch("app.api.generate.summarize_articles", side_effect=RuntimeError("no ollama")):
+        with patch("app.batch.radio_pipeline.summarize_articles", side_effect=RuntimeError("no ollama")):
             _run_generation(ep_id, body)
 
         mock_import.assert_called_once()
         assert svc.get_episode(ep_id)["status"] == "failed"
 
-    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     def test_guard_marks_failed_on_unexpected_exception_in_generate_script(self, mock_import):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
@@ -160,14 +158,14 @@ class TestRunGenerationPipeline:
         ep_id = svc.create_episode(episode_date="2099-09-01", status="generating")
         body = GenerateRequest(date="2099-09-01")
 
-        with patch("app.api.generate.summarize_articles", return_value=5), \
-             patch("app.api.generate.generate_script", side_effect=RuntimeError("unexpected")):
+        with patch("app.batch.radio_pipeline.summarize_articles", return_value=5), \
+             patch("app.batch.radio_pipeline.generate_script", side_effect=RuntimeError("unexpected")):
             _run_generation(ep_id, body)
 
         ep = svc.get_episode(ep_id)
         assert ep["status"] == "failed"
 
-    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     def test_guard_does_not_overwrite_completed_status(self, mock_import):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
@@ -178,10 +176,10 @@ class TestRunGenerationPipeline:
 
         fake_script = '{"lines": [{"article_id": "1", "text": "Hello world"}]}'
 
-        with patch("app.api.generate.summarize_articles", return_value=5), \
-             patch("app.api.generate.generate_script", return_value=1), \
-             patch("app.api.generate.synthesize_episode", return_value=1), \
-             patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}), \
+        with patch("app.batch.radio_pipeline.summarize_articles", return_value=5), \
+             patch("app.batch.radio_pipeline.generate_script", return_value=1), \
+             patch("app.batch.radio_pipeline.synthesize_episode", return_value=1), \
+             patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "episode.mp3"}), \
              patch("builtins.open", _make_fake_open(fake_script)):
 
             _run_generation(ep_id, body)
@@ -191,7 +189,7 @@ class TestRunGenerationPipeline:
         assert ep["status"] == "completed"
         assert ep["phase"] == "complete"
 
-    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     def test_success_path_persists_phase(self, mock_import):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
@@ -202,10 +200,10 @@ class TestRunGenerationPipeline:
 
         fake_script = '{"lines": [{"article_id": "1", "text": "Hello world"}]}'
 
-        with patch("app.api.generate.summarize_articles", return_value=5), \
-             patch("app.api.generate.generate_script", return_value=1), \
-             patch("app.api.generate.synthesize_episode", return_value=1), \
-             patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}), \
+        with patch("app.batch.radio_pipeline.summarize_articles", return_value=5), \
+             patch("app.batch.radio_pipeline.generate_script", return_value=1), \
+             patch("app.batch.radio_pipeline.synthesize_episode", return_value=1), \
+             patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "episode.mp3"}), \
              patch("builtins.open", _make_fake_open(fake_script)):
 
             _run_generation(ep_id, body)
@@ -215,7 +213,7 @@ class TestRunGenerationPipeline:
         assert ep["status"] == "completed"
         assert ep["phase"] == "complete"
 
-    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     def test_success_with_review_does_not_create_extra_episode(self, mock_import):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
@@ -226,11 +224,11 @@ class TestRunGenerationPipeline:
 
         fake_script = '{"lines": [{"article_id": "1", "text": "Hello world"}]}'
 
-        with patch("app.api.generate.summarize_articles", return_value=5), \
-             patch("app.api.generate.generate_script", return_value=1), \
-             patch("app.api.generate.synthesize_episode", return_value=1), \
-             patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}), \
-             patch("app.api.generate.review_script",
+        with patch("app.batch.radio_pipeline.summarize_articles", return_value=5), \
+             patch("app.batch.radio_pipeline.generate_script", return_value=1), \
+             patch("app.batch.radio_pipeline.synthesize_episode", return_value=1), \
+             patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "episode.mp3"}), \
+             patch("app.batch.radio_pipeline.review_script",
                    return_value={"revised": False, "review_count": 0}), \
              patch("builtins.open", _make_fake_open(fake_script)):
 
@@ -246,7 +244,7 @@ class TestRunGenerationPipeline:
         reviewed = [e for e in episodes if e["id"] != ep_id]
         assert len(reviewed) == 0
 
-    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     def test_revised_true_runs_synthesize_and_build(self, mock_import):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
@@ -257,12 +255,12 @@ class TestRunGenerationPipeline:
 
         fake_script = '{"lines": [{"article_id": "1", "text": "Hello world"}]}'
 
-        with patch("app.api.generate.summarize_articles", return_value=5), \
-             patch("app.api.generate.generate_script", return_value=1), \
-             patch("app.api.generate.synthesize_episode", return_value=1) as mock_synth, \
-             patch("app.api.generate.build_episode",
+        with patch("app.batch.radio_pipeline.summarize_articles", return_value=5), \
+             patch("app.batch.radio_pipeline.generate_script", return_value=1), \
+             patch("app.batch.radio_pipeline.synthesize_episode", return_value=1) as mock_synth, \
+             patch("app.batch.radio_pipeline.build_episode",
                    return_value={"audio_path": "episode.mp3"}) as mock_build, \
-             patch("app.api.generate.review_script",
+             patch("app.batch.radio_pipeline.review_script",
                    return_value={"revised": True, "review_count": 3}), \
              patch("shutil.copy"), \
              patch("builtins.open", _make_fake_open(fake_script)):
@@ -276,7 +274,7 @@ class TestRunGenerationPipeline:
         assert ep["status"] == "completed"
         assert ep["phase"] == "complete"
 
-    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     def test_revised_true_persists_items_from_reviewed_script(self, mock_import):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
@@ -293,12 +291,12 @@ class TestRunGenerationPipeline:
             m.__enter__.return_value.read.return_value = reviewed_script
             return m
 
-        with patch("app.api.generate.summarize_articles", return_value=5), \
-             patch("app.api.generate.generate_script", return_value=1), \
-             patch("app.api.generate.synthesize_episode", return_value=1), \
-             patch("app.api.generate.build_episode",
+        with patch("app.batch.radio_pipeline.summarize_articles", return_value=5), \
+             patch("app.batch.radio_pipeline.generate_script", return_value=1), \
+             patch("app.batch.radio_pipeline.synthesize_episode", return_value=1), \
+             patch("app.batch.radio_pipeline.build_episode",
                    return_value={"audio_path": "episode.mp3"}), \
-             patch("app.api.generate.review_script",
+             patch("app.batch.radio_pipeline.review_script",
                    return_value={"revised": True, "review_count": 3}), \
              patch("shutil.copy"), \
              patch("builtins.open", side_effect=_fake_open_side_effect):
@@ -310,7 +308,7 @@ class TestRunGenerationPipeline:
         assert items[0]["segment_text"] == "Reviewed text"
         assert items[0]["article_id"] == 10
 
-    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     def test_revised_false_keeps_existing_flow(self, mock_import):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
@@ -321,11 +319,11 @@ class TestRunGenerationPipeline:
 
         fake_script = '{"lines": [{"article_id": "1", "text": "Original text"}]}'
 
-        with patch("app.api.generate.summarize_articles", return_value=5), \
-             patch("app.api.generate.generate_script", return_value=1), \
-             patch("app.api.generate.synthesize_episode", return_value=1) as mock_synth, \
-             patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}) as mock_build, \
-             patch("app.api.generate.review_script",
+        with patch("app.batch.radio_pipeline.summarize_articles", return_value=5), \
+             patch("app.batch.radio_pipeline.generate_script", return_value=1), \
+             patch("app.batch.radio_pipeline.synthesize_episode", return_value=1) as mock_synth, \
+             patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "episode.mp3"}) as mock_build, \
+             patch("app.batch.radio_pipeline.review_script",
                    return_value={"revised": False, "review_count": 0}), \
              patch("builtins.open", _make_fake_open(fake_script)):
 
@@ -338,7 +336,7 @@ class TestRunGenerationPipeline:
         assert ep["status"] == "completed"
         assert ep["phase"] == "complete"
 
-    @patch("app.api.generate.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     def test_review_exception_falls_back_to_revised_false(self, mock_import):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
@@ -349,11 +347,11 @@ class TestRunGenerationPipeline:
 
         fake_script = '{"lines": [{"article_id": "1", "text": "Fallback text"}]}'
 
-        with patch("app.api.generate.summarize_articles", return_value=5), \
-             patch("app.api.generate.generate_script", return_value=1), \
-             patch("app.api.generate.synthesize_episode", return_value=1) as mock_synth, \
-             patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}) as mock_build, \
-             patch("app.api.generate.review_script", side_effect=RuntimeError("ollama down")), \
+        with patch("app.batch.radio_pipeline.summarize_articles", return_value=5), \
+             patch("app.batch.radio_pipeline.generate_script", return_value=1), \
+             patch("app.batch.radio_pipeline.synthesize_episode", return_value=1) as mock_synth, \
+             patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "episode.mp3"}) as mock_build, \
+             patch("app.batch.radio_pipeline.review_script", side_effect=RuntimeError("ollama down")), \
              patch("builtins.open", _make_fake_open(fake_script)):
 
             _run_generation(ep_id, body)
@@ -484,118 +482,86 @@ class TestRateLimit:
 
 
 class TestRunDailyReviewConsistency:
-    """run_daily.py の review 結果反映動作の検証 (BEE-375)."""
+    """run_daily.py の review 結果反映動作の検証 (BEE-375) - 共通パイプライン経由."""
 
-    @patch("app.batch.run_daily.run_health_checks", return_value=[])
-    @patch("app.batch.run_daily.summarize_articles", return_value=5)
-    @patch("app.batch.run_daily.generate_script", return_value=5)
-    @patch("app.batch.run_daily.synthesize_voicevox", return_value=5)
-    @patch("app.batch.run_daily.build_episode", return_value={"audio_path": "episode.mp3"})
-    @patch("app.batch.run_daily.review_script",
+    _REVISED_META = {"audio_path": "episode.mp3", "title": "test"}
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(5, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    @patch("app.batch.radio_pipeline.generate_script", return_value=5)
+    @patch("app.batch.radio_pipeline.synthesize_episode", return_value=5)
+    @patch("app.batch.radio_pipeline.build_episode", return_value=_REVISED_META)
+    @patch("app.batch.radio_pipeline.review_script",
            return_value={"revised": True, "review_count": 5, "revision_summary": "修正", "lines_count": 5})
     def test_review_revised_true_copies_to_production(
-        self, mock_review, mock_build, mock_synth, mock_gen, mock_sum, mock_health,
+        self, mock_review, mock_build, mock_synth, mock_gen, mock_sum, mock_import,
     ):
         """revised=True の場合、review/script.json が本番 script.json にコピーされること。"""
         from app.batch.run_daily import main
 
         with patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(1, 0)), \
-             patch("app.batch.run_daily.EpisodeService.update_episode_status"), \
-             patch("app.batch.run_daily.EpisodeService.update_episode_phase"), \
-             patch("app.batch.run_daily.EpisodeService.update_episode_audio_path"), \
-             patch("app.batch.run_daily.EpisodeService.get_episode", return_value={"status": "generating"}), \
              patch("app.batch.run_daily._write_manifest"), \
              patch("app.batch.run_daily.setup_daily_logging"), \
-             patch("app.batch.run_daily.get_settings") as mock_settings, \
              patch("shutil.copy") as mock_copy, \
-             patch("app.batch.run_daily.override_script_title"), \
+             patch("builtins.open", MagicMock()) as mock_open, \
              patch.dict(os.environ, {"BATCH_DATE": "2099-12-31", "BATCH_NEWS_SOURCE": "hatena_bookmark"}):
 
-            mock_settings_instance = mock_settings.return_value
-            mock_settings_instance.default_tts_engine = "aivispeech"
-            mock_settings_instance.ollama_base_url = "http://localhost:11434"
-            mock_settings_instance.ollama_model = "test-model"
-            mock_settings_instance.aivispeech_base_url = "http://localhost:10101"
-            mock_settings_instance.voicevox_base_url = "http://localhost:50021"
-
+            mock_open.return_value.__enter__.return_value.read.return_value = '{"lines": [{"article_id": "1", "text": "Hello"}]}'
             main()
 
-        # Verify review/script.json was copied to production script.json
         mock_copy.assert_called_once()
         call_args = mock_copy.call_args[0]
         assert "review/script.json" in call_args[0]
         assert call_args[1].endswith("script.json")
         mock_review.assert_called_once()
 
-    @patch("app.batch.run_daily.run_health_checks", return_value=[])
-    @patch("app.batch.run_daily.summarize_articles", return_value=5)
-    @patch("app.batch.run_daily.generate_script", return_value=5)
-    @patch("app.batch.run_daily.synthesize_voicevox", return_value=5)
-    @patch("app.batch.run_daily.build_episode", return_value={"audio_path": "episode.mp3"})
-    @patch("app.batch.run_daily.review_script",
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(5, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    @patch("app.batch.radio_pipeline.generate_script", return_value=5)
+    @patch("app.batch.radio_pipeline.synthesize_episode", return_value=5)
+    @patch("app.batch.radio_pipeline.build_episode", return_value=_REVISED_META)
+    @patch("app.batch.radio_pipeline.review_script",
            return_value={"revised": False, "review_count": 0, "revision_summary": "", "lines_count": 0})
     def test_review_revised_false_no_copy(
-        self, mock_review, mock_build, mock_synth, mock_gen, mock_sum, mock_health,
+        self, mock_review, mock_build, mock_synth, mock_gen, mock_sum, mock_import,
     ):
         """revised=False の場合、コピーが発生せず通常フローが継続されること。"""
         from app.batch.run_daily import main
 
         with patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(1, 0)), \
-             patch("app.batch.run_daily.EpisodeService.update_episode_status"), \
-             patch("app.batch.run_daily.EpisodeService.update_episode_phase"), \
-             patch("app.batch.run_daily.EpisodeService.update_episode_audio_path"), \
-             patch("app.batch.run_daily.EpisodeService.get_episode", return_value={"status": "generating"}), \
              patch("app.batch.run_daily._write_manifest"), \
              patch("app.batch.run_daily.setup_daily_logging"), \
-             patch("app.batch.run_daily.get_settings") as mock_settings, \
              patch("shutil.copy") as mock_copy, \
-             patch("app.batch.run_daily.override_script_title"), \
+             patch("builtins.open", MagicMock()) as mock_open, \
              patch.dict(os.environ, {"BATCH_DATE": "2099-12-31", "BATCH_NEWS_SOURCE": "hatena_bookmark"}):
 
-            mock_settings_instance = mock_settings.return_value
-            mock_settings_instance.default_tts_engine = "aivispeech"
-            mock_settings_instance.ollama_base_url = "http://localhost:11434"
-            mock_settings_instance.ollama_model = "test-model"
-            mock_settings_instance.aivispeech_base_url = "http://localhost:10101"
-            mock_settings_instance.voicevox_base_url = "http://localhost:50021"
-
+            mock_open.return_value.__enter__.return_value.read.return_value = '{"lines": [{"article_id": "1", "text": "Hello"}]}'
             main()
 
         mock_copy.assert_not_called()
         mock_synth.assert_called_once()
         mock_build.assert_called_once()
 
-    @patch("app.batch.run_daily.run_health_checks", return_value=[])
-    @patch("app.batch.run_daily.summarize_articles", return_value=5)
-    @patch("app.batch.run_daily.generate_script", return_value=5)
-    @patch("app.batch.run_daily.synthesize_voicevox", return_value=5)
-    @patch("app.batch.run_daily.build_episode", return_value={"audio_path": "episode.mp3"})
-    @patch("app.batch.run_daily.review_script", side_effect=RuntimeError("ollama down"))
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(5, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    @patch("app.batch.radio_pipeline.generate_script", return_value=5)
+    @patch("app.batch.radio_pipeline.synthesize_episode", return_value=5)
+    @patch("app.batch.radio_pipeline.build_episode", return_value=_REVISED_META)
+    @patch("app.batch.radio_pipeline.review_script", side_effect=RuntimeError("ollama down"))
     def test_review_failure_non_fatal_continues_pipeline(
-        self, mock_review, mock_build, mock_synth, mock_gen, mock_sum, mock_health,
+        self, mock_review, mock_build, mock_synth, mock_gen, mock_sum, mock_import,
     ):
         """review の例外は non-fatal で、synthesize/build は継続されること。"""
         from app.batch.run_daily import main
 
         with patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(1, 0)), \
-             patch("app.batch.run_daily.EpisodeService.update_episode_status"), \
-             patch("app.batch.run_daily.EpisodeService.update_episode_phase"), \
-             patch("app.batch.run_daily.EpisodeService.update_episode_audio_path"), \
-             patch("app.batch.run_daily.EpisodeService.get_episode", return_value={"status": "generating"}), \
              patch("app.batch.run_daily._write_manifest"), \
              patch("app.batch.run_daily.setup_daily_logging"), \
-             patch("app.batch.run_daily.get_settings") as mock_settings, \
              patch("shutil.copy") as mock_copy, \
-             patch("app.batch.run_daily.override_script_title"), \
+             patch("builtins.open", MagicMock()) as mock_open, \
              patch.dict(os.environ, {"BATCH_DATE": "2099-12-31", "BATCH_NEWS_SOURCE": "hatena_bookmark"}):
 
-            mock_settings_instance = mock_settings.return_value
-            mock_settings_instance.default_tts_engine = "aivispeech"
-            mock_settings_instance.ollama_base_url = "http://localhost:11434"
-            mock_settings_instance.ollama_model = "test-model"
-            mock_settings_instance.aivispeech_base_url = "http://localhost:10101"
-            mock_settings_instance.voicevox_base_url = "http://localhost:50021"
-
+            mock_open.return_value.__enter__.return_value.read.return_value = '{"lines": [{"article_id": "1", "text": "Hello"}]}'
             main()
 
         mock_copy.assert_not_called()

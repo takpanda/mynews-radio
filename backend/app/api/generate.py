@@ -15,17 +15,15 @@ from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from app.batch.build_episode import build_episode
 from app.batch.generate_commentary_script import generate_commentary_script
-from app.batch.generate_script import generate_script
-from app.batch.import_articles import import_articles_by_source
-from app.batch.review_script import review_script
-from app.batch.summarize_articles import summarize_articles
+from app.batch.radio_pipeline import run_radio_pipeline
 from app.batch.synthesize_voicevox import synthesize_episode
+from app.batch.build_episode import build_episode
+from app.batch.review_script import review_script
 from app.config import get_settings
 from app.db.connection import get_db_connection
 from app.services.article_service import ArticleService
-from app.services.episode_service import EpisodeService, override_script_title, build_radio_title
+from app.services.episode_service import EpisodeService
 from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_url
 
 logger = logging.getLogger(__name__)
@@ -122,175 +120,32 @@ class GenerateRequest(BaseModel):
 
 
 def _run_generation(episode_id: int, body: GenerateRequest) -> None:
-    """Background pipeline that persists DB records and status transitions synchronously."""
+    """Background pipeline that delegates to the shared radio pipeline."""
 
-    service: EpisodeService | None = None
-    try:
-        service = EpisodeService()
-        episode_date = body.date
-        base_dir = os.path.join(DEFAULT_EPISODES_DIR, str(episode_id))
+    service = EpisodeService()
+    ep = service.get_episode(episode_id)
+    seq = ep.get("seq", 0) if ep else 0
 
-        Path(base_dir).mkdir(parents=True, exist_ok=True)
+    news_source = body.news_source if body.news_source in {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news"} else "hatena_bookmark"
 
-        news_source = body.news_source if body.news_source in {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news"} else "hatena_bookmark"
-        program_name = "テックニュース" if news_source == "hatena_bookmark" else "ニュースのとなり"
+    logger.info("Background generation started: episode_id=%d date=%s seq=%d", episode_id, body.date, seq)
 
-        ep = service.get_episode(episode_id)
-        seq = ep.get("seq", 0) if ep else 0
+    def _progress(phase: str, message: str) -> None:
+        service.update_episode_phase(episode_id, phase, message)
 
-        logger.info("Background generation started: episode_id=%d date=%s seq=%d", episode_id, episode_date, seq)
+    result = run_radio_pipeline(
+        episode_id,
+        episode_date=body.date,
+        news_source=news_source,
+        seq=seq,
+        max_articles=body.max_articles,
+        tts_engine=body.tts_engine,
+        default_episodes_dir=DEFAULT_EPISODES_DIR,
+        progress_callback=_progress,
+    )
 
-        # -- START --
-        service.update_episode_phase(episode_id, "start", "番組の生成を準備しています…")
-        logger.info("[%d] phase=start", episode_id)
-
-        # -- IMPORT --
-        service.update_episode_phase(episode_id, "import", "ニュース記事を取得しています…")
-        try:
-            ins, dup = import_articles_by_source(news_source)
-            logger.info("RSS import done: inserted=%d duplicated=%d", ins, dup)
-        except Exception as exc:
-            logger.exception("RSS import failed")
-            service.update_episode_status(episode_id, "failed")
-            return
-
-        if ins == 0 and dup == 0:
-            service.update_episode_status(episode_id, "failed")
-            return
-
-        # -- SUMMARIZE --
-        service.update_episode_phase(episode_id, "summarize", "記事を要約しています…")
-        try:
-            summaries_path = os.path.join(base_dir, "summaries.json")
-            summarized = summarize_articles(summaries_path)
-            logger.info("summarize done: count=%d", summarized)
-        except Exception as exc:
-            logger.exception("summarize failed")
-            service.update_episode_status(episode_id, "failed")
-            return
-
-        old_max = os.environ.get("MAX_SCRIPT_ARTICLES")
-        os.environ["MAX_SCRIPT_ARTICLES"] = str(body.max_articles)
-
-        try:
-            # -- GENERATE SCRIPT --
-            service.update_episode_phase(episode_id, "generate_script", "台本を生成しています…")
-            script_path = os.path.join(base_dir, "script.json")
-            line_count = generate_script(script_path, program_name=program_name, news_source=news_source)
-        finally:
-            if old_max is None:
-                os.environ.pop("MAX_SCRIPT_ARTICLES", None)
-            else:
-                os.environ["MAX_SCRIPT_ARTICLES"] = old_max
-
-        if line_count <= 0:
-            service.update_episode_status(episode_id, "failed")
-            return
-
-        # Override title with date-based format for radio episodes
-        override_script_title(script_path, program_name, episode_date, seq)
-        logger.info("Title overridden: %s", build_radio_title(program_name, episode_date, seq))
-
-        # -- TTS SETUP --
-        settings = get_settings()
-        tts_engines = {"voicevox", "aivispeech"}
-        tts_engine = body.tts_engine if body.tts_engine in tts_engines else settings.default_tts_engine
-        if tts_engine == "aivispeech":
-            tts_base_url = settings.aivispeech_base_url
-            tts_speaker_male = settings.aivispeech_speaker_male
-            tts_speaker_female = settings.aivispeech_speaker_female
-        else:
-            tts_base_url = settings.voicevox_base_url
-            tts_speaker_male = settings.voicevox_speaker_male
-            tts_speaker_female = settings.voicevox_speaker_female
-
-        review_result: dict[str, Any] = {"revised": False, "review_count": 0}
-
-        # -- REVIEW (quality gate) --
-        service.update_episode_phase(episode_id, "review", "台本をレビューしています…")
-        try:
-            reviewed_episode_dir = os.path.join(base_dir, "review")
-            Path(reviewed_episode_dir).mkdir(parents=True, exist_ok=True)
-            Path(os.path.join(reviewed_episode_dir, "lines")).mkdir(exist_ok=True)
-            review_result = review_script(script_path, reviewed_episode_dir)
-            logger.info(
-                "review_script: revised=%s review_count=%d",
-                review_result["revised"],
-                review_result["review_count"],
-            )
-            service.update_episode_phase(episode_id, "review_done", "レビューが完了しました…")
-        except Exception as exc:
-            logger.warning("review_script failed (non-fatal): %s", exc)
-
-        # -- BRANCH based on revised flag --
-        if review_result.get("revised"):
-            # Copy reviewed script to base_dir
-            shutil.copy(os.path.join(reviewed_episode_dir, "script.json"), script_path)
-            # Re-apply title override (review may have changed the title)
-            override_script_title(script_path, program_name, episode_date, seq)
-
-        # -- SYNTHESIZE TTS --
-        service.update_episode_phase(episode_id, "synthesize", "音声を合成しています…")
-        try:
-            success_count = synthesize_episode(
-                base_dir,
-                base_url=tts_base_url,
-                speaker_male=tts_speaker_male,
-                speaker_female=tts_speaker_female,
-            )
-        except Exception as exc:
-            logger.exception("tts synthesis failed")
-            service.update_episode_status(episode_id, "failed")
-            return
-
-        if success_count <= 0:
-            service.update_episode_status(episode_id, "failed")
-            return
-
-        # -- BUILD MP3 --
-        service.update_episode_phase(episode_id, "build", "音声をまとめています…")
-        ep_metadata = build_episode(base_dir)
-        if not ep_metadata:
-            service.update_episode_status(episode_id, "failed")
-            return
-
-        service.update_episode_audio_path(
-            episode_id, ep_metadata.get("audio_path") or ""
-        )
-
-        # -- PERSIST ITEMS (before marking completed, so failure keeps episode in failed state) --
-        try:
-            with open(script_path, "r", encoding="utf-8") as f:
-                script = json.load(f)
-            for idx, line in enumerate(script.get("lines", []), start=1):
-                aid = line.get("article_id")
-                audio_generation_id = f"ep{episode_id}-seg{idx}"
-                service.add_episode_item(
-                    episode_id=episode_id,
-                    article_id=int(aid) if aid is not None else None,
-                    item_order=idx,
-                    segment_text=line.get("text", ""),
-                    audio_generation_id=audio_generation_id,
-                )
-        except Exception:
-            logger.exception("failed to persist episode_items")
-            service.update_episode_status(episode_id, "failed")
-            return
-
-        service.update_episode_status(episode_id, "completed")
-        service.update_episode_phase(episode_id, "complete", "生成が完了しました")
-        logger.info("[%d] completed successfully", episode_id)
-    except Exception as exc:
-        # Guard net: catch any unexpected exception and set status to "failed".
-        # update_episode_status is idempotent, so we only skip terminal states.
-        if service is not None:
-            current = service.get_episode(episode_id)
-            current_status = current["status"] if current else None
-            if current_status not in {"completed", "failed"}:
-                logger.exception("[%d] generation failed unexpectedly", episode_id)
-                service.update_episode_status(episode_id, "failed")
-        else:
-            logger.exception("[%d] generation failed before service init", episode_id)
+    if result is None:
+        logger.warning("[%d] radio pipeline returned None", episode_id)
 
 
 # ---------------------------------------------------------------------------
