@@ -1,4 +1,5 @@
 
+import json
 import os
 import time
 from unittest.mock import patch, MagicMock
@@ -360,6 +361,446 @@ class TestRunGenerationPipeline:
         mock_build.assert_called_once()
         ep = svc.get_episode(ep_id)
         assert ep["status"] == "completed"
+
+
+class TestRunRadioPipelineCore:
+    """run_radio_pipeline() の直接検証(失敗/0件/引数伝播)."""
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source")
+    def test_import_zero_articles_sets_failed(self, mock_import):
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-01-01")
+        mock_import.return_value = (0, 0)
+
+        result = run_radio_pipeline(ep_id, episode_date="2099-01-01")
+
+        assert result is None
+        assert svc.get_episode(ep_id)["status"] == "failed"
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    def test_import_exception_sets_failed(self, mock_import):
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-01-02")
+        with patch("app.batch.radio_pipeline.summarize_articles", side_effect=RuntimeError("no ollama")):
+            result = run_radio_pipeline(ep_id, episode_date="2099-01-02")
+
+        assert result is None
+        assert svc.get_episode(ep_id)["status"] == "failed"
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    def test_generate_script_zero_lines_sets_failed(self, mock_sum, mock_import):
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-01-03")
+        with patch("app.batch.radio_pipeline.generate_script", return_value=0):
+            result = run_radio_pipeline(ep_id, episode_date="2099-01-03")
+
+        assert result is None
+        assert svc.get_episode(ep_id)["status"] == "failed"
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    @patch("app.batch.radio_pipeline.generate_script", return_value=5)
+    @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
+    @patch("builtins.open", MagicMock())
+    def test_synthesize_zero_lines_sets_failed(self, mock_review, mock_gen, mock_sum, mock_import):
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-01-04")
+        mock_open = MagicMock()
+        mock_open.return_value.__enter__.return_value.read.return_value = '{"lines": [{"article_id": "1", "text": "Hello"}]}'
+
+        with patch("app.batch.radio_pipeline.synthesize_episode", return_value=0), \
+             patch("builtins.open", mock_open):
+            result = run_radio_pipeline(ep_id, episode_date="2099-01-04")
+
+        assert result is None
+        assert svc.get_episode(ep_id)["status"] == "failed"
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    @patch("app.batch.radio_pipeline.generate_script", return_value=5)
+    @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
+    @patch("app.batch.radio_pipeline.synthesize_episode", return_value=3)
+    @patch("builtins.open", MagicMock())
+    def test_build_episode_returns_none_sets_failed(self, mock_synth, mock_review, mock_gen, mock_sum, mock_import):
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-01-05")
+        mock_open = MagicMock()
+        mock_open.return_value.__enter__.return_value.read.return_value = '{"lines": [{"article_id": "1", "text": "Hello"}]}'
+
+        with patch("app.batch.radio_pipeline.build_episode", return_value=None), \
+             patch("builtins.open", mock_open):
+            result = run_radio_pipeline(ep_id, episode_date="2099-01-05")
+
+        assert result is None
+        assert svc.get_episode(ep_id)["status"] == "failed"
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    @patch("app.batch.radio_pipeline.generate_script", return_value=5)
+    @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
+    @patch("app.batch.radio_pipeline.synthesize_episode", return_value=3)
+    @patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "ep.mp3"})
+    def test_multi_line_episode_items_persisted(self, mock_build, mock_synth, mock_review, mock_gen, mock_sum, mock_import):
+        """複数行scriptの episode_items 保存内容を検証."""
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-02-01")
+
+        multi_script = json.dumps({
+            "title": "test",
+            "lines": [
+                {"article_id": "10", "text": "Line one"},
+                {"article_id": None, "text": "Line two (no article)"},
+                {"text": "Line three (no id key)"},
+                {"article_id": "20", "text": "Line four"},
+            ]
+        })
+
+        with patch("builtins.open", _make_fake_open(multi_script)):
+            result = run_radio_pipeline(ep_id, episode_date="2099-02-01")
+
+        assert result is not None
+        ep = svc.get_episode(ep_id)
+        assert ep["status"] == "completed"
+
+        items = svc.get_episode_items(ep_id)
+        assert len(items) == 4
+
+        assert items[0]["item_order"] == 1
+        assert items[0]["article_id"] == 10
+        assert items[0]["segment_text"] == "Line one"
+        assert items[0]["audio_generation_id"] == f"ep{ep_id}-seg1"
+
+        assert items[1]["item_order"] == 2
+        assert items[1]["article_id"] is None
+        assert items[1]["segment_text"] == "Line two (no article)"
+        assert items[1]["audio_generation_id"] == f"ep{ep_id}-seg2"
+
+        assert items[2]["item_order"] == 3
+        assert items[2]["article_id"] is None
+        assert items[2]["segment_text"] == "Line three (no id key)"
+        assert items[2]["audio_generation_id"] == f"ep{ep_id}-seg3"
+
+        assert items[3]["item_order"] == 4
+        assert items[3]["article_id"] == 20
+        assert items[3]["segment_text"] == "Line four"
+        assert items[3]["audio_generation_id"] == f"ep{ep_id}-seg4"
+
+
+class TestRadioPipelineArgPropagation:
+    """max_articles / TTS engine / speaker ID の引数伝播を検証."""
+
+    def test_max_articles_sets_env_var(self):
+        """max_articles が MAX_SCRIPT_ARTICLES として generate_script 呼出し前に設定される."""
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-03-01")
+        captured_max = []
+
+        def _fake_generate_script(*args, **kwargs):
+            captured_max.append(os.environ.get("MAX_SCRIPT_ARTICLES"))
+            return 5
+
+        with patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0)), \
+             patch("app.batch.radio_pipeline.summarize_articles", return_value=5), \
+             patch("app.batch.radio_pipeline.generate_script", side_effect=_fake_generate_script), \
+             patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0}), \
+             patch("app.batch.radio_pipeline.synthesize_episode", return_value=3), \
+             patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "ep.mp3"}), \
+             patch("builtins.open", _make_fake_open('{"lines": []}')):
+
+            result = run_radio_pipeline(ep_id, episode_date="2099-03-01", max_articles=15)
+
+        assert result is not None
+        assert captured_max == ["15"], f"expected MAX_SCRIPT_ARTICLES=15, got {captured_max}"
+
+    def test_max_articles_env_restored_after_call(self):
+        """MAX_SCRIPT_ARTICLES が generate_script 呼出し後もとの値に戻る."""
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-03-02")
+        os.environ["MAX_SCRIPT_ARTICLES"] = "99"
+
+        with patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0)), \
+             patch("app.batch.radio_pipeline.summarize_articles", return_value=5), \
+             patch("app.batch.radio_pipeline.generate_script", return_value=5), \
+             patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0}), \
+             patch("app.batch.radio_pipeline.synthesize_episode", return_value=3), \
+             patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "ep.mp3"}), \
+             patch("builtins.open", _make_fake_open('{"lines": []}')):
+
+            result = run_radio_pipeline(ep_id, episode_date="2099-03-02", max_articles=5)
+
+        assert result is not None
+        assert os.environ.get("MAX_SCRIPT_ARTICLES") == "99"
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    @patch("app.batch.radio_pipeline.generate_script", return_value=5)
+    @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
+    @patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "ep.mp3"})
+    def test_tts_engine_aivispeech_passed_to_synthesize(self, mock_build, mock_review, mock_gen, mock_sum, mock_import):
+        """tts_engine=aivispeech 指定時に synthesize_episode へ正しい param が渡る."""
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+        from app.config import Settings
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-04-01")
+
+        with patch("app.batch.radio_pipeline.synthesize_episode", return_value=3) as mock_synth, \
+             patch("builtins.open", _make_fake_open('{"lines": [{"text": "hello"}]}')):
+
+            run_radio_pipeline(ep_id, episode_date="2099-04-01", tts_engine="aivispeech")
+
+        mock_synth.assert_called_once()
+        _call_kwargs = mock_synth.call_args[1]
+        settings = Settings()
+        assert _call_kwargs["base_url"] == settings.aivispeech_base_url
+        assert _call_kwargs["speaker_male"] == settings.aivispeech_speaker_male
+        assert _call_kwargs["speaker_female"] == settings.aivispeech_speaker_female
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    @patch("app.batch.radio_pipeline.generate_script", return_value=5)
+    @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
+    @patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "ep.mp3"})
+    def test_tts_engine_voicevox_passed_to_synthesize(self, mock_build, mock_review, mock_gen, mock_sum, mock_import):
+        """tts_engine=voicevox 指定時に synthesize_episode へ正しい param が渡る."""
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+        from app.config import Settings
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-04-02")
+
+        with patch("app.batch.radio_pipeline.synthesize_episode", return_value=3) as mock_synth, \
+             patch("builtins.open", _make_fake_open('{"lines": [{"text": "hello"}]}')):
+
+            run_radio_pipeline(ep_id, episode_date="2099-04-02", tts_engine="voicevox")
+
+        mock_synth.assert_called_once()
+        _call_kwargs = mock_synth.call_args[1]
+        settings = Settings()
+        assert _call_kwargs["base_url"] == settings.voicevox_base_url
+        assert _call_kwargs["speaker_male"] == settings.voicevox_speaker_male
+        assert _call_kwargs["speaker_female"] == settings.voicevox_speaker_female
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    @patch("app.batch.radio_pipeline.generate_script", return_value=5)
+    @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
+    @patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "ep.mp3"})
+    def test_tts_default_aivispeech_when_unspecified(self, mock_build, mock_review, mock_gen, mock_sum, mock_import):
+        """tts_engine 未指定時は settings.default_tts_engine (aivispeech) が使われる(Batch互換)."""
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+        from app.config import Settings
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-04-03")
+
+        with patch("app.batch.radio_pipeline.synthesize_episode", return_value=3) as mock_synth, \
+             patch("builtins.open", _make_fake_open('{"lines": [{"text": "hello"}]}')):
+
+            run_radio_pipeline(ep_id, episode_date="2099-04-03")
+
+        mock_synth.assert_called_once()
+        _call_kwargs = mock_synth.call_args[1]
+        settings = Settings()
+        assert _call_kwargs["base_url"] == settings.aivispeech_base_url
+        assert _call_kwargs["speaker_male"] == settings.aivispeech_speaker_male
+        assert _call_kwargs["speaker_female"] == settings.aivispeech_speaker_female
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    @patch("app.batch.radio_pipeline.generate_script", return_value=5)
+    @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
+    @patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "ep.mp3"})
+    def test_explicit_base_url_speakers_override_settings(self, mock_build, mock_review, mock_gen, mock_sum, mock_import):
+        """明示的な base_url/speaker 指定が settings より優先される(Web UI互換)."""
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-04-04")
+
+        with patch("app.batch.radio_pipeline.synthesize_episode", return_value=3) as mock_synth, \
+             patch("builtins.open", _make_fake_open('{"lines": [{"text": "hello"}]}')):
+
+            run_radio_pipeline(
+                ep_id,
+                episode_date="2099-04-04",
+                tts_base_url="http://custom:8080",
+                tts_speaker_male=111,
+                tts_speaker_female=222,
+            )
+
+        mock_synth.assert_called_once()
+        _call_kwargs = mock_synth.call_args[1]
+        assert _call_kwargs["base_url"] == "http://custom:8080"
+        assert _call_kwargs["speaker_male"] == 111
+        assert _call_kwargs["speaker_female"] == 222
+
+
+class TestRunGenerationArgPropagation:
+    """_run_generation() における Web UI 指定 → run_radio_pipeline / synthesize_episode への伝播."""
+
+    @patch("app.api.generate.run_radio_pipeline", return_value={"audio_path": "ep.mp3"})
+    def test_max_articles_from_body_passed_to_pipeline(self, mock_pipeline):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-05-01")
+        body = GenerateRequest(date="2099-05-01", max_articles=25)
+
+        _run_generation(ep_id, body)
+
+        mock_pipeline.assert_called_once()
+        assert mock_pipeline.call_args[1]["max_articles"] == 25
+
+    @patch("app.api.generate.run_radio_pipeline", return_value={"audio_path": "ep.mp3"})
+    def test_tts_engine_from_body_passed_to_pipeline(self, mock_pipeline):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-05-02")
+        body = GenerateRequest(date="2099-05-02", tts_engine="voicevox")
+
+        _run_generation(ep_id, body)
+
+        mock_pipeline.assert_called_once()
+        assert mock_pipeline.call_args[1]["tts_engine"] == "voicevox"
+
+    @patch("app.api.generate.run_radio_pipeline", return_value={"audio_path": "ep.mp3"})
+    def test_default_tts_engine_aivispeech_from_request(self, mock_pipeline):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-05-03")
+        body = GenerateRequest(date="2099-05-03")
+
+        _run_generation(ep_id, body)
+
+        mock_pipeline.assert_called_once()
+        assert mock_pipeline.call_args[1]["tts_engine"] == "aivispeech"
+
+    @patch("app.api.generate.run_radio_pipeline", return_value={"audio_path": "ep.mp3"})
+    def test_news_source_passed_to_pipeline(self, mock_pipeline):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-05-04")
+        body = GenerateRequest(date="2099-05-04", news_source="yahoo_news")
+
+        _run_generation(ep_id, body)
+
+        mock_pipeline.assert_called_once()
+        assert mock_pipeline.call_args[1]["news_source"] == "yahoo_news"
+
+    @patch("app.api.generate.run_radio_pipeline", return_value={"audio_path": "ep.mp3"})
+    def test_invalid_news_source_falls_back_to_hatena(self, mock_pipeline):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-05-05")
+        body = GenerateRequest(date="2099-05-05", news_source="invalid_source")
+
+        _run_generation(ep_id, body)
+
+        mock_pipeline.assert_called_once()
+        assert mock_pipeline.call_args[1]["news_source"] == "hatena_bookmark"
+
+
+class TestDetermineTtsConfig:
+    """_determine_tts_config の直接検証."""
+
+    def test_aivispeech_config(self):
+        from app.batch.radio_pipeline import _determine_tts_config
+        from app.config import Settings
+
+        settings = Settings()
+        config = _determine_tts_config("aivispeech")
+        assert config["tts_engine"] == "aivispeech"
+        assert config["base_url"] == settings.aivispeech_base_url
+        assert config["speaker_male"] == settings.aivispeech_speaker_male
+        assert config["speaker_female"] == settings.aivispeech_speaker_female
+
+    def test_voicevox_config(self):
+        from app.batch.radio_pipeline import _determine_tts_config
+        from app.config import Settings
+
+        settings = Settings()
+        config = _determine_tts_config("voicevox")
+        assert config["tts_engine"] == "voicevox"
+        assert config["base_url"] == settings.voicevox_base_url
+        assert config["speaker_male"] == settings.voicevox_speaker_male
+        assert config["speaker_female"] == settings.voicevox_speaker_female
+
+    def test_invalid_engine_falls_back_to_default(self):
+        from app.batch.radio_pipeline import _determine_tts_config
+        from app.config import Settings
+
+        settings = Settings()
+        config = _determine_tts_config("invalid_engine")
+        assert config["tts_engine"] == settings.default_tts_engine
+
+    def test_none_engine_uses_default(self):
+        from app.batch.radio_pipeline import _determine_tts_config
+        from app.config import Settings
+
+        settings = Settings()
+        config = _determine_tts_config(None)
+        assert config["tts_engine"] == settings.default_tts_engine
+
+
+class TestRunDailyFailureModes:
+    """run_daily.main() 経由の失敗時動作検証."""
+
+    @patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(99, 0))
+    @patch("app.batch.run_daily.setup_daily_logging")
+    def test_batch_import_exit_on_failure(self, mock_log, mock_create):
+        """run_radio_pipeline が None を返した場合 sys.exit(1) で終了する."""
+        from app.batch.run_daily import main
+
+        with patch("app.batch.run_daily.run_radio_pipeline", return_value=None), \
+             patch("app.batch.run_daily._write_manifest") as mock_manifest, \
+             patch.dict(os.environ, {"BATCH_DATE": "2099-06-01"}):
+
+            try:
+                main()
+                assert False, "expected sys.exit"
+            except SystemExit as exc:
+                assert exc.code == 1
+
+        mock_manifest.assert_called_once_with(status="failed")
 
 
 class TestAuthGuard:
