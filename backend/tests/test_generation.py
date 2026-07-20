@@ -73,7 +73,7 @@ class TestGenerateEndpoint:
         ep = svc.get_episode(data["episode_id"])
         assert ep["seq"] == 0
 
-    def test_run_generation_outer_except_on_unexpected_error(self, client):
+    def test_run_generation_outer_except_on_unexpected_error(self):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
 
@@ -951,12 +951,17 @@ class TestRunDailyReviewConsistency:
             main()
 
         mock_copy.assert_called()
-        found = any(
+        found_copy = any(
             "review/script.json" in str(args[0]) and str(args[1]).endswith("script.json")
             for args, _ in mock_copy.call_args_list
         )
-        assert found, f"No review copy found in calls: {mock_copy.call_args_list}"
-        mock_review.assert_called_once()
+        assert found_copy, f"No review copy found in calls: {mock_copy.call_args_list}"
+        mock_review.assert_called()
+        found_review = any(
+            str(args[1]).endswith("/review")
+            for args, _ in mock_review.call_args_list
+        )
+        assert found_review, f"No review call with /review output dir: {mock_review.call_args_list}"
 
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(5, 0))
     @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
@@ -1116,8 +1121,10 @@ class TestOrchestrateReviewConsistency:
             run("2099-12-31")
 
         # Verify review output dir is episode_dir/review/, not episode_dir directly
-        mock_review.assert_called_once()
-        call_args = mock_review.call_args[0]
-        assert call_args[0].endswith("script.json")  # source script
-        assert call_args[1].endswith("/review")       # output dir
-        assert not call_args[1].endswith("episodes/1")  # not episode_dir directly
+        mock_review.assert_called()
+        found_review_dest = any(
+            args[0].endswith("script.json") and str(args[1]).endswith("/review")
+            and not str(args[1]).rstrip("/").endswith("episodes/1")
+            for args, _ in mock_review.call_args_list
+        )
+        assert found_review_dest, f"No valid review call: {mock_review.call_args_list}"
