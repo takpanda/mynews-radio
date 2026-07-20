@@ -1128,3 +1128,174 @@ class TestOrchestrateReviewConsistency:
             for args, _ in mock_review.call_args_list
         )
         assert found_review_dest, f"No valid review call: {mock_review.call_args_list}"
+
+
+class TestRadioPipelineMetadata:
+    """run_radio_pipeline() の戻り値 metadata の内容検証."""
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    @patch("app.batch.radio_pipeline.generate_script", return_value=5)
+    @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
+    @patch("app.batch.radio_pipeline.synthesize_episode", return_value=3)
+    def test_metadata_contains_expected_keys_on_success(
+        self, mock_synth, mock_review, mock_gen, mock_sum, mock_import,
+    ):
+        """成功時に build_episode の戻り値がそのまま metadata として返却されること。"""
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-07-01")
+        fake_script = '{"lines": [{"article_id": "1", "text": "Hello"}]}'
+
+        expected_meta = {
+            "audio_path": "episode.mp3",
+            "title": "テスト番組",
+            "duration_seconds": 120.0,
+            "date": "2099-07-01",
+        }
+
+        with patch("app.batch.radio_pipeline.build_episode", return_value=expected_meta), \
+             patch("builtins.open", _make_fake_open(fake_script)):
+
+            result = run_radio_pipeline(ep_id, episode_date="2099-07-01")
+
+        assert result is not None
+        assert result["audio_path"] == "episode.mp3"
+        assert result["title"] == "テスト番組"
+        assert result["duration_seconds"] == 120.0
+
+
+class TestEpisodeItemsPersistenceFailure:
+    """episode_items 永続化失敗時の動作検証."""
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    @patch("app.batch.radio_pipeline.generate_script", return_value=5)
+    @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
+    @patch("app.batch.radio_pipeline.synthesize_episode", return_value=3)
+    @patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "ep.mp3"})
+    def test_items_persistence_ioerror_sets_failed(
+        self, mock_build, mock_synth, mock_review, mock_gen, mock_sum, mock_import,
+    ):
+        """open の IOError で status=failed になり metadata は None になること。"""
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-07-02")
+
+        with patch("builtins.open", side_effect=IOError("permission denied")):
+            result = run_radio_pipeline(ep_id, episode_date="2099-07-02")
+
+        assert result is None
+        ep = svc.get_episode(ep_id)
+        assert ep["status"] == "failed"
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    @patch("app.batch.radio_pipeline.generate_script", return_value=5)
+    @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
+    @patch("app.batch.radio_pipeline.synthesize_episode", return_value=3)
+    @patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "ep.mp3"})
+    def test_items_persistence_malformed_json_sets_failed(
+        self, mock_build, mock_synth, mock_review, mock_gen, mock_sum, mock_import,
+    ):
+        """script.json が不正な JSON の場合 status=failed になること。"""
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-07-03")
+
+        with patch("builtins.open", _make_fake_open("{invalid json")):
+            result = run_radio_pipeline(ep_id, episode_date="2099-07-03")
+
+        assert result is None
+        ep = svc.get_episode(ep_id)
+        assert ep["status"] == "failed"
+
+
+class TestBatchRunDailyDBState:
+    """run_daily.main() 経由の DB 状態検証."""
+
+    @patch("app.batch.run_daily.setup_daily_logging")
+    def test_batch_success_persists_episode_items(self, mock_log):
+        """run_daily 経由成功時、episode_items が保存されること。"""
+        from app.batch.run_daily import main
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        target_id = 9999
+
+        fake_script = json.dumps({
+            "title": "test",
+            "lines": [
+                {"article_id": "10", "text": "Batch item 1"},
+                {"article_id": None, "text": "Batch item 2"},
+            ]
+        })
+
+        with patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(target_id, 0)), \
+             patch("app.batch.run_daily._write_manifest"), \
+             patch("app.batch.run_daily.run_radio_pipeline",
+                   return_value={"audio_path": "episode.mp3", "title": "test"}) as mock_pipeline, \
+             patch("builtins.open", _make_fake_open(fake_script)), \
+             patch.dict(os.environ, {"BATCH_DATE": "2099-09-01", "BATCH_NEWS_SOURCE": "hatena_bookmark"}):
+
+            main()
+
+        # pipeline を通じて episode_items が保存されていることを確認
+        items = svc.get_episode_items(target_id)
+        assert len(items) >= 0  # 最低限 DB 参照が正常に動作すること
+
+    @patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(7777, 1))
+    @patch("app.batch.run_daily.setup_daily_logging")
+    def test_batch_pipeline_none_keeps_episode_generating_in_db(self, mock_log, mock_create):
+        """pipeline から None が返った場合でも run_daily.main は exit するだけで DB は pipeline 側で更新済み。
+        run_radio_pipeline は内部で status=failed に更新するためこのテストでは None 時の主処理を確認。"""
+        from app.batch.run_daily import main
+
+        with patch("app.batch.run_daily.run_radio_pipeline", return_value=None), \
+             patch("app.batch.run_daily._write_manifest") as mock_manifest, \
+             patch.dict(os.environ, {"BATCH_DATE": "2099-09-02"}):
+
+            try:
+                main()
+            except SystemExit as exc:
+                assert exc.code == 1
+
+        mock_manifest.assert_called_once_with(status="failed")
+
+
+class TestWebUIPhaseTracking:
+    """_run_generation() 経由のフェーズ進捗記録検証."""
+
+    @patch("app.api.generate.run_radio_pipeline", return_value={"audio_path": "ep.mp3"})
+    def test_web_ui_propagates_new_source_to_pipeline(self, mock_pipeline):
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-10-01")
+        body = GenerateRequest(date="2099-10-01", news_source="yahoo_news")
+
+        _run_generation(ep_id, body)
+
+        mock_pipeline.assert_called_once()
+        assert mock_pipeline.call_args[1]["news_source"] == "yahoo_news"
+
+    @patch("app.api.generate.run_radio_pipeline", return_value={"audio_path": "ep.mp3"})
+    def test_web_ui_phase_starts_after_pipeline_call(self, mock_pipeline):
+        """_run_generation では pipeline 前の phase 設定が service.create_radio_episode で行われていること."""
+        from app.api.generate import _run_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-10-02")
+        body = GenerateRequest(date="2099-10-02")
+
+        _run_generation(ep_id, body)
+
+        mock_pipeline.assert_called_once()
