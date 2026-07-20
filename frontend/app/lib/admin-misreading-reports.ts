@@ -7,7 +7,7 @@ export interface AdminMisreadingReport {
   created_at: string
 }
 
-const SERVER_API_BASE = process.env.API_BASE ?? 'http://api:8010'
+const API_BASE = process.env.API_BASE ?? 'http://api:8010'
 const API_KEY = process.env.API_KEY
 
 function serverHeaders(): Record<string, string> {
@@ -18,15 +18,12 @@ function serverHeaders(): Record<string, string> {
   return headers
 }
 
+/** サーバーサイド専用：バックエンドへ直接アクセス（認証ヘッダー付与） */
 export async function fetchAdminMisreadingReports(): Promise<AdminMisreadingReport[]> {
-  const isServer = typeof window === 'undefined'
-  const url = isServer
-    ? `${SERVER_API_BASE}/admin/reports/misreading`
-    : '/api/admin/reports/misreading'
-  const options: RequestInit = isServer
-    ? { headers: serverHeaders(), cache: 'no-store' as RequestCache }
-    : { cache: 'no-store' as RequestCache }
-  const res = await fetch(url, options)
+  const res = await fetch(`${API_BASE}/admin/reports/misreading`, {
+    headers: serverHeaders(),
+    cache: 'no-store' as RequestCache,
+  })
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     throw new Error(body || `Failed to fetch misreading reports: ${res.status}`)
