@@ -223,6 +223,42 @@ class TestDictionaryList:
         resp = client.get("/admin/dictionary?status=invalid")
         assert resp.status_code == 422
 
+    def test_list_entries_include_source_misreading_report_id(self, client, monkeypatch):
+        """承認APIで作成された辞書エントリの一覧に source_misreading_report_id が含まれる"""
+        from app import config as cfg_mod
+        monkeypatch.setenv("API_KEY", "test-admin-key")
+        if hasattr(cfg_mod.get_settings, "cache_clear"):
+            cfg_mod.get_settings.cache_clear()
+
+        report_resp = client.post(
+            "/reports/misreading",
+            json={"target_text": "承認由来語", "correct_reading": "しょうにんゆらいご"},
+        )
+        assert report_resp.status_code == 201
+        report_id = report_resp.json()["id"]
+
+        approve_resp = client.post(
+            f"/admin/reports/misreading/{report_id}/approve",
+            headers={"Authorization": "Bearer test-admin-key"},
+        )
+        assert approve_resp.status_code == 200
+        entry_id = approve_resp.json()["dictionary_entry_id"]
+
+        headers = {"Authorization": "Bearer test-admin-key"}
+        list_resp = client.get("/admin/dictionary", headers=headers)
+        assert list_resp.status_code == 200
+        entries = list_resp.json()
+        approved = [e for e in entries if e["id"] == entry_id]
+        assert len(approved) == 1
+        assert approved[0]["source_misreading_report_id"] == report_id
+
+        paginated_resp = client.get("/admin/dictionary?limit=50&offset=0", headers=headers)
+        assert paginated_resp.status_code == 200
+        paginated = paginated_resp.json()
+        approved_p = [e for e in paginated["items"] if e["id"] == entry_id]
+        assert len(approved_p) == 1
+        assert approved_p[0]["source_misreading_report_id"] == report_id
+
 
 class TestDictionaryGet:
     """GET /admin/dictionary/{id} のテスト"""
