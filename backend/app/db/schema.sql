@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS dictionary_entries (
     category TEXT DEFAULT '',
     is_active INTEGER NOT NULL DEFAULT 1,
     notes TEXT DEFAULT '',
+    source_misreading_report_id INTEGER,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(surface, reading)
@@ -66,6 +67,9 @@ CREATE TABLE IF NOT EXISTS misreading_reports (
     playback_position REAL,
     notes TEXT DEFAULT '',
     app_version TEXT DEFAULT '',
+    approved INTEGER NOT NULL DEFAULT 0,
+    approved_at TEXT,
+    approved_dictionary_entry_id INTEGER,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

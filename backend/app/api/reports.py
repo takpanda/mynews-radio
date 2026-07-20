@@ -1,4 +1,4 @@
-"""Misreading report submission and admin list API (BEE-432 / BEE-453)."""
+"""Misreading report submission and admin list API (BEE-432 / BEE-453 / BEE-459)."""
 
 import logging
 from datetime import datetime, timezone
@@ -38,6 +38,12 @@ def _format_dt(dt_str: str) -> str:
         return dt.replace(tzinfo=timezone.utc).isoformat()
     except (ValueError, TypeError):
         return dt_str
+
+
+def _format_optional_dt(dt_str: Optional[str]) -> Optional[str]:
+    if not dt_str:
+        return None
+    return _format_dt(dt_str)
 
 
 def _row_to_report(row) -> dict:
@@ -123,6 +129,9 @@ def _row_to_admin_report(row) -> dict:
         "correct_reading": d["correct_reading"],
         "article_id": d.get("article_id"),
         "notes": d.get("notes") or "",
+        "approved": bool(d.get("approved", 0)),
+        "approved_at": _format_optional_dt(d.get("approved_at")),
+        "approved_dictionary_entry_id": d.get("approved_dictionary_entry_id"),
         "created_at": _format_dt(d["created_at"]),
     }
 
@@ -140,8 +149,82 @@ def list_misreading_reports() -> list[dict]:
     """
     with get_db_connection() as conn:
         rows = conn.execute(
-            "SELECT id, target_text, correct_reading, article_id, notes, created_at "
+            "SELECT id, target_text, correct_reading, article_id, notes, "
+            "approved, approved_at, approved_dictionary_entry_id, created_at "
             "FROM misreading_reports ORDER BY created_at DESC, id DESC"
         ).fetchall()
 
     return [_row_to_admin_report(row) for row in rows]
+
+
+@router.post(
+    "/admin/reports/misreading/{report_id}/approve",
+    summary="読み間違い報告を承認して辞書登録する",
+    dependencies=[Depends(require_admin_key)],
+)
+def approve_misreading_report(report_id: int) -> dict:
+    """読み間違い報告を承認し、辞書エントリを1件作成する。
+
+    既承認の報告は再承認せず、既存辞書エントリIDを返す。
+    同一 target_text が既に辞書にある場合は、新規作成せずスキップする。
+    すべての操作は同一トランザクション内で原子的に行われ、
+    BEGIN IMMEDIATE により並行書込みから保護される。
+    """
+    with get_db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+
+        row = conn.execute(
+            "SELECT * FROM misreading_reports WHERE id = ?", (report_id,)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        report = dict(row)
+
+        if report.get("approved"):
+            return {
+                "status": "already_approved",
+                "report_id": report_id,
+                "dictionary_entry_id": report.get("approved_dictionary_entry_id"),
+            }
+
+        existing = conn.execute(
+            "SELECT id FROM dictionary_entries WHERE surface = ?",
+            (report["target_text"],),
+        ).fetchone()
+
+        if existing:
+            conn.execute(
+                "UPDATE misreading_reports SET approved = 1, "
+                "approved_at = datetime('now'), "
+                "approved_dictionary_entry_id = ? "
+                "WHERE id = ?",
+                (existing["id"], report_id),
+            )
+            return {
+                "status": "skipped",
+                "report_id": report_id,
+                "reason": "duplicate_original",
+                "existing_entry_id": existing["id"],
+            }
+
+        cursor = conn.execute(
+            "INSERT INTO dictionary_entries (surface, reading, category, source_misreading_report_id) "
+            "VALUES (?, ?, '', ?)",
+            (report["target_text"], report["correct_reading"], report_id),
+        )
+        entry_id = cursor.lastrowid
+
+        conn.execute(
+            "UPDATE misreading_reports SET approved = 1, "
+            "approved_at = datetime('now'), "
+            "approved_dictionary_entry_id = ? "
+            "WHERE id = ?",
+            (entry_id, report_id),
+        )
+
+    return {
+        "status": "approved",
+        "report_id": report_id,
+        "dictionary_entry_id": entry_id,
+    }
