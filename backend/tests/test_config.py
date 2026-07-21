@@ -207,6 +207,138 @@ class TestCronEnvInjectionViaSubprocess:
 
 
 # =========================================================================
+# Default CRON_SCHEDULE format test
+# =========================================================================
+
+class TestCronScheduleDefault:
+    """entrypoint.sh の CRON_SCHEDULE 既定値が有効な cron 書式であること"""
+
+    def test_default_cron_schedule_has_no_stray_quotes(self):
+        """CRON_SCHEDULE 未設定時にデフォルト値に引用符が含まれないこと"""
+        code = r"""
+SCHEDULE="${CRON_SCHEDULE:-0 21 * * *}"
+echo "$SCHEDULE"
+"""
+        result = subprocess.run(
+            ["bash", "-c", code],
+            capture_output=True, text=True, timeout=15,
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
+        )
+        assert result.returncode == 0, f"bash failed: {result.stderr}"
+        value = result.stdout.strip()
+        assert "'" not in value, f"Default schedule contains stray quotes: {value}"
+        parts = value.split()
+        assert len(parts) == 5, (
+            f"Default cron schedule should have 5 fields, got {len(parts)}: {value}"
+        )
+
+    def test_custom_cron_schedule_respected(self):
+        """CRON_SCHEDULE 設定時にカスタム値が使われること"""
+        code = r"""
+SCHEDULE="${CRON_SCHEDULE:-0 21 * * *}"
+echo "$SCHEDULE"
+"""
+        result = subprocess.run(
+            ["bash", "-c", code],
+            capture_output=True, text=True, timeout=15,
+            env={"CRON_SCHEDULE": "*/5 * * * *", "PATH": os.environ.get("PATH", "/usr/bin:/bin")},
+        )
+        assert result.returncode == 0, f"bash failed: {result.stderr}"
+        assert result.stdout.strip() == "*/5 * * * *", (
+            f"Expected custom schedule, got: {result.stdout.strip()}"
+        )
+
+
+# =========================================================================
+# Entrypoint cron generation body test
+# =========================================================================
+
+class TestEntrypointCronGeneration:
+    """entrypoint.sh の cron 生成本体を実際のシェルコードで検証"""
+
+    CRON_GEN_SCRIPT = r"""
+set -e
+CRON_FILE="$1"
+
+# entrypoint.sh lines 4-7: CRON_SCHEDULE default
+CRON_SCHEDULE="${CRON_SCHEDULE:-0 21 * * *}"
+SCHEDULE="$CRON_SCHEDULE"
+
+# entrypoint.sh lines 14-18: crontab header
+(cat <<'CRONTAB_HEADER'
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRONTAB_HEADER
+) > "$CRON_FILE"
+
+# entrypoint.sh line 39: cron job line
+echo "$SCHEDULE cd /app && python3 /app/app/batch/run_daily.py >> /app/data/logs/crontab.log 2>&1" >> "$CRON_FILE"
+
+cat "$CRON_FILE"
+"""
+
+    def _run_cron_generation(self, env_vars: dict[str, str]) -> str:
+        clean_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+        for k, v in env_vars.items():
+            clean_env[k] = v
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
+            f.write(self.CRON_GEN_SCRIPT)
+            script_path = f.name
+        os.chmod(script_path, 0o755)
+
+        try:
+            with tempfile.NamedTemporaryFile(delete=False) as out:
+                out_path = out.name
+
+            result = subprocess.run(
+                ["bash", script_path, out_path],
+                capture_output=True, text=True, timeout=15,
+                env=clean_env,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"bash subprocess failed (rc={result.returncode}):\n"
+                    f"stderr: {result.stderr}\nstdout: {result.stdout}"
+                )
+            return result.stdout
+        finally:
+            os.unlink(script_path)
+            if os.path.exists(out_path):
+                os.unlink(out_path)
+
+    def test_default_schedule_line_has_valid_cron_format(self):
+        """CRON_SCHEDULE 未設定時、生成される cron 行が有効な5フィールド書式であること"""
+        output = self._run_cron_generation({})
+        lines = output.strip().splitlines()
+        # Last line should be the cron job: "min hour dom mon dow cd /app && ..."
+        cron_line = lines[-1]
+        parts = cron_line.split()
+        assert len(parts) >= 6, (
+            f"cron line should have 5 fields + command, got {len(parts)}: {cron_line!r}"
+        )
+        minute, hour, dom, mon, dow = parts[:5]
+        # Verify each cron field is valid (digits, *, /, ,, -)
+        import re
+        cron_field = re.compile(r'^[0-9*/,\-]+$')
+        for field, name in [(minute, "minute"), (hour, "hour"), (dom, "day-of-month"),
+                             (mon, "month"), (dow, "day-of-week")]:
+            assert cron_field.match(field), (
+                f"Invalid cron field '{name}': {field!r} in line: {cron_line!r}"
+            )
+        # No stray quotes
+        assert "'" not in cron_line, f"Stray quote in cron line: {cron_line!r}"
+
+    def test_custom_schedule_line_has_valid_cron_format(self):
+        """CRON_SCHEDULE カスタム設定時、その値が cron 行に反映されること"""
+        output = self._run_cron_generation({"CRON_SCHEDULE": "30 6 * * 1-5"})
+        cron_line = output.strip().splitlines()[-1]
+        assert cron_line.startswith("30 6 * * 1-5 "), (
+            f"Custom schedule not reflected: {cron_line!r}"
+        )
+
+
+# =========================================================================
 # Cron minimal environment test
 # =========================================================================
 

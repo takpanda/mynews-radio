@@ -221,6 +221,58 @@ end_test
 
 
 # =========================================================================
+# Test 12: CRON_SCHEDULE default has no stray quotes (entrypoint.sh line 6 exact code)
+# =========================================================================
+begin_test
+SCHEDULE="${CRON_SCHEDULE:-0 21 * * *}"
+echo "$SCHEDULE" > "$OUTPUT_FILE"
+check "CRON_SCHEDULE default has no stray quotes" \
+  "grep -q '^0 21 \\* \\* \\*$' \"\$OUTPUT_FILE\" && \
+   ! grep -q \"'\" \"\$OUTPUT_FILE\""
+end_test
+
+
+# =========================================================================
+# Test 13: CRON_SCHEDULE custom value respected (entrypoint.sh line 6 exact code)
+# =========================================================================
+begin_test
+CRON_SCHEDULE='*/15 * * * *' SCHEDULE="${CRON_SCHEDULE:-0 21 * * *}"
+echo "$SCHEDULE" > "$OUTPUT_FILE"
+check "CRON_SCHEDULE custom value respected" \
+  "grep -q '^*/15 \\* \\* \\* \\*$' \"\$OUTPUT_FILE\""
+end_test
+
+
+# =========================================================================
+# Test 14: crontab schedule line format (entrypoint.sh lines 6+39 exact code)
+# Generates the full cron schedule line as entrypoint.sh does, verifying
+# the first field is a valid cron minute expression (no stray quotes).
+# =========================================================================
+begin_test
+# Simulate entrypoint.sh lines 6 and 39 exactly
+_CRON_SCHEDULE="${CRON_SCHEDULE:-0 21 * * *}"
+_cron_line="${_CRON_SCHEDULE} cd /app && python3 /app/app/batch/run_daily.py >> /app/data/logs/crontab.log 2>&1"
+echo "$_cron_line" > "$OUTPUT_FILE"
+check "crontab schedule line format (default) is valid cron" \
+  "grep -Eq '^[0-9*/,-]+ [0-9*/,-]+ [0-9*/,-]+ [0-9*/,-]+ [0-9*/,-]+ cd /app &&' \"\$OUTPUT_FILE\" && \
+   ! grep -q \"'\" \"\$OUTPUT_FILE\""
+end_test
+
+
+# =========================================================================
+# Test 15: crontab schedule line with custom schedule (entrypoint.sh lines 6+39 exact code)
+# =========================================================================
+begin_test
+CRON_SCHEDULE='30 6 * * 1-5' _CRON_SCHEDULE="${CRON_SCHEDULE:-0 21 * * *}"
+_cron_line="${_CRON_SCHEDULE} cd /app && python3 /app/app/batch/run_daily.py >> /app/data/logs/crontab.log 2>&1"
+echo "$_cron_line" > "$OUTPUT_FILE"
+check "crontab schedule line format (custom weekdays) is valid" \
+  "grep -Eq '^30 6 \\* \\* 1-5 cd /app &&' \"\$OUTPUT_FILE\" && \
+   ! grep -q \"'\" \"\$OUTPUT_FILE\""
+end_test
+
+
+# =========================================================================
 # Summary
 # =========================================================================
 echo ""

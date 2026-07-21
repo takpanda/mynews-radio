@@ -3,7 +3,7 @@ set -e
 
 # Load CRON_SCHEDULE from env (default: 6:00 AM JST = 0 6 * * * in UTC+9)
 # Format: minute hour day-of-month month day-of-week
-SCHEDULE="${CRON_SCHEDULE:-'0 21 * * *'}"
+SCHEDULE="${CRON_SCHEDULE:-0 21 * * *}"
 
 echo "[entrypoint] CRON_SCHEDULE=$SCHEDULE (crontab timezone offset applied for JST)"
 
