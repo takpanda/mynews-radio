@@ -9,8 +9,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:////app/data/mynews-radio.db"
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:3010,https://radio.beeworks.cc"
-    dgx_host: str = "192.168.1.103"
-    ollama_base_url: str = "http://192.168.1.103:11434"
+    dgx_host: str = "192.168.1.102"
+    ollama_base_url: str = "http://192.168.1.102:11434"
     ollama_model: str = "qwen3.6:35b"
     voicevox_base_url: str = "http://192.168.1.102:50021"
     voicevox_speaker_male: int = 11
