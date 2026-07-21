@@ -19,12 +19,19 @@ CRONTAB_HEADER
 
 # Write environment variables for cron jobs
 # Note: only non-empty values are written; empty/undefined vars are skipped.
+# CR/LF characters are stripped to prevent cron definition injection.
 for _var in OLLAMA_BASE_URL OLLAMA_MODEL DGX_HOST \
     VOICEVOX_BASE_URL VOICEVOX_SPEAKER_MALE VOICEVOX_SPEAKER_FEMALE \
     AIVISPEECH_BASE_URL AIVISPEECH_SPEAKER_MALE AIVISPEECH_SPEAKER_FEMALE \
     API_KEY CORS_ORIGINS; do
   _val="${!_var:-}"
   if [ -n "$_val" ]; then
+    if [[ "$_val" == *$'\n'* || "$_val" == *$'\r'* ]]; then
+      echo "[entrypoint] WARNING: CR/LF stripped from $_var for cron safety" >&2
+    fi
+    # Strip CR/LF to prevent cron definition injection
+    _val="${_val//$'\n'/}"
+    _val="${_val//$'\r'/}"
     printf '%s=%s\n' "$_var" "$_val" >> /etc/cron.d/mynews-batch
   fi
 done
