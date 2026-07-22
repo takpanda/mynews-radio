@@ -151,10 +151,13 @@ class VoicevoxClient:
     def synthesize_line(
         self, text: str, speaker: str, output_path: str,
         delivery: str = "neutral",
+        kana_text: Optional[str] = None,
     ) -> bool:
         """セリフ1行を、audio_query → synthesis の2ステップでWAV生成する
 
         delivery: 発話スタイル（neutral / emphasis / thoughtful / questioning / warm）
+        kana_text: 指定された場合、audio_query の kana フィールドを上書きする。
+                   None（既定）の場合は上書きせず、Engine の user_dict 解析を有効にする。
         """
         speaker_id = self.get_speaker_id(speaker)
 
@@ -166,7 +169,7 @@ class VoicevoxClient:
         audio_query = self.get_audio_query(
             text, speaker_id,
             query_params=params,
-            kana_text=text,
+            kana_text=kana_text,
         )
         if audio_query is None:
             logger.error(

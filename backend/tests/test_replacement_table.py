@@ -210,7 +210,7 @@ class TestSynthesizeEpisodeNullText:
             json.dump(script, f)
 
         # VoicevoxClient.synthesize_line をモック（WAVファイルを作成）
-        def mock_synthesize_line(self, text, speaker, output_path, delivery="neutral"):
+        def mock_synthesize_line(self, text, speaker, output_path, delivery="neutral", kana_text=None):
             with open(output_path, "w") as f:
                 f.write("dummy")
             return True

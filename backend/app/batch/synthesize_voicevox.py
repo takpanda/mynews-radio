@@ -178,7 +178,10 @@ def synthesize_episode(
             idx, speaker, section, delivery, original_text[:50], filepath,
         )
 
-        ok = client.synthesize_line(spoken_text, speaker, filepath, delivery=delivery)
+        ok = client.synthesize_line(
+            spoken_text, speaker, filepath, delivery=delivery,
+            kana_text=spoken_text if spoken_text != original_text else None,
+        )
         if ok and os.path.isfile(filepath):
             success_count += 1
             # Store both display and spoken text back into line object
