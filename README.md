@@ -95,6 +95,28 @@ docker compose exec api python3 /app/app/batch/orchestrate.py
 docker compose exec api python3 /app/app/batch/orchestrate.py 2026-05-31
 ```
 
+### フロントエンドテスト（ローカル）
+
+依存関係未導入の状態からフロントエンドのテストを実行するには:
+
+```bash
+# 1. 依存関係をロックファイルに従ってインストール
+cd frontend && npm ci
+
+# 2. テストを実行
+npm test -- --runInBand
+```
+
+### フロントエンドテスト（Docker）
+
+```bash
+# Docker イメージをビルド
+docker compose build web
+
+# テストを実行（コンテナ内で npm test）
+docker compose run --rm web npm test -- --runInBand
+```
+
 ## バッチパイプライン
 
 ```
