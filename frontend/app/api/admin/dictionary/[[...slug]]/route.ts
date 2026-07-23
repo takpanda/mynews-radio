@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server"
+import { API_BASE, requireAdminSession } from "../../auth"
 
-const API_BASE = process.env.API_BASE ?? "http://api:8010"
-const API_KEY = process.env.API_KEY
 
 function buildUpstreamUrl(request: NextRequest): string {
   const { pathname, searchParams } = new URL(request.url)
@@ -13,19 +12,22 @@ function buildUpstreamUrl(request: NextRequest): string {
   return url
 }
 
-function buildHeaders(): Record<string, string> {
+function buildHeaders(request: NextRequest): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   }
-  if (API_KEY) {
-    headers["Authorization"] = `Bearer ${API_KEY}`
+  const cookie = request.headers.get("cookie")
+  if (cookie) {
+    headers["Cookie"] = cookie
   }
   return headers
 }
 
 async function proxy(request: NextRequest, method: string) {
+  const unauthorized = await requireAdminSession(request)
+  if (unauthorized) return unauthorized
   const upstreamUrl = buildUpstreamUrl(request)
-  const headers = buildHeaders()
+  const headers = buildHeaders(request)
   let body: string | undefined
   if (method !== "GET" && method !== "HEAD") {
     body = await request.text()

@@ -1,7 +1,10 @@
 import AdminDictionaryShell from '../../components/AdminDictionaryShell'
 import { fetchDictionaryEntries } from '../../lib/admin-dictionary'
+import AdminNav from '../../components/AdminNav'
+import { requireAdminSessionForPage } from '../auth'
 
 export default async function AdminDictionaryPage() {
+  await requireAdminSessionForPage()
   let initialData = null
   let error: string | null = null
 
@@ -13,6 +16,7 @@ export default async function AdminDictionaryPage() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 pb-24 pt-6 sm:px-6">
+      <AdminNav />
       {error ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error}

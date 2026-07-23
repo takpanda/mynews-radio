@@ -23,7 +23,6 @@ export interface PaginatedDictionaryResponse {
 }
 
 const SERVER_API_BASE = process.env.API_BASE ?? 'http://api:8010'
-const API_KEY = process.env.API_KEY
 
 function toQueryString(params: Record<string, string | number | undefined>): string {
   const parts: string[] = []
@@ -36,18 +35,19 @@ function toQueryString(params: Record<string, string | number | undefined>): str
 }
 
 /** サーバーサイド専用：バックエンドへ直接アクセス（認証ヘッダー付与） */
-function serverHeaders(): Record<string, string> {
+async function serverHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (API_KEY) {
-    headers['Authorization'] = `Bearer ${API_KEY}`
-  }
+  const { cookies } = await import('next/headers')
+  const cookie = cookies().get('admin_session')?.value
+  if (cookie) headers['Cookie'] = `admin_session=${cookie}`
   return headers
 }
 
 async function serverFetch(path: string, options?: RequestInit): Promise<Response> {
+  const headers = await serverHeaders()
   return fetch(`${SERVER_API_BASE}${path}`, {
     ...options,
-    headers: { ...serverHeaders(), ...(options?.headers as Record<string, string>) },
+    headers: { ...headers, ...(options?.headers as Record<string, string>) },
   })
 }
 

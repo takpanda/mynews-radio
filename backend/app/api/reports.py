@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from app.api.generate import require_admin_key
+from app.auth import require_admin
 from app.db.connection import get_db_connection
 
 logger = logging.getLogger(__name__)
@@ -139,7 +139,7 @@ def _row_to_admin_report(row) -> dict:
 @router.get(
     "/admin/reports/misreading",
     summary="読み間違い報告一覧を取得（管理者用）",
-    dependencies=[Depends(require_admin_key)],
+    dependencies=[Depends(require_admin)],
 )
 def list_misreading_reports() -> list[dict]:
     """保存済みの読み間違い報告を全件取得する。
@@ -160,7 +160,7 @@ def list_misreading_reports() -> list[dict]:
 @router.post(
     "/admin/reports/misreading/{report_id}/approve",
     summary="読み間違い報告を承認して辞書登録する",
-    dependencies=[Depends(require_admin_key)],
+    dependencies=[Depends(require_admin)],
 )
 def approve_misreading_report(report_id: int) -> dict:
     """読み間違い報告を承認し、辞書エントリを1件作成する。

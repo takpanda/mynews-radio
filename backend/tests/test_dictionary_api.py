@@ -361,9 +361,10 @@ class TestDictionaryAuth:
         if hasattr(cfg_mod.get_settings, "cache_clear"):
             cfg_mod.get_settings.cache_clear()
 
+        client.headers.pop("Authorization", None)
         resp = client.get("/admin/dictionary")
         assert resp.status_code == 401
-        assert resp.json()["detail"] == "Invalid or missing API key"
+        assert resp.json()["detail"] == "Not authenticated"
 
     def test_auth_invalid_key(self, client, monkeypatch):
         monkeypatch.setenv("API_KEY", "test-secret-key")
@@ -395,8 +396,9 @@ class TestDictionaryAuth:
         if hasattr(cfg_mod.get_settings, "cache_clear"):
             cfg_mod.get_settings.cache_clear()
 
+        client.headers.pop("Authorization", None)
         resp = client.get("/admin/dictionary")
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
 
 class TestReplacementTableActiveFilter:
@@ -694,7 +696,7 @@ class TestMigrationFromOldSchema:
 
         from app.main import app
         from fastapi.testclient import TestClient
-        client = TestClient(app)
+        client = TestClient(app, headers={"Authorization": "Bearer test-admin-key"})
 
         self._assert_migrated(db_path)
 

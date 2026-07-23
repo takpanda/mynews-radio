@@ -1,7 +1,10 @@
 import AdminMisreadingReportsShell from '../../components/AdminMisreadingReportsShell'
 import { fetchAdminMisreadingReports } from '../../lib/admin-misreading-reports'
+import AdminNav from '../../components/AdminNav'
+import { requireAdminSessionForPage } from '../auth'
 
 export default async function AdminMisreadingReportsPage() {
+  await requireAdminSessionForPage()
   let initialData: Awaited<ReturnType<typeof fetchAdminMisreadingReports>> | null = null
   let error: string | null = null
 
@@ -13,6 +16,7 @@ export default async function AdminMisreadingReportsPage() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 pb-24 pt-6 sm:px-6">
+      <AdminNav />
       {error ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error}

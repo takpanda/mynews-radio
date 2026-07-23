@@ -534,9 +534,10 @@ class TestAdminMisreadingReportList:
         """Authorization ヘッダなしは 401"""
         self._set_api_key(monkeypatch)
 
+        client.headers.pop("Authorization", None)
         resp = client.get("/admin/reports/misreading")
         assert resp.status_code == 401
-        assert "api key" in resp.json()["detail"].lower()
+        assert resp.json()["detail"] == "Not authenticated"
 
     def test_list_wrong_api_key(self, client, monkeypatch):
         """誤った Bearer トークンは 401"""
@@ -556,9 +557,10 @@ class TestAdminMisreadingReportList:
         if hasattr(cfg_mod.get_settings, "cache_clear"):
             cfg_mod.get_settings.cache_clear()
 
+        client.headers.pop("Authorization", None)
         resp = client.get("/admin/reports/misreading")
-        assert resp.status_code == 503
-        assert "api_key" in resp.json()["detail"].lower()
+        assert resp.status_code == 401
+        assert resp.json()["detail"] == "Not authenticated"
 
 
 class TestAdminApproveMisreadingReport:
@@ -718,6 +720,7 @@ class TestAdminApproveMisreadingReport:
         report = self._create_report(client)
         report_id = report["id"]
 
+        client.headers.pop("Authorization", None)
         resp = client.post(f"/admin/reports/misreading/{report_id}/approve")
         assert resp.status_code == 401
 
@@ -744,7 +747,7 @@ class TestAdminApproveMisreadingReport:
         report_id = report["id"]
 
         resp = client.post(f"/admin/reports/misreading/{report_id}/approve")
-        assert resp.status_code == 503
+        assert resp.status_code == 401
 
     def test_list_shows_approved_status_after_approve(self, client, monkeypatch):
         """承認後に一覧取得で approved 状態が確認できる"""

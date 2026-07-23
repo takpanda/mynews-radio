@@ -15,11 +15,13 @@ export function buildUpstreamUrl(
   return url
 }
 
-export function buildHeaders(adminKey: string | undefined): Record<string, string> {
+export function buildHeaders(cookie?: string, adminKey?: string): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   }
-  if (adminKey) {
+  if (cookie) {
+    headers["Cookie"] = cookie
+  } else if (adminKey) {
     headers["Authorization"] = `Bearer ${adminKey}`
   }
   return headers
@@ -32,7 +34,11 @@ export async function proxyToUpstream(
   body?: string,
 ) {
   try {
-    const upstream = await fetch(url, { method, headers, body })
+    const upstream = await fetch(url, {
+      method,
+      headers,
+      ...(body !== undefined ? { body } : {}),
+    })
     const data = await upstream.text()
     return new Response(data, {
       status: upstream.status,
@@ -48,7 +54,7 @@ export async function proxyToUpstream(
 
 export interface HandlerConfig {
   apiBase: string
-  adminKey: string | undefined
+  adminKey?: string
   nextjsPrefix: string
   backendPath: string
 }
@@ -65,6 +71,7 @@ export async function handleAdminReportRequest(
     config.nextjsPrefix,
     config.backendPath,
   )
-  const upstreamHeaders = buildHeaders(config.adminKey)
+  const cookie = (request as { headers?: { get?: (name: string) => string | null } }).headers?.get?.("cookie") ?? undefined
+  const upstreamHeaders = buildHeaders(cookie, config.adminKey)
   return proxyToUpstream(upstreamUrl, upstreamHeaders, method, body)
 }

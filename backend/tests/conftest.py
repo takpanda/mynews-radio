@@ -80,6 +80,9 @@ def test_env(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_file}")
     monkeypatch.setenv("EPISODES_DIR", str(ep_dir))
     monkeypatch.setenv("GENERATE_RATE_LIMIT", "100/minute")
+    # 既存の管理APIテストは有効なAPI_KEYを標準資格情報として使用する。
+    # 未認証境界は専用の認証テストで明示的に確認する。
+    monkeypatch.setenv("API_KEY", "test-admin-key")
 
     # Clear lru_cache on get_settings so lazy access picks up the new env vars
     from app import config as cfg_mod
@@ -122,4 +125,4 @@ def client():
     from unittest.mock import patch
 
     with patch("app.api.generate.run_radio_pipeline", return_value=None):
-        yield TestClient(app)
+        yield TestClient(app, headers={"Authorization": "Bearer test-admin-key"})

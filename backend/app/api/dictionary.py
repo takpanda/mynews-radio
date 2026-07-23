@@ -7,12 +7,12 @@ from typing import Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.api.generate import verify_api_key
+from app.auth import require_admin
 from app.db.connection import get_db_connection
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(dependencies=[Depends(verify_api_key)])
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 
 class DictionaryCreate(BaseModel):
