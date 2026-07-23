@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     #aivispeech_speaker_male: int = 5306848      # 猩々博士（雑談ボイス）ノーマル
     aivispeech_speaker_female: int = 1388823424  # 湊音エル ノーマル
     api_key: str = ""
+    cookie_secure: bool = True
     default_tts_engine: str = "aivispeech"
     episode_retention_days: int = 30
     jingle_opening_path: str = "/app/data/jingles/opening.mp3"

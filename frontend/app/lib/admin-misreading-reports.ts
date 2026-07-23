@@ -19,20 +19,19 @@ export interface ApproveResult {
 }
 
 const API_BASE = process.env.API_BASE ?? 'http://api:8010'
-const API_KEY = process.env.API_KEY
 
-function serverHeaders(): Record<string, string> {
+async function serverHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (API_KEY) {
-    headers['Authorization'] = `Bearer ${API_KEY}`
-  }
+  const { cookies } = await import('next/headers')
+  const cookie = cookies().get('admin_session')?.value
+  if (cookie) headers['Cookie'] = `admin_session=${cookie}`
   return headers
 }
 
 /** サーバーサイド専用：バックエンドへ直接アクセス（認証ヘッダー付与） */
 export async function fetchAdminMisreadingReports(): Promise<AdminMisreadingReport[]> {
   const res = await fetch(`${API_BASE}/admin/reports/misreading`, {
-    headers: serverHeaders(),
+    headers: await serverHeaders(),
     cache: 'no-store' as RequestCache,
   })
   if (!res.ok) {
