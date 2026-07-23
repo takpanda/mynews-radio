@@ -8,6 +8,7 @@ import {
   fetchArticle,
   buildAudioUrl,
   formatDateWithWeekday,
+  formatGeneratedAt,
   type Article,
   type Episode,
 } from '../../lib/api'
@@ -136,6 +137,7 @@ function toDetailEpisode(episode: Episode): DetailEpisode {
     sourceUrl: episode.source_url ?? null,
     audioUrl: episode.audio_url ? buildAudioUrl(episode.audio_url) : null,
     durationSeconds: episode.duration_seconds || 0,
+    generatedAtLabel: episode.generated_at ? formatGeneratedAt(episode.generated_at) : undefined,
   }
 }
 

@@ -26,6 +26,7 @@ export interface DetailEpisode {
   audioUrl: string | null
   durationSeconds: number
   generationPhase?: string
+  generatedAtLabel?: string
 }
 
 export interface EpisodeSummary {
@@ -78,7 +79,7 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
       {/* エピソード概要 */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-slate-400">エピソード ・ {episode.dateLabel}</p>
+          <p className="text-xs text-slate-400">エピソード ・ {episode.dateLabel}{episode.generatedAtLabel ? ` ・ 生成 ${episode.generatedAtLabel}` : ''}</p>
           <div className="flex items-center gap-1.5 text-xs">
             {hasScript && (
               <a

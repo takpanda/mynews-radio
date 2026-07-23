@@ -36,6 +36,7 @@ export interface Episode {
   articles: EpisodeItem[]
   generation_phase?: string
   generation_message?: string
+  generated_at?: string
 }
 
 export interface EpisodeItem {
@@ -101,6 +102,19 @@ export function formatDateWithWeekday(dateStr: string): string {
   if (!y || !m || !d) return dateStr
   const weekday = WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]
   return `${m}月${d}日（${weekday}）`
+}
+
+// 生成時刻の表示形式（管理画面の日付表記と統一）。Asia/Tokyo 固定
+export function formatGeneratedAt(dateStr: string): string {
+  const d = new Date(dateStr)
+  return d.toLocaleDateString('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 export async function fetchLatestEpisode(): Promise<Episode | null> {
