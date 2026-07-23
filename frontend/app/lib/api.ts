@@ -37,6 +37,7 @@ export interface Episode {
   generation_phase?: string
   generation_message?: string
   generated_at?: string
+  key_points?: string[]
 }
 
 export interface EpisodeItem {

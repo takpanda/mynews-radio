@@ -27,6 +27,7 @@ export interface DetailEpisode {
   durationSeconds: number
   generationPhase?: string
   generatedAtLabel?: string
+  keyPoints?: string[]
 }
 
 export interface EpisodeSummary {
@@ -78,27 +79,7 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
     <div className="space-y-6">
       {/* エピソード概要 */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-slate-400">エピソード ・ {episode.dateLabel}{episode.generatedAtLabel ? ` ・ 生成 ${episode.generatedAtLabel}` : ''}</p>
-          <div className="flex items-center gap-1.5 text-xs">
-            {hasScript && (
-              <a
-                href="#script"
-                className="rounded-full border border-slate-200 px-2.5 py-1 text-slate-500 transition hover:border-slate-300 hover:text-slate-800"
-              >
-                台本
-              </a>
-            )}
-            {hasArticles && (
-              <a
-                href="#articles"
-                className="rounded-full border border-slate-200 px-2.5 py-1 text-slate-500 transition hover:border-slate-300 hover:text-slate-800"
-              >
-                元記事
-              </a>
-            )}
-          </div>
-        </div>
+        <p className="text-xs text-slate-400">エピソード ・ {episode.dateLabel}{episode.generatedAtLabel ? ` ・ 生成 ${episode.generatedAtLabel}` : ''}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
           <h1 className="text-lg font-semibold leading-snug text-slate-900 sm:text-xl">
             {title}
@@ -136,6 +117,23 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
           </a>
         )}
 
+        {episode.keyPoints && episode.keyPoints.length > 0 && (
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <h2 className="text-sm font-semibold text-slate-900">この回で分かること</h2>
+            <ul className="mt-2 space-y-1.5">
+              {episode.keyPoints.map((point) => (
+                <li key={point} className="flex items-start gap-2 text-sm leading-6 text-slate-700">
+                  <span
+                    aria-hidden="true"
+                    className="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-emerald-500"
+                  />
+                  <span className="break-words min-w-0">{point}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {summary && (
           <div className="mt-4 border-t border-slate-100 pt-4">
             <p className="text-sm leading-7 text-slate-600">{summary.intro}</p>
@@ -147,10 +145,31 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
                       aria-hidden="true"
                       className="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-sky-500"
                     />
-                    {topic}
+                    <span className="break-words min-w-0">{topic}</span>
                   </li>
                 ))}
               </ul>
+            )}
+          </div>
+        )}
+
+        {(hasScript || hasArticles) && (
+          <div className="mt-4 flex items-center gap-1.5 text-xs">
+            {hasScript && (
+              <a
+                href="#script"
+                className="rounded-full border border-slate-200 px-2.5 py-1 text-slate-500 transition hover:border-slate-300 hover:text-slate-800"
+              >
+                台本
+              </a>
+            )}
+            {hasArticles && (
+              <a
+                href="#articles"
+                className="rounded-full border border-slate-200 px-2.5 py-1 text-slate-500 transition hover:border-slate-300 hover:text-slate-800"
+              >
+                元記事
+              </a>
             )}
           </div>
         )}

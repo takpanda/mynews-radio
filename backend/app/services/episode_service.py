@@ -283,6 +283,20 @@ class EpisodeService:
             )
 
     @retry_on_busy()
+    def update_episode_key_points(self, episode_id: int, key_points: list[str]) -> None:
+        """エピソードの要点（最大3件）をJSON文字列として保存する"""
+        import json as _json
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                UPDATE episodes
+                SET key_points = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (_json.dumps(key_points[:3], ensure_ascii=False), episode_id),
+            )
+
+    @retry_on_busy()
     def update_episode_audio_path(self, episode_id: int, audio_path: str) -> None:
         with get_db_connection() as conn:
             conn.execute(

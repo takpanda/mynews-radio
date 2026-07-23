@@ -390,6 +390,86 @@ class TestEpisodeListPagination:
         assert ids == sorted(ids, reverse=True), "同日エピソードは id DESC で並ぶ必要があります"
 
 
+class TestEpisodeKeyPoints:
+    """エピソード詳細APIの key_points フィールドのテスト"""
+
+    def test_detail_episode_contains_key_points(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-01")
+        svc.update_episode_key_points(eid, ["ポイント1", "ポイント2", "ポイント3"])
+
+        resp = client.get(f"/episodes/{eid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "key_points" in data
+        assert data["key_points"] == ["ポイント1", "ポイント2", "ポイント3"]
+
+    def test_key_points_empty_when_not_set(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-02")
+
+        resp = client.get(f"/episodes/{eid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["key_points"] == []
+
+    def test_key_points_max_3(self, client):
+        """4件以上保存してもAPIレスポンスは最大3件まで"""
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-03")
+        svc.update_episode_key_points(eid, ["A", "B", "C", "D"])
+
+        resp = client.get(f"/episodes/{eid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["key_points"]) == 3
+        assert data["key_points"] == ["A", "B", "C"]
+
+    def test_key_points_single_item(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-04")
+        svc.update_episode_key_points(eid, ["単一ポイント"])
+
+        resp = client.get(f"/episodes/{eid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["key_points"] == ["単一ポイント"]
+
+    def test_latest_episode_contains_key_points(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-05", audio_path="test.mp3")
+        svc.update_episode_key_points(eid, ["最新のポイント"])
+
+        resp = client.get("/episodes/latest")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "key_points" in data
+        assert data["key_points"] == ["最新のポイント"]
+
+    def test_update_key_points_overwrites(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-06")
+        svc.update_episode_key_points(eid, ["初期"])
+        svc.update_episode_key_points(eid, ["更新後"])
+
+        resp = client.get(f"/episodes/{eid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["key_points"] == ["更新後"]
+
+
 class TestAudioGenerationId:
     """エピソード詳細APIのレスポンスに audio_generation_id が含まれることのテスト"""
 

@@ -62,6 +62,10 @@ def _fresh_db(tmp_path):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_misreading_reports_approved ON misreading_reports(approved)")
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE episodes ADD COLUMN key_points TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
