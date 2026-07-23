@@ -155,9 +155,9 @@ describe('EpisodeDetailShell この回で分かること 表示', () => {
     )
     const overview = screen.getByText('この回で分かること').closest('section')!
     const keyPointsEl = screen.getByText('ポイント').closest('div')!
-    const anchorEl = screen.getByText('台本').closest('div')!
-    const keyPointsPos = Array.from(overview.children).indexOf(keyPointsEl.parentElement!)
-    const anchorPos = Array.from(overview.children).indexOf(anchorEl.parentElement!)
+    const anchorEl = screen.getByRole('link', { name: '台本' }).closest('div')!
+    const keyPointsPos = Array.from(overview.children).indexOf(keyPointsEl)
+    const anchorPos = Array.from(overview.children).indexOf(anchorEl)
     expect(keyPointsPos).toBeLessThan(anchorPos)
   })
 })
