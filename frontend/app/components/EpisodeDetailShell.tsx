@@ -27,6 +27,7 @@ export interface DetailEpisode {
   durationSeconds: number
   generationPhase?: string
   generatedAtLabel?: string
+  keyPoints?: string[]
 }
 
 export interface EpisodeSummary {
@@ -134,6 +135,23 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
             </svg>
             <span className="truncate">{episode.sourceUrl}</span>
           </a>
+        )}
+
+        {episode.keyPoints && episode.keyPoints.length > 0 && (
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <h2 className="text-sm font-semibold text-slate-900">この回で分かること</h2>
+            <ul className="mt-2 space-y-1.5">
+              {episode.keyPoints.map((point) => (
+                <li key={point} className="flex items-start gap-2 text-sm leading-6 text-slate-700">
+                  <span
+                    aria-hidden="true"
+                    className="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-emerald-500"
+                  />
+                  {point}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {summary && (

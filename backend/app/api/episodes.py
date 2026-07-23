@@ -10,6 +10,20 @@ from fastapi import APIRouter, HTTPException, Query
 from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService
 
+
+def _parse_key_points(episode: dict) -> list[str]:
+    """episode の key_points JSON をパースしてリストで返す。None/空は空リスト。"""
+    raw = episode.get("key_points")
+    if not raw:
+        return []
+    try:
+        points = json.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(points, list):
+            return [str(p) for p in points if p][:3]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return []
+
 router = APIRouter()
 
 def _episodes_base_dir() -> str:
@@ -172,6 +186,7 @@ def get_latest_episode() -> dict:
     all_episodes = service.get_episode_list(limit=None, offset=0)
 
     for episode in all_episodes:
+        full_ep = service.get_episode(episode["id"]) or {}
         result: dict = {
             "id": episode["id"],
             "title": "",
@@ -185,6 +200,7 @@ def get_latest_episode() -> dict:
             "article_count": 0,
             "audio_url": None,
             "articles": [],
+            "key_points": _parse_key_points(full_ep),
         }
 
         if episode.get("audio_path"):
@@ -233,6 +249,7 @@ def get_episode(episode_id: int) -> dict:
         "article_count": len(items),
         "audio_url": None,
         "articles": items,
+        "key_points": _parse_key_points(episode),
     }
 
     if episode.get("audio_path"):

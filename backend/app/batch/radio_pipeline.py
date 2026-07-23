@@ -16,6 +16,56 @@ from app.batch.synthesize_voicevox import synthesize_episode
 from app.config import get_settings
 from app.services.episode_service import EpisodeService, override_script_title, build_radio_title
 
+
+def _extract_key_points(script: dict, summaries_path: str) -> list[str]:
+    """script.json と summaries.json から最大3件の要点を抽出する。
+
+    優先順:
+    1. script の intro セクションからラインアップ記述行を抽出
+    2. script の subtitle を活用
+    3. 記事の title を活用
+    """
+    key_points: list[str] = []
+
+    intro_lines = [
+        line.get("text", "").strip()
+        for line in script.get("lines", [])
+        if line.get("section") == "intro"
+    ]
+    for text in intro_lines:
+        if any(kw in text for kw in ["ラインアップ", "トピック", "ニュース", "本日", "今日"]):
+            cleaned = text.strip()
+            if cleaned and len(cleaned) >= 5 and cleaned not in key_points:
+                key_points.append(cleaned)
+                if len(key_points) >= 3:
+                    break
+
+    if len(key_points) < 3:
+        subtitle = script.get("subtitle", "").strip()
+        if subtitle and subtitle not in key_points:
+            key_points.append(subtitle)
+
+    if len(key_points) < 3:
+        try:
+            with open(summaries_path, "r", encoding="utf-8") as f:
+                summaries = json.load(f)
+            article_ids_in_script = set()
+            for line in script.get("lines", []):
+                aid = line.get("article_id")
+                if aid is not None:
+                    article_ids_in_script.add(aid)
+            for s in summaries:
+                if s.get("article_id") in article_ids_in_script and s.get("title"):
+                    title = s["title"].strip()
+                    if title and title not in key_points:
+                        key_points.append(title)
+                        if len(key_points) >= 3:
+                            break
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+
+    return key_points[:3]
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_EPISODES_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
@@ -127,6 +177,18 @@ def run_radio_pipeline(
 
         override_script_title(script_path, effective_program_name, episode_date, seq)
         logger.info("Title overridden: %s", build_radio_title(effective_program_name, episode_date, seq))
+
+        # -- KEY POINTS --
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                generated_script = json.load(f)
+            summaries_path = os.path.join(base_dir, "summaries.json")
+            key_points = _extract_key_points(generated_script, summaries_path)
+            if key_points:
+                service.update_episode_key_points(episode_id, key_points)
+                logger.info("key_points saved: %s", key_points)
+        except Exception:
+            logger.warning("key_points extraction failed (non-fatal)", exc_info=True)
 
         # -- TTS SETUP --
         if tts_base_url is not None and tts_speaker_male is not None and tts_speaker_female is not None:

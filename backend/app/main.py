@@ -108,6 +108,11 @@ def _apply_db_migrations() -> None:
         except sqlite3.OperationalError:
             pass
 
+        try:
+            conn.execute("ALTER TABLE episodes ADD COLUMN key_points TEXT")
+        except sqlite3.OperationalError:
+            pass
+
         # UNIQUE(surface) → UNIQUE(surface, reading) へのマイグレーション
         from app.db.migration import migrate_dictionary_constraint, migrate_enabled_to_is_active
         migrate_dictionary_constraint(conn)
