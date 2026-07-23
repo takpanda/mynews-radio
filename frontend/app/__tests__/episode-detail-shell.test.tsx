@@ -85,3 +85,79 @@ describe('EpisodeDetailShell generatedAtLabel 表示', () => {
     expect(screen.getByText(/エピソード ・ 7月23日/)).toBeInTheDocument()
   })
 })
+
+describe('EpisodeDetailShell この回で分かること 表示', () => {
+  it('keyPoints が1件の場合に表示される', () => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ keyPoints: ['AIの最新動向が分かります'] })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.getByText('この回で分かること')).toBeInTheDocument()
+    expect(screen.getByText('AIの最新動向が分かります')).toBeInTheDocument()
+  })
+
+  it('keyPoints が3件の場合に全て表示される', () => {
+    const points = ['ポイントA', 'ポイントB', 'ポイントC']
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ keyPoints: points })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.getByText('この回で分かること')).toBeInTheDocument()
+    points.forEach((p) => expect(screen.getByText(p)).toBeInTheDocument())
+  })
+
+  it('keyPoints が空配列の場合に非表示', () => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ keyPoints: [] })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.queryByText('この回で分かること')).not.toBeInTheDocument()
+  })
+
+  it('keyPoints が undefined の場合に非表示', () => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ keyPoints: undefined })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.queryByText('この回で分かること')).not.toBeInTheDocument()
+  })
+
+  it('アンカーリンク（台本）より前に「この回で分かること」が表示される', () => {
+    const script = { title: 't', lines: [{ speaker: 'male' as const, text: 'hello', article_id: null, section: 'intro' }] }
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ keyPoints: ['ポイント'] })}
+        script={script}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    const overview = screen.getByText('この回で分かること').closest('section')!
+    const keyPointsEl = screen.getByText('ポイント').closest('div')!
+    const anchorEl = screen.getByText('台本').closest('div')!
+    const keyPointsPos = Array.from(overview.children).indexOf(keyPointsEl.parentElement!)
+    const anchorPos = Array.from(overview.children).indexOf(anchorEl.parentElement!)
+    expect(keyPointsPos).toBeLessThan(anchorPos)
+  })
+})

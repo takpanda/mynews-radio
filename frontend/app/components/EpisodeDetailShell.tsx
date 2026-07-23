@@ -79,27 +79,7 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
     <div className="space-y-6">
       {/* エピソード概要 */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-slate-400">エピソード ・ {episode.dateLabel}{episode.generatedAtLabel ? ` ・ 生成 ${episode.generatedAtLabel}` : ''}</p>
-          <div className="flex items-center gap-1.5 text-xs">
-            {hasScript && (
-              <a
-                href="#script"
-                className="rounded-full border border-slate-200 px-2.5 py-1 text-slate-500 transition hover:border-slate-300 hover:text-slate-800"
-              >
-                台本
-              </a>
-            )}
-            {hasArticles && (
-              <a
-                href="#articles"
-                className="rounded-full border border-slate-200 px-2.5 py-1 text-slate-500 transition hover:border-slate-300 hover:text-slate-800"
-              >
-                元記事
-              </a>
-            )}
-          </div>
-        </div>
+        <p className="text-xs text-slate-400">エピソード ・ {episode.dateLabel}{episode.generatedAtLabel ? ` ・ 生成 ${episode.generatedAtLabel}` : ''}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
           <h1 className="text-lg font-semibold leading-snug text-slate-900 sm:text-xl">
             {title}
@@ -147,7 +127,7 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
                     aria-hidden="true"
                     className="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-emerald-500"
                   />
-                  {point}
+                  <span className="break-words min-w-0">{point}</span>
                 </li>
               ))}
             </ul>
@@ -165,10 +145,31 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
                       aria-hidden="true"
                       className="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-sky-500"
                     />
-                    {topic}
+                    <span className="break-words min-w-0">{topic}</span>
                   </li>
                 ))}
               </ul>
+            )}
+          </div>
+        )}
+
+        {(hasScript || hasArticles) && (
+          <div className="mt-4 flex items-center gap-1.5 text-xs">
+            {hasScript && (
+              <a
+                href="#script"
+                className="rounded-full border border-slate-200 px-2.5 py-1 text-slate-500 transition hover:border-slate-300 hover:text-slate-800"
+              >
+                台本
+              </a>
+            )}
+            {hasArticles && (
+              <a
+                href="#articles"
+                className="rounded-full border border-slate-200 px-2.5 py-1 text-slate-500 transition hover:border-slate-300 hover:text-slate-800"
+              >
+                元記事
+              </a>
             )}
           </div>
         )}
