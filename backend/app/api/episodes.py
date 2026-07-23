@@ -229,6 +229,7 @@ def get_episode(episode_id: int) -> dict:
         "phase": episode.get("phase", ""),
         "generation_phase": episode.get("phase", ""),
         "generation_message": episode.get("generation_message", ""),
+        "generated_at": episode.get("updated_at", ""),
         "article_count": len(items),
         "audio_url": None,
         "articles": items,
