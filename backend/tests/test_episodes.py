@@ -93,6 +93,48 @@ class TestEpisodeApiTypeSourceUrl:
         assert data["source_url"] == "https://example.com/latest"
 
 
+class TestEpisodeGeneratedAt:
+    """GET /episodes/{id} の generated_at フィールドのテスト"""
+
+    def test_detail_episode_contains_generated_at(self, client):
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        eid = svc.create_episode(
+            episode_date="2099-12-20",
+            type="radio",
+        )
+        resp = client.get(f"/episodes/{eid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "generated_at" in data
+
+    def test_generated_at_matches_updated_at(self, client):
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-21")
+        ep = svc.get_episode(eid)
+        resp = client.get(f"/episodes/{eid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["generated_at"] == ep["updated_at"]
+
+    def test_generated_at_in_script_endpoint(self, client):
+        import json as _json
+        import os as _os
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-31")
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        ep_script_dir = _os.path.join(ep_dir, str(eid))
+        _os.makedirs(ep_script_dir, exist_ok=True)
+        with open(_os.path.join(ep_script_dir, "script.json"), "w", encoding="utf-8") as f:
+            _json.dump({"title": "t", "subtitle": "", "lines": []}, f)
+        resp = client.get(f"/episodes/{eid}/script")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "generated_at" in data
+
+
 class TestEpisodeScriptEndpoint:
     """GET /episodes/{id}/script のレスポンス形式テスト"""
 
