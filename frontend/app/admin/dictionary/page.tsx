@@ -1,12 +1,10 @@
 import AdminDictionaryShell from '../../components/AdminDictionaryShell'
 import { fetchDictionaryEntries } from '../../lib/admin-dictionary'
-import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
 import AdminNav from '../../components/AdminNav'
+import { requireAdminSessionForPage } from '../auth'
 
 export default async function AdminDictionaryPage() {
-  const cookie = cookies().get('admin_session')?.value
-  if (!cookie) redirect('/admin/login')
+  await requireAdminSessionForPage()
   let initialData = null
   let error: string | null = null
 

@@ -1,12 +1,10 @@
 import AdminMisreadingReportsShell from '../../components/AdminMisreadingReportsShell'
 import { fetchAdminMisreadingReports } from '../../lib/admin-misreading-reports'
-import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
 import AdminNav from '../../components/AdminNav'
+import { requireAdminSessionForPage } from '../auth'
 
 export default async function AdminMisreadingReportsPage() {
-  const cookie = cookies().get('admin_session')?.value
-  if (!cookie) redirect('/admin/login')
+  await requireAdminSessionForPage()
   let initialData: Awaited<ReturnType<typeof fetchAdminMisreadingReports>> | null = null
   let error: string | null = null
 
