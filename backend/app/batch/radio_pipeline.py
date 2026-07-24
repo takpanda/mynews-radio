@@ -172,7 +172,7 @@ def run_radio_pipeline(
                 os.environ["MAX_SCRIPT_ARTICLES"] = old_max
 
         if line_count <= 0:
-            service.update_episode_status(episode_id, "failed")
+            service.delete_episode(episode_id)
             return None
 
         override_script_title(script_path, effective_program_name, episode_date, seq)

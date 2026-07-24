@@ -4,6 +4,8 @@ import os
 import time
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 
 class TestGenerateEndpoint:
     def test_post_generate_returns_json_not_sse(self, client):
@@ -393,19 +395,40 @@ class TestRunRadioPipelineCore:
         assert result is None
         assert svc.get_episode(ep_id)["status"] == "failed"
 
+    @pytest.mark.parametrize("line_count", [0, -1])
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
-    def test_generate_script_zero_lines_sets_failed(self, mock_sum, mock_import):
+    def test_generate_script_zero_or_negative_lines_deletes_episode(
+        self, mock_sum, mock_import, line_count
+    ):
         from app.batch.radio_pipeline import run_radio_pipeline
         from app.services.episode_service import EpisodeService
 
         svc = EpisodeService()
         ep_id, _ = svc.create_radio_episode("2099-01-03")
-        with patch("app.batch.radio_pipeline.generate_script", return_value=0):
+        with patch("app.batch.radio_pipeline.generate_script", return_value=line_count):
             result = run_radio_pipeline(ep_id, episode_date="2099-01-03")
 
         assert result is None
-        assert svc.get_episode(ep_id)["status"] == "failed"
+        assert svc.get_episode(ep_id) is None
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    def test_generate_script_zero_lines_deletes_episode_items(self, mock_sum, mock_import):
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id, _ = svc.create_radio_episode("2099-01-31")
+        svc.add_episode_item(episode_id=ep_id, article_id=1, item_order=1, segment_text="test")
+        svc.add_episode_item(episode_id=ep_id, article_id=2, item_order=2, segment_text="test2")
+
+        with patch("app.batch.radio_pipeline.generate_script", return_value=0):
+            result = run_radio_pipeline(ep_id, episode_date="2099-01-31")
+
+        assert result is None
+        assert svc.get_episode(ep_id) is None
+        assert svc.get_episode_items(ep_id) == []
 
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
