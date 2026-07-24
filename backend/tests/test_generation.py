@@ -402,6 +402,7 @@ class TestRunRadioPipelineCore:
         self, mock_sum, mock_import, line_count
     ):
         from app.batch.radio_pipeline import run_radio_pipeline
+        from app.batch.radio_pipeline import PipelineResult
         from app.services.episode_service import EpisodeService
 
         svc = EpisodeService()
@@ -409,13 +410,14 @@ class TestRunRadioPipelineCore:
         with patch("app.batch.radio_pipeline.generate_script", return_value=line_count):
             result = run_radio_pipeline(ep_id, episode_date="2099-01-03")
 
-        assert result is None
+        assert result is PipelineResult.NO_CONTENT
         assert svc.get_episode(ep_id) is None
 
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
     def test_generate_script_zero_lines_deletes_episode_items(self, mock_sum, mock_import):
         from app.batch.radio_pipeline import run_radio_pipeline
+        from app.batch.radio_pipeline import PipelineResult
         from app.services.episode_service import EpisodeService
 
         svc = EpisodeService()
@@ -426,7 +428,7 @@ class TestRunRadioPipelineCore:
         with patch("app.batch.radio_pipeline.generate_script", return_value=0):
             result = run_radio_pipeline(ep_id, episode_date="2099-01-31")
 
-        assert result is None
+        assert result is PipelineResult.NO_CONTENT
         assert svc.get_episode(ep_id) is None
         assert svc.get_episode_items(ep_id) == []
 
@@ -824,6 +826,21 @@ class TestRunDailyFailureModes:
                 assert exc.code == 1
 
         mock_manifest.assert_called_once_with(status="failed")
+
+    @patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(99, 0))
+    @patch("app.batch.run_daily.setup_daily_logging")
+    def test_batch_no_content_exits_successfully(self, mock_log, mock_create):
+        """0行の正常系は cron を終了コード0で終え、manifestもdoneにする。"""
+        from app.batch.radio_pipeline import PipelineResult
+        from app.batch.run_daily import main
+
+        with patch("app.batch.run_daily.run_radio_pipeline", return_value=PipelineResult.NO_CONTENT), \
+             patch("app.batch.run_daily._write_manifest") as mock_manifest, \
+             patch.dict(os.environ, {"BATCH_DATE": "2099-06-02"}):
+
+            assert main() is None
+
+        mock_manifest.assert_called_once_with(status="done")
 
 
 class TestAuthGuard:

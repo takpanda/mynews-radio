@@ -11,7 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from app.batch.radio_pipeline import run_radio_pipeline  # noqa: E402
+from app.batch.radio_pipeline import PipelineResult, run_radio_pipeline  # noqa: E402
 from app.logging_config import setup_daily_logging       # noqa: E402
 from app.services.episode_service import EpisodeService   # noqa: E402
 
@@ -39,7 +39,10 @@ def main() -> None:
         default_episodes_dir="data/episodes",
     )
 
-    if metadata is not None:
+    if metadata is PipelineResult.NO_CONTENT:
+        logger.info("=== daily batch complete - no new articles ===")
+        _write_manifest(status="done")
+    elif metadata is not None:
         logger.info(
             "=== daily batch complete - %s ===",
             metadata.get("title", f"episode {episode_id}"),
