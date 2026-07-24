@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import shutil
+from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -73,6 +74,12 @@ DEFAULT_EPISODES_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
 ProgressCallback = Optional[Callable[[str, str], None]]
 
 
+class PipelineResult(Enum):
+    """パイプラインの完了結果（通常の成功 metadata 以外）。"""
+
+    NO_CONTENT = "no_content"
+
+
 def _determine_tts_config(tts_engine: str | None = None) -> dict[str, Any]:
     settings = get_settings()
     tts_engines = {"voicevox", "aivispeech"}
@@ -106,10 +113,11 @@ def run_radio_pipeline(
     tts_speaker_female: int | None = None,
     default_episodes_dir: str | None = None,
     progress_callback: ProgressCallback = None,
-) -> dict[str, Any] | None:
+) -> dict[str, Any] | PipelineResult | None:
     """Run the full radio generation pipeline for an episode.
 
-    Returns metadata dict on success, None on failure.
+    Returns metadata dict on success, ``PipelineResult.NO_CONTENT`` when there
+    are no script lines, and None on failure.
     Episode status is updated to "completed" on success or "failed" on error.
     """
     service = EpisodeService()
@@ -172,8 +180,8 @@ def run_radio_pipeline(
                 os.environ["MAX_SCRIPT_ARTICLES"] = old_max
 
         if line_count <= 0:
-            service.update_episode_status(episode_id, "failed")
-            return None
+            service.delete_episode(episode_id)
+            return PipelineResult.NO_CONTENT
 
         override_script_title(script_path, effective_program_name, episode_date, seq)
         logger.info("Title overridden: %s", build_radio_title(effective_program_name, episode_date, seq))
