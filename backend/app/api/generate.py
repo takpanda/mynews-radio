@@ -25,6 +25,7 @@ from app.db.connection import get_db_connection
 from app.services.article_service import ArticleService
 from app.services.episode_service import EpisodeService
 from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_url
+from app.services.settings_service import get_settings_or_default
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ def _build_progress_payload(phase: str, message: str, status: str = "running", *
 
 class GenerateRequest(BaseModel):
     date: str = Field(description="放送日 (YYYY-MM-DD)")
-    max_articles: int = Field(default=10, ge=1, le=50)
+    max_articles: int | None = Field(default=None, ge=1, le=50)
     duration_minutes: int | None = Field(default=None, ge=1, le=640)
     news_source: str = Field(default="hatena_bookmark", description="ニュースソース (hatena_bookmark | hatena_hotentry_all | yahoo_news)")
     tts_engine: str = Field(default="aivispeech", description="TTSエンジン (voicevox | aivispeech)")
@@ -139,6 +140,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
         news_source=news_source,
         seq=seq,
         max_articles=body.max_articles,
+        program_settings=get_settings_or_default(),
         tts_engine=body.tts_engine,
         default_episodes_dir=DEFAULT_EPISODES_DIR,
         progress_callback=_progress,

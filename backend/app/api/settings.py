@@ -3,7 +3,7 @@
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.api.generate import verify_api_key
 from app.services.settings_service import (
@@ -42,6 +42,12 @@ class SettingsPayload(BaseModel):
         if value not in DURATION_PRESETS:
             raise ValueError("duration_preset must be one of: short, normal, long")
         return value
+
+    @model_validator(mode="after")
+    def validate_theme_overlap(self) -> "SettingsPayload":
+        if set(self.priority_themes) & set(self.excluded_themes):
+            raise ValueError("priority_themes and excluded_themes must not overlap")
+        return self
 
 
 def _response(settings: ProgramSettings) -> dict:

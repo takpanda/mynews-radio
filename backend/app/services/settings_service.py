@@ -57,6 +57,8 @@ def validate_settings(
             raise ValueError(f"{name} must not contain duplicates")
         if any(value not in THEMES for value in values):
             raise ValueError(f"{name} contains an unsupported theme")
+    if set(priority) & set(excluded):
+        raise ValueError("priority_themes and excluded_themes must not overlap")
     if duration_preset not in DURATION_PRESETS:
         raise ValueError("duration_preset must be one of: short, normal, long")
     return ProgramSettings(tuple(priority), tuple(excluded), duration_preset)

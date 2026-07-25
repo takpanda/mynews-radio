@@ -1,4 +1,6 @@
 import sqlite3
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -21,6 +23,18 @@ def test_validate_settings_enforces_mvp_contract():
         settings_service.validate_settings(["politics"], [], "normal")
     with pytest.raises(ValueError):
         settings_service.validate_settings([], [], "custom")
+    with pytest.raises(ValueError):
+        settings_service.validate_settings(["technology"], ["technology"], "normal")
+
+
+@pytest.mark.parametrize(
+    ("preset", "max_articles", "min_score"),
+    [("short", 6, 4), ("normal", 10, 3), ("long", 14, 2)],
+)
+def test_all_duration_presets_are_generation_contracts(preset, max_articles, min_score):
+    value = settings_service.validate_settings([], [], preset)
+    assert value.generation_params()["max_articles"] == max_articles
+    assert value.generation_params()["min_importance_score"] == min_score
 
 
 def test_get_settings_falls_back_to_default_on_database_failure(monkeypatch):
@@ -52,3 +66,68 @@ def test_save_get_and_reset_settings(monkeypatch, tmp_path):
     settings_service.save_settings(value)
     assert settings_service.get_settings_or_default() == value
     assert settings_service.reset_settings() == settings_service.default_settings()
+
+
+def test_schema_can_be_applied_again_without_losing_settings(monkeypatch, tmp_path):
+    db_path = tmp_path / "schema-reapply.db"
+
+    class FakeSettings:
+        database_url = f"sqlite:///{db_path}"
+
+    from app.db import connection
+    monkeypatch.setattr(connection, "get_settings", lambda: FakeSettings)
+    schema_path = Path(__file__).parents[1] / "app" / "db" / "schema.sql"
+    with connection.get_db_connection() as conn:
+        conn.executescript(schema_path.read_text(encoding="utf-8"))
+    value = settings_service.validate_settings(["technology"], [], "short")
+    settings_service.save_settings(value)
+    with connection.get_db_connection() as conn:
+        conn.executescript(schema_path.read_text(encoding="utf-8"))
+    assert settings_service.get_settings_or_default() == value
+
+
+def test_settings_api_crud_validation_and_failures(client, monkeypatch):
+    assert client.get("/settings").status_code == 200
+    assert client.get("/settings").json()["duration_preset"] == "normal"
+
+    saved = client.put(
+        "/settings",
+        json={"priority_themes": ["technology"], "excluded_themes": ["sports"], "duration_preset": "short"},
+    )
+    assert saved.status_code == 200
+    assert client.get("/settings").json()["duration_preset"] == "short"
+    assert client.put(
+        "/settings",
+        json={"priority_themes": ["technology"], "excluded_themes": ["technology"], "duration_preset": "normal"},
+    ).status_code == 422
+    assert client.put("/settings", json={"unknown": True}).status_code == 422
+    assert client.put("/settings", json={"duration_preset": "invalid"}).status_code == 422
+
+    from app.api import settings as settings_api
+    monkeypatch.setattr(settings_api, "save_settings", lambda _: (_ for _ in ()).throw(sqlite3.OperationalError("locked")))
+    assert client.put("/settings", json={"duration_preset": "normal"}).status_code == 503
+    monkeypatch.setattr(settings_api, "reset_settings", lambda: (_ for _ in ()).throw(sqlite3.OperationalError("locked")))
+    assert client.delete("/settings").status_code == 503
+
+
+def test_generate_uses_saved_settings_and_falls_back_on_read_error(monkeypatch):
+    from app.api import generate as generate_api
+    from app.services.episode_service import EpisodeService
+
+    settings_service.save_settings(
+        settings_service.validate_settings(["business"], ["sports"], "long")
+    )
+    episode_id = EpisodeService().create_episode("2099-12-01", status="generating")
+    captured = []
+    monkeypatch.setattr(generate_api, "run_radio_pipeline", lambda *args, **kwargs: captured.append(kwargs))
+    generate_api._run_generation(episode_id, generate_api.GenerateRequest(date="2099-12-01"))
+    assert captured[0]["program_settings"].priority_themes == ("business",)
+    assert captured[0]["program_settings"].duration_preset == "long"
+
+    def broken_connection():
+        raise sqlite3.OperationalError("database unavailable")
+
+    monkeypatch.setattr(settings_service, "get_db_connection", broken_connection)
+    captured.clear()
+    generate_api._run_generation(episode_id, generate_api.GenerateRequest(date="2099-12-01"))
+    assert captured[0]["program_settings"] == settings_service.default_settings()
