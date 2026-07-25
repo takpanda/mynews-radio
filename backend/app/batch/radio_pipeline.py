@@ -271,6 +271,12 @@ def run_radio_pipeline(
             service.update_episode_status(episode_id, "failed")
             return None
 
+        # Keep the exact profile used for this episode available to the result
+        # display.  Do not expose the SQLite representation to consumers.
+        ep_metadata["applied_settings"] = profile.to_dict()
+        with open(os.path.join(base_dir, "metadata.json"), "w", encoding="utf-8") as f:
+            json.dump(ep_metadata, f, ensure_ascii=False, indent=2)
+
         service.update_episode_audio_path(
             episode_id, ep_metadata.get("audio_path") or ""
         )
