@@ -1,4 +1,4 @@
-import { formatGeneratedAt } from '../api'
+import { formatGeneratedAt, generateEpisode } from '../api'
 
 describe('formatGeneratedAt', () => {
   it('UTC 13:00 → JST 22:00 に変換される', () => {
@@ -24,5 +24,28 @@ describe('formatGeneratedAt', () => {
   it('分の値が正しく保持される', () => {
     const result = formatGeneratedAt('2026-03-15T07:45:00Z')
     expect(result).toMatch(/:45$/)
+  })
+})
+
+describe('generateEpisode settings snapshot', () => {
+  it('設定スナップショットを生成payloadへ含める', async () => {
+    const previousFetch = global.fetch
+    const fetchMock = jest.fn().mockResolvedValue(
+      { ok: true, json: async () => ({ episode_id: 12 }) },
+    )
+    global.fetch = fetchMock as typeof fetch
+    await generateEpisode('2026-07-25', 6, 'hatena_bookmark', 'aivispeech', false, undefined, undefined, undefined, {
+      priority_themes: ['technology'],
+      excluded_themes: ['sports'],
+      duration_preset: 'short',
+    })
+
+    const request = JSON.parse((fetchMock.mock.calls[0][1]?.body as string))
+    expect(request.settings_snapshot).toEqual({
+      priority_themes: ['technology'],
+      excluded_themes: ['sports'],
+      duration_preset: 'short',
+    })
+    global.fetch = previousFetch
   })
 })

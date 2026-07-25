@@ -71,8 +71,44 @@ export interface Article {
   summary?: string | null
 }
 
+export type ProgramTheme = 'technology' | 'business' | 'society' | 'sports' | 'entertainment' | 'general'
+export type DurationPreset = 'short' | 'normal' | 'long'
+
+export interface ProgramSettings {
+  priority_themes: ProgramTheme[]
+  excluded_themes: ProgramTheme[]
+  duration_preset: DurationPreset
+}
+
 const SERVER_API_BASE = process.env.API_BASE ?? 'http://api:8010'
 const CLIENT_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '/api'
+
+export async function fetchProgramSettings(): Promise<ProgramSettings> {
+  const res = await fetch(`${getApiBase()}/settings`, { cache: 'no-store' })
+  if (!res.ok) throw new Error('設定の読み込みに失敗しました')
+  return res.json() as Promise<ProgramSettings>
+}
+
+export async function saveProgramSettings(settings: ProgramSettings): Promise<ProgramSettings> {
+  const res = await fetch(`${getApiBase()}/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    let detail = '設定を保存できませんでした'
+    try { detail = JSON.parse(body).detail || detail } catch {}
+    throw new Error(detail)
+  }
+  return res.json() as Promise<ProgramSettings>
+}
+
+export async function resetProgramSettings(): Promise<ProgramSettings> {
+  const res = await fetch(`${getApiBase()}/settings`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('設定を初期化できませんでした')
+  return res.json() as Promise<ProgramSettings>
+}
 
 function getApiBase(): string {
   return typeof window === 'undefined' ? SERVER_API_BASE : CLIENT_API_BASE
@@ -176,7 +212,7 @@ function parseErrorDetail(body: string): string {
   return body
 }
 
-export async function generateEpisode(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', recreateSummary = false, url?: string, style?: 'solo' | 'dialogue', mcGender?: 'male' | 'female'): Promise<GenerateResponse> {
+export async function generateEpisode(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', recreateSummary = false, url?: string, style?: 'solo' | 'dialogue', mcGender?: 'male' | 'female', settingsSnapshot?: ProgramSettings): Promise<GenerateResponse> {
   const res = await fetch('/api/generate', {
     method: 'POST',
     headers: {
@@ -191,6 +227,7 @@ export async function generateEpisode(date: string, maxArticles = 10, newsSource
       ...(url ? { url } : {}),
       ...(style ? { style } : {}),
       ...(style === 'solo' && mcGender ? { mc_gender: mcGender } : {}),
+      ...(settingsSnapshot ? { settings_snapshot: settingsSnapshot } : {}),
     }),
   })
   if (!res.ok) {

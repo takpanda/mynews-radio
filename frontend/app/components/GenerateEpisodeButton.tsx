@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'react-hot-toast'
 import { generateEpisode, fetchEpisode, searchEpisodesBySourceUrl, type EpisodeListItem, type DuplicateEpisodeInfo } from '../lib/api'
 import DuplicateUrlConfirmDialog from './DuplicateUrlConfirmDialog'
+import ProgramSettingsPanel from './ProgramSettingsPanel'
+import type { ProgramSettings } from '../lib/api'
 
 type PhaseCode =
   | 'start'
@@ -296,6 +298,7 @@ interface GenerationParams {
   ttsEngine: 'voicevox' | 'aivispeech'
   maxArticles: number
   recreateSummary: boolean
+  settingsSnapshot?: ProgramSettings
 }
 
 const STORAGE_KEY = 'generating_episode_id'
@@ -313,6 +316,8 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   const [recreateSummary, setRecreateSummary] = useState(false)
   const [ttsEngine, setTtsEngine] = useState<'voicevox' | 'aivispeech'>('aivispeech')
   const [maxArticles, setMaxArticles] = useState(10)
+  const [programSettings, setProgramSettings] = useState<ProgramSettings | null>(null)
+  const [appliedSettings, setAppliedSettings] = useState<ProgramSettings | null>(null)
   const [episodeId, setEpisodeId] = useState<number | null>(null)
   const [hasError, setHasError] = useState(false)
   const [urlInput, setUrlInput] = useState('')
@@ -526,7 +531,15 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
 
     try {
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
-      const { episode_id } = await generateEpisode(today, articles, source, engine, recreate, url, url ? style : undefined, url && style === 'solo' ? gender : undefined)
+      const settingsSnapshot = params?.settingsSnapshot ?? (programSettings
+        ? {
+            priority_themes: [...programSettings.priority_themes],
+            excluded_themes: [...programSettings.excluded_themes],
+            duration_preset: programSettings.duration_preset,
+          }
+        : undefined)
+      setAppliedSettings(settingsSnapshot ?? null)
+      const { episode_id } = await generateEpisode(today, articles, source, engine, recreate, url, url ? style : undefined, url && style === 'solo' ? gender : undefined, settingsSnapshot)
       localStorage.setItem(STORAGE_KEY, String(episode_id))
       setEpisodeId(episode_id)
       toast('番組の生成を開始しました', { icon: '🎙️' })
@@ -549,6 +562,13 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
       ttsEngine,
       maxArticles,
       recreateSummary,
+      settingsSnapshot: programSettings
+        ? {
+            priority_themes: [...programSettings.priority_themes],
+            excluded_themes: [...programSettings.excluded_themes],
+            duration_preset: programSettings.duration_preset,
+          }
+        : undefined,
     }
     setIsCheckingDuplicate(true)
     setDuplicateDialog(null)
@@ -672,6 +692,13 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
       </div>
 
       <div className="mt-5 space-y-5">
+          <ProgramSettingsPanel
+            disabled={isLoading}
+            onChange={(settings) => {
+              setProgramSettings(settings)
+              setMaxArticles(settings.duration_preset === 'short' ? 6 : settings.duration_preset === 'long' ? 14 : 10)
+            }}
+          />
           <fieldset>
             <legend className="text-sm font-medium text-slate-900">ニュースソース</legend>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
@@ -1036,7 +1063,18 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
           {message ? (
             <div className={`mt-4 rounded-xl border p-3 text-sm ${isSuccess ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
               {isSuccess
-                ? 'エピソードを更新しました。最新エピソードから再生できます。'
+                ? (
+                  <>
+                    <p>エピソードを更新しました。最新エピソードから再生できます。</p>
+                    {appliedSettings && (
+                      <p className="mt-1 text-xs text-emerald-700">
+                        この回の設定: {appliedSettings.duration_preset === 'short' ? '短め' : appliedSettings.duration_preset === 'long' ? 'しっかり' : '標準'} ・
+                        優先 {appliedSettings.priority_themes.length ? appliedSettings.priority_themes.join('、') : 'なし'} ・
+                        除外 {appliedSettings.excluded_themes.length ? appliedSettings.excluded_themes.join('、') : 'なし'}
+                      </p>
+                    )}
+                  </>
+                )
                 : isDuplicateError
                   ? '先に生成中のタスクがあります。完了をお待ちください。'
                   : message || '生成を完了できませんでした。必要に応じてログを開いて詳細を確認してください。'}

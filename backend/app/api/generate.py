@@ -25,7 +25,7 @@ from app.db.connection import get_db_connection
 from app.services.article_service import ArticleService
 from app.services.episode_service import EpisodeService
 from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_url
-from app.services.settings_service import get_settings_or_default
+from app.services.settings_service import get_settings_or_default, validate_settings
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +118,7 @@ class GenerateRequest(BaseModel):
     url: str | None = Field(default=None, description="解説対象の記事URL（指定時はnews_sourceは無視）")
     style: str = Field(default="solo", description="解説スタイル (solo | dialogue)")
     mc_gender: str = Field(default="male", description="MC性別 (male | female)")
+    settings_snapshot: dict[str, Any] | None = Field(default=None, description="生成開始時に適用する番組設定")
 
 
 def _run_generation(episode_id: int, body: GenerateRequest) -> None:
@@ -140,7 +141,11 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
         news_source=news_source,
         seq=seq,
         max_articles=body.max_articles,
-        program_settings=get_settings_or_default(),
+        program_settings=(
+            validate_settings(**body.settings_snapshot)
+            if body.settings_snapshot is not None
+            else get_settings_or_default()
+        ),
         tts_engine=body.tts_engine,
         default_episodes_dir=DEFAULT_EPISODES_DIR,
         progress_callback=_progress,
@@ -325,6 +330,12 @@ def generate_episode(request: Request, body: GenerateRequest) -> dict:
     # Validate: mc_gender
     if body.mc_gender not in VALID_GENDERS:
         raise HTTPException(status_code=400, detail="mc_gender must be 'male' or 'female'")
+
+    if body.settings_snapshot is not None:
+        try:
+            validate_settings(**body.settings_snapshot)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=f"invalid settings_snapshot: {exc}") from exc
 
     # Validate: url 指定時は style をチェック → SSRFチェック
     if body.url:
