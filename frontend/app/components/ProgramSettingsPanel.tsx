@@ -34,6 +34,7 @@ export default function ProgramSettingsPanel({ disabled = false, onChange }: Pro
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [failedSettings, setFailedSettings] = useState<ProgramSettings | null>(null)
 
   useEffect(() => {
     fetchProgramSettings().then((value) => { setSettings(value); onChange?.(value) }).catch(() => {
@@ -44,9 +45,10 @@ export default function ProgramSettingsPanel({ disabled = false, onChange }: Pro
   const update = async (next: ProgramSettings) => {
     setSettings(next)
     onChange?.(next)
+    setFailedSettings(null)
     setSaving(true); setSaved(false); setError(null)
     try { const savedSettings = await saveProgramSettings(next); setSettings(savedSettings); onChange?.(savedSettings); setSaved(true) }
-    catch (err) { setError(err instanceof Error ? err.message : '設定を保存できませんでした') }
+    catch (err) { setFailedSettings(next); setError(err instanceof Error ? err.message : '設定を保存できませんでした') }
     finally { setSaving(false) }
   }
 
@@ -62,10 +64,13 @@ export default function ProgramSettingsPanel({ disabled = false, onChange }: Pro
 
   const reset = async () => {
     setSaving(true); setSaved(false); setError(null)
+    setFailedSettings(null)
     try { const value = await resetProgramSettings(); setSettings(value); onChange?.(value); setSaved(true) }
     catch (err) { setError(err instanceof Error ? err.message : '設定を初期化できませんでした') }
     finally { setSaving(false) }
   }
+
+  const retry = () => failedSettings && update(failedSettings)
 
   return (
     <fieldset className="rounded-xl border border-slate-200 bg-slate-50/70 p-3" disabled={disabled || loading || saving}>
@@ -93,6 +98,7 @@ export default function ProgramSettingsPanel({ disabled = false, onChange }: Pro
       </div>
       <div className="mt-2 flex min-h-5 items-center justify-between gap-2 text-xs" aria-live="polite">
         <span className={error ? 'text-rose-600' : 'text-slate-400'}>{loading ? '設定を読み込み中…' : error ?? (saving ? '保存中…' : saved ? '保存しました' : '未設定なら標準設定で生成')}</span>
+        {failedSettings && <button type="button" onClick={retry} className="shrink-0 rounded-md border border-rose-200 bg-white px-2 py-1 text-rose-700 transition hover:bg-rose-50">再試行</button>}
         <button type="button" onClick={reset} disabled={settings.priority_themes.length === 0 && settings.excluded_themes.length === 0 && settings.duration_preset === 'normal'} className="shrink-0 text-slate-500 underline decoration-slate-300 underline-offset-2 transition hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40">初期化</button>
       </div>
     </fieldset>
