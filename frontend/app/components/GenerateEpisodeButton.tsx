@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'react-hot-toast'
 import { generateEpisode, fetchEpisode, searchEpisodesBySourceUrl, type EpisodeListItem, type DuplicateEpisodeInfo } from '../lib/api'
 import DuplicateUrlConfirmDialog from './DuplicateUrlConfirmDialog'
+import ProgramSettingsPanel from './ProgramSettingsPanel'
+import type { ProgramSettings } from '../lib/api'
 
 type PhaseCode =
   | 'start'
@@ -313,6 +315,7 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
   const [recreateSummary, setRecreateSummary] = useState(false)
   const [ttsEngine, setTtsEngine] = useState<'voicevox' | 'aivispeech'>('aivispeech')
   const [maxArticles, setMaxArticles] = useState(10)
+  const [programSettings, setProgramSettings] = useState<ProgramSettings | null>(null)
   const [episodeId, setEpisodeId] = useState<number | null>(null)
   const [hasError, setHasError] = useState(false)
   const [urlInput, setUrlInput] = useState('')
@@ -672,6 +675,13 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
       </div>
 
       <div className="mt-5 space-y-5">
+          <ProgramSettingsPanel
+            disabled={isLoading}
+            onChange={(settings) => {
+              setProgramSettings(settings)
+              setMaxArticles(settings.duration_preset === 'short' ? 6 : settings.duration_preset === 'long' ? 14 : 10)
+            }}
+          />
           <fieldset>
             <legend className="text-sm font-medium text-slate-900">ニュースソース</legend>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
@@ -1036,7 +1046,18 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
           {message ? (
             <div className={`mt-4 rounded-xl border p-3 text-sm ${isSuccess ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
               {isSuccess
-                ? 'エピソードを更新しました。最新エピソードから再生できます。'
+                ? (
+                  <>
+                    <p>エピソードを更新しました。最新エピソードから再生できます。</p>
+                    {programSettings && (
+                      <p className="mt-1 text-xs text-emerald-700">
+                        この回の設定: {programSettings.duration_preset === 'short' ? '短め' : programSettings.duration_preset === 'long' ? 'しっかり' : '標準'} ・
+                        優先 {programSettings.priority_themes.length ? programSettings.priority_themes.join('、') : 'なし'} ・
+                        除外 {programSettings.excluded_themes.length ? programSettings.excluded_themes.join('、') : 'なし'}
+                      </p>
+                    )}
+                  </>
+                )
                 : isDuplicateError
                   ? '先に生成中のタスクがあります。完了をお待ちください。'
                   : message || '生成を完了できませんでした。必要に応じてログを開いて詳細を確認してください。'}
