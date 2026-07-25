@@ -91,3 +91,13 @@ CREATE TABLE IF NOT EXISTS sessions (
     FOREIGN KEY (admin_user_id) REFERENCES admin_users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+
+-- MVP settings are local, single-user state.  Keep one row and store the
+-- validated category selections as JSON so the schema can evolve later.
+CREATE TABLE IF NOT EXISTS user_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    priority_themes TEXT NOT NULL DEFAULT '[]',
+    excluded_themes TEXT NOT NULL DEFAULT '[]',
+    duration_preset TEXT NOT NULL DEFAULT 'normal',
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
