@@ -23,48 +23,41 @@ def _extract_key_points(script: dict, summaries_path: str) -> list[str]:
     """script.json と summaries.json から最大3件の要点を抽出する。
 
     優先順:
-    1. script の intro セクションからラインアップ記述行を抽出
-    2. script の subtitle を活用
-    3. 記事の title を活用
+    1. 台本で参照されている記事の title を活用
+    2. 記事タイトルが不足する場合のみ script の subtitle を活用
+
+    intro はナレーション／会話文であり、視聴者向けの要点ではないため、
+    key_points の抽出元には使用しない。
     """
     key_points: list[str] = []
 
-    intro_lines = [
-        line.get("text", "").strip()
-        for line in script.get("lines", [])
-        if line.get("section") == "intro"
-    ]
-    for text in intro_lines:
-        if any(kw in text for kw in ["ラインアップ", "トピック", "ニュース", "本日", "今日"]):
-            cleaned = text.strip()
-            if cleaned and len(cleaned) >= 5 and cleaned not in key_points:
-                key_points.append(cleaned)
+    article_ids_in_script = []
+    for line in script.get("lines", []):
+        article_id = line.get("article_id")
+        if article_id is not None and article_id not in article_ids_in_script:
+            article_ids_in_script.append(article_id)
+
+    try:
+        with open(summaries_path, "r", encoding="utf-8") as f:
+            summaries = json.load(f)
+        titles_by_article_id = {
+            summary.get("article_id"): str(summary.get("title", "")).strip()
+            for summary in summaries
+            if summary.get("article_id") is not None and summary.get("title")
+        }
+        for article_id in article_ids_in_script:
+            title = titles_by_article_id.get(article_id, "")
+            if title and title not in key_points:
+                key_points.append(title)
                 if len(key_points) >= 3:
                     break
+    except (FileNotFoundError, json.JSONDecodeError, TypeError):
+        pass
 
     if len(key_points) < 3:
-        subtitle = script.get("subtitle", "").strip()
+        subtitle = str(script.get("subtitle", "")).strip()
         if subtitle and subtitle not in key_points:
             key_points.append(subtitle)
-
-    if len(key_points) < 3:
-        try:
-            with open(summaries_path, "r", encoding="utf-8") as f:
-                summaries = json.load(f)
-            article_ids_in_script = set()
-            for line in script.get("lines", []):
-                aid = line.get("article_id")
-                if aid is not None:
-                    article_ids_in_script.add(aid)
-            for s in summaries:
-                if s.get("article_id") in article_ids_in_script and s.get("title"):
-                    title = s["title"].strip()
-                    if title and title not in key_points:
-                        key_points.append(title)
-                        if len(key_points) >= 3:
-                            break
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
 
     return key_points[:3]
 

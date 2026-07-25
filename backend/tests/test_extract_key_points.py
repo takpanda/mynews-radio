@@ -16,21 +16,22 @@ class TestExtractKeyPoints:
             "lines": lines or [],
         }
 
-    def test_extract_from_intro_lines(self, tmp_path):
-        """intro行のラインアップ記述から要点が抽出される"""
+    def test_article_titles_are_preferred_over_intro_lines(self, tmp_path):
+        """introの台本セリフではなく記事タイトルが要点になる"""
         script = self._make_script(
             lines=[
                 {"speaker": "male", "text": "今日のラインアップは、AI・セキュリティ・経済の3本です。", "section": "intro"},
                 {"speaker": "female", "text": "盛りだくさんですね。", "section": "intro"},
+                {"speaker": "male", "text": "記事の内容です。", "section": "news", "article_id": 1},
             ],
             subtitle="AI・セキュリティ・経済",
         )
         summaries_file = tmp_path / "summaries.json"
-        summaries_file.write_text("[]", encoding="utf-8")
+        summaries_file.write_text(json.dumps([{"article_id": 1, "title": "AI規制の最新動向"}], ensure_ascii=False), encoding="utf-8")
 
         points = _extract_key_points(script, str(summaries_file))
-        assert len(points) >= 1
-        assert "ラインアップ" in points[0]
+        assert points[0] == "AI規制の最新動向"
+        assert all("ラインアップ" not in point for point in points)
 
     def test_fallback_to_subtitle(self, tmp_path):
         """intro行に該当がない場合、subtitleから抽出される"""
@@ -159,7 +160,22 @@ class TestExtractKeyPoints:
         summaries_file.write_text(json.dumps(summaries, ensure_ascii=False), encoding="utf-8")
 
         points = _extract_key_points(script, str(summaries_file))
-        # intro → subtitle の順で埋まり、残りがタイトルで補完
+        # 記事タイトルを優先し、不足分だけsubtitleで補完
         assert len(points) <= 3
-        assert points[0] == "今日のラインアップは3本です。"
-        assert points[1] == "サブタイトル"
+        assert points[0] == "タイトルX"
+        assert points[1] == "タイトルY"
+
+    def test_subtitle_is_fallback_when_article_titles_are_unavailable(self, tmp_path):
+        """記事情報がない場合のみsubtitleを要点として使う"""
+        script = self._make_script(
+            lines=[
+                {"speaker": "male", "text": "今日のラインアップはAIの話題です。", "section": "intro"},
+            ],
+            subtitle="AIと社会の最新動向",
+        )
+        summaries_file = tmp_path / "summaries.json"
+        summaries_file.write_text("[]", encoding="utf-8")
+
+        points = _extract_key_points(script, str(summaries_file))
+        assert points == ["AIと社会の最新動向"]
+        assert all("ラインアップ" not in point for point in points)
