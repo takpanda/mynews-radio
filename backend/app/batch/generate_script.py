@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from app.config import get_settings
 from app.services.article_service import ArticleService
 from app.services.ollama_client import OllamaClient
+from app.services.settings_service import ProgramSettings, get_settings_or_default
 
 logger = logging.getLogger(__name__)
 
@@ -550,16 +551,35 @@ def _reorder_summaries(summaries: list, article_order: list) -> list:
     return reordered
 
 
-def generate_script(output_path: str, program_name: str = "ニュースのとなり", news_source: str | None = None) -> int:
+def generate_script(
+    output_path: str,
+    program_name: str = "ニュースのとなり",
+    news_source: str | None = None,
+    program_settings: ProgramSettings | None = None,
+    max_articles: int | None = None,
+    min_importance_score: int | None = None,
+) -> int:
     settings = get_settings()
-    max_articles = int(os.getenv("MAX_SCRIPT_ARTICLES", "10"))
-    min_score = int(os.getenv("MIN_IMPORTANCE_SCORE", "3"))
+    profile = program_settings or get_settings_or_default()
+    generation_params = profile.generation_params()
+    max_articles = max_articles if max_articles is not None else int(
+        os.getenv("MAX_SCRIPT_ARTICLES", str(generation_params["max_articles"]))
+    )
+    min_score = min_importance_score if min_importance_score is not None else int(
+        os.getenv("MIN_IMPORTANCE_SCORE", str(generation_params["min_importance_score"]))
+    )
 
     if news_source is None and program_name == "テックニュース":
         news_source = "hatena_bookmark"
 
     service = ArticleService()
-    summaries = service.fetch_summaries_for_script(max_articles=max_articles, min_importance_score=min_score, source=news_source)
+    summaries = service.fetch_summaries_for_script(
+        max_articles=max_articles,
+        min_importance_score=min_score,
+        source=news_source,
+        priority_themes=profile.priority_themes,
+        excluded_themes=profile.excluded_themes,
+    )
     if not summaries:
         logger.warning("No summaries to generate script from")
         return 0

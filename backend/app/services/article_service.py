@@ -67,6 +67,8 @@ class ArticleService:
         max_articles: int,
         min_importance_score: int,
         source: str | None = None,
+        priority_themes: list[str] | tuple[str, ...] | None = None,
+        excluded_themes: list[str] | tuple[str, ...] | None = None,
     ) -> list[dict[str, Any]]:
         _raw_lookback = os.getenv("SUMMARY_LOOKBACK_DAYS")
         try:
@@ -76,38 +78,39 @@ class ArticleService:
         except (ValueError, TypeError):
             lookback_days = 3
         since_date = (datetime.now(JST).date() - timedelta(days=lookback_days)).isoformat()
+        priority = list(priority_themes or [])
+        excluded = list(excluded_themes or [])
+        where = [
+            "status = 'summarized'",
+            "summary IS NOT NULL",
+            "summary != ''",
+            "importance_score >= ?",
+            "published_at >= ?",
+        ]
+        params: list[Any] = [min_importance_score, since_date]
+        if source is not None:
+            where.append("source = ?")
+            params.append(source)
+        if excluded:
+            placeholders = ",".join("?" for _ in excluded)
+            # Safety valve B: critical technology/society news remains eligible.
+            where.append(
+                f"(category NOT IN ({placeholders}) OR "
+                "(importance_score >= 5 AND category IN ('technology', 'society')) OR category IS NULL)"
+            )
+            params.extend(excluded)
+        order = "importance_score DESC, published_at DESC, id DESC"
+        if priority:
+            placeholders = ",".join("?" for _ in priority)
+            order = f"CASE WHEN category IN ({placeholders}) THEN 0 ELSE 1 END, {order}"
+            params.extend(priority)
+        params.append(max_articles)
+        query = (
+            "SELECT id, title, source, url, summary, category, importance_score, difficulty "
+            f"FROM articles WHERE {' AND '.join(where)} ORDER BY {order} LIMIT ?"
+        )
         with get_db_connection() as conn:
-            if source is not None:
-                rows = conn.execute(
-                    """
-                    SELECT id, title, source, url, summary, category, importance_score, difficulty
-                    FROM articles
-                    WHERE status = 'summarized'
-                      AND summary IS NOT NULL
-                      AND summary != ''
-                      AND importance_score >= ?
-                      AND published_at >= ?
-                      AND source = ?
-                    ORDER BY importance_score DESC, published_at DESC, id DESC
-                    LIMIT ?
-                    """,
-                    (min_importance_score, since_date, source, max_articles),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """
-                    SELECT id, title, source, url, summary, category, importance_score, difficulty
-                    FROM articles
-                    WHERE status = 'summarized'
-                      AND summary IS NOT NULL
-                      AND summary != ''
-                      AND importance_score >= ?
-                      AND published_at >= ?
-                    ORDER BY importance_score DESC, published_at DESC, id DESC
-                    LIMIT ?
-                    """,
-                    (min_importance_score, since_date, max_articles),
-                ).fetchall()
+            rows = conn.execute(query, params).fetchall()
             return [dict(row) for row in rows]
 
     def fetch_and_store_article_by_url(self, url: str, timeout: int = 10) -> bool:

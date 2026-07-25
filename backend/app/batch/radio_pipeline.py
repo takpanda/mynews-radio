@@ -16,6 +16,7 @@ from app.batch.summarize_articles import summarize_articles
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.config import get_settings
 from app.services.episode_service import EpisodeService, override_script_title, build_radio_title
+from app.services.settings_service import ProgramSettings, get_settings_or_default
 
 
 def _extract_key_points(script: dict, summaries_path: str) -> list[str]:
@@ -80,6 +81,11 @@ class PipelineResult(Enum):
     NO_CONTENT = "no_content"
 
 
+def _resolve_max_articles(max_articles: int | None, settings_params: dict[str, Any]) -> int:
+    """明示指定を優先し、未指定時だけ保存済み尺の件数を使う。"""
+    return settings_params["max_articles"] if max_articles is None else max_articles
+
+
 def _determine_tts_config(tts_engine: str | None = None) -> dict[str, Any]:
     settings = get_settings()
     tts_engines = {"voicevox", "aivispeech"}
@@ -106,7 +112,8 @@ def run_radio_pipeline(
     news_source: str = "hatena_bookmark",
     program_name: str | None = None,
     seq: int = 0,
-    max_articles: int = 10,
+    max_articles: int | None = None,
+    program_settings: ProgramSettings | None = None,
     tts_engine: str | None = None,
     tts_base_url: str | None = None,
     tts_speaker_male: int | None = None,
@@ -121,6 +128,10 @@ def run_radio_pipeline(
     Episode status is updated to "completed" on success or "failed" on error.
     """
     service = EpisodeService()
+    profile = program_settings or get_settings_or_default()
+    profile_params = profile.generation_params()
+    effective_max_articles = _resolve_max_articles(max_articles, profile_params)
+    effective_min_score = profile_params["min_importance_score"]
     base_dir = (default_episodes_dir or DEFAULT_EPISODES_DIR)
     base_dir = os.path.join(base_dir, str(episode_id))
     effective_program_name = program_name or (
@@ -164,7 +175,7 @@ def run_radio_pipeline(
 
         # -- GENERATE SCRIPT --
         old_max = os.environ.get("MAX_SCRIPT_ARTICLES")
-        os.environ["MAX_SCRIPT_ARTICLES"] = str(max_articles)
+        os.environ["MAX_SCRIPT_ARTICLES"] = str(effective_max_articles)
         try:
             _progress("generate_script", "台本を生成しています…")
             script_path = os.path.join(base_dir, "script.json")
@@ -172,6 +183,9 @@ def run_radio_pipeline(
                 script_path,
                 program_name=effective_program_name,
                 news_source=news_source,
+                program_settings=profile,
+                max_articles=effective_max_articles,
+                min_importance_score=effective_min_score,
             )
         finally:
             if old_max is None:
