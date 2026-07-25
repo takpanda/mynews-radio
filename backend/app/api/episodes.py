@@ -323,6 +323,9 @@ def _enrich_episode(episode: dict) -> None:
         episode["duration_seconds"] = duration
         if "duration" in episode:
             episode["duration"] = duration
+        applied_settings = data.get("applied_settings")
+        if isinstance(applied_settings, dict):
+            episode["applied_settings"] = applied_settings
 
 
 @router.get("/articles/{article_id}", summary="記事詳細を取得")
