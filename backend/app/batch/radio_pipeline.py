@@ -81,6 +81,11 @@ class PipelineResult(Enum):
     NO_CONTENT = "no_content"
 
 
+def _resolve_max_articles(max_articles: int | None, settings_params: dict[str, Any]) -> int:
+    """明示指定を優先し、未指定時だけ保存済み尺の件数を使う。"""
+    return settings_params["max_articles"] if max_articles is None else max_articles
+
+
 def _determine_tts_config(tts_engine: str | None = None) -> dict[str, Any]:
     settings = get_settings()
     tts_engines = {"voicevox", "aivispeech"}
@@ -125,11 +130,7 @@ def run_radio_pipeline(
     service = EpisodeService()
     profile = program_settings or get_settings_or_default()
     profile_params = profile.generation_params()
-    effective_max_articles = (
-        profile_params["max_articles"]
-        if max_articles is None or max_articles == 10
-        else max_articles
-    )
+    effective_max_articles = _resolve_max_articles(max_articles, profile_params)
     effective_min_score = profile_params["min_importance_score"]
     base_dir = (default_episodes_dir or DEFAULT_EPISODES_DIR)
     base_dir = os.path.join(base_dir, str(episode_id))

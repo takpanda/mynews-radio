@@ -37,6 +37,13 @@ def test_all_duration_presets_are_generation_contracts(preset, max_articles, min
     assert value.generation_params()["min_importance_score"] == min_score
 
 
+def test_explicit_max_articles_wins_over_long_saved_duration():
+    from app.batch.radio_pipeline import _resolve_max_articles
+
+    profile = settings_service.validate_settings([], [], "long")
+    assert _resolve_max_articles(10, profile.generation_params()) == 10
+
+
 def test_get_settings_falls_back_to_default_on_database_failure(monkeypatch):
     def broken_connection():
         raise sqlite3.OperationalError("database unavailable")
@@ -108,6 +115,14 @@ def test_settings_api_crud_validation_and_failures(client, monkeypatch):
     assert client.put("/settings", json={"duration_preset": "normal"}).status_code == 503
     monkeypatch.setattr(settings_api, "reset_settings", lambda: (_ for _ in ()).throw(sqlite3.OperationalError("locked")))
     assert client.delete("/settings").status_code == 503
+
+
+def test_settings_requires_authentication():
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    response = TestClient(app).get("/settings")
+    assert response.status_code in (401, 403)
 
 
 def test_generate_uses_saved_settings_and_falls_back_on_read_error(monkeypatch):
