@@ -103,22 +103,25 @@ class EpisodeService:
 
     @retry_on_busy()
     def complete_radio_episode_with_notification(self, episode_id: int) -> bool:
-        """通常番組を完成確定し、通知Outboxを同一トランザクションで登録する。
+        """エピソードを完成確定する。
 
-        通知対象は type=radio のみとし、Outboxの一意制約と INSERT OR IGNORE
-        で再実行時の重複イベントを防止する。
+        通常番組の場合は通知Outbox登録まで同一トランザクションで行う。
+        Outboxの一意制約と INSERT OR IGNORE で再実行時の重複イベントを防止する。
         """
         with get_db_connection() as conn:
             row = conn.execute(
                 "SELECT type FROM episodes WHERE id = ?", (episode_id,)
             ).fetchone()
-            if not row or row["type"] != "radio":
+            if not row:
                 return False
 
             conn.execute(
                 "UPDATE episodes SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (episode_id,),
             )
+            if row["type"] != "radio":
+                return True
+
             conn.execute(
                 """
                 INSERT OR IGNORE INTO notification_outbox

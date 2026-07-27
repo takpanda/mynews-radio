@@ -475,7 +475,7 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
         return
 
     service.update_episode_audio_path(episode_id, ep_metadata.get("audio_path") or "")
-    service.update_episode_status(episode_id, "completed")
+    service.complete_radio_episode_with_notification(episode_id)
 
     yield _format_sse(
         "complete",

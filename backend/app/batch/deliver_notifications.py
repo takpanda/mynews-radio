@@ -66,19 +66,8 @@ def send_web_push(delivery: Delivery) -> None:
         raise PushDeliveryError("Web Push request failed") from exc
 
 
-def _ensure_delivery_rows() -> None:
+def _reset_stale_deliveries() -> None:
     with get_db_connection() as conn:
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO notification_deliveries (outbox_id, subscription_id)
-            SELECT o.id, s.id
-            FROM notification_outbox o
-            JOIN push_subscriptions s ON s.is_active = 1
-            LEFT JOIN notification_deliveries d
-              ON d.outbox_id = o.id AND d.subscription_id = s.id
-            WHERE d.id IS NULL
-            """
-        )
         # A process killed during a request must not leave a delivery stuck forever.
         conn.execute(
             """
@@ -165,7 +154,7 @@ def run_once() -> dict[str, int]:
         logger.warning("Web Push delivery skipped: VAPID sender is not configured")
         return {"claimed": 0, "success": 0, "failed": 0, "disabled": 0}
 
-    _ensure_delivery_rows()
+    _reset_stale_deliveries()
     stats = {"claimed": 0, "success": 0, "failed": 0, "disabled": 0}
     while True:
         delivery = _claim_delivery()
