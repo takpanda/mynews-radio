@@ -138,3 +138,44 @@ export async function updateDictionaryStatus(
   }
   return res.json() as Promise<DictionaryEntry>
 }
+
+/* ---- AIVIS 同期 ---- */
+
+export interface SyncDetailItem {
+  dictionary_entry_id: number | null
+  surface: string
+  status: string
+  reason: string
+  reading?: string
+  remote?: unknown[]
+  selected_id?: number
+}
+
+export interface SyncDictionaryResponse {
+  synced_at: string
+  added: number
+  updated: number
+  deleted: number
+  skipped: number
+  errors: number
+  details: SyncDetailItem[]
+}
+
+export async function syncDictionaryEntries(
+  entryIds: number[],
+  overwriteConfirmed = false,
+): Promise<SyncDictionaryResponse> {
+  const res = await clientFetch('/admin/user_dict_sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      dictionary_entry_ids: entryIds,
+      overwrite_confirmed: overwriteConfirmed,
+    }),
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(body || `Sync failed: ${res.status}`)
+  }
+  return res.json() as Promise<SyncDictionaryResponse>
+}
