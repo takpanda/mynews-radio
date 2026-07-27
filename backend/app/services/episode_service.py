@@ -1,4 +1,5 @@
 import time
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 import sqlite3
@@ -99,6 +100,52 @@ class EpisodeService:
                 """,
                 (status, episode_id),
             )
+
+    @retry_on_busy()
+    def complete_radio_episode_with_notification(self, episode_id: int) -> bool:
+        """通常番組を完成確定し、通知Outboxを同一トランザクションで登録する。
+
+        通知対象は type=radio のみとし、Outboxの一意制約と INSERT OR IGNORE
+        で再実行時の重複イベントを防止する。
+        """
+        with get_db_connection() as conn:
+            row = conn.execute(
+                "SELECT type FROM episodes WHERE id = ?", (episode_id,)
+            ).fetchone()
+            if not row or row["type"] != "radio":
+                return False
+
+            conn.execute(
+                "UPDATE episodes SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (episode_id,),
+            )
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO notification_outbox
+                    (event_type, episode_id, payload)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    "daily_radio_completed",
+                    episode_id,
+                    json.dumps({"url": f"/episodes/{episode_id}"}, ensure_ascii=False),
+                ),
+            )
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO notification_deliveries
+                    (outbox_id, subscription_id)
+                SELECT o.id, s.id
+                FROM notification_outbox o
+                JOIN push_subscriptions s ON s.is_active = 1
+                LEFT JOIN notification_deliveries d
+                  ON d.outbox_id = o.id AND d.subscription_id = s.id
+                WHERE o.event_type = 'daily_radio_completed'
+                  AND o.episode_id = ? AND d.id IS NULL
+                """,
+                (episode_id,),
+            )
+            return True
 
     @retry_on_busy()
     def update_episode_phase(self, episode_id: int, phase: str, message: Optional[str] = None) -> None:
@@ -369,4 +416,3 @@ def override_script_title(script_path: str, program_name: str, episode_date: str
     script["title"] = build_radio_title(program_name, episode_date, seq)
     with open(script_path, "w", encoding="utf-8") as f:
         _json.dump(script, f, ensure_ascii=False, indent=2)
-
