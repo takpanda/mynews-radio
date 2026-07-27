@@ -11,6 +11,7 @@ logging.basicConfig(
 )
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from slowapi.errors import RateLimitExceeded
@@ -24,6 +25,7 @@ from app.api.dictionary import router as dictionary_router
 from app.api.reports import router as reports_router
 from app.api.admin_auth import router as admin_auth_router
 from app.api.settings import router as settings_router
+from app.api.push import router as push_router
 from app.services.episode_service import EpisodeService
 settings = get_settings()
 app = FastAPI(title="MyNews Radio API", version="0.1.0")
@@ -50,6 +52,17 @@ def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRespons
 
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+
+
+async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Push購読の検証失敗では、FastAPI標準の入力値を含む詳細を返さない。"""
+    if request.url.path.startswith("/push/"):
+        return JSONResponse(status_code=422, content={"detail": "Invalid push subscription"})
+    from fastapi.exception_handlers import request_validation_exception_handler
+    return await request_validation_exception_handler(request, exc)
+
+
+app.add_exception_handler(RequestValidationError, _validation_error_handler)
 
 
 def _init_db() -> None:
@@ -230,6 +243,7 @@ app.include_router(dictionary_router)
 app.include_router(reports_router)
 app.include_router(admin_auth_router)
 app.include_router(settings_router)
+app.include_router(push_router)
 
 
 # -- Audio file serving --
