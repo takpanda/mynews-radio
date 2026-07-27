@@ -1,12 +1,14 @@
 """Web Push購読の登録・解除とVAPID公開鍵API。"""
 
 import base64
+import binascii
 import hashlib
+import re
 import secrets
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from app.config import get_settings
 from app.api.generate import limiter
 from app.db.connection import get_db_connection
@@ -24,11 +26,20 @@ class PushKeys(BaseModel):
 
     @field_validator("p256dh", "auth")
     @classmethod
-    def validate_base64url(cls, value: str) -> str:
+    def validate_base64url(cls, value: str, info: ValidationInfo) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+            raise ValueError("key must be base64url encoded")
         try:
-            base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
-        except Exception as exc:
+            decoded = base64.b64decode(
+                value + "=" * (-len(value) % 4), altchars=b"-_", validate=True
+            )
+        except (ValueError, binascii.Error) as exc:
             raise ValueError("key must be base64url encoded") from exc
+        expected_length = 65 if info.field_name == "p256dh" else 16
+        if len(decoded) != expected_length or (
+            info.field_name == "p256dh" and decoded[0] != 0x04
+        ):
+            raise ValueError("invalid key length")
         return value
 
 
@@ -40,8 +51,8 @@ class PushSubscriptionRequest(BaseModel):
     @classmethod
     def validate_endpoint(cls, value: str) -> str:
         parsed = urlparse(value)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError("endpoint must be an absolute HTTP(S) URL")
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise ValueError("endpoint must be an absolute HTTPS URL")
         return value
 
 

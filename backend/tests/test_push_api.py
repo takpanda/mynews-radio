@@ -1,11 +1,10 @@
 import base64
-import sqlite3
 
 
 ENDPOINT = "https://push.example.test/send/opaque-token"
 KEYS = {
-    "p256dh": base64.urlsafe_b64encode(b"p256dh-key-material").decode().rstrip("="),
-    "auth": base64.urlsafe_b64encode(b"auth-key").decode().rstrip("="),
+    "p256dh": base64.urlsafe_b64encode(bytes([4]) + bytes(range(1, 65))).decode().rstrip("="),
+    "auth": base64.urlsafe_b64encode(bytes(range(16))).decode().rstrip("="),
 }
 
 
@@ -49,13 +48,34 @@ def test_unregister_is_idempotent_and_uses_opaque_identifier(client):
         assert conn.execute("SELECT is_active FROM push_subscriptions").fetchone()[0] == 0
 
 
-def test_invalid_subscription_is_rejected_without_echoing_endpoint(client):
+def test_http_endpoint_is_rejected_without_echoing_input(client):
+    endpoint = "http://push.example.test/send/plaintext-endpoint"
+    response = client.post("/push/subscriptions", json={"endpoint": endpoint, "keys": KEYS})
+    assert response.status_code == 422
+    assert endpoint not in response.text
+    assert response.json() == {"detail": "Invalid push subscription"}
+
+
+def test_invalid_p256dh_is_rejected_without_echoing_input(client):
+    invalid_key = "!!!!!!!!!!!!!!!!"
     response = client.post(
         "/push/subscriptions",
-        json={"endpoint": "http://", "keys": KEYS},
+        json={"endpoint": ENDPOINT, "keys": {**KEYS, "p256dh": invalid_key}},
     )
     assert response.status_code == 422
-    assert ENDPOINT not in response.text
+    assert invalid_key not in response.text
+    assert response.json() == {"detail": "Invalid push subscription"}
+
+
+def test_invalid_auth_is_rejected_without_echoing_input(client):
+    invalid_key = "!!!!!!!!"
+    response = client.post(
+        "/push/subscriptions",
+        json={"endpoint": ENDPOINT, "keys": {**KEYS, "auth": invalid_key}},
+    )
+    assert response.status_code == 422
+    assert invalid_key not in response.text
+    assert response.json() == {"detail": "Invalid push subscription"}
 
 
 def test_push_rate_limit_returns_existing_error_shape(client, monkeypatch):
