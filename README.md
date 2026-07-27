@@ -52,10 +52,10 @@
 | `AIVISPEECH_SPEAKER_FEMALE` | AivisSpeech 女性話者 ID | `1388823424`（湊音エル） |
 | `API_KEY` | API キー（設定時は `POST /generate` と `POST /episodes/{id}/synthesize` に `Authorization: Bearer <key>` が必要） | 空文字（認証無効） |
 | `GENERATE_RATE_LIMIT` | 生成系 API のレート制限（例: `5/minute`, `100/hour`） | `5/minute` |
-| `VAPID_PUBLIC_KEY` | Web Push購読でクライアントへ渡すVAPID公開鍵 | 空文字（未設定時は購読不可） |
-| `VAPID_PRIVATE_KEY` | Web Push送信用VAPID秘密鍵（ログへ出力しない） | 空文字（未設定時は配信スキップ） |
-| `VAPID_CLAIMS_EMAIL` | Web Push VAPID claims の連絡先メールアドレス | 空文字（未設定時は配信スキップ） |
-| `PUSH_RATE_LIMIT` | Web Push購読登録・解除のレート制限 | `30/minute` |
+| `VAPID_PUBLIC_KEY` | Web Push購読でクライアントへ渡すVAPID公開鍵。未設定時は購読APIが503を返す | 空文字（未設定時は購読不可） |
+| `VAPID_PRIVATE_KEY` | Web Push送信用VAPID秘密鍵（ログへ出力しない）。cron環境へ自動注入。未設定時は配信バッチがスキップ | 空文字（未設定時は配信スキップ） |
+| `VAPID_CLAIMS_EMAIL` | Web Push VAPID claims の連絡先メールアドレス。`VAPID_PRIVATE_KEY` と併せて設定必須 | 空文字（未設定時は配信スキップ） |
+| `PUSH_RATE_LIMIT` | Web Push購読登録・解除APIのレート制限 | `30/minute` |
 | `DEFAULT_TTS_ENGINE` | デフォルト TTS エンジン (`aivispeech` / `voicevox`) | `aivispeech` |
 | `CRON_SCHEDULE` | バッチ実行スケジュール（cron 形式） | `0 6 * * *` |
 | `EPISODE_RETENTION_DAYS` | エピソード保持日数 | `30` |
@@ -234,9 +234,9 @@ Irodori-TTS（OpenAI 互換 API）も利用可能です。詳細は `backend/app
 | GET | `/audio/:id/*` | 音声ファイル配信 |
 | POST | `/generate` | エピソード生成（SSE で進捗ストリーミング）※認証（API_KEY 設定時）およびレート制限対象 |
 | POST | `/episodes/:id/synthesize` | エピソード音声合成 ※認証（API_KEY 設定時）およびレート制限対象 |
-| GET | `/push/vapid-public-key` | VAPID公開鍵取得 |
-| POST | `/push/subscriptions` | Web Push購読登録（冪等、レート制限対象） |
-| DELETE | `/push/subscriptions/:subscription_id` | 登録時に発行した不透明な識別子で購読解除（冪等、レート制限対象） |
+| GET | `/push/vapid-public-key` | VAPID公開鍵取得。未設定時は503を返す |
+| POST | `/push/subscriptions` | Web Push購読登録。endpoint(p256dh,auth)を受付け、解除専用の不透明な `subscription_id` を返す（冪等、レート制限対象）。バリデーションエラー時は `{"detail": "Invalid push subscription"}` |
+| DELETE | `/push/subscriptions/:subscription_id` | 不透明な `subscription_id` による購読解除（未登録でも冪等に204、レート制限対象） |
 
 ### エピソード生成リクエスト
 
@@ -277,6 +277,75 @@ curl -X POST http://localhost:8010/generate \
 | はてなブックマーク (tech) | `hatena_bookmark` | news.beeworks.cc API 経由のテックニュース |
 | はてなホットエントリー | `hatena_hotentry_all` | Hatena RSS 経由の総合ニュース |
 | Yahoo! ニュース | `yahoo_news` | Yahoo! Japan RSS 経由の総合ニュース |
+
+## Web Push通知
+
+### 通知の対象
+
+通知は `type=radio` のエピソード完了時に送信されます（手動生成を含む）。解説エピソードなど `radio` 以外のタイプでは通知されません。
+
+### 利用手順
+
+ホーム画面のエピソード情報下部に通知トグルボタンがあります。
+
+- **未購読時**: 「毎朝、完成を通知」と表示。クリックするとブラウザの通知許可ダイアログが表示されます
+- **許可後**: 自動的に購読が登録され「通知ON」に変わります。以後、日次番組が完成するたびに通知が届きます
+- **購読中**: 「通知ON」と表示。クリックすると購読を解除できます
+- **拒否時**: 「通知オフ」と表示。ブラウザの設定から通知を再有効化できます（アプリ内では解除のみ案内）
+- **非対応環境**: ブラウザが Web Push に対応していない場合「通知に対応していません」と表示されます
+
+通知をタップすると該当エピソードの詳細画面（`/episodes/{id}`）が開きます。エピソードが特定できない場合はトップページ（`/`）が開きます。
+
+### 購読登録・解除の流れ
+
+1. 利用者がトグルボタンをクリック
+2. `Notification.requestPermission()` でブラウザの権限ダイアログを表示
+3. 許可された場合、サーバーから VAPID 公開鍵を取得
+4. `PushManager.subscribe()` でプッシュ購読オブジェクトを生成
+5. 購読情報（endpoint, p256dh, auth）をサーバーに登録
+6. サーバーから発行された不透明な `subscription_id` をローカルストレージに保存
+7. 解除時は `subscription_id` でサーバーに DELETE し、`PushManager.unsubscribe()` を実行
+
+## Web Push配信（運用者向け）
+
+### 配信方式
+
+Web Push の配送は常駐ワーカーではなく、1分周期の cron ジョブ（`deliver_notifications.py`）で処理されます。`entrypoint.sh` によりコンテナ起動時に自動設定されます。
+
+### 前提条件
+
+配信を有効にするには以下の3つの環境変数がすべて設定されている必要があります。
+
+- `VAPID_PUBLIC_KEY` — 公開鍵。未設定時は購読APIが503を返し、クライアントは購読できません
+- `VAPID_PRIVATE_KEY` — 秘密鍵。cron 環境へ自動注入されます。未設定時は配信バッチがスキップされます
+- `VAPID_CLAIMS_EMAIL` — 連絡先メールアドレス。`VAPID_PRIVATE_KEY` と併せて設定必須
+
+秘密鍵はログに出力されないよう設計されています。`entrypoint.sh` の `crontab -l` 表示でもマスクされます。
+
+### 無効購読の自動停止
+
+配信先が 410 Gone または 404 Not Found を返した場合、該当の購読レコードは自動的に無効化（`is_active = 0`）され、以降の配信対象から除外されます。
+
+### 再送動作
+
+配信に失敗した場合、最大3回まで指数バックオフ（60秒 × 2^n）で再送を試みます。3回すべて失敗すると配信は `failed` 状態になります。
+
+### 配信状態の確認
+
+配信結果は `data/logs/crontab.log` に記録されます。各実行サイクルの終了時に以下の統計が出力されます。
+
+```
+Web Push delivery complete: claimed=N success=N failed=N disabled=N
+```
+
+各項目の意味:
+
+| 項目 | 説明 |
+|------|------|
+| claimed | 今回のサイクルで処理した配信件数 |
+| success | 成功した配信件数 |
+| failed | 失敗した配信件数（最大3回再試行後） |
+| disabled | 410/404 により無効化された購読数 |
 
 ## トラブルシューティング
 
