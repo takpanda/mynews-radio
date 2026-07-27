@@ -7,6 +7,7 @@ import { fetchEpisodes } from '../lib/api'
 import type { Chapter } from '../lib/chapters'
 import EpisodeAudioPlayer from './EpisodeAudioPlayer'
 import SynthesizeAudioButton from './SynthesizeAudioButton'
+import PushSubscriptionToggle from './PushSubscriptionToggle'
 
 export interface HeroEpisode {
   id: number
@@ -184,6 +185,10 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
             {latest.subtitle && (
               <p className="mt-1 text-sm leading-6 text-slate-500">{latest.subtitle}</p>
             )}
+
+            <div className="mt-3">
+              <PushSubscriptionToggle />
+            </div>
 
             {latest.audioUrl ? (
               <div className="mt-5">
