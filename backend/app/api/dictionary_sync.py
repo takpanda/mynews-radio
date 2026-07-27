@@ -71,6 +71,17 @@ def sync_user_dictionary(body: DictionarySyncRequest) -> dict:
             if row["id"] != winner["id"]:
                 details.append(_detail(row["id"], surface, "skipped", "duplicate_surface", selected_id=winner["id"]))
 
+    if not selected:
+        return {
+            "synced_at": datetime.now(timezone.utc).isoformat(),
+            "added": 0,
+            "updated": 0,
+            "deleted": 0,
+            "skipped": len(details),
+            "errors": 0,
+            "details": details,
+        }
+
     client = AivisUserDictClient(get_settings().aivispeech_base_url)
     try:
         try:
