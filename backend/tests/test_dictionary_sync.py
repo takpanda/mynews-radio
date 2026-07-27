@@ -117,8 +117,12 @@ def test_sync_continues_after_individual_add_failure(client):
             "/admin/user_dict_sync", json={"dictionary_entry_ids": [first, second]}
         )
     assert response.status_code == 200
-    assert response.json()["errors"] == 1
-    assert response.json()["added"] == 1
+    data = response.json()
+    assert data["errors"] == 1
+    assert data["added"] == 1
+    failed = next(item for item in data["details"] if item["dictionary_entry_id"] == first)
+    assert failed["status"] == "error"
+    assert failed["reason"] == "aivis_api_failed"
     assert fake.add_word.call_count == 2
 
 
@@ -137,8 +141,12 @@ def test_sync_continues_after_individual_update_failure(client):
             json={"dictionary_entry_ids": [first, second], "overwrite_confirmed": True},
         )
     assert response.status_code == 200
-    assert response.json()["errors"] == 1
-    assert response.json()["updated"] == 1
+    data = response.json()
+    assert data["errors"] == 1
+    assert data["updated"] == 1
+    failed = next(item for item in data["details"] if item["dictionary_entry_id"] == first)
+    assert failed["status"] == "error"
+    assert failed["reason"] == "aivis_api_failed"
     assert fake.update_word.call_count == 2
 
 
