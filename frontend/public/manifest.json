@@ -1,0 +1,16 @@
+{
+  "name": "MyNews Radio",
+  "short_name": "MyNews Radio",
+  "description": "毎朝あなた専用のニュースラジオ番組を自動生成",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f5f7",
+  "theme_color": "#0284c7",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    }
+  ]
+}
