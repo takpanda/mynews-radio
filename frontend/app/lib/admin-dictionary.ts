@@ -164,6 +164,7 @@ export interface SyncDictionaryResponse {
 export async function syncDictionaryEntries(
   entryIds: number[],
   overwriteConfirmed = false,
+  dryRun = false,
 ): Promise<SyncDictionaryResponse> {
   const res = await clientFetch('/admin/user_dict_sync', {
     method: 'POST',
@@ -171,11 +172,30 @@ export async function syncDictionaryEntries(
     body: JSON.stringify({
       dictionary_entry_ids: entryIds,
       overwrite_confirmed: overwriteConfirmed,
+      dry_run: dryRun || undefined,
     }),
   })
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    throw new Error(body || `Sync failed: ${res.status}`)
+    const detail = parseSyncError(res.status, body)
+    throw new Error(detail)
   }
   return res.json() as Promise<SyncDictionaryResponse>
+}
+
+function parseSyncError(status: number, body: string): string {
+  try {
+    const parsed = JSON.parse(body)
+    if (parsed.detail) return parsed.detail
+  } catch {
+    /* not JSON, fall through */
+  }
+  switch (true) {
+    case status === 401:
+      return '認証されていません。再度ログインしてください。'
+    case status === 503 || status === 504 || status === 502:
+      return 'AIVIS Speechサービスに接続できませんでした。時間をおいて再度お試しください。'
+    default:
+      return body || `同期に失敗しました（status: ${status}）`
+  }
 }

@@ -9,7 +9,6 @@ import {
   type DictionaryEntry,
   type DictionaryStats,
   type PaginatedDictionaryResponse,
-  type SyncDetailItem,
   type SyncDictionaryResponse,
 } from '../lib/admin-dictionary'
 import DictionaryFormModal from './DictionaryFormModal'
@@ -97,6 +96,7 @@ export default function AdminDictionaryShell({ initialData }: Props) {
   const [overwriteDialog, setOverwriteDialog] = useState<{
     pendingIds: number[]
     surfaces: string[]
+    allIds: number[]
     firstResult: SyncDictionaryResponse
   } | null>(null)
 
@@ -264,8 +264,8 @@ export default function AdminDictionaryShell({ initialData }: Props) {
     if (ids.length === 0) return
     setSyncing(true)
     try {
-      const result = await syncDictionaryEntries(ids, false)
-      const confirmItems = result.details.filter(
+      const dryResult = await syncDictionaryEntries(ids, false, true)
+      const confirmItems = dryResult.details.filter(
         (d) => d.status === 'confirmation_required',
       )
       if (confirmItems.length > 0) {
@@ -274,9 +274,11 @@ export default function AdminDictionaryShell({ initialData }: Props) {
             (d) => d.dictionary_entry_id!,
           ),
           surfaces: confirmItems.map((d) => d.surface),
-          firstResult: result,
+          allIds: ids,
+          firstResult: dryResult,
         })
       } else {
+        const result = await syncDictionaryEntries(ids, true, false)
         setSyncResult(result)
         setSelectedIds(new Set())
       }
@@ -294,26 +296,11 @@ export default function AdminDictionaryShell({ initialData }: Props) {
     setSyncing(true)
     try {
       const result = await syncDictionaryEntries(
-        overwriteDialog.pendingIds,
+        overwriteDialog.allIds,
         true,
+        false,
       )
-      const combined: SyncDictionaryResponse = {
-        synced_at: result.synced_at,
-        added: (overwriteDialog.firstResult.added ?? 0) + (result.added ?? 0),
-        updated: (overwriteDialog.firstResult.updated ?? 0) + (result.updated ?? 0),
-        deleted: (overwriteDialog.firstResult.deleted ?? 0) + (result.deleted ?? 0),
-        skipped: overwriteDialog.firstResult.details.filter(
-          (d) => d.status !== 'confirmation_required',
-        ).length + (result.skipped ?? 0),
-        errors: (overwriteDialog.firstResult.errors ?? 0) + (result.errors ?? 0),
-        details: [
-          ...overwriteDialog.firstResult.details.filter(
-            (d) => d.status !== 'confirmation_required',
-          ),
-          ...result.details,
-        ],
-      }
-      setSyncResult(combined)
+      setSyncResult(result)
       setOverwriteDialog(null)
       setSelectedIds(new Set())
     } catch (err) {
@@ -327,7 +314,6 @@ export default function AdminDictionaryShell({ initialData }: Props) {
 
   const handleOverwriteCancel = () => {
     setOverwriteDialog(null)
-    setSyncing(false)
   }
 
   const handleDismissResult = () => {

@@ -150,6 +150,61 @@ def test_sync_continues_after_individual_update_failure(client):
     assert fake.update_word.call_count == 2
 
 
+def test_sync_dry_run_does_not_call_add_word(client):
+    entry_id = _entry(client, "新規語", "しんきご")
+    fake = Mock()
+    fake.list_words.return_value = []
+
+    with patch("app.api.dictionary_sync.AivisUserDictClient", return_value=fake):
+        response = client.post(
+            "/admin/user_dict_sync",
+            json={"dictionary_entry_ids": [entry_id], "dry_run": True},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["added"] == 0
+    assert data["updated"] == 0
+    fake.add_word.assert_not_called()
+
+
+def test_sync_dry_run_still_reports_confirmation_required(client):
+    entry_id = _entry(client, "既存語", "きご")
+    fake = Mock()
+    fake.list_words.return_value = [{"uuid": "remote-1", "surface": "既存語", "pronunciation": "きぞんご"}]
+
+    with patch("app.api.dictionary_sync.AivisUserDictClient", return_value=fake):
+        response = client.post(
+            "/admin/user_dict_sync",
+            json={"dictionary_entry_ids": [entry_id], "dry_run": True},
+        )
+
+    data = response.json()
+    assert response.status_code == 200
+    assert any(d["status"] == "confirmation_required" for d in data["details"])
+    fake.update_word.assert_not_called()
+
+
+def test_sync_dry_run_mixed_selection_no_side_effects(client):
+    new_id = _entry(client, "新規語", "しんきご")
+    existing_id = _entry(client, "既存語", "きご")
+    fake = Mock()
+    fake.list_words.return_value = [{"uuid": "remote-1", "surface": "既存語", "pronunciation": "きぞんご"}]
+
+    with patch("app.api.dictionary_sync.AivisUserDictClient", return_value=fake):
+        response = client.post(
+            "/admin/user_dict_sync",
+            json={"dictionary_entry_ids": [new_id, existing_id], "dry_run": True},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["added"] == 0
+    assert data["updated"] == 0
+    fake.add_word.assert_not_called()
+    fake.update_word.assert_not_called()
+
+
 def test_sync_requires_admin(client):
     from fastapi.testclient import TestClient
     from app.main import app
