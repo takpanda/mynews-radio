@@ -131,7 +131,7 @@ class EpisodeService:
                 (
                     "daily_radio_completed",
                     episode_id,
-                    json.dumps({"url": f"/episodes/{episode_id}"}, ensure_ascii=False),
+                    json.dumps({"url": f"/episodes/{episode_id}", "body": "番組の生成が完了しました"}, ensure_ascii=False),
                 ),
             )
             conn.execute(
