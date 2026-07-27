@@ -52,6 +52,8 @@
 | `AIVISPEECH_SPEAKER_FEMALE` | AivisSpeech 女性話者 ID | `1388823424`（湊音エル） |
 | `API_KEY` | API キー（設定時は `POST /generate` と `POST /episodes/{id}/synthesize` に `Authorization: Bearer <key>` が必要） | 空文字（認証無効） |
 | `GENERATE_RATE_LIMIT` | 生成系 API のレート制限（例: `5/minute`, `100/hour`） | `5/minute` |
+| `VAPID_PUBLIC_KEY` | Web Push購読でクライアントへ渡すVAPID公開鍵 | 空文字（未設定時は購読不可） |
+| `PUSH_RATE_LIMIT` | Web Push購読登録・解除のレート制限 | `30/minute` |
 | `DEFAULT_TTS_ENGINE` | デフォルト TTS エンジン (`aivispeech` / `voicevox`) | `aivispeech` |
 | `CRON_SCHEDULE` | バッチ実行スケジュール（cron 形式） | `0 6 * * *` |
 | `EPISODE_RETENTION_DAYS` | エピソード保持日数 | `30` |
@@ -230,6 +232,9 @@ Irodori-TTS（OpenAI 互換 API）も利用可能です。詳細は `backend/app
 | GET | `/audio/:id/*` | 音声ファイル配信 |
 | POST | `/generate` | エピソード生成（SSE で進捗ストリーミング）※認証（API_KEY 設定時）およびレート制限対象 |
 | POST | `/episodes/:id/synthesize` | エピソード音声合成 ※認証（API_KEY 設定時）およびレート制限対象 |
+| GET | `/push/vapid-public-key` | VAPID公開鍵取得 |
+| POST | `/push/subscriptions` | Web Push購読登録（冪等、レート制限対象） |
+| DELETE | `/push/subscriptions/:subscription_id` | 登録時に発行した不透明な識別子で購読解除（冪等、レート制限対象） |
 
 ### エピソード生成リクエスト
 
