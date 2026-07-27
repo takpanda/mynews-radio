@@ -32,8 +32,13 @@ export async function getSubscriptionState(): Promise<SubscriptionState> {
   if (Notification.permission === 'denied') {
     const staleId = getStoredSubscriptionId()
     if (staleId) {
-      fetch(`/api/push/subscriptions/${encodeURIComponent(staleId)}`, { method: 'DELETE' }).catch(() => {})
-      clearStoredSubscriptionId()
+      try {
+        const res = await fetch(`/api/push/subscriptions/${encodeURIComponent(staleId)}`, { method: 'DELETE' })
+        if (res.ok) {
+          clearStoredSubscriptionId()
+        }
+      } catch {
+      }
     }
     return { status: 'denied', subscriptionId: null }
   }

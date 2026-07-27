@@ -81,7 +81,7 @@ describe('getSubscriptionState', () => {
     expect(state.status).toBe('denied')
   })
 
-  it('clears stale ID when permission is denied and stored ID exists', async () => {
+  it('clears stale ID when DELETE succeeds (denied)', async () => {
     localStorage.setItem('push_subscription_id', 'stale-denied-id')
     mockNotification('denied')
     global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 204 })
@@ -95,6 +95,30 @@ describe('getSubscriptionState', () => {
       '/api/push/subscriptions/stale-denied-id',
       expect.objectContaining({ method: 'DELETE' }),
     )
+  })
+
+  it('preserves stale ID when DELETE returns HTTP error (denied)', async () => {
+    localStorage.setItem('push_subscription_id', 'stale-denied-id')
+    mockNotification('denied')
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500 })
+
+    const state = await getSubscriptionState()
+
+    expect(state.status).toBe('denied')
+    expect(state.subscriptionId).toBeNull()
+    expect(localStorage.getItem('push_subscription_id')).toBe('stale-denied-id')
+  })
+
+  it('preserves stale ID when DELETE fails with network error (denied)', async () => {
+    localStorage.setItem('push_subscription_id', 'stale-denied-id')
+    mockNotification('denied')
+    global.fetch = jest.fn().mockRejectedValue(new Error('Network error'))
+
+    const state = await getSubscriptionState()
+
+    expect(state.status).toBe('denied')
+    expect(state.subscriptionId).toBeNull()
+    expect(localStorage.getItem('push_subscription_id')).toBe('stale-denied-id')
   })
 
   it('returns subscribed when stored ID exists and real subscription is active', async () => {
