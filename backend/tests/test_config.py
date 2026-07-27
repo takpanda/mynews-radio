@@ -86,7 +86,7 @@ printf 'SHELL=/bin/bash\nPATH=/dummy\n' > "$OUTPUT_FILE"
 for _var in OLLAMA_BASE_URL OLLAMA_MODEL DGX_HOST \
     VOICEVOX_BASE_URL VOICEVOX_SPEAKER_MALE VOICEVOX_SPEAKER_FEMALE \
     AIVISPEECH_BASE_URL AIVISPEECH_SPEAKER_MALE AIVISPEECH_SPEAKER_FEMALE \
-    API_KEY CORS_ORIGINS; do
+    API_KEY CORS_ORIGINS VAPID_PRIVATE_KEY VAPID_CLAIMS_EMAIL; do
   _val="${!_var:-}"
   if [ -n "$_val" ]; then
     if [[ "$_val" == *$'\n'* || "$_val" == *$'\r'* ]]; then :; fi
@@ -356,6 +356,7 @@ class TestCronMinimalEnvironment:
             "print(s.ollama_base_url); "
             "print(s.dgx_host)"
         )
+
         my_env = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "OLLAMA_BASE_URL": "http://192.168.1.102:11434",
@@ -370,6 +371,14 @@ class TestCronMinimalEnvironment:
         lines = result.stdout.strip().splitlines()
         assert lines[0] == "http://192.168.1.102:11434"
         assert lines[1] == "192.168.1.102"
+
+    def test_vapid_credentials_are_passed_to_cron_environment(self):
+        output = _run_cron_env_cmd({
+            "VAPID_PRIVATE_KEY": "private-key",
+            "VAPID_CLAIMS_EMAIL": "owner@example.test",
+        })
+        assert "VAPID_PRIVATE_KEY=private-key" in output
+        assert "VAPID_CLAIMS_EMAIL=owner@example.test" in output
 
     def test_ollama_base_url_falls_back_to_default_when_unset(self):
         """cron 環境で OLLAMA_BASE_URL が未設定の場合、config.py の既定値が使われること"""

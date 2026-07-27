@@ -159,7 +159,7 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
             raise RuntimeError("build_episode returned empty metadata")
 
         _update_episode_audio(episode_id, "episode.mp3")
-        _set_episode_status(episode_id, "done")
+        ep_service.complete_radio_episode_with_notification(episode_id)
 
         logger.info("=== Episode generation completed successfully ===")
         logger.info("Episode ID: %d  |  Date: %s  |  Audio: episode.mp3  |  Duration: %.1fs",

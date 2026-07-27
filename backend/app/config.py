@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     generate_rate_limit: str = "5/minute"
     push_rate_limit: str = "30/minute"
     vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_claims_email: str = ""
     rss_base_url: str = "http://localhost:8010"
     jingle_duration: float = 10.0
     jingle_fade_duration: float = 1.0

@@ -23,7 +23,7 @@ CRONTAB_HEADER
 for _var in OLLAMA_BASE_URL OLLAMA_MODEL DGX_HOST \
     VOICEVOX_BASE_URL VOICEVOX_SPEAKER_MALE VOICEVOX_SPEAKER_FEMALE \
     AIVISPEECH_BASE_URL AIVISPEECH_SPEAKER_MALE AIVISPEECH_SPEAKER_FEMALE \
-    API_KEY CORS_ORIGINS; do
+    API_KEY CORS_ORIGINS VAPID_PRIVATE_KEY VAPID_CLAIMS_EMAIL; do
   _val="${!_var:-}"
   if [ -n "$_val" ]; then
     if [[ "$_val" == *$'\n'* || "$_val" == *$'\r'* ]]; then
@@ -37,12 +37,14 @@ for _var in OLLAMA_BASE_URL OLLAMA_MODEL DGX_HOST \
 done
 
 echo "$SCHEDULE cd /app && python3 /app/app/batch/run_daily.py >> /app/data/logs/crontab.log 2>&1" >> /etc/cron.d/mynews-batch
+# 配信は常駐ワーカーではなく、短周期cronでOutboxを処理する。
+echo "* * * * * cd /app && python3 /app/app/batch/deliver_notifications.py >> /app/data/logs/crontab.log 2>&1" >> /etc/cron.d/mynews-batch
 chmod 0644 /etc/cron.d/mynews-batch
 
 # Install the crontab
 crontab /etc/cron.d/mynews-batch
 echo "[entrypoint] crontab installed (API_KEY masked):"
-crontab -l | grep -v '^API_KEY='
+crontab -l | grep -v -e '^API_KEY=' -e '^VAPID_PRIVATE_KEY='
 
 # Start cron daemon (avoid duplicate startup)
 if ! pgrep -x "cron" >/dev/null 2>&1; then

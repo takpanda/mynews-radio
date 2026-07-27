@@ -307,7 +307,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             service.update_episode_status(episode_id, "failed")
             return
 
-        service.update_episode_status(episode_id, "completed")
+        service.complete_radio_episode_with_notification(episode_id)
         service.update_episode_phase(episode_id, "complete", "解説の生成が完了しました")
         logger.info("[%d] commentary completed successfully", episode_id)
 
@@ -475,7 +475,7 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
         return
 
     service.update_episode_audio_path(episode_id, ep_metadata.get("audio_path") or "")
-    service.update_episode_status(episode_id, "completed")
+    service.complete_radio_episode_with_notification(episode_id)
 
     yield _format_sse(
         "complete",

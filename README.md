@@ -53,6 +53,8 @@
 | `API_KEY` | API キー（設定時は `POST /generate` と `POST /episodes/{id}/synthesize` に `Authorization: Bearer <key>` が必要） | 空文字（認証無効） |
 | `GENERATE_RATE_LIMIT` | 生成系 API のレート制限（例: `5/minute`, `100/hour`） | `5/minute` |
 | `VAPID_PUBLIC_KEY` | Web Push購読でクライアントへ渡すVAPID公開鍵 | 空文字（未設定時は購読不可） |
+| `VAPID_PRIVATE_KEY` | Web Push送信用VAPID秘密鍵（ログへ出力しない） | 空文字（未設定時は配信スキップ） |
+| `VAPID_CLAIMS_EMAIL` | Web Push VAPID claims の連絡先メールアドレス | 空文字（未設定時は配信スキップ） |
 | `PUSH_RATE_LIMIT` | Web Push購読登録・解除のレート制限 | `30/minute` |
 | `DEFAULT_TTS_ENGINE` | デフォルト TTS エンジン (`aivispeech` / `voicevox`) | `aivispeech` |
 | `CRON_SCHEDULE` | バッチ実行スケジュール（cron 形式） | `0 6 * * *` |

@@ -293,7 +293,7 @@ def run_radio_pipeline(
             service.update_episode_status(episode_id, "failed")
             return None
 
-        service.update_episode_status(episode_id, "completed")
+        service.complete_radio_episode_with_notification(episode_id)
         _progress("complete", "生成が完了しました")
         logger.info("[%d] completed successfully", episode_id)
 
