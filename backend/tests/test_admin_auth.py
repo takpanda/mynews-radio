@@ -60,6 +60,7 @@ def test_session_auth_and_logout_invalidate_cookie(client, monkeypatch):
 def test_admin_dictionary_requires_session_when_api_key_unset(client, monkeypatch):
     _create_admin(monkeypatch)
     client.headers.pop("Authorization", None)
+    client.cookies.clear()
     assert client.get("/admin/dictionary").status_code == 401
     assert client.post("/admin/dictionary", json={}).status_code == 401
     assert client.put("/admin/dictionary/1", json={}).status_code == 401

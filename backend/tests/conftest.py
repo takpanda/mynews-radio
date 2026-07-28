@@ -123,6 +123,21 @@ def client():
     from app.main import app
     from fastapi.testclient import TestClient
     from unittest.mock import patch
+    from app.db.connection import get_db_connection
 
     with patch("app.api.generate.run_radio_pipeline", return_value=None):
-        yield TestClient(app, headers={"Authorization": "Bearer test-admin-key"})
+        test_client = TestClient(app, headers={"Authorization": "Bearer test-admin-key"})
+        with get_db_connection() as conn:
+            from app.auth import hash_password
+            conn.execute(
+                "INSERT INTO admin_users (username, password_hash) VALUES (?, ?)",
+                ("fixture-owner", hash_password("fixture-password")),
+            )
+        login = test_client.post(
+            "/admin/login",
+            json={"username": "fixture-owner", "password": "fixture-password"},
+        )
+        assert login.status_code == 200
+        # Secure CookieはHTTPのTestClientから自動送信されないため明示的に設定する。
+        test_client.cookies.set("admin_session", login.cookies["admin_session"])
+        yield test_client
