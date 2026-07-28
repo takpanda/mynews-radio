@@ -3,7 +3,7 @@ import './globals.css'
 import { Toaster } from 'react-hot-toast'
 import SiteHeader from './components/SiteHeader'
 import ServiceWorkerRegister from './components/ServiceWorkerRegister'
-import { cookies } from 'next/headers'
+import { hasValidAdminSession } from './admin/auth'
 
 export const metadata: Metadata = {
   title: 'MyNews Radio',
@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode
@@ -19,7 +19,7 @@ export default function RootLayout({
   return (
     <html lang="ja">
       <body className="min-h-screen">
-        <SiteHeader isAuthenticated={Boolean(cookies().get('admin_session')?.value)} />
+        <SiteHeader isAuthenticated={await hasValidAdminSession()} />
         {children}
         <ServiceWorkerRegister />
         <Toaster position="top-center" toastOptions={{ duration: 4000 }} />
