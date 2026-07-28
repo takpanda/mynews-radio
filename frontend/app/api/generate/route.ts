@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server"
+import { getAdminSessionCookie } from "../session-cookie"
 
 const API_BASE = process.env.API_BASE ?? "http://localhost:8010"
 
@@ -9,7 +10,7 @@ export async function POST(request: NextRequest) {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     }
-    const cookie = request.headers.get("cookie")
+    const cookie = getAdminSessionCookie(request)
     if (cookie) headers["Cookie"] = cookie
 
     const upstream = await fetch(`${API_BASE}/generate`, {

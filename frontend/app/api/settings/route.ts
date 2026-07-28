@@ -1,10 +1,11 @@
 import { NextRequest } from 'next/server'
+import { getAdminSessionCookie } from '../session-cookie'
 
 const API_BASE = process.env.API_BASE ?? 'http://localhost:8010'
 
 async function proxy(request: NextRequest, method: 'GET' | 'PUT' | 'DELETE') {
   const headers: Record<string, string> = {}
-  const cookie = request.headers.get('cookie')
+  const cookie = getAdminSessionCookie(request)
   if (cookie) headers.Cookie = cookie
   if (method === 'PUT') headers['Content-Type'] = 'application/json'
   const upstream = await fetch(`${API_BASE}/settings`, {

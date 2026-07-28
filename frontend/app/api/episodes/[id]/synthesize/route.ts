@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server"
+import { getAdminSessionCookie } from "../../../session-cookie"
 
 const API_BASE = process.env.API_BASE ?? "http://api:8010"
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS) || 360_000
@@ -16,7 +17,7 @@ export async function POST(
       "Content-Type": "application/json",
       Accept: "text/event-stream",
     }
-    const cookie = request.headers.get("cookie")
+    const cookie = getAdminSessionCookie(request)
     if (cookie) headers["Cookie"] = cookie
 
     const upstream = await fetch(`${API_BASE}/episodes/${params.id}/synthesize`, {
