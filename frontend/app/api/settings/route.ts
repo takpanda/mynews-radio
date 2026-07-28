@@ -1,11 +1,11 @@
 import { NextRequest } from 'next/server'
 
 const API_BASE = process.env.API_BASE ?? 'http://localhost:8010'
-const API_KEY = process.env.API_KEY
 
 async function proxy(request: NextRequest, method: 'GET' | 'PUT' | 'DELETE') {
   const headers: Record<string, string> = {}
-  if (API_KEY) headers.Authorization = `Bearer ${API_KEY}`
+  const cookie = request.headers.get('cookie')
+  if (cookie) headers.Cookie = cookie
   if (method === 'PUT') headers['Content-Type'] = 'application/json'
   const upstream = await fetch(`${API_BASE}/settings`, {
     method,

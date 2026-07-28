@@ -5,7 +5,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.api.generate import verify_api_key
+from app.auth import require_owner_session
 from app.services.settings_service import (
     DURATION_PRESETS,
     THEMES,
@@ -54,12 +54,12 @@ def _response(settings: ProgramSettings) -> dict:
     return settings.to_dict()
 
 
-@router.get("", response_model=SettingsPayload, dependencies=[Depends(verify_api_key)])
+@router.get("", response_model=SettingsPayload, dependencies=[Depends(require_owner_session)])
 def get_program_settings() -> dict:
     return _response(get_settings_or_default())
 
 
-@router.put("", response_model=SettingsPayload, dependencies=[Depends(verify_api_key)])
+@router.put("", response_model=SettingsPayload, dependencies=[Depends(require_owner_session)])
 def update_program_settings(payload: SettingsPayload) -> dict:
     try:
         settings = validate_settings(**payload.model_dump())
@@ -70,7 +70,7 @@ def update_program_settings(payload: SettingsPayload) -> dict:
         raise HTTPException(status_code=503, detail="設定を保存できませんでした") from exc
 
 
-@router.delete("", response_model=SettingsPayload, dependencies=[Depends(verify_api_key)])
+@router.delete("", response_model=SettingsPayload, dependencies=[Depends(require_owner_session)])
 def reset_program_settings() -> dict:
     try:
         return _response(reset_settings())

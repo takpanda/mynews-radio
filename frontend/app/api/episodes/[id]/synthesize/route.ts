@@ -2,7 +2,6 @@ import { NextRequest } from "next/server"
 
 const API_BASE = process.env.API_BASE ?? "http://api:8010"
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS) || 360_000
-const API_KEY = process.env.API_KEY
 
 export async function POST(
   request: NextRequest,
@@ -17,9 +16,8 @@ export async function POST(
       "Content-Type": "application/json",
       Accept: "text/event-stream",
     }
-    if (API_KEY) {
-      headers["Authorization"] = `Bearer ${API_KEY}`
-    }
+    const cookie = request.headers.get("cookie")
+    if (cookie) headers["Cookie"] = cookie
 
     const upstream = await fetch(`${API_BASE}/episodes/${params.id}/synthesize`, {
       method: "POST",
