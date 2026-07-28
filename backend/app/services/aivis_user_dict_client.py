@@ -5,6 +5,12 @@ from typing import Any
 import httpx
 
 
+def _to_katakana(reading: str) -> str:
+    return reading.translate(
+        {codepoint: codepoint + 0x60 for codepoint in range(ord("ぁ"), ord("ゖ") + 1)}
+    )
+
+
 class AivisUserDictClient:
     def __init__(self, base_url: str):
         self._client = httpx.Client(base_url=base_url.rstrip("/"), timeout=20.0)
@@ -27,7 +33,7 @@ class AivisUserDictClient:
             "/user_dict_word",
             params={
                 "surface": surface,
-                "pronunciation": reading,
+                "pronunciation": _to_katakana(reading),
                 "accent_type": 0,
                 "word_type": "PROPER_NOUN",
                 "priority": 5,
@@ -42,7 +48,7 @@ class AivisUserDictClient:
             f"/user_dict_word/{uuid}",
             params={
                 "surface": surface,
-                "pronunciation": reading,
+                "pronunciation": _to_katakana(reading),
                 "accent_type": 0,
                 "word_type": "PROPER_NOUN",
                 "priority": 5,
