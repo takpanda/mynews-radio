@@ -92,6 +92,18 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation TEXT NOT NULL,
+    owner_user_id INTEGER,
+    executed_at TEXT NOT NULL,
+    result TEXT NOT NULL CHECK (result IN ('started', 'success', 'failure')),
+    episode_id INTEGER,
+    FOREIGN KEY (owner_user_id) REFERENCES admin_users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_executed_at ON audit_logs(executed_at);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_operation ON audit_logs(operation);
+
 CREATE TABLE IF NOT EXISTS push_subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     subscription_id_hash TEXT NOT NULL UNIQUE,

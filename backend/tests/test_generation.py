@@ -854,15 +854,17 @@ class TestAuthGuard:
         monkeypatch.setenv("API_KEY", "test-key-123")
         from app.config import get_settings
         get_settings.cache_clear()
+        client.cookies.clear()
 
         resp = client.post("/generate", json={"date": "2099-12-31", "max_articles": 5})
         assert resp.status_code == 401
-        assert resp.json() == {"detail": "Invalid or missing API key"}
+        assert resp.json() == {"detail": "Admin session required"}
 
     def test_wrong_api_key_returns_401(self, client, monkeypatch):
         monkeypatch.setenv("API_KEY", "test-key-123")
         from app.config import get_settings
         get_settings.cache_clear()
+        client.cookies.clear()
 
         resp = client.post(
             "/generate",
@@ -870,21 +872,20 @@ class TestAuthGuard:
             headers={"Authorization": "Bearer wrong-key-999"},
         )
         assert resp.status_code == 401
-        assert resp.json() == {"detail": "Invalid or missing API key"}
+        assert resp.json() == {"detail": "Admin session required"}
 
-    def test_valid_api_key_succeeds(self, client, monkeypatch):
+    def test_valid_api_key_alone_is_rejected(self, client, monkeypatch):
         monkeypatch.setenv("API_KEY", "test-key-123")
         from app.config import get_settings
         get_settings.cache_clear()
+        client.cookies.clear()
 
         resp = client.post(
             "/generate",
             json={"date": "2099-12-31", "max_articles": 5},
             headers={"Authorization": "Bearer test-key-123"},
         )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "episode_id" in data
+        assert resp.status_code == 401
 
     def test_get_endpoints_are_not_protected(self, client, monkeypatch):
         monkeypatch.setenv("API_KEY", "test-key-123")
@@ -898,23 +899,24 @@ class TestAuthGuard:
         monkeypatch.setenv("API_KEY", "test-key-123")
         from app.config import get_settings
         get_settings.cache_clear()
+        client.cookies.clear()
 
         resp = client.post("/episodes/999/synthesize", json={"tts_engine": "voicevox"})
         assert resp.status_code == 401
-        assert resp.json() == {"detail": "Invalid or missing API key"}
+        assert resp.json() == {"detail": "Admin session required"}
 
-    def test_synthesize_with_valid_auth_returns_streaming(self, client, monkeypatch):
+    def test_synthesize_with_api_key_alone_is_rejected(self, client, monkeypatch):
         monkeypatch.setenv("API_KEY", "test-key-123")
         from app.config import get_settings
         get_settings.cache_clear()
+        client.cookies.clear()
 
         resp = client.post(
             "/episodes/999/synthesize",
             json={"tts_engine": "voicevox"},
             headers={"Authorization": "Bearer test-key-123"},
         )
-        assert resp.status_code == 200
-        assert resp.headers.get("content-type", "").startswith("text/event-stream")
+        assert resp.status_code == 401
 
 
 class TestRateLimit:

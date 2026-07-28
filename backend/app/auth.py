@@ -101,7 +101,7 @@ def require_admin(
         settings = get_settings()
         if not settings.api_key or not hmac.compare_digest(token, settings.api_key):
             raise HTTPException(status_code=401, detail="Invalid or missing API key")
-        # API_KEYは後方互換のサービス資格情報として維持する。
+        # 既存の辞書・レポート管理API向けサービス資格情報。
         return -1
     user_id = get_admin_user_id_by_session(token)
     if user_id is None:
@@ -123,3 +123,15 @@ def require_admin_with_token(
     if user_id is None:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
     return user_id, token
+
+
+def require_owner_session(
+    admin_session: Optional[str] = Cookie(None),
+) -> int:
+    """共有API_KEYを信頼しないオーナー操作用のセッション認証境界。"""
+    if not admin_session:
+        raise HTTPException(status_code=401, detail="Admin session required")
+    user_id = get_admin_user_id_by_session(admin_session)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    return user_id

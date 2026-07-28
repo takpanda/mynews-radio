@@ -20,6 +20,8 @@ from app.batch.radio_pipeline import run_radio_pipeline
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
 from app.batch.review_script import review_script
+from app.audit import record_audit_log
+from app.auth import require_owner_session
 from app.config import get_settings
 from app.db.connection import get_db_connection
 from app.services.article_service import ArticleService
@@ -36,7 +38,13 @@ def _get_generate_rate_limit() -> str:
     return get_settings().generate_rate_limit
 
 
-limiter = Limiter(key_func=get_remote_address)
+def _rate_limit_key(request: Request) -> str:
+    """管理セッション単位で制限し、共有プロキシIPで利用者を束ねない。"""
+    token = request.cookies.get("admin_session")
+    return f"session:{token}" if token else get_remote_address(request)
+
+
+limiter = Limiter(key_func=_rate_limit_key)
 
 
 def verify_api_key(authorization: str | None = Header(None)) -> None:
@@ -322,9 +330,9 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             logger.exception("[%d] commentary generation failed before service init", episode_id)
 
 
-@router.post("/generate", summary="番組を生成する（バックグラウンド実行）", dependencies=[Depends(verify_api_key)])
+@router.post("/generate", summary="番組を生成する（バックグラウンド実行）")
 @limiter.limit(_get_generate_rate_limit)
-def generate_episode(request: Request, body: GenerateRequest) -> dict:
+def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int = Depends(require_owner_session)) -> dict:
     """Creates episode record and returns JSON immediately; actual generation runs in background."""
 
     # Validate: mc_gender
@@ -378,6 +386,9 @@ def generate_episode(request: Request, body: GenerateRequest) -> dict:
             )
         service.update_episode_phase(episode_id, "start", "解説の生成を準備しています…")
 
+    operation = "commentary" if episode_type == "commentary" else "generate"
+    record_audit_log(operation, owner_user_id, "started", episode_id)
+
     # Start actual pipeline in background; prefer asyncio under uvicorn
     loop: asyncio.AbstractEventLoop | None = None
     try:
@@ -388,10 +399,10 @@ def generate_episode(request: Request, body: GenerateRequest) -> dict:
     pipeline = _run_commentary_generation if episode_type == "commentary" else _run_generation
 
     if loop is not None:
-        asyncio.ensure_future(_async_wrapper(episode_id, body, pipeline))
+        asyncio.ensure_future(_async_wrapper(episode_id, body, pipeline, owner_user_id, operation))
     else:
         import threading as _th
-        t = _th.Thread(target=pipeline, args=(episode_id, body), daemon=True)
+        t = _th.Thread(target=_run_pipeline_with_audit, args=(episode_id, body, pipeline, owner_user_id, operation), daemon=True)
         t.start()
 
     msg = f"Commentary generation started for {body.url}" if episode_type == "commentary" else f"Episode generation started for {body.date}"
@@ -402,9 +413,19 @@ def generate_episode(request: Request, body: GenerateRequest) -> dict:
     }
 
 
-async def _async_wrapper(episode_id: int, body: GenerateRequest, pipeline: callable = _run_generation) -> None:
+def _run_pipeline_with_audit(episode_id: int, body: GenerateRequest, pipeline: callable, owner_user_id: int, operation: str) -> None:
+    try:
+        pipeline(episode_id, body)
+    except Exception:
+        logger.exception("generation pipeline failed for episode %d", episode_id)
+    finally:
+        status = (EpisodeService().get_episode(episode_id) or {}).get("status")
+        record_audit_log(operation, owner_user_id, "success" if status == "completed" else "failure", episode_id)
+
+
+async def _async_wrapper(episode_id: int, body: GenerateRequest, pipeline: callable = _run_generation, owner_user_id: int | None = None, operation: str = "generate") -> None:
     """Run synchronous pipeline in a thread to not block the event loop."""
-    await asyncio.to_thread(pipeline, episode_id, body)
+    await asyncio.to_thread(_run_pipeline_with_audit, episode_id, body, pipeline, owner_user_id, operation)
 
 
 class SynthesizeRequest(BaseModel):
@@ -489,14 +510,23 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
     )
 
 
-@router.post("/episodes/{episode_id}/synthesize", summary="既存エピソードの音声を生成する", dependencies=[Depends(verify_api_key)])
+@router.post("/episodes/{episode_id}/synthesize", summary="既存エピソードの音声を生成する")
 @limiter.limit(_get_generate_rate_limit)
-def synthesize_episode_audio(episode_id: int, request: Request, body: SynthesizeRequest) -> StreamingResponse:
+def synthesize_episode_audio(episode_id: int, request: Request, body: SynthesizeRequest, owner_user_id: int = Depends(require_owner_session)) -> StreamingResponse:
+    record_audit_log("synthesize", owner_user_id, "started", episode_id)
     return StreamingResponse(
-        _stream_synthesize(episode_id, body),
+        _stream_synthesize_with_audit(episode_id, body, owner_user_id),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache"},
     )
+
+
+def _stream_synthesize_with_audit(episode_id: int, body: SynthesizeRequest, owner_user_id: int) -> Generator[bytes, None, None]:
+    try:
+        yield from _stream_synthesize(episode_id, body)
+    finally:
+        status = (EpisodeService().get_episode(episode_id) or {}).get("status")
+        record_audit_log("synthesize", owner_user_id, "success" if status == "completed" else "failure", episode_id)
 
 
 # ── file-based routes for /episodes and /health are mounted in main.py ──
