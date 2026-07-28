@@ -305,9 +305,10 @@ const STORAGE_KEY = 'generating_episode_id'
 
 interface Props {
   episodes?: EpisodeListItem[]
+  isAuthenticated?: boolean
 }
 
-export default function GenerateEpisodeButton({ episodes }: Props) {
+export default function GenerateEpisodeButton({ episodes, isAuthenticated = true }: Props) {
   const [isLoading, setIsLoading] = useState(false)
   const [progress, setProgress] = useState<ProgressEntry[]>([])
   const [message, setMessage] = useState<string | null>(null)
@@ -625,7 +626,17 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
       ? 'border-amber-200 bg-amber-50 text-amber-800'
       : isDuplicateError
         ? 'border-amber-200 bg-amber-50 text-amber-800'
-        : 'border-sky-200 bg-sky-50 text-sky-800'
+      : 'border-sky-200 bg-sky-50 text-sky-800'
+
+  if (!isAuthenticated) {
+    return (
+      <section className="rounded-2xl border border-sky-200 bg-sky-50 p-6 text-center">
+        <p className="text-base font-semibold text-slate-900">番組生成はログイン後に利用できます</p>
+        <p className="mt-2 text-sm leading-6 text-slate-600">公開アーカイブの閲覧と音声再生は、ログインなしで利用できます。</p>
+        <a href="/admin/login" className="mt-5 inline-flex rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-700">ログインする</a>
+      </section>
+    )
+  }
 
   return (
     <section className="space-y-4">
@@ -1082,14 +1093,20 @@ export default function GenerateEpisodeButton({ episodes }: Props) {
           ) : null}
 
           {hasError && !isSuccess && (
-            <button
-              type="button"
-              onClick={retryGeneration}
-              disabled={isLoading}
-              className="mt-3 inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
-            >
-              再試行
-            </button>
+            message?.includes('ログインが必要') ? (
+              <a href="/admin/login" className="mt-3 inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700">
+                ログインする
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={retryGeneration}
+                disabled={isLoading}
+                className="mt-3 inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
+              >
+                再試行
+              </button>
+            )
           )}
         </div>
       )}

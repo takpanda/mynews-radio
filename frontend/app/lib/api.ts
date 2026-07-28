@@ -85,7 +85,7 @@ const CLIENT_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '/api'
 
 export async function fetchProgramSettings(): Promise<ProgramSettings> {
   const res = await fetch(`${getApiBase()}/settings`, { cache: 'no-store' })
-  if (!res.ok) throw new Error('設定の読み込みに失敗しました')
+  if (!res.ok) throw new Error(res.status === 401 ? 'ログインが必要です。再度ログインしてください。' : '設定の読み込みに失敗しました')
   return res.json() as Promise<ProgramSettings>
 }
 
@@ -99,14 +99,14 @@ export async function saveProgramSettings(settings: ProgramSettings): Promise<Pr
     const body = await res.text().catch(() => '')
     let detail = '設定を保存できませんでした'
     try { detail = JSON.parse(body).detail || detail } catch {}
-    throw new Error(detail)
+    throw new Error(res.status === 401 ? 'ログインが必要です。再度ログインしてください。' : detail)
   }
   return res.json() as Promise<ProgramSettings>
 }
 
 export async function resetProgramSettings(): Promise<ProgramSettings> {
   const res = await fetch(`${getApiBase()}/settings`, { method: 'DELETE' })
-  if (!res.ok) throw new Error('設定を初期化できませんでした')
+  if (!res.ok) throw new Error(res.status === 401 ? 'ログインが必要です。再度ログインしてください。' : '設定を初期化できませんでした')
   return res.json() as Promise<ProgramSettings>
 }
 
@@ -236,7 +236,7 @@ export async function generateEpisode(date: string, maxArticles = 10, newsSource
       throw new Error('既に生成中のタスクがあります')
     }
     if (res.status === 401) {
-      throw new Error('API キーが設定されていません。サーバー設定が必要です。')
+      throw new Error('ログインが必要です。再度ログインしてください。')
     }
     if (res.status === 429) {
       throw new Error('レート制限に達しました。しばらく待ってから再試行してください。')

@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import { headers } from 'next/headers'
+import { cookies } from 'next/headers'
 import {
   fetchEpisode,
   fetchEpisodeScript,
@@ -201,6 +202,7 @@ export default async function EpisodePage({ params }: Props) {
           articles={articles}
           episodeItems={episode.articles}
           summary={buildEpisodeSummary(episode.subtitle, articles)}
+          isAuthenticated={Boolean(cookies().get('admin_session')?.value)}
         />
       )}
     </main>

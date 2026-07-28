@@ -37,8 +37,10 @@ export default function ProgramSettingsPanel({ disabled = false, onChange }: Pro
   const [failedSettings, setFailedSettings] = useState<ProgramSettings | null>(null)
 
   useEffect(() => {
-    fetchProgramSettings().then((value) => { setSettings(value); onChange?.(value) }).catch(() => {
-      setError('設定を読み込めません。標準設定で生成できます。')
+    fetchProgramSettings().then((value) => { setSettings(value); onChange?.(value) }).catch((err) => {
+      setError(err instanceof Error && err.message.includes('ログインが必要')
+        ? err.message
+        : '設定を読み込めません。標準設定で生成できます。')
     }).finally(() => setLoading(false))
   }, [])
 

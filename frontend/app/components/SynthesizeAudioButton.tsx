@@ -51,7 +51,7 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
         try {
           const parsed = JSON.parse(errorBody)
           if (response.status === 401) {
-            setStatusMessage('API キーが設定されていません。サーバー設定が必要です。')
+            setStatusMessage('ログインが必要です。再度ログインしてください。')
           } else if (response.status === 429) {
             setStatusMessage('レート制限に達しました。しばらく待ってから再試行してください。')
           } else if (parsed.detail) {
@@ -121,13 +121,15 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
     return (
       <span className={compact ? 'inline-flex items-center gap-2 text-xs' : 'inline-flex items-center gap-3 text-sm'}>
         <span className="text-amber-600">{statusMessage}</span>
-        <button
+        {responseRequiresLogin(statusMessage) ? (
+          <a href="/admin/login" className="text-sky-600 underline hover:text-sky-700">ログイン</a>
+        ) : <button
           type="button"
           onClick={handleClick}
           className="text-sky-600 underline hover:text-sky-700"
         >
           再試行
-        </button>
+        </button>}
       </span>
     )
   }
@@ -173,4 +175,8 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
       </button>
     </div>
   )
+}
+
+function responseRequiresLogin(message: string): boolean {
+  return message.includes('ログインが必要')
 }

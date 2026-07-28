@@ -9,6 +9,7 @@ import {
 } from './lib/api'
 import { buildChapters, type Chapter } from './lib/chapters'
 import HomeShell, { type HeroEpisode } from './components/HomeShell'
+import { cookies } from 'next/headers'
 
 function toHeroEpisode(episode: Episode): HeroEpisode {
   return {
@@ -60,6 +61,7 @@ export default async function Home() {
           chapters={chapters}
           initialEpisodes={initialData!.items}
           initialHasNext={initialData!.has_next}
+          isAuthenticated={Boolean(cookies().get('admin_session')?.value)}
         />
       )}
     </main>

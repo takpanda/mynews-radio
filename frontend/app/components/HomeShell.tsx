@@ -25,6 +25,7 @@ interface Props {
   chapters: Chapter[]
   initialEpisodes: EpisodeListItem[]
   initialHasNext: boolean
+  isAuthenticated?: boolean
 }
 
 type CategoryKey = 'all' | 'tech' | 'general' | 'commentary'
@@ -61,7 +62,7 @@ function durationLabel(seconds: number): string {
   return `${Math.max(1, Math.round(seconds / 60))}分`
 }
 
-export default function HomeShell({ latest, chapters, initialEpisodes, initialHasNext }: Props) {
+export default function HomeShell({ latest, chapters, initialEpisodes, initialHasNext, isAuthenticated = false }: Props) {
   const [category, setCategory] = useState<CategoryKey>('all')
   const [query, setQuery] = useState('')
   const [items, setItems] = useState<EpisodeListItem[]>(initialEpisodes)
@@ -308,7 +309,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                       </Link>
                       {ep.has_script && !ep.audio_url && (
                         <div className="px-1 pb-2.5 pl-8">
-                          <SynthesizeAudioButton episodeId={ep.id} compact />
+                          {isAuthenticated ? <SynthesizeAudioButton episodeId={ep.id} compact /> : <Link href="/admin/login" className="text-xs text-sky-600 underline">ログインして再合成</Link>}
                         </div>
                       )}
                     </div>

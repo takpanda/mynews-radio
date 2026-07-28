@@ -41,9 +41,10 @@ interface Props {
   articles: Article[]
   episodeItems: EpisodeItem[]
   summary: EpisodeSummary | null
+  isAuthenticated?: boolean
 }
 
-export default function EpisodeDetailShell({ episode, script, articles, episodeItems, summary }: Props) {
+export default function EpisodeDetailShell({ episode, script, articles, episodeItems, summary, isAuthenticated = false }: Props) {
   const playerRef = useRef<PlayerHandle>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [reportContext, setReportContext] = useState<PlaybackContext | null>(null)
@@ -192,7 +193,12 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
             onMisreadingReport={openPlaybackReport}
           />
         ) : hasScript ? (
-          <SynthesizeAudioButton episodeId={episode.id} />
+          isAuthenticated ? <SynthesizeAudioButton episodeId={episode.id} /> : (
+            <div className="py-4 text-center">
+              <p className="text-sm text-slate-500">音声の再合成はログイン後に利用できます</p>
+              <a href="/admin/login" className="mt-3 inline-flex rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700">ログインして再合成</a>
+            </div>
+          )
         ) : (
           <p className="py-4 text-center text-sm text-slate-400">音声ファイルを準備中です</p>
         )}
