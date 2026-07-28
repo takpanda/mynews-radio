@@ -138,3 +138,64 @@ export async function updateDictionaryStatus(
   }
   return res.json() as Promise<DictionaryEntry>
 }
+
+/* ---- AIVIS 同期 ---- */
+
+export interface SyncDetailItem {
+  dictionary_entry_id: number | null
+  surface: string
+  status: string
+  reason: string
+  reading?: string
+  remote?: unknown[]
+  selected_id?: number
+}
+
+export interface SyncDictionaryResponse {
+  synced_at: string
+  added: number
+  updated: number
+  deleted: number
+  skipped: number
+  errors: number
+  details: SyncDetailItem[]
+}
+
+export async function syncDictionaryEntries(
+  entryIds: number[],
+  overwriteConfirmed = false,
+  dryRun = false,
+): Promise<SyncDictionaryResponse> {
+  const res = await clientFetch('/admin/user_dict_sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      dictionary_entry_ids: entryIds,
+      overwrite_confirmed: overwriteConfirmed,
+      dry_run: dryRun || undefined,
+    }),
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    const detail = parseSyncError(res.status, body)
+    throw new Error(detail)
+  }
+  return res.json() as Promise<SyncDictionaryResponse>
+}
+
+function parseSyncError(status: number, body: string): string {
+  try {
+    const parsed = JSON.parse(body)
+    if (parsed.detail) return parsed.detail
+  } catch {
+    /* not JSON, fall through */
+  }
+  switch (true) {
+    case status === 401:
+      return '認証されていません。再度ログインしてください。'
+    case status === 503 || status === 504 || status === 502:
+      return 'AIVIS Speechサービスに接続できませんでした。時間をおいて再度お試しください。'
+    default:
+      return body || `同期に失敗しました（status: ${status}）`
+  }
+}

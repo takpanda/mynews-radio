@@ -21,6 +21,7 @@ class DictionarySyncRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dictionary_entry_ids: list[int] = Field(..., min_length=1, max_length=500)
     overwrite_confirmed: bool = False
+    dry_run: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -108,6 +109,11 @@ def sync_user_dictionary(body: DictionarySyncRequest) -> dict:
             if existing and all((word.get("pronunciation") or word.get("reading")) == reading for word in existing):
                 counts["skipped"] += 1
                 details.append(_detail(row["id"], surface, "skipped", "same_reading"))
+                continue
+            if body.dry_run:
+                status = "pending" if existing else "pending"
+                counts["skipped"] += 1
+                details.append(_detail(row["id"], surface, "pending", "remote_exists" if existing else "not_found", reading=reading))
                 continue
             try:
                 if existing:

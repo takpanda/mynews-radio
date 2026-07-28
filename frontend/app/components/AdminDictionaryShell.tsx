@@ -5,9 +5,11 @@ import toast from 'react-hot-toast'
 import {
   fetchDictionaryEntries,
   updateDictionaryStatus,
+  syncDictionaryEntries,
   type DictionaryEntry,
   type DictionaryStats,
   type PaginatedDictionaryResponse,
+  type SyncDictionaryResponse,
 } from '../lib/admin-dictionary'
 import DictionaryFormModal from './DictionaryFormModal'
 
@@ -35,6 +37,36 @@ function matchesStatusFilter(status: string, filter: string): boolean {
   return status === filter
 }
 
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'added':
+      return '追加'
+    case 'updated':
+      return '更新'
+    case 'skipped':
+      return 'スキップ'
+    case 'error':
+      return 'エラー'
+    default:
+      return status
+  }
+}
+
+function statusColor(status: string): string {
+  switch (status) {
+    case 'added':
+      return 'text-emerald-700 bg-emerald-50'
+    case 'updated':
+      return 'text-sky-700 bg-sky-50'
+    case 'skipped':
+      return 'text-slate-500 bg-slate-100'
+    case 'error':
+      return 'text-red-700 bg-red-50'
+    default:
+      return 'text-slate-500 bg-slate-100'
+  }
+}
+
 export default function AdminDictionaryShell({ initialData }: Props) {
   const [items, setItems] = useState<DictionaryEntry[]>(initialData.items)
   const [total, setTotal] = useState(initialData.total)
@@ -56,6 +88,17 @@ export default function AdminDictionaryShell({ initialData }: Props) {
 
   const abortRef = useRef<AbortController | null>(null)
   const fetchGenRef = useRef(0)
+
+  /* ---- AIVIS 同期状態 ---- */
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<SyncDictionaryResponse | null>(null)
+  const [overwriteDialog, setOverwriteDialog] = useState<{
+    pendingIds: number[]
+    surfaces: string[]
+    allIds: number[]
+    firstResult: SyncDictionaryResponse
+  } | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -111,6 +154,8 @@ export default function AdminDictionaryShell({ initialData }: Props) {
   }), [query, categoryFilter, statusFilter])
 
   const handleSearch = () => {
+    setSelectedIds(new Set())
+    setSyncResult(null)
     fetchData(0, false, currentFilters())
   }
 
@@ -119,11 +164,15 @@ export default function AdminDictionaryShell({ initialData }: Props) {
   }
 
   const handleCategoryChange = (value: string) => {
+    setSelectedIds(new Set())
+    setSyncResult(null)
     setCategoryFilter(value)
     fetchData(0, false, { search: query, category: value, status: statusFilter })
   }
 
   const handleStatusChange = (value: string) => {
+    setSelectedIds(new Set())
+    setSyncResult(null)
     setStatusFilter(value)
     fetchData(0, false, { search: query, category: categoryFilter, status: value })
   }
@@ -188,6 +237,89 @@ export default function AdminDictionaryShell({ initialData }: Props) {
     fetchData(0, false, currentFilters())
   }
 
+  /* ---- 選択 ---- */
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === items.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(items.map((e) => e.id)))
+    }
+  }
+
+  /* ---- AIVIS 同期 ---- */
+  const handleSync = async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setSyncing(true)
+    try {
+      const dryResult = await syncDictionaryEntries(ids, false, true)
+      const confirmItems = dryResult.details.filter(
+        (d) => d.status === 'confirmation_required',
+      )
+      if (confirmItems.length > 0) {
+        setOverwriteDialog({
+          pendingIds: confirmItems.map(
+            (d) => d.dictionary_entry_id!,
+          ),
+          surfaces: confirmItems.map((d) => d.surface),
+          allIds: ids,
+          firstResult: dryResult,
+        })
+      } else {
+        const result = await syncDictionaryEntries(ids, true, false)
+        setSyncResult(result)
+        setSelectedIds(new Set())
+      }
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : '同期に失敗しました'
+      toast.error(msg)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const handleOverwriteConfirm = async () => {
+    if (!overwriteDialog) return
+    setSyncing(true)
+    try {
+      const result = await syncDictionaryEntries(
+        overwriteDialog.allIds,
+        true,
+        false,
+      )
+      setSyncResult(result)
+      setOverwriteDialog(null)
+      setSelectedIds(new Set())
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : '同期に失敗しました'
+      toast.error(msg)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const handleOverwriteCancel = () => {
+    setOverwriteDialog(null)
+  }
+
+  const handleDismissResult = () => {
+    setSyncResult(null)
+  }
+
   return (
     <div className="space-y-5">
       {/* 案内バナー */}
@@ -221,24 +353,51 @@ export default function AdminDictionaryShell({ initialData }: Props) {
               読み上げの調整や正しい発音を設定するための辞書を管理します。
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleAdd}
-            className="inline-flex items-center gap-1.5 rounded-full bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700"
-          >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              className="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
+          <div className="flex flex-wrap items-center gap-2">
+            {selectedIds.size > 0 && (
+              <button
+                type="button"
+                onClick={handleSync}
+                disabled={syncing}
+                className="inline-flex items-center gap-1.5 rounded-full bg-violet-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {syncing && (
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                )}
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                >
+                  <path d="M21 12a9 9 0 1 1-6.2-8.5" />
+                  <path d="M21 3v5h-5" />
+                </svg>
+                AIVISに同期（{selectedIds.size}）
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleAdd}
+              className="inline-flex items-center gap-1.5 rounded-full bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700"
             >
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            辞書を追加
-          </button>
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              >
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              辞書を追加
+            </button>
+          </div>
         </div>
       </div>
 
@@ -334,6 +493,15 @@ export default function AdminDictionaryShell({ initialData }: Props) {
         </div>
       )}
 
+      {/* 同期結果 */}
+      {syncResult && (
+        <SyncResultCard
+          result={syncResult}
+          items={items}
+          onDismiss={handleDismissResult}
+        />
+      )}
+
       {/* テーブル */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         {items.length === 0 && !loading ? (
@@ -349,6 +517,17 @@ export default function AdminDictionaryShell({ initialData }: Props) {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-100">
+                  <Th className="w-10">
+                    <input
+                      type="checkbox"
+                      checked={
+                        items.length > 0 && selectedIds.size === items.length
+                      }
+                      onChange={toggleSelectAll}
+                      className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-300"
+                      aria-label="すべて選択"
+                    />
+                  </Th>
                   <Th>単語</Th>
                   <Th>読み仮名</Th>
                   <Th>カテゴリ</Th>
@@ -362,12 +541,23 @@ export default function AdminDictionaryShell({ initialData }: Props) {
                 {items.map((entry) => (
                   <tr
                     key={entry.id}
-                    className="border-b border-slate-50 transition last:border-0 hover:bg-slate-50/50"
+                    className={`border-b border-slate-50 transition last:border-0 hover:bg-slate-50/50 ${
+                      selectedIds.has(entry.id) ? 'bg-violet-50/40' : ''
+                    }`}
                   >
-                    <td className="max-w-[180px] truncate px-4 py-3 font-medium text-slate-900">
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(entry.id)}
+                        onChange={() => toggleSelect(entry.id)}
+                        className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-300"
+                        aria-label={`${entry.word}を選択`}
+                      />
+                    </td>
+                    <td className="max-w-[160px] truncate px-4 py-3 font-medium text-slate-900">
                       {entry.word}
                     </td>
-                    <td className="max-w-[160px] truncate px-4 py-3 text-slate-600">
+                    <td className="max-w-[140px] truncate px-4 py-3 text-slate-600">
                       {entry.reading}
                     </td>
                     <td className="px-4 py-3">
@@ -488,6 +678,16 @@ export default function AdminDictionaryShell({ initialData }: Props) {
         )}
       </div>
 
+      {/* 上書き確認ダイアログ */}
+      {overwriteDialog && (
+        <OverwriteConfirmDialog
+          surfaces={overwriteDialog.surfaces}
+          onConfirm={handleOverwriteConfirm}
+          onCancel={handleOverwriteCancel}
+          syncing={syncing}
+        />
+      )}
+
       {/* モーダル */}
       {modalOpen && (
         <DictionaryFormModal
@@ -501,10 +701,185 @@ export default function AdminDictionaryShell({ initialData }: Props) {
   )
 }
 
-function Th({ children }: { children: React.ReactNode }) {
+function Th({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <th className="whitespace-nowrap px-4 py-3 text-xs font-medium text-slate-500">
+    <th className={`whitespace-nowrap px-4 py-3 text-xs font-medium text-slate-500 ${className ?? ''}`}>
       {children}
     </th>
   )
+}
+
+/* 上書き確認ダイアログ */
+function OverwriteConfirmDialog({
+  surfaces,
+  onConfirm,
+  onCancel,
+  syncing,
+}: {
+  surfaces: string[]
+  onConfirm: () => void
+  onCancel: () => void
+  syncing: boolean
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+      <div
+        className="flex w-full max-w-md flex-col rounded-2xl border border-slate-200 bg-white shadow-xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label="上書き確認"
+      >
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="text-base font-semibold text-slate-900">上書き確認</h2>
+        </div>
+        <div className="space-y-3 overflow-y-auto px-5 py-4">
+          <p className="text-sm text-slate-600">
+            以下の単語はAIVIS Speechに既に登録されています。上書きしてもよろしいですか？
+          </p>
+          <ul className="max-h-40 space-y-1 overflow-y-auto">
+            {surfaces.map((s, i) => (
+              <li
+                key={i}
+                className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800"
+              >
+                {s}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-4">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={syncing}
+            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={syncing}
+            className="inline-flex items-center gap-1.5 rounded-full bg-amber-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {syncing && (
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            )}
+            上書きして同期
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* 同期結果カード */
+function SyncResultCard({
+  result,
+  items,
+  onDismiss,
+}: {
+  result: SyncDictionaryResponse
+  items: DictionaryEntry[]
+  onDismiss: () => void
+}) {
+  const itemMap = new Map(items.map((e) => [e.id, e]))
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+        <h2 className="text-sm font-semibold text-slate-900">同期結果</h2>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+          aria-label="閉じる"
+        >
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            className="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-3 px-5 py-3">
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+          追加 {result.added}
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700">
+          更新 {result.updated}
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">
+          スキップ {result.skipped}
+        </span>
+        {result.errors > 0 && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-3 py-1 text-xs font-medium text-red-700">
+            エラー {result.errors}
+          </span>
+        )}
+      </div>
+      {result.details.length > 0 && (
+        <div className="border-t border-slate-100 px-5 py-3">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-slate-50">
+                <th className="py-1.5 pr-2 font-medium text-slate-500">単語</th>
+                <th className="py-1.5 px-2 font-medium text-slate-500">状態</th>
+                <th className="py-1.5 pl-2 font-medium text-slate-500">理由</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.details.map((d, i) => {
+                const entry = d.dictionary_entry_id != null ? itemMap.get(d.dictionary_entry_id) : undefined
+                return (
+                  <tr key={i} className="border-b border-slate-50 last:border-0">
+                    <td className="max-w-[120px] truncate py-1.5 pr-2 text-slate-700">
+                      {entry?.word ?? (d.surface || '—')}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <span
+                        className={`inline-block rounded-full px-2 py-0.5 font-medium ${statusColor(d.status)}`}
+                      >
+                        {statusLabel(d.status)}
+                      </span>
+                    </td>
+                    <td className="max-w-[160px] truncate py-1.5 pl-2 text-slate-400">
+                      {reasonLabel(d.reason)}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function reasonLabel(reason: string): string {
+  switch (reason) {
+    case 'not_found':
+      return 'AIVISに未登録'
+    case 'inactive':
+      return '無効なエントリ'
+    case 'duplicate_surface':
+      return '重複surface'
+    case 'remote_exists':
+      return '上書き確認待ち'
+    case 'same_reading':
+      return '同一読みのためスキップ'
+    case 'overwritten':
+      return '上書き完了'
+    case 'aivis_api_failed':
+      return 'AIVIS APIエラー'
+    default:
+      return reason
+  }
 }
