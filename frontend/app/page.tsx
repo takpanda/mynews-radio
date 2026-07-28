@@ -9,6 +9,7 @@ import {
 } from './lib/api'
 import { buildChapters, type Chapter } from './lib/chapters'
 import HomeShell, { type HeroEpisode } from './components/HomeShell'
+import { hasValidAdminSession } from './admin/auth'
 
 function toHeroEpisode(episode: Episode): HeroEpisode {
   return {
@@ -48,6 +49,8 @@ export default async function Home() {
     }
   }
 
+  const isAuthenticated = await hasValidAdminSession()
+
   return (
     <main className="mx-auto max-w-3xl px-4 pb-24 pt-6 sm:px-6">
       {error ? (
@@ -60,6 +63,7 @@ export default async function Home() {
           chapters={chapters}
           initialEpisodes={initialData!.items}
           initialHasNext={initialData!.has_next}
+          isAuthenticated={isAuthenticated}
         />
       )}
     </main>

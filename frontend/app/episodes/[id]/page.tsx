@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import { headers } from 'next/headers'
+import { hasValidAdminSession } from '../../admin/auth'
 import {
   fetchEpisode,
   fetchEpisodeScript,
@@ -176,6 +177,8 @@ export default async function EpisodePage({ params }: Props) {
 
   if (!episode && !error) notFound()
 
+  const isAuthenticated = await hasValidAdminSession()
+
   return (
     <main className="mx-auto max-w-3xl px-4 pb-24 pt-6 sm:px-6">
       <div className="mb-4">
@@ -201,6 +204,7 @@ export default async function EpisodePage({ params }: Props) {
           articles={articles}
           episodeItems={episode.articles}
           summary={buildEpisodeSummary(episode.subtitle, articles)}
+          isAuthenticated={isAuthenticated}
         />
       )}
     </main>

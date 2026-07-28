@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import GenerateEpisodeButton from './GenerateEpisodeButton'
 
-export default function SiteHeader() {
+export default function SiteHeader({ isAuthenticated = false }: { isAuthenticated?: boolean }) {
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
@@ -46,13 +46,22 @@ export default function SiteHeader() {
             >
               アーカイブ
             </Link>
-            <button
-              type="button"
-              onClick={() => setOpen(true)}
-              className="rounded-full border border-slate-300 bg-white px-3.5 py-1.5 text-sm font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
-            >
-              番組を生成
-            </button>
+            {isAuthenticated ? (
+              <button
+                type="button"
+                onClick={() => setOpen(true)}
+                className="rounded-full border border-slate-300 bg-white px-3.5 py-1.5 text-sm font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
+              >
+                番組を生成
+              </button>
+            ) : (
+              <Link
+                href="/admin/login"
+                className="rounded-full border border-sky-200 bg-sky-50 px-3.5 py-1.5 text-sm font-medium text-sky-700 transition hover:bg-sky-100"
+              >
+                ログインして生成
+              </Link>
+            )}
           </nav>
         </div>
       </header>
@@ -94,7 +103,7 @@ export default function SiteHeader() {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto p-4 sm:p-5">
-            <GenerateEpisodeButton />
+            <GenerateEpisodeButton isAuthenticated={isAuthenticated} />
           </div>
         </div>
       </div>

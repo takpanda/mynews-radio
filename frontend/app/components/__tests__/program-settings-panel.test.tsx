@@ -66,4 +66,13 @@ describe('ProgramSettingsPanel', () => {
     await waitFor(() => expect(mockReset).toHaveBeenCalled())
     expect(screen.getByText('保存しました')).toBeInTheDocument()
   })
+
+  it('401時は設定操作を無効にしてログイン導線を表示する', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('ログインが必要です。再度ログインしてください。'))
+    const { container } = render(<ProgramSettingsPanel />)
+
+    expect(await screen.findByText('ログインが必要です。再度ログインしてください。')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'ログインする' })).toHaveAttribute('href', '/admin/login')
+    expect(container.querySelector('fieldset')).toBeDisabled()
+  })
 })
