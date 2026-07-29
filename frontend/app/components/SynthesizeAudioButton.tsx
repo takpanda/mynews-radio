@@ -35,6 +35,7 @@ function parseSseChunk(chunk: string): { event: string; payload: ProgressPayload
 export default function SynthesizeAudioButton({ episodeId, compact = false }: Props) {
   const [state, setState] = useState<State>('idle')
   const [statusMessage, setStatusMessage] = useState('')
+  const [canRetry, setCanRetry] = useState(true)
   const idempotencyKeyRef = useRef<string | null>(null)
   const router = useRouter()
 
@@ -44,6 +45,7 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
 
     setState('loading')
     setStatusMessage('音声を合成しています...')
+    setCanRetry(true)
     const idempotencyKey = idempotencyKeyRef.current ?? crypto.randomUUID()
     idempotencyKeyRef.current = idempotencyKey
 
@@ -53,6 +55,7 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
       if (!response.ok) {
         const errorBody = await response.text().catch(() => '')
         setStatusMessage(describeGenerationError(response.status, errorBody, response.headers.get('Retry-After')))
+        setCanRetry(response.status !== 401 && response.status !== 403 && response.status !== 409)
         setState('error')
         return
       }
@@ -128,13 +131,13 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
         <span className="text-amber-600">{statusMessage}</span>
         {responseRequiresLogin(statusMessage) ? (
           <a href="/admin/login" className="text-sky-600 underline hover:text-sky-700">ログイン</a>
-        ) : <button
+        ) : canRetry ? <button
           type="button"
           onClick={handleClick}
           className="text-sky-600 underline hover:text-sky-700"
         >
           再試行
-        </button>}
+        </button> : null}
       </span>
     )
   }

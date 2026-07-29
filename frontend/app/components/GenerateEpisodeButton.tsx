@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'react-hot-toast'
-import { generateEpisode, fetchEpisode, searchEpisodesBySourceUrl, type EpisodeListItem, type DuplicateEpisodeInfo } from '../lib/api'
+import { generateEpisode, fetchEpisode, searchEpisodesBySourceUrl, GenerationError, type EpisodeListItem, type DuplicateEpisodeInfo } from '../lib/api'
 import DuplicateUrlConfirmDialog from './DuplicateUrlConfirmDialog'
 import ProgramSettingsPanel from './ProgramSettingsPanel'
 import type { ProgramSettings } from '../lib/api'
@@ -321,6 +321,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   const [appliedSettings, setAppliedSettings] = useState<ProgramSettings | null>(null)
   const [episodeId, setEpisodeId] = useState<number | null>(null)
   const [hasError, setHasError] = useState(false)
+  const [canRetry, setCanRetry] = useState(true)
   const [urlInput, setUrlInput] = useState('')
   const [commentaryStyle, setCommentaryStyle] = useState<'solo' | 'dialogue'>('solo')
   const [mcGender, setMcGender] = useState<'male' | 'female'>('male')
@@ -521,6 +522,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
     setShowLogs(false)
     setEpisodeId(null)
     setHasError(false)
+    setCanRetry(true)
     setUrlError(null)
     shouldScrollToProgress.current = true
     setTimeout(() => {
@@ -550,6 +552,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
     } catch (error) {
       const msg = error instanceof Error ? error.message : '番組生成に失敗しました。'
       setMessage(msg)
+      setCanRetry(!(error instanceof GenerationError) || error.retryable)
       if (msg !== '既に生成中のタスクがあります') {
         setHasError(true)
       }
@@ -1100,7 +1103,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
               <a href="/admin/login" className="mt-3 inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700">
                 ログインする
               </a>
-            ) : (
+            ) : canRetry ? (
               <button
                 type="button"
                 onClick={retryGeneration}
@@ -1109,7 +1112,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
               >
                 再試行
               </button>
-            )
+            ) : null
           )}
         </div>
       )}

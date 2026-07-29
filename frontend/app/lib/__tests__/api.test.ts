@@ -1,4 +1,4 @@
-import { describeGenerationError, formatGeneratedAt, generateEpisode } from '../api'
+import { describeGenerationError, formatGeneratedAt, generateEpisode, GenerationError } from '../api'
 
 describe('formatGeneratedAt', () => {
   it('UTC 13:00 → JST 22:00 に変換される', () => {
@@ -63,6 +63,22 @@ describe('generateEpisode settings snapshot', () => {
 })
 
 describe('生成制御エラー', () => {
+  it('409は同一キーを再送せず再試行不可として扱う', async () => {
+    const previousFetch = global.fetch
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      headers: new Headers(),
+      text: async () => JSON.stringify({ detail: 'Idempotency-Key was already used with different input' }),
+    }) as typeof fetch
+
+    await expect(generateEpisode('2026-07-25')).rejects.toMatchObject<Partial<GenerationError>>({
+      status: 409,
+      retryable: false,
+    })
+    global.fetch = previousFetch
+  })
+
   it('429はRetry-Afterの待機時間を案内する', () => {
     expect(describeGenerationError(429, '', '60')).toBe('利用制限に達しました。約1分後に再試行できます。')
   })
