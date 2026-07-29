@@ -16,6 +16,7 @@ class TestTextDecoder {
 Object.defineProperty(globalThis, 'TextDecoder', { value: TestTextDecoder, configurable: true })
 
 jest.mock('../../lib/api', () => ({
+  ...jest.requireActual('../../lib/api'),
   synthesizeEpisodeStream: (...args: unknown[]) => mockSynthesize(...args),
 }))
 
@@ -32,6 +33,15 @@ function sseResponse(payload: object, event = 'progress'): Response {
       .mockResolvedValueOnce({ done: true, value: undefined }),
   }
   return { ok: true, status: 200, body: { getReader: () => reader } } as unknown as Response
+}
+
+function errorResponse(status: number, retryAfter?: string): Response {
+  return {
+    ok: false,
+    status,
+    headers: new Headers(retryAfter ? { 'Retry-After': retryAfter } : {}),
+    text: () => Promise.resolve(JSON.stringify({ detail: `detail-${status}` })),
+  } as unknown as Response
 }
 
 describe('SynthesizeAudioButton', () => {
@@ -74,5 +84,29 @@ describe('SynthesizeAudioButton', () => {
     const secondKey = mockSynthesize.mock.calls[1][2]
     expect(secondKey).toEqual(expect.any(String))
     expect(secondKey).not.toBe(firstKey)
+  })
+
+  it.each([
+    [401, 'ログインが必要です。再度ログインしてください。'],
+    [403, 'この操作を実行する権限がありません。'],
+    [409, '同じ操作が競合しています。入力内容を確認して再試行してください。'],
+  ])('HTTP %s は専用の案内を表示する', async (status, message) => {
+    mockSynthesize.mockResolvedValueOnce(errorResponse(status))
+    const user = userEvent.setup()
+    render(<SynthesizeAudioButton episodeId={42} />)
+
+    await user.click(screen.getByRole('button', { name: '音声ファイルを作成する' }))
+
+    expect(await screen.findByText(message)).toBeInTheDocument()
+  })
+
+  it('HTTP 429 はRetry-Afterの待機時間を表示する', async () => {
+    mockSynthesize.mockResolvedValueOnce(errorResponse(429, '120'))
+    const user = userEvent.setup()
+    render(<SynthesizeAudioButton episodeId={42} />)
+
+    await user.click(screen.getByRole('button', { name: '音声ファイルを作成する' }))
+
+    expect(await screen.findByText('利用制限に達しました。約2分後に再試行できます。')).toBeInTheDocument()
   })
 })

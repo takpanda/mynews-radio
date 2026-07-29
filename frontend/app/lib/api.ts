@@ -212,6 +212,34 @@ function parseErrorDetail(body: string): string {
   return body
 }
 
+function retryAfterMessage(value: string | null): string {
+  if (!value) return ''
+  const seconds = Number(value)
+  if (Number.isFinite(seconds)) {
+    if (seconds < 60) return `約${Math.max(1, Math.ceil(seconds))}秒後に再試行できます。`
+    return `約${Math.ceil(seconds / 60)}分後に再試行できます。`
+  }
+  const retryAt = Date.parse(value)
+  if (Number.isFinite(retryAt)) {
+    const secondsUntilRetry = Math.max(1, Math.ceil((retryAt - Date.now()) / 1000))
+    return retryAfterMessage(String(secondsUntilRetry))
+  }
+  return ''
+}
+
+export function describeGenerationError(status: number, body: string, retryAfter: string | null = null): string {
+  if (status === 401) return 'ログインが必要です。再度ログインしてください。'
+  if (status === 403) return 'この操作を実行する権限がありません。'
+  if (status === 409) return '同じ操作が競合しています。入力内容を確認して再試行してください。'
+  if (status === 429) {
+    const waitMessage = retryAfterMessage(retryAfter)
+    return waitMessage
+      ? `利用制限に達しました。${waitMessage}`
+      : '利用制限に達しました。しばらく待ってから再試行してください。'
+  }
+  return parseErrorDetail(body) || `生成に失敗しました（${status}）。`
+}
+
 export async function generateEpisode(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', recreateSummary = false, url?: string, style?: 'solo' | 'dialogue', mcGender?: 'male' | 'female', settingsSnapshot?: ProgramSettings): Promise<GenerateResponse> {
   const res = await fetch('/api/generate', {
     method: 'POST',

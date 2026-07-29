@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { synthesizeEpisodeStream } from '../lib/api'
+import { describeGenerationError, synthesizeEpisodeStream } from '../lib/api'
 
 interface Props {
   episodeId: number
@@ -52,20 +52,8 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
 
       if (!response.ok) {
         const errorBody = await response.text().catch(() => '')
-        try {
-          const parsed = JSON.parse(errorBody)
-          if (response.status === 401) {
-            setStatusMessage('ログインが必要です。再度ログインしてください。')
-          } else if (response.status === 429) {
-            setStatusMessage('レート制限に達しました。しばらく待ってから再試行してください。')
-          } else if (parsed.detail) {
-            setStatusMessage(parsed.detail)
-          } else {
-            setStatusMessage('音声合成に失敗しました。')
-          }
-        } catch {
-          setStatusMessage('音声合成に失敗しました。')
-        }
+        idempotencyKeyRef.current = null
+        setStatusMessage(describeGenerationError(response.status, errorBody, response.headers.get('Retry-After')))
         setState('error')
         return
       }

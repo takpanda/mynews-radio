@@ -23,6 +23,8 @@ describe('オーナー操作プロキシの認証情報転送', () => {
   it('生成は上流のRetry-Afterを転送する', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ...upstream,
+      status: 429,
+      ok: false,
       headers: new Headers({ 'Retry-After': '60' }),
     })
 
