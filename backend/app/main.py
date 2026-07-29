@@ -26,6 +26,7 @@ from app.api.reports import router as reports_router
 from app.api.admin_auth import router as admin_auth_router
 from app.api.settings import router as settings_router
 from app.api.push import router as push_router
+from app.api.audit import router as audit_router
 from app.api.dictionary_sync import router as dictionary_sync_router
 from app.services.episode_service import EpisodeService
 settings = get_settings()
@@ -91,6 +92,25 @@ def _apply_db_migrations() -> None:
 
         try:
             conn.execute("DROP INDEX IF EXISTS idx_episodes_generating_date")
+        except sqlite3.OperationalError:
+            pass
+
+        # 生成監査ログの拡張（既存DBにも安全に適用する）。
+        for column, definition in (
+            ("actor_user_id", "INTEGER"),
+            ("accepted", "INTEGER NOT NULL DEFAULT 1"),
+            ("rejection_reason", "TEXT"),
+            ("idempotency_key_hash", "TEXT"),
+            ("input_hash", "TEXT"),
+            ("started_at", "TEXT"),
+            ("finished_at", "TEXT"),
+        ):
+            try:
+                conn.execute(f"ALTER TABLE audit_logs ADD COLUMN {column} {definition}")
+            except sqlite3.OperationalError:
+                pass
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_started_at ON audit_logs(started_at)")
         except sqlite3.OperationalError:
             pass
 
@@ -245,6 +265,7 @@ app.include_router(reports_router)
 app.include_router(admin_auth_router)
 app.include_router(settings_router)
 app.include_router(push_router)
+app.include_router(audit_router)
 app.include_router(dictionary_sync_router)
 
 
