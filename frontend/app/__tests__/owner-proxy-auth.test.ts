@@ -74,26 +74,17 @@ describe('オーナー操作プロキシの認証情報転送', () => {
   it.each([
     ['生成', '/generate'],
     ['再合成', '/episodes/1/synthesize'],
-  ])('%sは信頼済み中継用のクライアントIPを伝達する', async (_name, path) => {
-    const previousApiKey = process.env.API_KEY
-    process.env.API_KEY = 'proxy-secret'
+  ])('%sは保証されていないx-forwarded-forを上流へ転送しない', async (_name, path) => {
     const relayRequest = request(`http://localhost/api${path}`)
     relayRequest.headers.set('x-forwarded-for', '198.51.100.42, 10.0.0.1')
-    try {
-      if (path === '/generate') {
-        await generateRoute.POST(relayRequest)
-      } else {
-        await synthesizeRoute.POST(relayRequest, { params: { id: '1' } })
-      }
-      const upstreamHeaders = (global.fetch as jest.Mock).mock.calls[0][1].headers
-      expect(upstreamHeaders).toEqual(expect.objectContaining({
-        'X-Proxy-Client-IP': '198.51.100.42',
-        'X-Proxy-Auth': 'proxy-secret',
-      }))
-    } finally {
-      if (previousApiKey === undefined) delete process.env.API_KEY
-      else process.env.API_KEY = previousApiKey
+    if (path === '/generate') {
+      await generateRoute.POST(relayRequest)
+    } else {
+      await synthesizeRoute.POST(relayRequest, { params: { id: '1' } })
     }
+    const upstreamHeaders = (global.fetch as jest.Mock).mock.calls[0][1].headers
+    expect(upstreamHeaders).not.toHaveProperty('X-Proxy-Client-IP')
+    expect(upstreamHeaders).not.toHaveProperty('X-Proxy-Auth')
   })
 
   it.each([

@@ -211,7 +211,7 @@ def test_global_daily_limit_is_enforced_across_ips(client):
     assert exc_info.value.retry_after > 0
 
 
-def test_next_proxy_ip_is_used_for_generation_and_synthesis_only_with_valid_secret(client, monkeypatch):
+def test_untrusted_proxy_ip_headers_are_ignored_for_generation_and_synthesis(client, monkeypatch):
     from app.api import generate as generate_api
     from app.audit import hash_value
     from app.services.episode_service import EpisodeService
@@ -232,7 +232,7 @@ def test_next_proxy_ip_is_used_for_generation_and_synthesis_only_with_valid_secr
         headers={
             "Idempotency-Key": "relay-generate",
             "X-Proxy-Client-IP": "198.51.100.10",
-            "X-Proxy-Auth": "test-admin-key",
+            "X-Proxy-Auth": "not-a-deployment-contract",
         },
     )
     assert generated.status_code == 200
@@ -252,7 +252,7 @@ def test_next_proxy_ip_is_used_for_generation_and_synthesis_only_with_valid_secr
         headers={
             "Idempotency-Key": "relay-synthesize",
             "X-Proxy-Client-IP": "198.51.100.11",
-            "X-Proxy-Auth": "test-admin-key",
+            "X-Proxy-Auth": "not-a-deployment-contract",
         },
     )
     assert synthesized.status_code == 200
@@ -275,6 +275,6 @@ def test_next_proxy_ip_is_used_for_generation_and_synthesis_only_with_valid_secr
             "ORDER BY idempotency_key"
         ).fetchall()
     by_key = {row["idempotency_key"]: row["client_ip_hash"] for row in rows}
-    assert by_key["relay-generate"] == hash_value("198.51.100.10")
-    assert by_key["relay-synthesize"] == hash_value("198.51.100.11")
+    assert by_key["relay-generate"] != hash_value("198.51.100.10")
+    assert by_key["relay-synthesize"] != hash_value("198.51.100.11")
     assert by_key["untrusted-ip"] != hash_value("198.51.100.99")

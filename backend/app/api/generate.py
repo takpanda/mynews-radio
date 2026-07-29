@@ -1,8 +1,6 @@
 """Broadcast generation endpoint (POST /generate) - async background execution."""
 
 import asyncio
-import hmac
-import ipaddress
 import json
 import logging
 import os
@@ -50,18 +48,8 @@ def _rate_limit_key(request: Request) -> str:
 limiter = Limiter(key_func=_rate_limit_key)
 
 
-def _trusted_client_ip(request: Request) -> str:
-    """Use the relay-provided IP only when the relay proves its identity."""
-    forwarded_ip = request.headers.get("X-Proxy-Client-IP")
-    proxy_auth = request.headers.get("X-Proxy-Auth")
-    api_key = get_settings().api_key
-    if forwarded_ip and proxy_auth and api_key:
-        try:
-            parsed = ipaddress.ip_address(forwarded_ip.strip())
-        except ValueError:
-            parsed = None
-        if parsed is not None and hmac.compare_digest(proxy_auth, api_key):
-            return str(parsed)
+def _client_ip(request: Request) -> str:
+    """Use only the socket peer until deployment provides a trusted relay contract."""
     return request.client.host if request.client else "unknown"
 
 
@@ -388,7 +376,7 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
             owner_user_id, operation, idempotency_key or "",
             body.model_dump() if hasattr(body, "model_dump") else body.dict(),
             episode_date=body.date, episode_type=episode_type, source_url=body.url,
-            client_ip=_trusted_client_ip(request),
+            client_ip=_client_ip(request),
         )
     except GenerationControlError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
@@ -550,7 +538,7 @@ def synthesize_episode_audio(episode_id: int, request: Request, body: Synthesize
             owner_user_id, "synthesize", idempotency_key or "",
             {"episode_id": episode_id, "body": body.model_dump() if hasattr(body, "model_dump") else body.dict()},
             episode_id=episode_id,
-            client_ip=_trusted_client_ip(request),
+            client_ip=_client_ip(request),
         )
     except GenerationControlError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
