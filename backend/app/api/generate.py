@@ -381,7 +381,7 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
         try:
             episode_id, seq = service.create_radio_episode(episode_date=body.date, status="generating")
         except Exception:
-            finish_job(claim.job_id, False)
+            _finish_claim_with_audit_failure(claim.job_id)
             raise
         logger.info("Episode record created: id=%d, date=%s, seq=%d", episode_id, body.date, seq)
         service.update_episode_phase(episode_id, "start", "番組の生成を準備しています…")
@@ -394,11 +394,14 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
                 source_url=body.url,
             )
         except sqlite3.IntegrityError:
-            finish_job(claim.job_id, False)
+            _finish_claim_with_audit_failure(claim.job_id)
             raise HTTPException(
                 status_code=409,
                 detail=f"Episode for {body.date} already exists",
             )
+        except Exception:
+            _finish_claim_with_audit_failure(claim.job_id)
+            raise
         service.update_episode_phase(episode_id, "start", "解説の生成を準備しています…")
 
     bind_episode(claim.job_id, episode_id)
@@ -434,8 +437,23 @@ def _run_pipeline_with_audit(episode_id: int, body: GenerateRequest, pipeline: c
     finally:
         status = (EpisodeService().get_episode(episode_id) or {}).get("status")
         success = status == "completed"
-        finalize_audit_log(job_id, "success" if success else "failure", episode_id)
-        finish_job(job_id, success)
+        try:
+            finalize_audit_log(job_id, "success" if success else "failure", episode_id)
+        except Exception:
+            logger.exception("failed to write terminal audit for generation job %d", job_id)
+            success = False
+        finally:
+            finish_job(job_id, success)
+
+
+def _finish_claim_with_audit_failure(job_id: int, episode_id: int | None = None) -> None:
+    """受付後の作成失敗でも終了監査を試み、監査失敗時もジョブを解放する。"""
+    try:
+        finalize_audit_log(job_id, "failure", episode_id)
+    except Exception:
+        logger.exception("failed to write terminal audit for rejected generation job %d", job_id)
+    finally:
+        finish_job(job_id, False)
 
 
 async def _async_wrapper(episode_id: int, body: GenerateRequest, pipeline: callable = _run_generation, owner_user_id: int | None = None, operation: str = "generate", job_id: int = 0) -> None:
@@ -568,8 +586,13 @@ def _stream_synthesize_with_audit(episode_id: int, body: SynthesizeRequest, owne
     finally:
         status = (EpisodeService().get_episode(episode_id) or {}).get("status")
         success = status == "completed"
-        finalize_audit_log(job_id, "success" if success else "failure", episode_id)
-        finish_job(job_id, success)
+        try:
+            finalize_audit_log(job_id, "success" if success else "failure", episode_id)
+        except Exception:
+            logger.exception("failed to write terminal audit for synthesis job %d", job_id)
+            success = False
+        finally:
+            finish_job(job_id, success)
 
 
 # ── file-based routes for /episodes and /health are mounted in main.py ──
