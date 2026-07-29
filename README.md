@@ -29,6 +29,7 @@
 ### 前提条件
 
 - Docker / Docker Compose
+- Node.js 20.x / npm 10 以上（フロントエンドのローカルテストを実行する場合）
 - Ollama サーバー（ローカルネットワーク上に別途用意）
 - TTS サーバー（AivisSpeech、VOICEVOX、または Irodori-TTS のいずれか）
 
@@ -104,12 +105,18 @@ docker compose exec api python3 /app/app/batch/orchestrate.py 2026-05-31
 依存関係未導入の状態からフロントエンドのテストを実行するには:
 
 ```bash
-# 1. 依存関係をロックファイルに従ってインストール
-cd frontend && npm ci
+# 1. Node.js 20.x を選択（nvmを使う場合）
+cd frontend
+nvm use
 
-# 2. テストを実行
+# 2. 依存関係をロックファイルに従ってインストール
+npm ci
+
+# 3. テストを実行
 npm test -- --runInBand
 ```
+
+`nvm` を使わない場合は、Node.js 20.x と npm 10 以上を用意したうえで `frontend` ディレクトリから `npm ci` を実行してください。`.nvmrc` と `package.json` の `engines` が必要なバージョンを示します。
 
 ### フロントエンドテスト（Docker）
 

@@ -2,6 +2,10 @@
   "name": "mynews-radio-web",
   "private": true,
   "version": "0.1.0",
+  "engines": {
+    "node": "20.x",
+    "npm": ">=10"
+  },
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 3010",
     "build": "next build",
