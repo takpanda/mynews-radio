@@ -134,6 +134,43 @@ def test_legacy_audit_table_migration_allows_rejected_rows():
     conn.close()
 
 
+def test_legacy_migration_preserves_existing_extended_audit_columns():
+    from app.db.migration import migrate_audit_logs
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        "CREATE TABLE audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, operation TEXT NOT NULL, "
+        "owner_user_id INTEGER, actor_user_id INTEGER, generation_job_id INTEGER, "
+        "idempotency_key_hash TEXT, input_hash TEXT, executed_at TEXT NOT NULL, "
+        "result TEXT NOT NULL CHECK (result IN ('started', 'success', 'failure')), accepted INTEGER, "
+        "rejection_reason TEXT, started_at TEXT, ended_at TEXT, episode_id INTEGER)"
+    )
+    conn.execute(
+        "INSERT INTO audit_logs(operation, owner_user_id, actor_user_id, generation_job_id, "
+        "idempotency_key_hash, input_hash, executed_at, result, accepted, rejection_reason, "
+        "started_at, ended_at, episode_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("generate", 1, 2, 3, "key-hash", "input-hash", "2026-01-01T00:00:00+00:00",
+         "failure", 1, "none", "2026-01-01T00:00:00+00:00", "2026-01-01T00:01:00+00:00", 9),
+    )
+    assert migrate_audit_logs(conn) is True
+    row = conn.execute(
+        "SELECT actor_user_id, generation_job_id, idempotency_key_hash, input_hash, "
+        "accepted, rejection_reason, started_at, ended_at, episode_id FROM audit_logs"
+    ).fetchone()
+    assert dict(row) == {
+        "actor_user_id": 2,
+        "generation_job_id": 3,
+        "idempotency_key_hash": "key-hash",
+        "input_hash": "input-hash",
+        "accepted": 1,
+        "rejection_reason": "none",
+        "started_at": "2026-01-01T00:00:00+00:00",
+        "ended_at": "2026-01-01T00:01:00+00:00",
+        "episode_id": 9,
+    }
+    conn.close()
+
+
 def test_finalize_audit_failure_marks_job_failed(monkeypatch):
     from app.api import generate as generate_api
     from app.services.generation_control import claim_job

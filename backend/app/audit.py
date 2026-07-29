@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from app.db.connection import get_db_connection
@@ -77,11 +77,13 @@ def finalize_audit_log(job_id: int, result: str, episode_id: Optional[int]) -> N
         )
 
 
-def cleanup_audit_logs() -> int:
+def cleanup_audit_logs(now: Optional[datetime] = None) -> int:
     """90日を超えた監査ログを1トランザクションで削除する。"""
+    reference = now or datetime.now(timezone.utc)
+    cutoff = (reference - timedelta(days=RETENTION_DAYS)).isoformat()
     with get_db_connection() as conn:
         cursor = conn.execute(
-            "DELETE FROM audit_logs WHERE executed_at < datetime('now', ?)",
-            (f"-{RETENTION_DAYS} days",),
+            "DELETE FROM audit_logs WHERE julianday(executed_at) < julianday(?)",
+            (cutoff,),
         )
         return cursor.rowcount

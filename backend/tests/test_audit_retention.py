@@ -25,23 +25,30 @@ def test_audit_log_hashes_identifiers_and_records_rejection(client):
     assert row["ended_at"] is not None
 
 
-def test_audit_retention_deletes_only_logs_older_than_90_days():
-    old = (datetime.now(timezone.utc) - timedelta(days=91)).isoformat()
-    recent = (datetime.now(timezone.utc) - timedelta(days=89)).isoformat()
+def test_audit_retention_respects_90_day_boundary():
+    reference = datetime(2026, 7, 29, 15, 0, 0, tzinfo=timezone.utc)
+    before_boundary = (reference - timedelta(days=89, hours=23, minutes=59)).isoformat()
+    exact_boundary = (reference - timedelta(days=90)).isoformat()
+    after_boundary = (reference - timedelta(days=90, seconds=1)).isoformat()
     with get_db_connection() as conn:
         conn.execute(
             "INSERT INTO audit_logs(operation, owner_user_id, executed_at, result, started_at) "
-            "VALUES (?, ?, ?, ?, ?)", ("old", 1, old, "failure", old)
+            "VALUES (?, ?, ?, ?, ?)", ("before_boundary", 1, before_boundary, "failure", before_boundary)
         )
         conn.execute(
             "INSERT INTO audit_logs(operation, owner_user_id, executed_at, result, started_at) "
-            "VALUES (?, ?, ?, ?, ?)", ("recent", 1, recent, "failure", recent)
+            "VALUES (?, ?, ?, ?, ?)", ("exact_boundary", 1, exact_boundary, "failure", exact_boundary)
         )
-    deleted = cleanup_audit_logs()
+        conn.execute(
+            "INSERT INTO audit_logs(operation, owner_user_id, executed_at, result, started_at) "
+            "VALUES (?, ?, ?, ?, ?)", ("after_boundary", 1, after_boundary, "failure", after_boundary)
+        )
+    deleted = cleanup_audit_logs(now=reference)
     assert deleted == 1
     with get_db_connection() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM audit_logs WHERE operation = 'old'").fetchone()[0] == 0
-        assert conn.execute("SELECT COUNT(*) FROM audit_logs WHERE operation = 'recent'").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM audit_logs WHERE operation = 'before_boundary'").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM audit_logs WHERE operation = 'exact_boundary'").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM audit_logs WHERE operation = 'after_boundary'").fetchone()[0] == 0
 
 
 def test_audit_endpoint_requires_admin_session(client):

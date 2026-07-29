@@ -20,10 +20,26 @@ def migrate_audit_logs(conn: sqlite3.Connection) -> bool:
         "episode_id INTEGER, "
         "FOREIGN KEY (owner_user_id) REFERENCES admin_users(id) ON DELETE SET NULL)"
     )
+    old_columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(audit_logs_old)").fetchall()
+    }
+
+    def column_or(name: str, fallback: str) -> str:
+        return f'"{name}"' if name in old_columns else fallback
+
     conn.execute(
         "INSERT INTO audit_logs "
-        "(id, operation, owner_user_id, actor_user_id, executed_at, result, accepted, episode_id) "
-        "SELECT id, operation, owner_user_id, owner_user_id, executed_at, result, 1, episode_id "
+        "(id, operation, owner_user_id, actor_user_id, generation_job_id, idempotency_key_hash, "
+        " input_hash, executed_at, result, accepted, rejection_reason, started_at, ended_at, episode_id) "
+        "SELECT "
+        f"{column_or('id', 'NULL')}, {column_or('operation', 'NULL')}, "
+        f"{column_or('owner_user_id', 'NULL')}, {column_or('actor_user_id', column_or('owner_user_id', 'NULL'))}, "
+        f"{column_or('generation_job_id', 'NULL')}, {column_or('idempotency_key_hash', 'NULL')}, "
+        f"{column_or('input_hash', 'NULL')}, {column_or('executed_at', 'CURRENT_TIMESTAMP')}, "
+        f"{column_or('result', 'NULL')}, {column_or('accepted', '1')}, "
+        f"{column_or('rejection_reason', 'NULL')}, {column_or('started_at', 'NULL')}, "
+        f"{column_or('ended_at', 'NULL')}, {column_or('episode_id', 'NULL')} "
         "FROM audit_logs_old"
     )
     conn.execute("DROP TABLE audit_logs_old")
