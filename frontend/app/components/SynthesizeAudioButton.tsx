@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { synthesizeEpisodeStream } from '../lib/api'
+import { describeGenerationError, synthesizeEpisodeStream } from '../lib/api'
 
 interface Props {
   episodeId: number
@@ -36,6 +36,7 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
   const [state, setState] = useState<State>('idle')
   const [statusMessage, setStatusMessage] = useState('')
   const router = useRouter()
+  const idempotencyKeyRef = useRef<string | null>(null)
 
   const handleClick = async (e: React.MouseEvent) => {
     e.preventDefault()
@@ -45,24 +46,12 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
     setStatusMessage('音声を合成しています...')
 
     try {
-      const response = await synthesizeEpisodeStream(episodeId)
+      if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID()
+      const response = await synthesizeEpisodeStream(episodeId, 'aivispeech', idempotencyKeyRef.current)
 
       if (!response.ok) {
         const errorBody = await response.text().catch(() => '')
-        try {
-          const parsed = JSON.parse(errorBody)
-          if (response.status === 401) {
-            setStatusMessage('ログインが必要です。再度ログインしてください。')
-          } else if (response.status === 429) {
-            setStatusMessage('レート制限に達しました。しばらく待ってから再試行してください。')
-          } else if (parsed.detail) {
-            setStatusMessage(parsed.detail)
-          } else {
-            setStatusMessage('音声合成に失敗しました。')
-          }
-        } catch {
-          setStatusMessage('音声合成に失敗しました。')
-        }
+        setStatusMessage(describeGenerationError(response.status, errorBody, response.headers.get('Retry-After')))
         setState('error')
         return
       }
