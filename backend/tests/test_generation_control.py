@@ -209,3 +209,72 @@ def test_global_daily_limit_is_enforced_across_ips(client):
         claim_job(1, "synthesize", "global-daily-over", {"n": 12}, client_ip="10.0.2.99")
     assert exc_info.value.status_code == 429
     assert exc_info.value.retry_after > 0
+
+
+def test_next_proxy_ip_is_used_for_generation_and_synthesis_only_with_valid_secret(client, monkeypatch):
+    from app.api import generate as generate_api
+    from app.audit import hash_value
+    from app.services.episode_service import EpisodeService
+
+    def complete_generation(episode_id, _body):
+        EpisodeService().update_episode_status(episode_id, "completed")
+
+    def complete_synthesis(episode_id, _body):
+        EpisodeService().update_episode_status(episode_id, "completed")
+        yield b"event: complete\ndata: {}\n\n"
+
+    monkeypatch.setattr(generate_api, "_run_generation", complete_generation)
+    monkeypatch.setattr(generate_api, "_stream_synthesize", complete_synthesis)
+
+    generated = client.post(
+        "/generate",
+        json={"date": "2099-08-01"},
+        headers={
+            "Idempotency-Key": "relay-generate",
+            "X-Proxy-Client-IP": "198.51.100.10",
+            "X-Proxy-Auth": "test-admin-key",
+        },
+    )
+    assert generated.status_code == 200
+    for _ in range(100):
+        with get_db_connection() as conn:
+            status = conn.execute(
+                "SELECT status FROM generation_jobs WHERE idempotency_key = 'relay-generate'"
+            ).fetchone()["status"]
+        if status != "active":
+            break
+        time.sleep(0.01)
+
+    episode_id = EpisodeService().create_episode("2099-08-02", status="generating")
+    synthesized = client.post(
+        f"/episodes/{episode_id}/synthesize",
+        json={"tts_engine": "voicevox"},
+        headers={
+            "Idempotency-Key": "relay-synthesize",
+            "X-Proxy-Client-IP": "198.51.100.11",
+            "X-Proxy-Auth": "test-admin-key",
+        },
+    )
+    assert synthesized.status_code == 200
+
+    spoofed = client.post(
+        "/generate",
+        json={"date": "2099-08-03"},
+        headers={
+            "Idempotency-Key": "untrusted-ip",
+            "X-Proxy-Client-IP": "198.51.100.99",
+            "X-Proxy-Auth": "wrong-secret",
+        },
+    )
+    assert spoofed.status_code == 200
+
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT idempotency_key, client_ip_hash FROM generation_jobs "
+            "WHERE idempotency_key IN ('relay-generate', 'relay-synthesize', 'untrusted-ip') "
+            "ORDER BY idempotency_key"
+        ).fetchall()
+    by_key = {row["idempotency_key"]: row["client_ip_hash"] for row in rows}
+    assert by_key["relay-generate"] == hash_value("198.51.100.10")
+    assert by_key["relay-synthesize"] == hash_value("198.51.100.11")
+    assert by_key["untrusted-ip"] != hash_value("198.51.100.99")

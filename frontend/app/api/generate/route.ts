@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 import { getAdminSessionCookie } from "../session-cookie"
+import { addTrustedClientIp } from "../proxy-client-ip"
 
 const API_BASE = process.env.API_BASE ?? "http://localhost:8010"
 
@@ -11,6 +12,7 @@ export async function POST(request: NextRequest) {
       "Content-Type": "application/json",
       "Idempotency-Key": request.headers.get("Idempotency-Key") ?? crypto.randomUUID(),
     }
+    addTrustedClientIp(headers, request)
     const cookie = getAdminSessionCookie(request)
     if (cookie) headers["Cookie"] = cookie
 
