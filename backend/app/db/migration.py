@@ -1,6 +1,51 @@
 import sqlite3
 
 
+def migrate_audit_logs(conn: sqlite3.Connection) -> bool:
+    """旧監査ログ（rejected 非対応）を拡張スキーマへ移行する。"""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'audit_logs'"
+    ).fetchone()
+    if not row or "rejected" in (row["sql"] or ""):
+        return False
+
+    conn.execute("ALTER TABLE audit_logs RENAME TO audit_logs_old")
+    conn.execute(
+        "CREATE TABLE audit_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, operation TEXT NOT NULL, owner_user_id INTEGER, "
+        "actor_user_id INTEGER, generation_job_id INTEGER, idempotency_key_hash TEXT, input_hash TEXT, "
+        "executed_at TEXT NOT NULL, "
+        "result TEXT NOT NULL CHECK (result IN ('started', 'success', 'failure', 'rejected')), "
+        "accepted INTEGER NOT NULL DEFAULT 1, rejection_reason TEXT, started_at TEXT, ended_at TEXT, "
+        "episode_id INTEGER, "
+        "FOREIGN KEY (owner_user_id) REFERENCES admin_users(id) ON DELETE SET NULL)"
+    )
+    old_columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(audit_logs_old)").fetchall()
+    }
+
+    def column_or(name: str, fallback: str) -> str:
+        return f'"{name}"' if name in old_columns else fallback
+
+    conn.execute(
+        "INSERT INTO audit_logs "
+        "(id, operation, owner_user_id, actor_user_id, generation_job_id, idempotency_key_hash, "
+        " input_hash, executed_at, result, accepted, rejection_reason, started_at, ended_at, episode_id) "
+        "SELECT "
+        f"{column_or('id', 'NULL')}, {column_or('operation', 'NULL')}, "
+        f"{column_or('owner_user_id', 'NULL')}, {column_or('actor_user_id', column_or('owner_user_id', 'NULL'))}, "
+        f"{column_or('generation_job_id', 'NULL')}, {column_or('idempotency_key_hash', 'NULL')}, "
+        f"{column_or('input_hash', 'NULL')}, {column_or('executed_at', 'CURRENT_TIMESTAMP')}, "
+        f"{column_or('result', 'NULL')}, {column_or('accepted', '1')}, "
+        f"{column_or('rejection_reason', 'NULL')}, {column_or('started_at', 'NULL')}, "
+        f"{column_or('ended_at', 'NULL')}, {column_or('episode_id', 'NULL')} "
+        "FROM audit_logs_old"
+    )
+    conn.execute("DROP TABLE audit_logs_old")
+    return True
+
+
 def migrate_dictionary_constraint(conn: sqlite3.Connection) -> bool:
     """UNIQUE(surface) → UNIQUE(surface, reading) に移行する。
 

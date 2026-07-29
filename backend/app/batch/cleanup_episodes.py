@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.config import get_settings
 from app.services.episode_service import EpisodeService
+from app.audit import cleanup_audit_logs
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,8 @@ def cleanup_episodes() -> dict:
     retention_days = settings.episode_retention_days
 
     logger.info("Starting episode cleanup. Retention=%d days", retention_days)
+    audit_deleted = cleanup_audit_logs()
+    logger.info("Deleted %d audit logs older than 90 days", audit_deleted)
 
     ep_service = EpisodeService()
 
@@ -72,7 +75,7 @@ def cleanup_episodes() -> dict:
     expired = ep_service.get_expired_episodes(retention_days)
     if not expired:
         logger.info("No expired episodes found.")
-        return {"deleted_count": 0, "files_deleted": 0}
+        return {"deleted_count": 0, "files_deleted": 0, "audit_deleted_count": audit_deleted}
 
     total_files_deleted = 0
     deleted_ids = []
@@ -100,6 +103,7 @@ def cleanup_episodes() -> dict:
         "deleted_count": len(deleted_ids),
         "deleted_ids": deleted_ids,
         "files_deleted": total_files_deleted,
+        "audit_deleted_count": audit_deleted,
     }
 
     logger.info("Episode cleanup completed: %s", json.dumps(result))

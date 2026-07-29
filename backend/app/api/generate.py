@@ -20,7 +20,7 @@ from app.batch.radio_pipeline import run_radio_pipeline
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
 from app.batch.review_script import review_script
-from app.audit import record_audit_log
+from app.audit import finalize_audit_log
 from app.auth import require_owner_session
 from app.config import get_settings
 from app.db.connection import get_db_connection
@@ -367,7 +367,11 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
     idempotency_key = request.headers.get("Idempotency-Key")
     operation = "commentary" if body.url else "generate"
     try:
-        claim = claim_job(owner_user_id, operation, idempotency_key or "", body.model_dump() if hasattr(body, "model_dump") else body.dict())
+        claim = claim_job(
+            owner_user_id, operation, idempotency_key or "",
+            body.model_dump() if hasattr(body, "model_dump") else body.dict(),
+            episode_date=body.date, episode_type=episode_type, source_url=body.url,
+        )
     except GenerationControlError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
         raise HTTPException(status_code=exc.status_code, detail=exc.detail, headers=headers) from exc
@@ -375,35 +379,18 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
         episode = EpisodeService().get_episode(claim.episode_id) if claim.episode_id else None
         return {"episode_id": claim.episode_id, "status": (episode or {}).get("status", "generating"), "message": "Existing generation job returned"}
 
+    episode_id = claim.episode_id
+    if episode_id is None:
+        finish_job(claim.job_id, False)
+        raise HTTPException(status_code=503, detail="Generation reservation failed")
     service = EpisodeService()
-
-    if episode_type == "radio":
-        try:
-            episode_id, seq = service.create_radio_episode(episode_date=body.date, status="generating")
-        except Exception:
-            finish_job(claim.job_id, False)
-            raise
-        logger.info("Episode record created: id=%d, date=%s, seq=%d", episode_id, body.date, seq)
-        service.update_episode_phase(episode_id, "start", "番組の生成を準備しています…")
-    else:
-        try:
-            episode_id = service.create_episode(
-                episode_date=body.date,
-                status="generating",
-                type="commentary",
-                source_url=body.url,
-            )
-        except sqlite3.IntegrityError:
-            finish_job(claim.job_id, False)
-            raise HTTPException(
-                status_code=409,
-                detail=f"Episode for {body.date} already exists",
-            )
-        service.update_episode_phase(episode_id, "start", "解説の生成を準備しています…")
+    logger.info("Episode record created: id=%d, date=%s", episode_id, body.date)
+    service.update_episode_phase(
+        episode_id, "start",
+        "解説の生成を準備しています…" if episode_type == "commentary" else "番組の生成を準備しています…",
+    )
 
     bind_episode(claim.job_id, episode_id)
-    record_audit_log(operation, owner_user_id, "started", episode_id)
-
     # Start actual pipeline in background; prefer asyncio under uvicorn
     loop: asyncio.AbstractEventLoop | None = None
     try:
@@ -436,8 +423,14 @@ def _run_pipeline_with_audit(episode_id: int, body: GenerateRequest, pipeline: c
     finally:
         status = (EpisodeService().get_episode(episode_id) or {}).get("status")
         success = status == "completed"
-        record_audit_log(operation, owner_user_id, "success" if success else "failure", episode_id)
-        finish_job(job_id, success)
+        try:
+            finalize_audit_log(job_id, "success" if success else "failure", episode_id)
+        except Exception:
+            # 終了監査が失敗してもジョブをactiveのまま残さず、再実行可能な失敗へ遷移させる。
+            logger.exception("failed to finalize audit log for generation job %d", job_id)
+            success = False
+        finally:
+            finish_job(job_id, success)
 
 
 async def _async_wrapper(episode_id: int, body: GenerateRequest, pipeline: callable = _run_generation, owner_user_id: int | None = None, operation: str = "generate", job_id: int = 0) -> None:
@@ -535,7 +528,11 @@ def synthesize_episode_audio(episode_id: int, request: Request, body: Synthesize
         raise HTTPException(status_code=404, detail="Episode not found")
     idempotency_key = request.headers.get("Idempotency-Key")
     try:
-        claim = claim_job(owner_user_id, "synthesize", idempotency_key or "", {"episode_id": episode_id, "body": body.model_dump() if hasattr(body, "model_dump") else body.dict()})
+        claim = claim_job(
+            owner_user_id, "synthesize", idempotency_key or "",
+            {"episode_id": episode_id, "body": body.model_dump() if hasattr(body, "model_dump") else body.dict()},
+            episode_id=episode_id,
+        )
     except GenerationControlError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
         raise HTTPException(status_code=exc.status_code, detail=exc.detail, headers=headers) from exc
@@ -556,8 +553,6 @@ def synthesize_episode_audio(episode_id: int, request: Request, body: Synthesize
             payload = _build_error_payload("Existing synthesis job failed", status="failed")
             payload["episode_id"] = episode_id
         return StreamingResponse(iter([_format_sse(event, payload)]), media_type="text/event-stream")
-    bind_episode(claim.job_id, episode_id)
-    record_audit_log("synthesize", owner_user_id, "started", episode_id)
     return StreamingResponse(
         _stream_synthesize_with_audit(episode_id, body, owner_user_id, claim.job_id),
         media_type="text/event-stream",
@@ -571,8 +566,13 @@ def _stream_synthesize_with_audit(episode_id: int, body: SynthesizeRequest, owne
     finally:
         status = (EpisodeService().get_episode(episode_id) or {}).get("status")
         success = status == "completed"
-        record_audit_log("synthesize", owner_user_id, "success" if success else "failure", episode_id)
-        finish_job(job_id, success)
+        try:
+            finalize_audit_log(job_id, "success" if success else "failure", episode_id)
+        except Exception:
+            logger.exception("failed to finalize audit log for synthesis job %d", job_id)
+            success = False
+        finally:
+            finish_job(job_id, success)
 
 
 # ── file-based routes for /episodes and /health are mounted in main.py ──

@@ -12,6 +12,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.batch.radio_pipeline import PipelineResult, run_radio_pipeline  # noqa: E402
+from app.batch.cleanup_episodes import cleanup_episodes  # noqa: E402
 from app.logging_config import setup_daily_logging       # noqa: E402
 from app.services.episode_service import EpisodeService   # noqa: E402
 
@@ -21,6 +22,9 @@ logger = logging.getLogger(__name__)
 def main() -> None:
     setup_daily_logging(__name__, level=logging.INFO)
     logger.info("=== daily batch start (run_daily.py) ===")
+
+    cleanup_result = cleanup_episodes()
+    logger.info("=== daily retention cleanup complete: %s ===", cleanup_result)
 
     news_source = os.environ.get("BATCH_NEWS_SOURCE", "hatena_bookmark")
     episode_date = os.environ.get("BATCH_DATE") or dt.date.today().isoformat()
