@@ -28,6 +28,7 @@ class JobClaim:
     job_id: int
     episode_id: int | None
     duplicate: bool = False
+    status: str = "active"
 
 
 def input_hash(payload: object) -> str:
@@ -37,6 +38,10 @@ def input_hash(payload: object) -> str:
 
 def _utc_text(value: datetime) -> str:
     return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _jst_day_bounds(now: datetime) -> tuple[str, str]:
@@ -56,7 +61,7 @@ def claim_job(owner_user_id: int, operation: str, idempotency_key: str, payload:
     if not idempotency_key or len(idempotency_key) > 255:
         raise GenerationControlError(400, "Idempotency-Key is required and must be at most 255 characters")
     digest = input_hash(payload)
-    now = datetime.now(timezone.utc)
+    now = _utc_now()
     retention_cutoff = _utc_text(now - IDEMPOTENCY_RETENTION)
     day_start, day_end = _jst_day_bounds(now)
 
@@ -64,14 +69,14 @@ def claim_job(owner_user_id: int, operation: str, idempotency_key: str, payload:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute("DELETE FROM generation_jobs WHERE claimed_at < ?", (retention_cutoff,))
         existing = conn.execute(
-            "SELECT id, episode_id, input_hash FROM generation_jobs "
+            "SELECT id, episode_id, input_hash, status FROM generation_jobs "
             "WHERE owner_user_id = ? AND operation = ? AND idempotency_key = ?",
             (owner_user_id, operation, idempotency_key),
         ).fetchone()
         if existing:
             if existing["input_hash"] != digest:
                 raise GenerationControlError(409, "Idempotency-Key was already used with different input")
-            return JobClaim(existing["id"], existing["episode_id"], duplicate=True)
+            return JobClaim(existing["id"], existing["episode_id"], duplicate=True, status=existing["status"])
 
         active = conn.execute(
             "SELECT COUNT(*) AS count FROM generation_jobs WHERE owner_user_id = ? AND status = 'active'",
@@ -89,9 +94,9 @@ def claim_job(owner_user_id: int, operation: str, idempotency_key: str, payload:
             raise GenerationControlError(429, "Daily generation limit exceeded", _seconds_until_jst_midnight(now))
 
         cursor = conn.execute(
-            "INSERT INTO generation_jobs(owner_user_id, operation, idempotency_key, input_hash) "
-            "VALUES (?, ?, ?, ?)",
-            (owner_user_id, operation, idempotency_key, digest),
+            "INSERT INTO generation_jobs(owner_user_id, operation, idempotency_key, input_hash, claimed_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (owner_user_id, operation, idempotency_key, digest, _utc_text(now)),
         )
         return JobClaim(cursor.lastrowid, None)
 

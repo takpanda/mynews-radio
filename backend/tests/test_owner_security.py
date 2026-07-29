@@ -115,6 +115,7 @@ def test_radio_generation_records_success_and_failure_audit(client, monkeypatch)
     monkeypatch.setattr(generate_api, "_run_generation", fake_success)
     success = client.post("/generate", json={"date": "2099-01-03"})
     assert success.status_code == 200
+    _wait_for_audit_count("generate", 2)
 
     def fake_failure(episode_id, _body):
         EpisodeService().update_episode_status(episode_id, "failed")
@@ -122,6 +123,7 @@ def test_radio_generation_records_success_and_failure_audit(client, monkeypatch)
     monkeypatch.setattr(generate_api, "_run_generation", fake_failure)
     failure = client.post("/generate", json={"date": "2099-01-04"})
     assert failure.status_code == 200
+    _wait_for_audit_count("generate", 4)
 
     rows = _wait_for_audit_count("generate", 4)
     assert [row["result"] for row in rows[-4:]] == ["started", "success", "started", "failure"]

@@ -23,7 +23,7 @@ describe('オーナー操作プロキシの認証情報転送', () => {
   it('生成はCookieを転送し共有API_KEYを付与しない', async () => {
     await generateRoute.POST(request('http://localhost/api/generate'))
     expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/generate'), expect.objectContaining({
-      headers: { 'Content-Type': 'application/json', Cookie: 'admin_session=session-token' },
+      headers: expect.objectContaining({ 'Content-Type': 'application/json', Cookie: 'admin_session=session-token', 'Idempotency-Key': expect.any(String) }),
     }))
   })
 
@@ -37,7 +37,7 @@ describe('オーナー操作プロキシの認証情報転送', () => {
   it('再合成はCookieを転送し共有API_KEYを付与しない', async () => {
     await synthesizeRoute.POST(request('http://localhost/api/episodes/1/synthesize'), { params: { id: '1' } })
     expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/episodes/1/synthesize'), expect.objectContaining({
-      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', Cookie: 'admin_session=session-token' },
+      headers: expect.objectContaining({ 'Content-Type': 'application/json', Accept: 'text/event-stream', Cookie: 'admin_session=session-token', 'Idempotency-Key': expect.any(String) }),
     }))
   })
 

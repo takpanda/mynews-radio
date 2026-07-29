@@ -540,7 +540,21 @@ def synthesize_episode_audio(episode_id: int, request: Request, body: Synthesize
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
         raise HTTPException(status_code=exc.status_code, detail=exc.detail, headers=headers) from exc
     if claim.duplicate:
-        return StreamingResponse(iter([_format_sse("complete", _build_progress_payload("complete", "Existing synthesis job returned", status="completed", episode_id=episode_id))]), media_type="text/event-stream")
+        if claim.status == "active":
+            event = "progress"
+            payload = _build_progress_payload(
+                "synthesize", "Existing synthesis job is still running", status="running", episode_id=episode_id
+            )
+        elif claim.status == "completed":
+            event = "complete"
+            payload = _build_progress_payload(
+                "complete", "Existing synthesis job returned", status="completed", episode_id=episode_id
+            )
+        else:
+            event = "error"
+            payload = _build_error_payload("Existing synthesis job failed", status="failed")
+            payload["episode_id"] = episode_id
+        return StreamingResponse(iter([_format_sse(event, payload)]), media_type="text/event-stream")
     bind_episode(claim.job_id, episode_id)
     record_audit_log("synthesize", owner_user_id, "started", episode_id)
     return StreamingResponse(

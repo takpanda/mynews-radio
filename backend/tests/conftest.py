@@ -125,8 +125,24 @@ def client():
     from unittest.mock import patch
     from app.db.connection import get_db_connection
 
+    class GenerationTestClient(TestClient):
+        """実生成APIの通常リクエストに一意なキーを付与するテストクライアント。"""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._idempotency_counter = 0
+
+        def post(self, url, *args, **kwargs):
+            if url == "/generate" or "/synthesize" in url:
+                headers = dict(kwargs.get("headers") or {})
+                if "Idempotency-Key" not in headers:
+                    self._idempotency_counter += 1
+                    headers["Idempotency-Key"] = f"test-request-{self._idempotency_counter}"
+                    kwargs["headers"] = headers
+            return super().post(url, *args, **kwargs)
+
     with patch("app.api.generate.run_radio_pipeline", return_value=None):
-        test_client = TestClient(app, headers={"Authorization": "Bearer test-admin-key"})
+        test_client = GenerationTestClient(app, headers={"Authorization": "Bearer test-admin-key"})
         with get_db_connection() as conn:
             from app.auth import hash_password
             conn.execute(
