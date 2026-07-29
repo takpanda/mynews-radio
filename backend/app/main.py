@@ -28,7 +28,6 @@ from app.api.settings import router as settings_router
 from app.api.push import router as push_router
 from app.api.audit import router as audit_router
 from app.api.dictionary_sync import router as dictionary_sync_router
-from app.api.audit import router as audit_router
 from app.services.episode_service import EpisodeService
 settings = get_settings()
 app = FastAPI(title="MyNews Radio API", version="0.1.0")
@@ -135,10 +134,15 @@ def _apply_db_migrations() -> None:
                 conn.execute(f"ALTER TABLE audit_logs ADD COLUMN {column} {definition}")
             except sqlite3.OperationalError:
                 pass
-        try:
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor_user_id)")
-        except sqlite3.OperationalError:
-            pass
+        for index_sql in (
+            "CREATE INDEX IF NOT EXISTS idx_audit_logs_executed_at ON audit_logs(executed_at)",
+            "CREATE INDEX IF NOT EXISTS idx_audit_logs_operation ON audit_logs(operation)",
+            "CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor_user_id)",
+        ):
+            try:
+                conn.execute(index_sql)
+            except sqlite3.OperationalError:
+                pass
 
         try:
             conn.execute("ALTER TABLE dictionary_entries ADD COLUMN notes TEXT DEFAULT ''")
@@ -273,7 +277,6 @@ app.include_router(settings_router)
 app.include_router(push_router)
 app.include_router(audit_router)
 app.include_router(dictionary_sync_router)
-app.include_router(audit_router)
 
 
 # -- Audio file serving --

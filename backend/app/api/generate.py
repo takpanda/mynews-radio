@@ -528,7 +528,11 @@ def synthesize_episode_audio(episode_id: int, request: Request, body: Synthesize
         raise HTTPException(status_code=404, detail="Episode not found")
     idempotency_key = request.headers.get("Idempotency-Key")
     try:
-        claim = claim_job(owner_user_id, "synthesize", idempotency_key or "", {"episode_id": episode_id, "body": body.model_dump() if hasattr(body, "model_dump") else body.dict()})
+        claim = claim_job(
+            owner_user_id, "synthesize", idempotency_key or "",
+            {"episode_id": episode_id, "body": body.model_dump() if hasattr(body, "model_dump") else body.dict()},
+            episode_id=episode_id,
+        )
     except GenerationControlError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
         raise HTTPException(status_code=exc.status_code, detail=exc.detail, headers=headers) from exc
@@ -549,7 +553,6 @@ def synthesize_episode_audio(episode_id: int, request: Request, body: Synthesize
             payload = _build_error_payload("Existing synthesis job failed", status="failed")
             payload["episode_id"] = episode_id
         return StreamingResponse(iter([_format_sse(event, payload)]), media_type="text/event-stream")
-    bind_episode(claim.job_id, episode_id)
     return StreamingResponse(
         _stream_synthesize_with_audit(episode_id, body, owner_user_id, claim.job_id),
         media_type="text/event-stream",

@@ -1,8 +1,12 @@
 """生成監査ログの受入条件テスト。"""
 
 import hashlib
+import os
 import sqlite3
 import pytest
+import subprocess
+import sys
+from pathlib import Path
 from app.audit import cleanup_audit_logs, hash_input
 from app.db.connection import get_db_connection
 
@@ -178,3 +182,96 @@ def test_run_daily_invokes_retention_cleanup(monkeypatch):
     monkeypatch.setattr(run_daily, "cleanup_episodes", lambda: (called.append(True) or original()))
     run_daily.main()
     assert called == [True]
+
+
+def test_old_audit_schema_app_startup_migrates_before_actor_index(tmp_path):
+    db_file = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db_file)
+    conn.execute(
+        "CREATE TABLE audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, operation TEXT NOT NULL, "
+        "owner_user_id INTEGER, executed_at TEXT NOT NULL, "
+        "result TEXT NOT NULL CHECK (result IN ('started', 'success', 'failure')), episode_id INTEGER)"
+    )
+    conn.commit()
+    conn.close()
+    env = os.environ.copy()
+    env["DATABASE_URL"] = f"sqlite:///{db_file}"
+    env["EPISODES_DIR"] = str(tmp_path / "episodes")
+    result = subprocess.run(
+        [sys.executable, "-c", "import app.main"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    with sqlite3.connect(db_file) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(audit_logs)")}
+        indexes = {row[1] for row in conn.execute("PRAGMA index_list(audit_logs)")}
+    assert "actor_user_id" in columns
+    assert "idx_audit_logs_actor" in indexes
+
+
+def test_active_and_daily_quota_rejections_are_audited(client):
+    from app.services.generation_control import claim_job, finish_job
+
+    active = claim_job(1, "generate", "quota-active-holder", {"date": "2099-06-10"})
+    response = client.post(
+        "/generate",
+        json={"date": "2099-06-11"},
+        headers={"Idempotency-Key": "quota-active-rejected"},
+    )
+    assert response.status_code == 429
+    finish_job(active.job_id, False)
+
+    # active holder itself counts toward the daily quota.
+    for index in range(9):
+        claim = claim_job(1, "generate", f"quota-daily-{index}", {"index": index})
+        finish_job(claim.job_id, True)
+    response = client.post(
+        "/generate",
+        json={"date": "2099-06-12"},
+        headers={"Idempotency-Key": "quota-daily-rejected"},
+    )
+    assert response.status_code == 429
+
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT idempotency_key_hash, accepted, rejection_reason FROM audit_logs "
+            "WHERE result = 'rejected' AND idempotency_key_hash IN (?, ?) ORDER BY id",
+            (
+                hashlib.sha256(b"quota-active-rejected").hexdigest(),
+                hashlib.sha256(b"quota-daily-rejected").hexdigest(),
+            ),
+        ).fetchall()
+    assert [(row["accepted"], row["rejection_reason"]) for row in rows] == [
+        (0, "active_limit"),
+        (0, "daily_limit"),
+    ]
+
+
+def test_synthesis_claim_audit_failure_rolls_back_job_and_start_audit(client, monkeypatch):
+    from app.services import generation_control
+    from app.services.episode_service import EpisodeService
+
+    episode_id = EpisodeService().create_episode("2099-06-13", status="generating")
+    monkeypatch.setattr(
+        generation_control,
+        "insert_audit_log",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("audit unavailable")),
+    )
+    with pytest.raises(OSError):
+        generation_control.claim_job(
+            1,
+            "synthesize",
+            "synthesis-atomic-failure",
+            {"episode_id": episode_id, "body": {"tts_engine": "voicevox"}},
+            episode_id=episode_id,
+        )
+    with get_db_connection() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM generation_jobs WHERE idempotency_key = 'synthesis-atomic-failure'"
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT COUNT(*) FROM audit_logs WHERE operation = 'synthesize'"
+        ).fetchone()[0] == 0

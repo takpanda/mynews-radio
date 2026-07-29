@@ -88,6 +88,7 @@ def claim_job(
     episode_date: str | None = None,
     episode_type: str = "radio",
     source_url: str | None = None,
+    episode_id: int | None = None,
 ) -> JobClaim:
     """Claim a job and enforce both limits in one SQLite write transaction."""
     digest = input_hash(payload)
@@ -150,10 +151,10 @@ def claim_job(
         audit_id = insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="started",
                                     idempotency_key_hash=key_digest, input_hash=digest,
                                     generation_job_id=cursor.lastrowid, accepted=True, started_at=_utc_text(now))
-        episode_id = None
+        reserved_episode_id = episode_id
         if episode_date is not None:
             try:
-                episode_id = _insert_episode(conn, episode_date, episode_type, source_url)
+                reserved_episode_id = _insert_episode(conn, episode_date, episode_type, source_url)
             except Exception:
                 # 予約自体は監査済みなので、作成失敗も started/failure 対で確定する。
                 insert_audit_log(
@@ -167,9 +168,10 @@ def claim_job(
                 )
                 conn.commit()
                 raise
-            conn.execute("UPDATE generation_jobs SET episode_id = ? WHERE id = ?", (episode_id, cursor.lastrowid))
-            conn.execute("UPDATE audit_logs SET episode_id = ? WHERE id = ?", (episode_id, audit_id))
-        return JobClaim(cursor.lastrowid, episode_id, audit_id=audit_id)
+        if reserved_episode_id is not None:
+            conn.execute("UPDATE generation_jobs SET episode_id = ? WHERE id = ?", (reserved_episode_id, cursor.lastrowid))
+            conn.execute("UPDATE audit_logs SET episode_id = ? WHERE id = ?", (reserved_episode_id, audit_id))
+        return JobClaim(cursor.lastrowid, reserved_episode_id, audit_id=audit_id)
 
 
 def bind_episode(job_id: int, episode_id: int) -> None:
