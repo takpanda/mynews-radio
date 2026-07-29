@@ -96,25 +96,6 @@ def _apply_db_migrations() -> None:
         except sqlite3.OperationalError:
             pass
 
-        # 生成監査ログの拡張（既存DBにも安全に適用する）。
-        for column, definition in (
-            ("actor_user_id", "INTEGER"),
-            ("accepted", "INTEGER NOT NULL DEFAULT 1"),
-            ("rejection_reason", "TEXT"),
-            ("idempotency_key_hash", "TEXT"),
-            ("input_hash", "TEXT"),
-            ("started_at", "TEXT"),
-            ("finished_at", "TEXT"),
-        ):
-            try:
-                conn.execute(f"ALTER TABLE audit_logs ADD COLUMN {column} {definition}")
-            except sqlite3.OperationalError:
-                pass
-        try:
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_started_at ON audit_logs(started_at)")
-        except sqlite3.OperationalError:
-            pass
-
         try:
             conn.execute("ALTER TABLE episodes ADD COLUMN seq INTEGER DEFAULT 0")
         except sqlite3.OperationalError:

@@ -58,7 +58,16 @@ def _seconds_until_jst_midnight(now: datetime) -> int:
     return max(1, math.ceil((tomorrow - local).total_seconds()))
 
 
-def claim_job(owner_user_id: int, operation: str, idempotency_key: str, payload: object) -> JobClaim:
+def claim_job(
+    owner_user_id: int,
+    operation: str,
+    idempotency_key: str,
+    payload: object,
+    *,
+    episode_date: str | None = None,
+    episode_type: str = "radio",
+    source_url: str | None = None,
+) -> JobClaim:
     """Claim a job and enforce both limits in one SQLite write transaction."""
     digest = input_hash(payload)
     key_digest = hash_value(idempotency_key) if idempotency_key else None
@@ -120,7 +129,29 @@ def claim_job(owner_user_id: int, operation: str, idempotency_key: str, payload:
         audit_id = insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="started",
                                     idempotency_key_hash=key_digest, input_hash=digest,
                                     generation_job_id=cursor.lastrowid, accepted=True, started_at=_utc_text(now))
-        return JobClaim(cursor.lastrowid, None, audit_id=audit_id)
+        episode_id = None
+        if episode_date is not None:
+            if episode_type == "radio":
+                conn.execute(
+                    "UPDATE episodes SET status = 'failed', updated_at = CURRENT_TIMESTAMP "
+                    "WHERE episode_date = ? AND type = 'radio' AND status = 'generating'",
+                    (episode_date,),
+                )
+                episode_cursor = conn.execute(
+                    "INSERT INTO episodes (episode_date, seq, status, type) "
+                    "SELECT ?, COALESCE(MAX(seq), -1) + 1, 'generating', 'radio' "
+                    "FROM episodes WHERE episode_date = ? AND type = 'radio'",
+                    (episode_date, episode_date),
+                )
+            else:
+                episode_cursor = conn.execute(
+                    "INSERT INTO episodes (episode_date, status, type, source_url) VALUES (?, 'generating', ?, ?)",
+                    (episode_date, episode_type, source_url),
+                )
+            episode_id = int(episode_cursor.lastrowid)
+            conn.execute("UPDATE generation_jobs SET episode_id = ? WHERE id = ?", (episode_id, cursor.lastrowid))
+            conn.execute("UPDATE audit_logs SET episode_id = ? WHERE id = ?", (episode_id, audit_id))
+        return JobClaim(cursor.lastrowid, episode_id, audit_id=audit_id)
 
 
 def bind_episode(job_id: int, episode_id: int) -> None:
