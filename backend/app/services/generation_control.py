@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from app.db.connection import get_db_connection
+from app.audit import hash_value, insert_audit_log
 
 JST = ZoneInfo("Asia/Tokyo")
 DAILY_LIMIT = 10
@@ -29,6 +30,7 @@ class JobClaim:
     episode_id: int | None
     duplicate: bool = False
     status: str = "active"
+    audit_id: int | None = None
 
 
 def input_hash(payload: object) -> str:
@@ -58,9 +60,14 @@ def _seconds_until_jst_midnight(now: datetime) -> int:
 
 def claim_job(owner_user_id: int, operation: str, idempotency_key: str, payload: object) -> JobClaim:
     """Claim a job and enforce both limits in one SQLite write transaction."""
-    if not idempotency_key or len(idempotency_key) > 255:
-        raise GenerationControlError(400, "Idempotency-Key is required and must be at most 255 characters")
     digest = input_hash(payload)
+    key_digest = hash_value(idempotency_key) if idempotency_key else None
+    if not idempotency_key or len(idempotency_key) > 255:
+        with get_db_connection() as conn:
+            insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="rejected",
+                             idempotency_key_hash=key_digest, input_hash=digest, accepted=False,
+                             rejection_reason="invalid_idempotency_key")
+        raise GenerationControlError(400, "Idempotency-Key is required and must be at most 255 characters")
     now = _utc_now()
     retention_cutoff = _utc_text(now - IDEMPOTENCY_RETENTION)
     day_start, day_end = _jst_day_bounds(now)
@@ -75,6 +82,10 @@ def claim_job(owner_user_id: int, operation: str, idempotency_key: str, payload:
         ).fetchone()
         if existing:
             if existing["input_hash"] != digest:
+                insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="rejected",
+                                 idempotency_key_hash=key_digest, input_hash=digest, accepted=False,
+                                 rejection_reason="idempotency_key_input_mismatch")
+                conn.commit()
                 raise GenerationControlError(409, "Idempotency-Key was already used with different input")
             return JobClaim(existing["id"], existing["episode_id"], duplicate=True, status=existing["status"])
 
@@ -83,6 +94,10 @@ def claim_job(owner_user_id: int, operation: str, idempotency_key: str, payload:
             (owner_user_id,),
         ).fetchone()["count"]
         if active >= ACTIVE_LIMIT:
+            insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="rejected",
+                             idempotency_key_hash=key_digest, input_hash=digest, accepted=False,
+                             rejection_reason="active_limit")
+            conn.commit()
             raise GenerationControlError(429, "Another generation is already running", 60)
 
         daily = conn.execute(
@@ -91,6 +106,10 @@ def claim_job(owner_user_id: int, operation: str, idempotency_key: str, payload:
             (owner_user_id, day_start, day_end),
         ).fetchone()["count"]
         if daily >= DAILY_LIMIT:
+            insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="rejected",
+                             idempotency_key_hash=key_digest, input_hash=digest, accepted=False,
+                             rejection_reason="daily_limit")
+            conn.commit()
             raise GenerationControlError(429, "Daily generation limit exceeded", _seconds_until_jst_midnight(now))
 
         cursor = conn.execute(
@@ -98,12 +117,16 @@ def claim_job(owner_user_id: int, operation: str, idempotency_key: str, payload:
             "VALUES (?, ?, ?, ?, ?)",
             (owner_user_id, operation, idempotency_key, digest, _utc_text(now)),
         )
-        return JobClaim(cursor.lastrowid, None)
+        audit_id = insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="started",
+                                    idempotency_key_hash=key_digest, input_hash=digest,
+                                    generation_job_id=cursor.lastrowid, accepted=True, started_at=_utc_text(now))
+        return JobClaim(cursor.lastrowid, None, audit_id=audit_id)
 
 
 def bind_episode(job_id: int, episode_id: int) -> None:
     with get_db_connection() as conn:
         conn.execute("UPDATE generation_jobs SET episode_id = ? WHERE id = ?", (episode_id, job_id))
+        conn.execute("UPDATE audit_logs SET episode_id = ? WHERE generation_job_id = ?", (episode_id, job_id))
 
 
 def finish_job(job_id: int, success: bool) -> None:

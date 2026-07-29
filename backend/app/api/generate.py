@@ -20,7 +20,7 @@ from app.batch.radio_pipeline import run_radio_pipeline
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
 from app.batch.review_script import review_script
-from app.audit import record_audit_log
+from app.audit import finalize_audit_log
 from app.auth import require_owner_session
 from app.config import get_settings
 from app.db.connection import get_db_connection
@@ -402,8 +402,6 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
         service.update_episode_phase(episode_id, "start", "解説の生成を準備しています…")
 
     bind_episode(claim.job_id, episode_id)
-    record_audit_log(operation, owner_user_id, "started", episode_id)
-
     # Start actual pipeline in background; prefer asyncio under uvicorn
     loop: asyncio.AbstractEventLoop | None = None
     try:
@@ -436,7 +434,7 @@ def _run_pipeline_with_audit(episode_id: int, body: GenerateRequest, pipeline: c
     finally:
         status = (EpisodeService().get_episode(episode_id) or {}).get("status")
         success = status == "completed"
-        record_audit_log(operation, owner_user_id, "success" if success else "failure", episode_id)
+        finalize_audit_log(job_id, "success" if success else "failure", episode_id)
         finish_job(job_id, success)
 
 
@@ -557,7 +555,6 @@ def synthesize_episode_audio(episode_id: int, request: Request, body: Synthesize
             payload["episode_id"] = episode_id
         return StreamingResponse(iter([_format_sse(event, payload)]), media_type="text/event-stream")
     bind_episode(claim.job_id, episode_id)
-    record_audit_log("synthesize", owner_user_id, "started", episode_id)
     return StreamingResponse(
         _stream_synthesize_with_audit(episode_id, body, owner_user_id, claim.job_id),
         media_type="text/event-stream",
@@ -571,7 +568,7 @@ def _stream_synthesize_with_audit(episode_id: int, body: SynthesizeRequest, owne
     finally:
         status = (EpisodeService().get_episode(episode_id) or {}).get("status")
         success = status == "completed"
-        record_audit_log("synthesize", owner_user_id, "success" if success else "failure", episode_id)
+        finalize_audit_log(job_id, "success" if success else "failure", episode_id)
         finish_job(job_id, success)
 
 

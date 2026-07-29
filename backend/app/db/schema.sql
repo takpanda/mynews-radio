@@ -116,13 +116,22 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     operation TEXT NOT NULL,
     owner_user_id INTEGER,
+    actor_user_id INTEGER,
+    generation_job_id INTEGER,
+    idempotency_key_hash TEXT,
+    input_hash TEXT,
     executed_at TEXT NOT NULL,
-    result TEXT NOT NULL CHECK (result IN ('started', 'success', 'failure')),
+    result TEXT NOT NULL CHECK (result IN ('started', 'success', 'failure', 'rejected')),
+    accepted INTEGER NOT NULL DEFAULT 1,
+    rejection_reason TEXT,
+    started_at TEXT,
+    ended_at TEXT,
     episode_id INTEGER,
     FOREIGN KEY (owner_user_id) REFERENCES admin_users(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_audit_logs_executed_at ON audit_logs(executed_at);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_operation ON audit_logs(operation);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor_user_id);
 
 CREATE TABLE IF NOT EXISTS push_subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
