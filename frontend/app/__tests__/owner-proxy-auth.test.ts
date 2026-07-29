@@ -20,6 +20,34 @@ beforeEach(() => {
 })
 
 describe('オーナー操作プロキシの認証情報転送', () => {
+  it('生成は上流のRetry-Afterを転送する', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ...upstream,
+      headers: new Headers({ 'Retry-After': '60' }),
+    })
+
+    const response = await generateRoute.POST(request('http://localhost/api/generate'))
+
+    expect(response.headers.get('Retry-After')).toBe('60')
+  })
+
+  it('再合成は上流のRetry-Afterを転送する', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ...upstream,
+      ok: false,
+      status: 429,
+      headers: new Headers({ 'Retry-After': '120' }),
+      text: () => Promise.resolve('{"detail":"rate limited"}'),
+    })
+
+    const response = await synthesizeRoute.POST(
+      request('http://localhost/api/episodes/1/synthesize'),
+      { params: { id: '1' } },
+    )
+
+    expect(response.headers.get('Retry-After')).toBe('120')
+  })
+
   it('生成はCookieを転送し共有API_KEYを付与しない', async () => {
     await generateRoute.POST(request('http://localhost/api/generate'))
     expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/generate'), expect.objectContaining({

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { synthesizeEpisodeStream } from '../lib/api'
 
@@ -35,6 +35,7 @@ function parseSseChunk(chunk: string): { event: string; payload: ProgressPayload
 export default function SynthesizeAudioButton({ episodeId, compact = false }: Props) {
   const [state, setState] = useState<State>('idle')
   const [statusMessage, setStatusMessage] = useState('')
+  const idempotencyKeyRef = useRef<string | null>(null)
   const router = useRouter()
 
   const handleClick = async (e: React.MouseEvent) => {
@@ -43,9 +44,11 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
 
     setState('loading')
     setStatusMessage('音声を合成しています...')
+    const idempotencyKey = idempotencyKeyRef.current ?? crypto.randomUUID()
+    idempotencyKeyRef.current = idempotencyKey
 
     try {
-      const response = await synthesizeEpisodeStream(episodeId)
+      const response = await synthesizeEpisodeStream(episodeId, 'aivispeech', idempotencyKey)
 
       if (!response.ok) {
         const errorBody = await response.text().catch(() => '')
@@ -89,6 +92,13 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
           const trimmed = chunk.trim()
           if (!trimmed) continue
           const { event, payload } = parseSseChunk(trimmed)
+          if (event === 'error') {
+            // The SSE error event is terminal even when its data is malformed.
+            idempotencyKeyRef.current = null
+            setState('error')
+            setStatusMessage(payload?.message ?? 'エラーが発生しました。')
+            return
+          }
           if (!payload) continue
 
           if (event === 'progress') {
@@ -100,13 +110,10 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
               setStatusMessage((prev) => payload.message ?? prev)
             }
           } else if (event === 'complete') {
+            idempotencyKeyRef.current = null
             setState('success')
             setStatusMessage('音声が完成しました')
             router.refresh()
-            return
-          } else if (event === 'error') {
-            setState('error')
-            setStatusMessage(payload.message ?? 'エラーが発生しました。')
             return
           }
         }

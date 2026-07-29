@@ -56,4 +56,23 @@ describe('SynthesizeAudioButton', () => {
     expect(screen.getByRole('button', { name: '状態を再確認' })).toBeInTheDocument()
     expect(container.querySelector('.animate-spin')).not.toBeInTheDocument()
   })
+
+  it('SSE error確定後は冪等キーを解放し、再試行でキーを差し替える', async () => {
+    mockSynthesize
+      .mockResolvedValueOnce(sseResponse({ message: 'failed' }, 'error'))
+      .mockResolvedValueOnce(sseResponse({ status: 'complete' }, 'complete'))
+    const user = userEvent.setup()
+    render(<SynthesizeAudioButton episodeId={42} />)
+
+    await user.click(screen.getByRole('button', { name: '音声ファイルを作成する' }))
+    expect(await screen.findByRole('button', { name: '再試行' })).toBeInTheDocument()
+    const firstKey = mockSynthesize.mock.calls[0][2]
+    expect(firstKey).toEqual(expect.any(String))
+
+    await user.click(screen.getByRole('button', { name: '再試行' }))
+    await screen.findByText('音声が完成しました')
+    const secondKey = mockSynthesize.mock.calls[1][2]
+    expect(secondKey).toEqual(expect.any(String))
+    expect(secondKey).not.toBe(firstKey)
+  })
 })

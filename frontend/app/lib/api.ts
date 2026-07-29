@@ -260,12 +260,13 @@ export async function searchEpisodesBySourceUrl(sourceUrl: string): Promise<Dupl
   return res.json() as Promise<DuplicateEpisodeInfo[]>
 }
 
-export async function synthesizeEpisodeStream(episodeId: number, ttsEngine = 'aivispeech'): Promise<Response> {
+export async function synthesizeEpisodeStream(episodeId: number, ttsEngine = 'aivispeech', idempotencyKey?: string): Promise<Response> {
   return fetch(`/api/episodes/${episodeId}/synthesize`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
     },
     body: JSON.stringify({ tts_engine: ttsEngine }),
   })

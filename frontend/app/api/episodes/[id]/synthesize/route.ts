@@ -30,9 +30,12 @@ export async function POST(
 
     if (!upstream.ok) {
       const errorBody = await upstream.text()
+      const responseHeaders = new Headers({ "Content-Type": "application/json" })
+      const retryAfter = upstream.headers?.get("Retry-After")
+      if (retryAfter) responseHeaders.set("Retry-After", retryAfter)
       return new Response(errorBody, {
         status: upstream.status,
-        headers: { "Content-Type": "application/json" },
+        headers: responseHeaders,
       })
     }
 
