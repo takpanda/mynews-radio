@@ -52,6 +52,27 @@ def test_audit_endpoint_requires_admin_session(client):
     assert response.status_code == 401
 
 
+def test_audit_endpoint_does_not_expose_raw_request_secrets(client):
+    key = "audit-api-secret-key"
+    source_url = "https://example.com/private-article"
+    session_token = next(
+        cookie.value for cookie in client.cookies.jar if cookie.name == "admin_session"
+    )
+    response = client.post(
+        "/generate",
+        json={"date": "2099-06-01", "url": source_url},
+        headers={"Idempotency-Key": key},
+    )
+    assert response.status_code == 200
+
+    audit_response = client.get("/admin/audit-logs")
+    assert audit_response.status_code == 200
+    body = audit_response.text
+    assert key not in body
+    assert source_url not in body
+    assert session_token not in body
+
+
 def test_audit_retention_deletes_only_logs_older_than_90_days(client):
     with get_db_connection() as conn:
         conn.execute(

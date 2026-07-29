@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS generation_jobs (
     operation TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,
     input_hash TEXT NOT NULL,
+    client_ip_hash TEXT NOT NULL,
     episode_id INTEGER,
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'failed')),
     claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -111,6 +112,8 @@ CREATE INDEX IF NOT EXISTS idx_generation_jobs_owner_status
     ON generation_jobs(owner_user_id, status);
 CREATE INDEX IF NOT EXISTS idx_generation_jobs_claimed_at
     ON generation_jobs(claimed_at);
+CREATE INDEX IF NOT EXISTS idx_generation_jobs_ip_status
+    ON generation_jobs(client_ip_hash, status);
 
 CREATE TABLE IF NOT EXISTS audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

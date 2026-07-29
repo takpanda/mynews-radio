@@ -371,6 +371,7 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
             owner_user_id, operation, idempotency_key or "",
             body.model_dump() if hasattr(body, "model_dump") else body.dict(),
             episode_date=body.date, episode_type=episode_type, source_url=body.url,
+            client_ip=request.client.host if request.client else "unknown",
         )
     except GenerationControlError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
@@ -464,12 +465,12 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
         tts_base_url = settings.aivispeech_base_url
         tts_speaker_male = settings.aivispeech_speaker_male
         tts_speaker_female = settings.aivispeech_speaker_female
-        tts_engine_label = f"AivisSpeech ({settings.aivispeech_base_url})"
+        tts_engine_label = "AivisSpeech"
     else:
         tts_base_url = settings.voicevox_base_url
         tts_speaker_male = settings.voicevox_speaker_male
         tts_speaker_female = settings.voicevox_speaker_female
-        tts_engine_label = f"VOICEVOX ({settings.voicevox_base_url})"
+        tts_engine_label = "VOICEVOX"
 
     service.update_episode_status(episode_id, "generating")
 
@@ -532,6 +533,7 @@ def synthesize_episode_audio(episode_id: int, request: Request, body: Synthesize
             owner_user_id, "synthesize", idempotency_key or "",
             {"episode_id": episode_id, "body": body.model_dump() if hasattr(body, "model_dump") else body.dict()},
             episode_id=episode_id,
+            client_ip=request.client.host if request.client else "unknown",
         )
     except GenerationControlError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
