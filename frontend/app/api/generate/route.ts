@@ -22,11 +22,15 @@ export async function POST(request: NextRequest) {
 
     const data = await upstream.text()
 
+    const responseHeaders = new Headers({
+      "Content-Type": "application/json",
+    })
+    const retryAfter = upstream.headers.get("Retry-After")
+    if (retryAfter) responseHeaders.set("Retry-After", retryAfter)
+
     return new Response(data, {
       status: upstream.status,
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: responseHeaders,
     })
   } catch (err) {
     console.error("upstream fetch error:", err)

@@ -50,7 +50,7 @@
 | `AIVISPEECH_BASE_URL` | AivisSpeech API のエンドポイント | `http://192.168.1.102:10101` |
 | `AIVISPEECH_SPEAKER_MALE` | AivisSpeech 男性話者 ID | `1310138976`（阿井田茂） |
 | `AIVISPEECH_SPEAKER_FEMALE` | AivisSpeech 女性話者 ID | `1388823424`（湊音エル） |
-| `API_KEY` | API キー（設定時は `POST /generate` と `POST /episodes/{id}/synthesize` に `Authorization: Bearer <key>` が必要） | 空文字（認証無効） |
+| `API_KEY` | API キー（管理API向け。手動の生成開始・再音声合成は管理者セッションが必要） | 空文字 |
 | `GENERATE_RATE_LIMIT` | 生成系 API のレート制限（例: `5/minute`, `100/hour`） | `5/minute` |
 | `VAPID_PUBLIC_KEY` | Web Push購読でクライアントへ渡すVAPID公開鍵。未設定時は購読APIが503を返す | 空文字（未設定時は購読不可） |
 | `VAPID_PRIVATE_KEY` | Web Push送信用VAPID秘密鍵（ログへ出力しない）。cron環境へ自動注入。未設定時は配信バッチがスキップ | 空文字（未設定時は配信スキップ） |
@@ -232,22 +232,22 @@ Irodori-TTS（OpenAI 互換 API）も利用可能です。詳細は `backend/app
 | GET | `/episodes/:id` | エピソード詳細取得 |
 | GET | `/episodes/:id/script` | スクリプト JSON 取得 |
 | GET | `/audio/:id/*` | 音声ファイル配信 |
-| POST | `/generate` | エピソード生成（SSE で進捗ストリーミング）※認証（API_KEY 設定時）およびレート制限対象 |
-| POST | `/episodes/:id/synthesize` | エピソード音声合成 ※認証（API_KEY 設定時）およびレート制限対象 |
+| POST | `/generate` | エピソード生成（SSE で進捗ストリーミング）※管理者セッション認証およびレート制限対象 |
+| POST | `/episodes/:id/synthesize` | エピソード音声合成 ※管理者セッション認証およびレート制限対象 |
 | GET | `/push/vapid-public-key` | VAPID公開鍵取得。未設定時は503を返す |
 | POST | `/push/subscriptions` | Web Push購読登録。endpoint(p256dh,auth)を受付け、解除専用の不透明な `subscription_id` を返す（冪等、レート制限対象）。バリデーションエラー時は `{"detail": "Invalid push subscription"}` |
 | DELETE | `/push/subscriptions/:subscription_id` | 不透明な `subscription_id` による購読解除（未登録でも冪等に204、レート制限対象） |
 
 ### エピソード生成リクエスト
 
-> **認証**: `API_KEY` が設定されている場合、`Authorization: Bearer <API_KEY>` ヘッダーが必要です。設定がない場合は認証チェックを行いません。
+> **認証**: 生成開始と再音声合成は、ログイン済みの管理者セッション（`admin_session` Cookie）が必要です。`API_KEY` によるBearer認証では実行できません。
 >
-> **レート制限**: 既定値 `5/minute`（環境変数 `GENERATE_RATE_LIMIT` で変更可能）。超過時は `429` `{"detail": "Rate limit exceeded. Try again later."}` を返します。
+> **レート制限**: 既定値 `5/minute`（環境変数 `GENERATE_RATE_LIMIT` で変更可能）。超過時は `429` と `Retry-After`（秒）を返します。同一操作の再送では同じ `Idempotency-Key` を送信してください。
 
 ```bash
 curl -X POST http://localhost:8010/generate \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your-api-key" \
+  -H "Cookie: admin_session=your-admin-session" \
   -d '{
     "date": "2026-06-14",
     "max_articles": 10,

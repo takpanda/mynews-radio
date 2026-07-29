@@ -204,6 +204,34 @@ export interface GenerateResponse {
   episode_id: number
 }
 
+function retryAfterMessage(value: string | null): string {
+  if (!value) return ''
+  const seconds = Number(value)
+  if (Number.isFinite(seconds)) {
+    if (seconds < 60) return `約${Math.max(1, Math.ceil(seconds))}秒後に再試行できます。`
+    return `約${Math.ceil(seconds / 60)}分後に再試行できます。`
+  }
+  const retryAt = Date.parse(value)
+  if (Number.isFinite(retryAt)) {
+    const secondsUntilRetry = Math.max(1, Math.ceil((retryAt - Date.now()) / 1000))
+    return retryAfterMessage(String(secondsUntilRetry))
+  }
+  return ''
+}
+
+export function describeGenerationError(status: number, body: string, retryAfter: string | null = null): string {
+  if (status === 401) return 'ログインが必要です。再度ログインしてください。'
+  if (status === 403) return 'この操作を実行する権限がありません。'
+  if (status === 409) return '同じ操作が競合しています。入力内容を確認して再試行してください。'
+  if (status === 429) {
+    const waitMessage = retryAfterMessage(retryAfter)
+    return waitMessage
+      ? `利用制限に達しました。${waitMessage}`
+      : '利用制限に達しました。しばらく待ってから再試行してください。'
+  }
+  return parseErrorDetail(body) || `生成に失敗しました（${status}）。`
+}
+
 function parseErrorDetail(body: string): string {
   try {
     const parsed = JSON.parse(body)
@@ -212,11 +240,12 @@ function parseErrorDetail(body: string): string {
   return body
 }
 
-export async function generateEpisode(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', recreateSummary = false, url?: string, style?: 'solo' | 'dialogue', mcGender?: 'male' | 'female', settingsSnapshot?: ProgramSettings): Promise<GenerateResponse> {
+export async function generateEpisode(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', recreateSummary = false, url?: string, style?: 'solo' | 'dialogue', mcGender?: 'male' | 'female', settingsSnapshot?: ProgramSettings, idempotencyKey?: string): Promise<GenerateResponse> {
   const res = await fetch('/api/generate', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey ?? crypto.randomUUID(),
     },
     body: JSON.stringify({
       date,
@@ -232,16 +261,10 @@ export async function generateEpisode(date: string, maxArticles = 10, newsSource
   })
   if (!res.ok) {
     const errorBody = await res.text().catch(() => '')
-    if (res.status === 409) {
+    if (res.status === 409 && parseErrorDetail(errorBody).includes('already running')) {
       throw new Error('既に生成中のタスクがあります')
     }
-    if (res.status === 401) {
-      throw new Error('ログインが必要です。再度ログインしてください。')
-    }
-    if (res.status === 429) {
-      throw new Error('レート制限に達しました。しばらく待ってから再試行してください。')
-    }
-    throw new Error(parseErrorDetail(errorBody) || `Generate failed: ${res.status}`)
+    throw new Error(describeGenerationError(res.status, errorBody, res.headers.get('Retry-After')))
   }
   return res.json() as Promise<GenerateResponse>
 }
@@ -260,12 +283,13 @@ export async function searchEpisodesBySourceUrl(sourceUrl: string): Promise<Dupl
   return res.json() as Promise<DuplicateEpisodeInfo[]>
 }
 
-export async function synthesizeEpisodeStream(episodeId: number, ttsEngine = 'aivispeech'): Promise<Response> {
+export async function synthesizeEpisodeStream(episodeId: number, ttsEngine = 'aivispeech', idempotencyKey?: string): Promise<Response> {
   return fetch(`/api/episodes/${episodeId}/synthesize`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
+      'Idempotency-Key': idempotencyKey ?? crypto.randomUUID(),
     },
     body: JSON.stringify({ tts_engine: ttsEngine }),
   })
