@@ -337,6 +337,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   const attemptCountRef = useRef(0)
   const consecutiveFailuresRef = useRef(0)
   const shouldScrollToProgress = useRef(false)
+  const idempotencyKeyRef = useRef<string | null>(null)
 
   const isUrlMode = urlInput.trim().length > 0
 
@@ -540,7 +541,9 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
           }
         : undefined)
       setAppliedSettings(settingsSnapshot ?? null)
-      const { episode_id } = await generateEpisode(today, articles, source, engine, recreate, url, url ? style : undefined, url && style === 'solo' ? gender : undefined, settingsSnapshot)
+      if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID()
+      const { episode_id } = await generateEpisode(today, articles, source, engine, recreate, url, url ? style : undefined, url && style === 'solo' ? gender : undefined, settingsSnapshot, idempotencyKeyRef.current)
+      idempotencyKeyRef.current = null
       localStorage.setItem(STORAGE_KEY, String(episode_id))
       setEpisodeId(episode_id)
       toast('番組の生成を開始しました', { icon: '🎙️' })

@@ -1,4 +1,4 @@
-import { formatGeneratedAt, generateEpisode } from '../api'
+import { describeGenerationError, formatGeneratedAt, generateEpisode } from '../api'
 
 describe('formatGeneratedAt', () => {
   it('UTC 13:00 → JST 22:00 に変換される', () => {
@@ -47,5 +47,31 @@ describe('generateEpisode settings snapshot', () => {
       duration_preset: 'short',
     })
     global.fetch = previousFetch
+  })
+
+  it('指定したIdempotency-Keyをリクエストへ転送する', async () => {
+    const previousFetch = global.fetch
+    const fetchMock = jest.fn().mockResolvedValue(
+      { ok: true, json: async () => ({ episode_id: 12 }) },
+    )
+    global.fetch = fetchMock as typeof fetch
+    await generateEpisode('2026-07-25', 6, 'hatena_bookmark', 'aivispeech', false, undefined, undefined, undefined, undefined, 'same-operation-key')
+
+    expect(fetchMock.mock.calls[0][1]?.headers).toEqual(expect.objectContaining({ 'Idempotency-Key': 'same-operation-key' }))
+    global.fetch = previousFetch
+  })
+})
+
+describe('生成制御エラー', () => {
+  it('429はRetry-Afterの待機時間を案内する', () => {
+    expect(describeGenerationError(429, '', '60')).toBe('利用制限に達しました。約1分後に再試行できます。')
+  })
+
+  it.each([
+    [401, 'ログインが必要です。再度ログインしてください。'],
+    [403, 'この操作を実行する権限がありません。'],
+    [409, '同じ操作が競合しています。入力内容を確認して再試行してください。'],
+  ])('%sを専用メッセージにする', (status, message) => {
+    expect(describeGenerationError(status, '')).toBe(message)
   })
 })
