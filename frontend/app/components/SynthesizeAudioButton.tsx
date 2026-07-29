@@ -9,13 +9,14 @@ interface Props {
   compact?: boolean
 }
 
-type State = 'idle' | 'loading' | 'success' | 'error'
+type State = 'idle' | 'loading' | 'waiting' | 'success' | 'error'
 
 interface ProgressPayload {
   phase?: string
   message?: string
   status?: string
   episode_id?: number
+  reused?: boolean
 }
 
 function parseSseChunk(chunk: string): { event: string; payload: ProgressPayload | null } {
@@ -75,6 +76,7 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
 
       const decoder = new TextDecoder('utf-8')
       let buffer = ''
+      let existingJobRunning = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -90,7 +92,13 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
           if (!payload) continue
 
           if (event === 'progress') {
-            setStatusMessage((prev) => payload.message ?? prev)
+            if (payload.reused === true) {
+              existingJobRunning = true
+              setState('waiting')
+              setStatusMessage('音声合成は既に実行中です。完了後に状態を再確認してください。')
+            } else {
+              setStatusMessage((prev) => payload.message ?? prev)
+            }
           } else if (event === 'complete') {
             setState('success')
             setStatusMessage('音声が完成しました')
@@ -103,6 +111,9 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
           }
         }
       }
+      if (existingJobRunning) return
+      setState('error')
+      setStatusMessage('ストリームが途中で終了しました。')
     } catch {
       setState('error')
       setStatusMessage('通信エラーが発生しました。')
@@ -139,6 +150,21 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
       <span className={compact ? 'inline-flex items-center gap-1.5 text-xs text-sky-600' : 'inline-flex items-center gap-2 text-sm text-sky-600'}>
         <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-sky-200 border-t-sky-600" />
         {statusMessage}
+      </span>
+    )
+  }
+
+  if (state === 'waiting') {
+    return (
+      <span className={compact ? 'inline-flex items-center gap-2 text-xs' : 'inline-flex items-center gap-3 text-sm'}>
+        <span className="text-sky-600">{statusMessage}</span>
+        <button
+          type="button"
+          onClick={() => router.refresh()}
+          className="text-sky-600 underline hover:text-sky-700"
+        >
+          状態を再確認
+        </button>
       </span>
     )
   }

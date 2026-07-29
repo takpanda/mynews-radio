@@ -543,7 +543,8 @@ def synthesize_episode_audio(episode_id: int, request: Request, body: Synthesize
         if claim.status == "active":
             event = "progress"
             payload = _build_progress_payload(
-                "synthesize", "Existing synthesis job is still running", status="running", episode_id=episode_id
+                "synthesize", "Existing synthesis job is still running", status="running", episode_id=episode_id,
+                reused=True,
             )
         elif claim.status == "completed":
             event = "complete"
