@@ -16,6 +16,7 @@ export async function POST(
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
+      "Idempotency-Key": request.headers.get("Idempotency-Key") ?? crypto.randomUUID(),
     }
     const cookie = getAdminSessionCookie(request)
     if (cookie) headers["Cookie"] = cookie
