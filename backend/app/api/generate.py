@@ -20,7 +20,7 @@ from app.batch.radio_pipeline import run_radio_pipeline
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
 from app.batch.review_script import review_script
-from app.audit import record_audit_log
+from app.audit import finalize_audit_log
 from app.auth import require_owner_session
 from app.config import get_settings
 from app.db.connection import get_db_connection
@@ -28,7 +28,7 @@ from app.services.article_service import ArticleService
 from app.services.episode_service import EpisodeService
 from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_url
 from app.services.settings_service import get_settings_or_default, validate_settings
-from app.services.generation_control import GenerationControlError, bind_episode, claim_job, finish_job, input_hash
+from app.services.generation_control import GenerationControlError, bind_episode, claim_job, finish_job
 
 logger = logging.getLogger(__name__)
 
@@ -366,21 +366,9 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
 
     idempotency_key = request.headers.get("Idempotency-Key")
     operation = "commentary" if body.url else "generate"
-    payload = body.model_dump() if hasattr(body, "model_dump") else body.dict()
-    request_input_hash = input_hash(payload)
     try:
-        claim = claim_job(owner_user_id, operation, idempotency_key or "", payload)
+        claim = claim_job(owner_user_id, operation, idempotency_key or "", body.model_dump() if hasattr(body, "model_dump") else body.dict())
     except GenerationControlError as exc:
-        # 拒否理由は入力値そのものを含めず、ハッシュだけを保存する。
-        try:
-            record_audit_log(
-                operation, owner_user_id, "rejected",
-                idempotency_key=idempotency_key,
-                input_hash=request_input_hash,
-                rejection_reason=exc.detail,
-            )
-        except Exception:
-            logger.exception("failed to record rejected generation audit")
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
         raise HTTPException(status_code=exc.status_code, detail=exc.detail, headers=headers) from exc
     if claim.duplicate:
@@ -414,21 +402,6 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
         service.update_episode_phase(episode_id, "start", "解説の生成を準備しています…")
 
     bind_episode(claim.job_id, episode_id)
-    try:
-        record_audit_log(
-            operation, owner_user_id, "started", episode_id,
-            idempotency_key=idempotency_key,
-            input_hash=request_input_hash,
-        )
-    except Exception as exc:
-        # 監査できない生成は開始しない。作成済みの予約も解放する。
-        try:
-            with get_db_connection() as conn:
-                conn.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
-        finally:
-            finish_job(claim.job_id, False)
-        raise HTTPException(status_code=503, detail="Audit log is unavailable") from exc
-
     # Start actual pipeline in background; prefer asyncio under uvicorn
     loop: asyncio.AbstractEventLoop | None = None
     try:
@@ -439,10 +412,10 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
     pipeline = _run_commentary_generation if episode_type == "commentary" else _run_generation
 
     if loop is not None:
-        asyncio.ensure_future(_async_wrapper(episode_id, body, pipeline, owner_user_id, operation, claim.job_id, idempotency_key, request_input_hash))
+        asyncio.ensure_future(_async_wrapper(episode_id, body, pipeline, owner_user_id, operation, claim.job_id))
     else:
         import threading as _th
-        t = _th.Thread(target=_run_pipeline_with_audit, args=(episode_id, body, pipeline, owner_user_id, operation, claim.job_id, idempotency_key, request_input_hash), daemon=True)
+        t = _th.Thread(target=_run_pipeline_with_audit, args=(episode_id, body, pipeline, owner_user_id, operation, claim.job_id), daemon=True)
         t.start()
 
     msg = f"Commentary generation started for {body.url}" if episode_type == "commentary" else f"Episode generation started for {body.date}"
@@ -453,7 +426,7 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
     }
 
 
-def _run_pipeline_with_audit(episode_id: int, body: GenerateRequest, pipeline: callable, owner_user_id: int, operation: str, job_id: int, idempotency_key: str | None = None, request_input_hash: str | None = None) -> None:
+def _run_pipeline_with_audit(episode_id: int, body: GenerateRequest, pipeline: callable, owner_user_id: int, operation: str, job_id: int) -> None:
     try:
         pipeline(episode_id, body)
     except Exception:
@@ -461,13 +434,13 @@ def _run_pipeline_with_audit(episode_id: int, body: GenerateRequest, pipeline: c
     finally:
         status = (EpisodeService().get_episode(episode_id) or {}).get("status")
         success = status == "completed"
-        record_audit_log(operation, owner_user_id, "success" if success else "failure", episode_id, idempotency_key=idempotency_key, input_hash=request_input_hash)
+        finalize_audit_log(job_id, "success" if success else "failure", episode_id)
         finish_job(job_id, success)
 
 
-async def _async_wrapper(episode_id: int, body: GenerateRequest, pipeline: callable = _run_generation, owner_user_id: int | None = None, operation: str = "generate", job_id: int = 0, idempotency_key: str | None = None, request_input_hash: str | None = None) -> None:
+async def _async_wrapper(episode_id: int, body: GenerateRequest, pipeline: callable = _run_generation, owner_user_id: int | None = None, operation: str = "generate", job_id: int = 0) -> None:
     """Run synchronous pipeline in a thread to not block the event loop."""
-    await asyncio.to_thread(_run_pipeline_with_audit, episode_id, body, pipeline, owner_user_id, operation, job_id, idempotency_key, request_input_hash)
+    await asyncio.to_thread(_run_pipeline_with_audit, episode_id, body, pipeline, owner_user_id, operation, job_id)
 
 
 class SynthesizeRequest(BaseModel):
@@ -582,27 +555,20 @@ def synthesize_episode_audio(episode_id: int, request: Request, body: Synthesize
             payload["episode_id"] = episode_id
         return StreamingResponse(iter([_format_sse(event, payload)]), media_type="text/event-stream")
     bind_episode(claim.job_id, episode_id)
-    synth_payload = {"episode_id": episode_id, "body": body.model_dump() if hasattr(body, "model_dump") else body.dict()}
-    synth_input_hash = input_hash(synth_payload)
-    try:
-        record_audit_log("synthesize", owner_user_id, "started", episode_id, idempotency_key=idempotency_key, input_hash=synth_input_hash)
-    except Exception as exc:
-        finish_job(claim.job_id, False)
-        raise HTTPException(status_code=503, detail="Audit log is unavailable") from exc
     return StreamingResponse(
-        _stream_synthesize_with_audit(episode_id, body, owner_user_id, claim.job_id, idempotency_key, synth_input_hash),
+        _stream_synthesize_with_audit(episode_id, body, owner_user_id, claim.job_id),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache"},
     )
 
 
-def _stream_synthesize_with_audit(episode_id: int, body: SynthesizeRequest, owner_user_id: int, job_id: int, idempotency_key: str | None = None, request_input_hash: str | None = None) -> Generator[bytes, None, None]:
+def _stream_synthesize_with_audit(episode_id: int, body: SynthesizeRequest, owner_user_id: int, job_id: int) -> Generator[bytes, None, None]:
     try:
         yield from _stream_synthesize(episode_id, body)
     finally:
         status = (EpisodeService().get_episode(episode_id) or {}).get("status")
         success = status == "completed"
-        record_audit_log("synthesize", owner_user_id, "success" if success else "failure", episode_id, idempotency_key=idempotency_key, input_hash=request_input_hash)
+        finalize_audit_log(job_id, "success" if success else "failure", episode_id)
         finish_job(job_id, success)
 
 

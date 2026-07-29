@@ -28,6 +28,7 @@ from app.api.settings import router as settings_router
 from app.api.push import router as push_router
 from app.api.audit import router as audit_router
 from app.api.dictionary_sync import router as dictionary_sync_router
+from app.api.audit import router as audit_router
 from app.services.episode_service import EpisodeService
 settings = get_settings()
 app = FastAPI(title="MyNews Radio API", version="0.1.0")
@@ -131,6 +132,30 @@ def _apply_db_migrations() -> None:
 
         try:
             conn.execute("ALTER TABLE episodes ADD COLUMN source_url TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        # 旧監査ログの CHECK 制約を含む拡張スキーマへ移行
+        from app.db.migration import migrate_audit_logs
+        migrate_audit_logs(conn)
+
+        # 生成監査ログの拡張（既存DBにも安全に適用）
+        for column, definition in (
+            ("actor_user_id", "INTEGER"),
+            ("generation_job_id", "INTEGER"),
+            ("idempotency_key_hash", "TEXT"),
+            ("input_hash", "TEXT"),
+            ("accepted", "INTEGER NOT NULL DEFAULT 1"),
+            ("rejection_reason", "TEXT"),
+            ("started_at", "TEXT"),
+            ("ended_at", "TEXT"),
+        ):
+            try:
+                conn.execute(f"ALTER TABLE audit_logs ADD COLUMN {column} {definition}")
+            except sqlite3.OperationalError:
+                pass
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor_user_id)")
         except sqlite3.OperationalError:
             pass
 
@@ -267,6 +292,7 @@ app.include_router(settings_router)
 app.include_router(push_router)
 app.include_router(audit_router)
 app.include_router(dictionary_sync_router)
+app.include_router(audit_router)
 
 
 # -- Audio file serving --
