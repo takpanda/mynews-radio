@@ -52,7 +52,6 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
 
       if (!response.ok) {
         const errorBody = await response.text().catch(() => '')
-        idempotencyKeyRef.current = null
         setStatusMessage(describeGenerationError(response.status, errorBody, response.headers.get('Retry-After')))
         setState('error')
         return

@@ -109,4 +109,21 @@ describe('SynthesizeAudioButton', () => {
 
     expect(await screen.findByText('利用制限に達しました。約2分後に再試行できます。')).toBeInTheDocument()
   })
+
+  it('HTTP 429後の再試行では同じ冪等キーを送信する', async () => {
+    mockSynthesize
+      .mockResolvedValueOnce(errorResponse(429, '120'))
+      .mockResolvedValueOnce(sseResponse({ status: 'complete' }, 'complete'))
+    const user = userEvent.setup()
+    render(<SynthesizeAudioButton episodeId={42} />)
+
+    await user.click(screen.getByRole('button', { name: '音声ファイルを作成する' }))
+    expect(await screen.findByRole('button', { name: '再試行' })).toBeInTheDocument()
+    const firstKey = mockSynthesize.mock.calls[0][2]
+
+    await user.click(screen.getByRole('button', { name: '再試行' }))
+    await screen.findByText('音声が完成しました')
+
+    expect(mockSynthesize.mock.calls[1][2]).toBe(firstKey)
+  })
 })
