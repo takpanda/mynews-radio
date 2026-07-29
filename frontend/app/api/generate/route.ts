@@ -9,6 +9,7 @@ export async function POST(request: NextRequest) {
   try {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      "Idempotency-Key": request.headers.get("Idempotency-Key") ?? crypto.randomUUID(),
     }
     const cookie = getAdminSessionCookie(request)
     if (cookie) headers["Cookie"] = cookie

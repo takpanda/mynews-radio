@@ -92,6 +92,26 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
+-- Server-side quota and idempotency records for owner-triggered generation.
+CREATE TABLE IF NOT EXISTS generation_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL,
+    operation TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    episode_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'failed')),
+    claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at TEXT,
+    FOREIGN KEY (owner_user_id) REFERENCES admin_users(id) ON DELETE CASCADE,
+    FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE SET NULL,
+    UNIQUE(owner_user_id, operation, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_generation_jobs_owner_status
+    ON generation_jobs(owner_user_id, status);
+CREATE INDEX IF NOT EXISTS idx_generation_jobs_claimed_at
+    ON generation_jobs(claimed_at);
+
 CREATE TABLE IF NOT EXISTS audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     operation TEXT NOT NULL,
