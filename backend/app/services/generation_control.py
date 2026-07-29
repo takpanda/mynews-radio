@@ -58,6 +58,27 @@ def _seconds_until_jst_midnight(now: datetime) -> int:
     return max(1, math.ceil((tomorrow - local).total_seconds()))
 
 
+def _insert_episode(conn, episode_date: str, episode_type: str, source_url: str | None) -> int:
+    if episode_type == "radio":
+        conn.execute(
+            "UPDATE episodes SET status = 'failed', updated_at = CURRENT_TIMESTAMP "
+            "WHERE episode_date = ? AND type = 'radio' AND status = 'generating'",
+            (episode_date,),
+        )
+        cursor = conn.execute(
+            "INSERT INTO episodes (episode_date, seq, status, type) "
+            "SELECT ?, COALESCE(MAX(seq), -1) + 1, 'generating', 'radio' "
+            "FROM episodes WHERE episode_date = ? AND type = 'radio'",
+            (episode_date, episode_date),
+        )
+    else:
+        cursor = conn.execute(
+            "INSERT INTO episodes (episode_date, status, type, source_url) VALUES (?, 'generating', ?, ?)",
+            (episode_date, episode_type, source_url),
+        )
+    return int(cursor.lastrowid)
+
+
 def claim_job(
     owner_user_id: int,
     operation: str,
@@ -131,24 +152,21 @@ def claim_job(
                                     generation_job_id=cursor.lastrowid, accepted=True, started_at=_utc_text(now))
         episode_id = None
         if episode_date is not None:
-            if episode_type == "radio":
+            try:
+                episode_id = _insert_episode(conn, episode_date, episode_type, source_url)
+            except Exception:
+                # 予約自体は監査済みなので、作成失敗も started/failure 対で確定する。
+                insert_audit_log(
+                    conn, operation=operation, actor_user_id=owner_user_id, result="failure",
+                    idempotency_key_hash=key_digest, input_hash=digest,
+                    generation_job_id=cursor.lastrowid, accepted=True,
+                )
                 conn.execute(
-                    "UPDATE episodes SET status = 'failed', updated_at = CURRENT_TIMESTAMP "
-                    "WHERE episode_date = ? AND type = 'radio' AND status = 'generating'",
-                    (episode_date,),
+                    "UPDATE generation_jobs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (cursor.lastrowid,),
                 )
-                episode_cursor = conn.execute(
-                    "INSERT INTO episodes (episode_date, seq, status, type) "
-                    "SELECT ?, COALESCE(MAX(seq), -1) + 1, 'generating', 'radio' "
-                    "FROM episodes WHERE episode_date = ? AND type = 'radio'",
-                    (episode_date, episode_date),
-                )
-            else:
-                episode_cursor = conn.execute(
-                    "INSERT INTO episodes (episode_date, status, type, source_url) VALUES (?, 'generating', ?, ?)",
-                    (episode_date, episode_type, source_url),
-                )
-            episode_id = int(episode_cursor.lastrowid)
+                conn.commit()
+                raise
             conn.execute("UPDATE generation_jobs SET episode_id = ? WHERE id = ?", (episode_id, cursor.lastrowid))
             conn.execute("UPDATE audit_logs SET episode_id = ? WHERE id = ?", (episode_id, audit_id))
         return JobClaim(cursor.lastrowid, episode_id, audit_id=audit_id)

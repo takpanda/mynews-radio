@@ -144,3 +144,37 @@ def test_finalize_audit_failure_marks_job_failed(monkeypatch):
         assert conn.execute(
             "SELECT status FROM generation_jobs WHERE id = ?", (claim.job_id,)
         ).fetchone()[0] == "failed"
+
+
+def test_episode_creation_failure_closes_started_audit(monkeypatch):
+    from app.services import generation_control
+
+    monkeypatch.setattr(generation_control, "_insert_episode", lambda *args: (_ for _ in ()).throw(RuntimeError("insert failed")))
+    try:
+        generation_control.claim_job(
+            1, "generate", "episode-create-failure", {"date": "2099-06-06"},
+            episode_date="2099-06-06",
+        )
+    except RuntimeError:
+        pass
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT result FROM audit_logs WHERE generation_job_id = "
+            "(SELECT id FROM generation_jobs WHERE idempotency_key = 'episode-create-failure') ORDER BY id"
+        ).fetchall()
+        assert [row["result"] for row in rows] == ["started", "failure"]
+
+
+def test_run_daily_invokes_retention_cleanup(monkeypatch):
+    from app.batch import run_daily
+
+    monkeypatch.setattr(run_daily, "setup_daily_logging", lambda *args, **kwargs: None)
+    monkeypatch.setattr(run_daily, "cleanup_episodes", lambda: {"audit_deleted_count": 1})
+    monkeypatch.setattr(run_daily.EpisodeService, "create_radio_episode", lambda *args, **kwargs: (1, 0))
+    monkeypatch.setattr(run_daily, "run_radio_pipeline", lambda *args, **kwargs: run_daily.PipelineResult.NO_CONTENT)
+    monkeypatch.setattr(run_daily, "_write_manifest", lambda *args, **kwargs: None)
+    called = []
+    original = run_daily.cleanup_episodes
+    monkeypatch.setattr(run_daily, "cleanup_episodes", lambda: (called.append(True) or original()))
+    run_daily.main()
+    assert called == [True]
