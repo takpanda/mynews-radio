@@ -122,6 +122,17 @@ describe('SynthesizeAudioButton', () => {
     expect(await screen.findByText(message)).toBeInTheDocument()
   })
 
+  it('409（同一キーの入力不一致）は再試行導線を表示しない', async () => {
+    mockSynthesize.mockResolvedValueOnce(errorResponse(409))
+    const user = userEvent.setup()
+    render(<SynthesizeAudioButton episodeId={42} />)
+
+    await user.click(screen.getByRole('button', { name: '音声ファイルを作成する' }))
+
+    expect(await screen.findByText('同じ操作が競合しています。入力内容を確認して再試行してください。')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument()
+  })
+
   it('HTTP 429 はRetry-Afterの待機時間を表示する', async () => {
     mockSynthesize.mockResolvedValueOnce(errorResponse(429, '120'))
     const user = userEvent.setup()

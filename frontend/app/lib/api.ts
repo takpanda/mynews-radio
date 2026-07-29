@@ -204,6 +204,19 @@ export interface GenerateResponse {
   episode_id: number
 }
 
+/** APIの失敗理由をUIが再試行可否まで判断できる形で保持する。 */
+export class GenerationError extends Error {
+  readonly status: number
+  readonly retryable: boolean
+
+  constructor(message: string, status: number, retryable = status !== 409) {
+    super(message)
+    this.name = 'GenerationError'
+    this.status = status
+    this.retryable = retryable
+  }
+}
+
 function retryAfterMessage(value: string | null): string {
   if (!value) return ''
   const seconds = Number(value)
@@ -264,7 +277,10 @@ export async function generateEpisode(date: string, maxArticles = 10, newsSource
     if (res.status === 409 && parseErrorDetail(errorBody).includes('already running')) {
       throw new Error('既に生成中のタスクがあります')
     }
-    throw new Error(describeGenerationError(res.status, errorBody, res.headers.get('Retry-After')))
+    throw new GenerationError(
+      describeGenerationError(res.status, errorBody, res.headers.get('Retry-After')),
+      res.status,
+    )
   }
   return res.json() as Promise<GenerateResponse>
 }
