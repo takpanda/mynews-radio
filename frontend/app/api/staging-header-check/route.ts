@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic"
  * It is disabled by default and does not log or persist the observed value.
  */
 export async function GET(request: NextRequest) {
-  if (process.env.STAGING_HEADER_CHECK !== "1") {
+  if (process.env.APP_ENV !== "staging" || process.env.STAGING_HEADER_CHECK !== "1") {
     return new Response(null, { status: 404 })
   }
 

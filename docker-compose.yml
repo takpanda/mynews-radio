@@ -29,6 +29,7 @@ services:
     expose:
       - "3010"
     environment:
+      - APP_ENV=${APP_ENV:-development}
       - STAGING_HEADER_CHECK=${STAGING_HEADER_CHECK:-0}
     command: npm run dev
     depends_on:
