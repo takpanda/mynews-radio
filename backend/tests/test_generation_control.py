@@ -2,8 +2,9 @@
 
 from datetime import datetime, timezone
 import time
+import pytest
 
-from app.services.generation_control import claim_job, finish_job
+from app.services.generation_control import GenerationControlError, claim_job, finish_job
 from app.db.connection import get_db_connection
 
 
@@ -140,3 +141,140 @@ def test_endpoints_share_daily_limit_and_return_jst_boundary_retry_after(client,
     )
     assert response.status_code == 429
     assert response.headers["Retry-After"] == "1"
+
+
+def test_ip_and_global_active_limits_apply_across_owners_and_operations(client):
+    from app.auth import hash_password
+
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO admin_users (username, password_hash) VALUES (?, ?)",
+            ("second-owner", hash_password("password")),
+        )
+        second_owner_id = conn.execute(
+            "SELECT id FROM admin_users WHERE username = ?", ("second-owner",)
+        ).fetchone()[0]
+
+    same_ip = claim_job(1, "generate", "ip-active-1", {"n": 1}, client_ip="10.0.0.1")
+    try:
+        with pytest.raises(GenerationControlError) as exc_info:
+            claim_job(second_owner_id, "synthesize", "ip-active-2", {"n": 2}, client_ip="10.0.0.1")
+        assert exc_info.value.status_code == 429
+        assert exc_info.value.retry_after == 60
+        assert exc_info.value.args[0] == "Another generation from this IP is already running"
+    finally:
+        finish_job(same_ip.job_id, False)
+
+    other_ip = claim_job(1, "generate", "global-active-1", {"n": 3}, client_ip="10.0.0.2")
+    try:
+        with pytest.raises(GenerationControlError) as exc_info:
+            claim_job(second_owner_id, "synthesize", "global-active-2", {"n": 4}, client_ip="10.0.0.3")
+        assert exc_info.value.status_code == 429
+        assert exc_info.value.retry_after == 60
+        assert exc_info.value.args[0] == "The generation service is busy"
+    finally:
+        finish_job(other_ip.job_id, False)
+
+
+def test_ip_and_global_daily_limits_are_enforced(client):
+    from app.auth import hash_password
+
+    with get_db_connection() as conn:
+        for username in ("daily-owner-2", "daily-owner-3"):
+            conn.execute(
+                "INSERT INTO admin_users (username, password_hash) VALUES (?, ?)",
+                (username, hash_password("password")),
+            )
+        owner_ids = [
+            row[0] for row in conn.execute(
+                "SELECT id FROM admin_users WHERE username LIKE 'daily-owner-%' ORDER BY id"
+            ).fetchall()
+        ]
+
+    # Ten completed jobs from one IP reach the IP-scoped daily quota first.
+    for index in range(10):
+        owner_id = owner_ids[index % len(owner_ids)]
+        claim = claim_job(owner_id, "generate", f"ip-daily-{index}", {"n": index}, client_ip="10.0.1.1")
+        finish_job(claim.job_id, True)
+    with pytest.raises(GenerationControlError) as exc_info:
+        claim_job(1, "synthesize", "ip-daily-over", {"n": 11}, client_ip="10.0.1.1")
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.retry_after > 0
+
+def test_global_daily_limit_is_enforced_across_ips(client):
+    for index in range(10):
+        claim = claim_job(1, "generate", f"global-daily-{index}", {"n": index}, client_ip=f"10.0.2.{index + 1}")
+        finish_job(claim.job_id, True)
+    with pytest.raises(GenerationControlError) as exc_info:
+        claim_job(1, "synthesize", "global-daily-over", {"n": 12}, client_ip="10.0.2.99")
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.retry_after > 0
+
+
+def test_untrusted_proxy_ip_headers_are_ignored_for_generation_and_synthesis(client, monkeypatch):
+    from app.api import generate as generate_api
+    from app.audit import hash_value
+    from app.services.episode_service import EpisodeService
+
+    def complete_generation(episode_id, _body):
+        EpisodeService().update_episode_status(episode_id, "completed")
+
+    def complete_synthesis(episode_id, _body):
+        EpisodeService().update_episode_status(episode_id, "completed")
+        yield b"event: complete\ndata: {}\n\n"
+
+    monkeypatch.setattr(generate_api, "_run_generation", complete_generation)
+    monkeypatch.setattr(generate_api, "_stream_synthesize", complete_synthesis)
+
+    generated = client.post(
+        "/generate",
+        json={"date": "2099-08-01"},
+        headers={
+            "Idempotency-Key": "relay-generate",
+            "X-Proxy-Client-IP": "198.51.100.10",
+            "X-Proxy-Auth": "not-a-deployment-contract",
+        },
+    )
+    assert generated.status_code == 200
+    for _ in range(100):
+        with get_db_connection() as conn:
+            status = conn.execute(
+                "SELECT status FROM generation_jobs WHERE idempotency_key = 'relay-generate'"
+            ).fetchone()["status"]
+        if status != "active":
+            break
+        time.sleep(0.01)
+
+    episode_id = EpisodeService().create_episode("2099-08-02", status="generating")
+    synthesized = client.post(
+        f"/episodes/{episode_id}/synthesize",
+        json={"tts_engine": "voicevox"},
+        headers={
+            "Idempotency-Key": "relay-synthesize",
+            "X-Proxy-Client-IP": "198.51.100.11",
+            "X-Proxy-Auth": "not-a-deployment-contract",
+        },
+    )
+    assert synthesized.status_code == 200
+
+    spoofed = client.post(
+        "/generate",
+        json={"date": "2099-08-03"},
+        headers={
+            "Idempotency-Key": "untrusted-ip",
+            "X-Proxy-Client-IP": "198.51.100.99",
+            "X-Proxy-Auth": "wrong-secret",
+        },
+    )
+    assert spoofed.status_code == 200
+
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT idempotency_key, client_ip_hash FROM generation_jobs "
+            "WHERE idempotency_key IN ('relay-generate', 'relay-synthesize', 'untrusted-ip') "
+            "ORDER BY idempotency_key"
+        ).fetchall()
+    by_key = {row["idempotency_key"]: row["client_ip_hash"] for row in rows}
+    assert by_key["relay-generate"] != hash_value("198.51.100.10")
+    assert by_key["relay-synthesize"] != hash_value("198.51.100.11")
+    assert by_key["untrusted-ip"] != hash_value("198.51.100.99")

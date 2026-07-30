@@ -13,6 +13,8 @@ from app.audit import hash_value, insert_audit_log
 JST = ZoneInfo("Asia/Tokyo")
 DAILY_LIMIT = 10
 ACTIVE_LIMIT = 1
+IP_ACTIVE_LIMIT = 1
+GLOBAL_ACTIVE_LIMIT = 1
 IDEMPOTENCY_RETENTION = timedelta(hours=24)
 
 
@@ -89,10 +91,12 @@ def claim_job(
     episode_type: str = "radio",
     source_url: str | None = None,
     episode_id: int | None = None,
+    client_ip: str = "unknown",
 ) -> JobClaim:
     """Claim a job and enforce both limits in one SQLite write transaction."""
     digest = input_hash(payload)
     key_digest = hash_value(idempotency_key) if idempotency_key else None
+    client_ip_digest = hash_value(client_ip or "unknown")
     if not idempotency_key or len(idempotency_key) > 255:
         with get_db_connection() as conn:
             insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="rejected",
@@ -131,6 +135,28 @@ def claim_job(
             conn.commit()
             raise GenerationControlError(429, "Another generation is already running", 60)
 
+        ip_active = conn.execute(
+            "SELECT COUNT(*) AS count FROM generation_jobs "
+            "WHERE client_ip_hash = ? AND status = 'active'",
+            (client_ip_digest,),
+        ).fetchone()["count"]
+        if ip_active >= IP_ACTIVE_LIMIT:
+            insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="rejected",
+                             idempotency_key_hash=key_digest, input_hash=digest, accepted=False,
+                             rejection_reason="ip_active_limit")
+            conn.commit()
+            raise GenerationControlError(429, "Another generation from this IP is already running", 60)
+
+        global_active = conn.execute(
+            "SELECT COUNT(*) AS count FROM generation_jobs WHERE status = 'active'",
+        ).fetchone()["count"]
+        if global_active >= GLOBAL_ACTIVE_LIMIT:
+            insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="rejected",
+                             idempotency_key_hash=key_digest, input_hash=digest, accepted=False,
+                             rejection_reason="global_active_limit")
+            conn.commit()
+            raise GenerationControlError(429, "The generation service is busy", 60)
+
         daily = conn.execute(
             "SELECT COUNT(*) AS count FROM generation_jobs "
             "WHERE owner_user_id = ? AND claimed_at >= ? AND claimed_at < ?",
@@ -143,10 +169,35 @@ def claim_job(
             conn.commit()
             raise GenerationControlError(429, "Daily generation limit exceeded", _seconds_until_jst_midnight(now))
 
+        ip_daily = conn.execute(
+            "SELECT COUNT(*) AS count FROM generation_jobs "
+            "WHERE client_ip_hash = ? AND claimed_at >= ? AND claimed_at < ?",
+            (client_ip_digest, day_start, day_end),
+        ).fetchone()["count"]
+        if ip_daily >= DAILY_LIMIT:
+            insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="rejected",
+                             idempotency_key_hash=key_digest, input_hash=digest, accepted=False,
+                             rejection_reason="ip_daily_limit")
+            conn.commit()
+            raise GenerationControlError(429, "Daily generation limit for this IP exceeded",
+                                          _seconds_until_jst_midnight(now))
+
+        global_daily = conn.execute(
+            "SELECT COUNT(*) AS count FROM generation_jobs WHERE claimed_at >= ? AND claimed_at < ?",
+            (day_start, day_end),
+        ).fetchone()["count"]
+        if global_daily >= DAILY_LIMIT:
+            insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="rejected",
+                             idempotency_key_hash=key_digest, input_hash=digest, accepted=False,
+                             rejection_reason="global_daily_limit")
+            conn.commit()
+            raise GenerationControlError(429, "Daily generation limit exceeded for all users",
+                                          _seconds_until_jst_midnight(now))
+
         cursor = conn.execute(
-            "INSERT INTO generation_jobs(owner_user_id, operation, idempotency_key, input_hash, claimed_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (owner_user_id, operation, idempotency_key, digest, _utc_text(now)),
+            "INSERT INTO generation_jobs(owner_user_id, operation, idempotency_key, input_hash, "
+            "client_ip_hash, claimed_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (owner_user_id, operation, idempotency_key, digest, client_ip_digest, _utc_text(now)),
         )
         audit_id = insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="started",
                                     idempotency_key_hash=key_digest, input_hash=digest,

@@ -134,6 +134,17 @@ def _apply_db_migrations() -> None:
                 conn.execute(f"ALTER TABLE audit_logs ADD COLUMN {column} {definition}")
             except sqlite3.OperationalError:
                 pass
+        try:
+            conn.execute("ALTER TABLE generation_jobs ADD COLUMN client_ip_hash TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_generation_jobs_ip_status "
+                "ON generation_jobs(client_ip_hash, status)"
+            )
+        except sqlite3.OperationalError:
+            pass
         for index_sql in (
             "CREATE INDEX IF NOT EXISTS idx_audit_logs_executed_at ON audit_logs(executed_at)",
             "CREATE INDEX IF NOT EXISTS idx_audit_logs_operation ON audit_logs(operation)",

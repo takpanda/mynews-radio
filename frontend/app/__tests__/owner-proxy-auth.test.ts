@@ -72,6 +72,40 @@ describe('オーナー操作プロキシの認証情報転送', () => {
   })
 
   it.each([
+    ['生成', '/generate'],
+    ['再合成', '/episodes/1/synthesize'],
+  ])('%sは保証されていないx-forwarded-forを上流へ転送しない', async (_name, path) => {
+    const relayRequest = request(`http://localhost/api${path}`)
+    relayRequest.headers.set('x-forwarded-for', '198.51.100.42, 10.0.0.1')
+    if (path === '/generate') {
+      await generateRoute.POST(relayRequest)
+    } else {
+      await synthesizeRoute.POST(relayRequest, { params: { id: '1' } })
+    }
+    const upstreamHeaders = (global.fetch as jest.Mock).mock.calls[0][1].headers
+    expect(upstreamHeaders).not.toHaveProperty('X-Proxy-Client-IP')
+    expect(upstreamHeaders).not.toHaveProperty('X-Proxy-Auth')
+  })
+
+  it.each([
+    ['生成', '/generate'],
+    ['再合成', '/episodes/1/synthesize'],
+  ])('%sへ直接アクセスして任意のx-verified-client-ipを付けても署名を発行しない', async (_name, path) => {
+    const directRequest = request(`http://localhost/api${path}`)
+    directRequest.headers.set('x-verified-client-ip', '198.51.100.42')
+    directRequest.headers.set('x-public-entry', '1')
+    if (path === '/generate') {
+      await generateRoute.POST(directRequest)
+    } else {
+      await synthesizeRoute.POST(directRequest, { params: { id: '1' } })
+    }
+    const upstreamHeaders = (global.fetch as jest.Mock).mock.calls[0][1].headers
+    expect(upstreamHeaders).not.toHaveProperty('X-Verified-Client-IP')
+    expect(upstreamHeaders).not.toHaveProperty('X-Verified-Client-IP-Timestamp')
+    expect(upstreamHeaders).not.toHaveProperty('X-Verified-Client-IP-Signature')
+  })
+
+  it.each([
     ['生成', () => generateRoute.POST(request('http://localhost/api/generate', '{}', 'tracking=t; admin_session=session-token; csrf=c'))],
     ['設定', () => settingsRoute.PUT(request('http://localhost/api/settings', '{}', 'tracking=t; admin_session=session-token; csrf=c'), '{}')],
     ['再合成', () => synthesizeRoute.POST(request('http://localhost/api/episodes/1/synthesize', '{}', 'tracking=t; admin_session=session-token; csrf=c'), { params: { id: '1' } })],

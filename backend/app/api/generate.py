@@ -29,6 +29,7 @@ from app.services.episode_service import EpisodeService
 from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_url
 from app.services.settings_service import get_settings_or_default, validate_settings
 from app.services.generation_control import GenerationControlError, bind_episode, claim_job, finish_job
+from app.services.verified_client_ip import get_verified_client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,10 @@ def _rate_limit_key(request: Request) -> str:
 
 
 limiter = Limiter(key_func=_rate_limit_key)
+
+
+def _client_ip(request: Request) -> str:
+    return get_verified_client_ip(request)
 
 
 def verify_api_key(authorization: str | None = Header(None)) -> None:
@@ -371,6 +376,7 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
             owner_user_id, operation, idempotency_key or "",
             body.model_dump() if hasattr(body, "model_dump") else body.dict(),
             episode_date=body.date, episode_type=episode_type, source_url=body.url,
+            client_ip=_client_ip(request),
         )
     except GenerationControlError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
@@ -464,12 +470,12 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
         tts_base_url = settings.aivispeech_base_url
         tts_speaker_male = settings.aivispeech_speaker_male
         tts_speaker_female = settings.aivispeech_speaker_female
-        tts_engine_label = f"AivisSpeech ({settings.aivispeech_base_url})"
+        tts_engine_label = "AivisSpeech"
     else:
         tts_base_url = settings.voicevox_base_url
         tts_speaker_male = settings.voicevox_speaker_male
         tts_speaker_female = settings.voicevox_speaker_female
-        tts_engine_label = f"VOICEVOX ({settings.voicevox_base_url})"
+        tts_engine_label = "VOICEVOX"
 
     service.update_episode_status(episode_id, "generating")
 
@@ -532,6 +538,7 @@ def synthesize_episode_audio(episode_id: int, request: Request, body: Synthesize
             owner_user_id, "synthesize", idempotency_key or "",
             {"episode_id": episode_id, "body": body.model_dump() if hasattr(body, "model_dump") else body.dict()},
             episode_id=episode_id,
+            client_ip=_client_ip(request),
         )
     except GenerationControlError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
