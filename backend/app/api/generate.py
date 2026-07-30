@@ -29,6 +29,7 @@ from app.services.episode_service import EpisodeService
 from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_url
 from app.services.settings_service import get_settings_or_default, validate_settings
 from app.services.generation_control import GenerationControlError, bind_episode, claim_job, finish_job
+from app.services.verified_client_ip import get_verified_client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +50,7 @@ limiter = Limiter(key_func=_rate_limit_key)
 
 
 def _client_ip(request: Request) -> str:
-    """Use only the socket peer until deployment provides a trusted relay contract."""
-    return request.client.host if request.client else "unknown"
+    return get_verified_client_ip(request)
 
 
 def verify_api_key(authorization: str | None = Header(None)) -> None:
