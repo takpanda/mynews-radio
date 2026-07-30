@@ -93,6 +93,7 @@ describe('オーナー操作プロキシの認証情報転送', () => {
   ])('%sへ直接アクセスして任意のx-verified-client-ipを付けても署名を発行しない', async (_name, path) => {
     const directRequest = request(`http://localhost/api${path}`)
     directRequest.headers.set('x-verified-client-ip', '198.51.100.42')
+    directRequest.headers.set('x-public-entry', '1')
     if (path === '/generate') {
       await generateRoute.POST(directRequest)
     } else {
