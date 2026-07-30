@@ -59,3 +59,24 @@ def test_malformed_ip_falls_back(monkeypatch):
     from app.services.verified_client_ip import get_verified_client_ip
 
     assert get_verified_client_ip(_request(_signed_headers("not-an-ip", secret, str(int(time.time()))))) == "10.0.0.8"
+
+
+def test_signature_for_other_endpoint_cannot_be_reused(monkeypatch):
+    secret = "dedicated-secret"
+    monkeypatch.setenv("PROXY_CLIENT_IP_HMAC_SECRET", secret)
+    from app.config import get_settings
+    get_settings.cache_clear()
+    from app.services.verified_client_ip import get_verified_client_ip
+
+    timestamp = str(int(time.time()))
+    generate_signature = _signed_headers("198.51.100.10", secret, timestamp)
+    synth_request = _request(generate_signature, "/episodes/1/synthesize")
+    assert get_verified_client_ip(synth_request) == "10.0.0.8"
+
+    synth_payload = "\n".join(("198.51.100.10", "POST", "/episodes/1/synthesize", timestamp))
+    synth_signature = hmac.new(secret.encode(), synth_payload.encode(), hashlib.sha256).hexdigest()
+    generate_request = _request({
+        **generate_signature,
+        "X-Verified-Client-IP-Signature": synth_signature,
+    })
+    assert get_verified_client_ip(generate_request) == "10.0.0.8"

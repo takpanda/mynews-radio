@@ -88,6 +88,23 @@ describe('オーナー操作プロキシの認証情報転送', () => {
   })
 
   it.each([
+    ['生成', '/generate'],
+    ['再合成', '/episodes/1/synthesize'],
+  ])('%sへ直接アクセスして任意のx-verified-client-ipを付けても署名を発行しない', async (_name, path) => {
+    const directRequest = request(`http://localhost/api${path}`)
+    directRequest.headers.set('x-verified-client-ip', '198.51.100.42')
+    if (path === '/generate') {
+      await generateRoute.POST(directRequest)
+    } else {
+      await synthesizeRoute.POST(directRequest, { params: { id: '1' } })
+    }
+    const upstreamHeaders = (global.fetch as jest.Mock).mock.calls[0][1].headers
+    expect(upstreamHeaders).not.toHaveProperty('X-Verified-Client-IP')
+    expect(upstreamHeaders).not.toHaveProperty('X-Verified-Client-IP-Timestamp')
+    expect(upstreamHeaders).not.toHaveProperty('X-Verified-Client-IP-Signature')
+  })
+
+  it.each([
     ['生成', () => generateRoute.POST(request('http://localhost/api/generate', '{}', 'tracking=t; admin_session=session-token; csrf=c'))],
     ['設定', () => settingsRoute.PUT(request('http://localhost/api/settings', '{}', 'tracking=t; admin_session=session-token; csrf=c'), '{}')],
     ['再合成', () => synthesizeRoute.POST(request('http://localhost/api/episodes/1/synthesize', '{}', 'tracking=t; admin_session=session-token; csrf=c'), { params: { id: '1' } })],

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server"
 import { createHmac } from "node:crypto"
 
 const HMAC_SECRET = process.env.PROXY_CLIENT_IP_HMAC_SECRET
+const PUBLIC_ENTRY_MARKER = "1"
 
 function signingPayload(clientIp: string, method: string, path: string, timestamp: string) {
   return [clientIp, method.toUpperCase(), path, timestamp].join("\n")
@@ -14,7 +15,10 @@ export function addTrustedClientIp(
   upstreamPath: string,
 ) {
   const clientIp = request.headers.get("x-verified-client-ip")?.trim()
-  if (!clientIp || !HMAC_SECRET) return
+  // nginx strips an incoming marker and sets it only on the public-entry hop.
+  // The web container has no host-published port, so a direct Next.js request
+  // cannot satisfy this network trust root and cannot mint a relay signature.
+  if (request.headers.get("x-public-entry") !== PUBLIC_ENTRY_MARKER || !clientIp || !HMAC_SECRET) return
 
   const timestamp = String(Math.floor(Date.now() / 1000))
   const signature = createHmac("sha256", HMAC_SECRET)
