@@ -47,7 +47,7 @@ services:
     volumes:
       - ./infra/nginx/public-entry.conf:/etc/nginx/templates/default.conf.template:ro
     command: >-
-      /bin/sh -c 'envsubst "$$PUBLIC_ENTRY_TOKEN" < /etc/nginx/templates/default.conf.template
+      /bin/sh -c 'envsubst '\''$${PUBLIC_ENTRY_TOKEN}'\'' < /etc/nginx/templates/default.conf.template
       > /etc/nginx/conf.d/default.conf && exec nginx -g "daemon off;"'
     depends_on:
       - web
