@@ -209,7 +209,7 @@ export class GenerationError extends Error {
   readonly status: number
   readonly retryable: boolean
 
-  constructor(message: string, status: number, retryable = status !== 409) {
+  constructor(message: string, status: number, retryable = status !== 401 && status !== 403 && status !== 409) {
     super(message)
     this.name = 'GenerationError'
     this.status = status

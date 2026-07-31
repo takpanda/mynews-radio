@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import GenerateEpisodeButton from '../components/GenerateEpisodeButton'
+import { GenerationError } from '../lib/api'
 
 const mockSearchEpisodesBySourceUrl = jest.fn()
 const mockGenerateEpisode = jest.fn()
@@ -439,5 +440,87 @@ describe('GenerateEpisodeButton — URLクリアボタン', () => {
     const btn = clearButton()
     expect(btn).toBeInTheDocument()
     expect(btn).toHaveAttribute('aria-label', 'URLをクリア')
+  })
+})
+
+describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    localStorage.clear()
+  })
+
+  const radioSubmit = () => screen.getByRole('button', { name: 'この設定で番組を生成する' })
+
+  it('401はログイン導線を表示し再試行ボタンを出さない', async () => {
+    mockGenerateEpisode.mockRejectedValue(
+      new GenerationError('ログインが必要です。再度ログインしてください。', 401),
+    )
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.click(radioSubmit())
+
+    expect(await screen.findByText('ログインが必要です。再度ログインしてください。')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'ログインする' })).toHaveAttribute('href', '/admin/login')
+    expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument()
+  })
+
+  it('403は権限エラーメッセージを表示し再試行ボタンを出さない', async () => {
+    mockGenerateEpisode.mockRejectedValue(
+      new GenerationError('この操作を実行する権限がありません。', 403),
+    )
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.click(radioSubmit())
+
+    expect(await screen.findByText('この操作を実行する権限がありません。')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'ログインする' })).not.toBeInTheDocument()
+  })
+
+  it('409（同一キーの入力不一致）は競合メッセージを表示し再試行ボタンを出さない', async () => {
+    mockGenerateEpisode.mockRejectedValue(
+      new GenerationError('同じ操作が競合しています。入力内容を確認して再試行してください。', 409),
+    )
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.click(radioSubmit())
+
+    expect(await screen.findByText('同じ操作が競合しています。入力内容を確認して再試行してください。')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument()
+  })
+
+  it('429はRetry-Afterの待機時間を表示し再試行ボタンを出す', async () => {
+    mockGenerateEpisode.mockRejectedValue(
+      new GenerationError('利用制限に達しました。約2分後に再試行できます。', 429),
+    )
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.click(radioSubmit())
+
+    expect(await screen.findByText('利用制限に達しました。約2分後に再試行できます。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument()
+  })
+
+  it('429後の再試行では同じ冪等キーを送信する', async () => {
+    mockGenerateEpisode
+      .mockRejectedValueOnce(new GenerationError('利用制限に達しました。約1分後に再試行できます。', 429))
+      .mockResolvedValueOnce({ episode_id: 100 })
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.click(radioSubmit())
+    expect(await screen.findByRole('button', { name: '再試行' })).toBeInTheDocument()
+    const firstKey = mockGenerateEpisode.mock.calls[0][9]
+
+    await user.click(screen.getByRole('button', { name: '再試行' }))
+
+    await waitFor(() => {
+      expect(mockGenerateEpisode.mock.calls.length).toBe(2)
+    })
+    expect(mockGenerateEpisode.mock.calls[1][9]).toBe(firstKey)
   })
 })
