@@ -567,19 +567,49 @@ def synthesize_episode_audio(episode_id: int, request: Request, body: Synthesize
     )
 
 
-def _stream_synthesize_with_audit(episode_id: int, body: SynthesizeRequest, owner_user_id: int, job_id: int) -> Generator[bytes, None, None]:
+def _finalize_synthesis_job(job_id: int, episode_id: int) -> None:
+    """Close the job before emitting a terminal SSE event.
+
+    A client can disconnect as soon as it receives ``complete`` or ``error``.
+    Keeping the completion update in the generator's finalizer would then leave
+    it suspended before the next iteration.
+    """
+    status = (EpisodeService().get_episode(episode_id) or {}).get("status")
+    success = status == "completed"
     try:
-        yield from _stream_synthesize(episode_id, body)
+        finalize_audit_log(job_id, "success" if success else "failure", episode_id)
+    except Exception:
+        logger.exception("failed to finalize audit log for synthesis job %d", job_id)
+        success = False
+
+    try:
+        finish_job(job_id, success)
+    except Exception:
+        # This makes an attempted completion distinguishable from a process
+        # exit before this point.  Do not include request or credential data.
+        logger.exception("failed to finish synthesis job %d; it may remain active", job_id)
+        raise
+
+    logger.info("synthesis job finalized: job_id=%d success=%s", job_id, success)
+
+
+def _is_terminal_synthesis_event(payload: bytes) -> bool:
+    return payload.startswith(b"event: complete\n") or payload.startswith(b"event: error\n")
+
+
+def _stream_synthesize_with_audit(episode_id: int, body: SynthesizeRequest, owner_user_id: int, job_id: int) -> Generator[bytes, None, None]:
+    finalized = False
+    try:
+        for payload in _stream_synthesize(episode_id, body):
+            # The terminal SSE must be the last thing sent.  In particular the
+            # UI returns from its reader as soon as it receives this event.
+            if _is_terminal_synthesis_event(payload):
+                finalized = True
+                _finalize_synthesis_job(job_id, episode_id)
+            yield payload
     finally:
-        status = (EpisodeService().get_episode(episode_id) or {}).get("status")
-        success = status == "completed"
-        try:
-            finalize_audit_log(job_id, "success" if success else "failure", episode_id)
-        except Exception:
-            logger.exception("failed to finalize audit log for synthesis job %d", job_id)
-            success = False
-        finally:
-            finish_job(job_id, success)
+        if not finalized:
+            _finalize_synthesis_job(job_id, episode_id)
 
 
 # ── file-based routes for /episodes and /health are mounted in main.py ──

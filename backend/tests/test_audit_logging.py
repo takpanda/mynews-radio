@@ -1,5 +1,6 @@
 """生成監査ログの受入条件テスト。"""
 
+import asyncio
 import hashlib
 import os
 import sqlite3
@@ -9,6 +10,83 @@ import sys
 from pathlib import Path
 from app.audit import cleanup_audit_logs, hash_input
 from app.db.connection import get_db_connection
+
+
+def test_synthesis_terminal_sse_finishes_job_before_client_disconnect(monkeypatch):
+    """complete を受信したクライアントの即時切断でもジョブを残さない。"""
+    from fastapi.responses import StreamingResponse
+    from app.api import generate as generate_api
+    from app.services.episode_service import EpisodeService
+    from app.services.generation_control import claim_job
+
+    episode_id = EpisodeService().create_episode("2099-06-01", status="generating")
+    claim = claim_job(1, "synthesize", "disconnect-after-complete", {"episode_id": episode_id})
+
+    def completed_stream(episode_id, _body):
+        EpisodeService().update_episode_status(episode_id, "completed")
+        yield b"event: complete\ndata: {}\n\n"
+
+    monkeypatch.setattr(generate_api, "_stream_synthesize", completed_stream)
+    response = StreamingResponse(
+        generate_api._stream_synthesize_with_audit(
+            episode_id, generate_api.SynthesizeRequest(), 1, claim.job_id,
+        ),
+        media_type="text/event-stream",
+    )
+    complete_sent = asyncio.Event()
+
+    async def receive():
+        if not getattr(receive, "requested", False):
+            receive.requested = True
+            return {"type": "http.request", "body": b"", "more_body": False}
+        await complete_sent.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        if message["type"] == "http.response.body" and message.get("body"):
+            complete_sent.set()
+            # Give the disconnect listener precedence over the next iteration.
+            await asyncio.sleep(0)
+
+    asyncio.run(response({"type": "http", "asgi": {"spec_version": "2.0"}}, receive, send))
+
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT status, finished_at FROM generation_jobs WHERE id = ?", (claim.job_id,)
+        ).fetchone()
+    assert row["status"] == "completed"
+    assert row["finished_at"] is not None
+
+
+def test_synthesis_finish_job_failure_is_logged_and_leaves_job_observable(monkeypatch, caplog):
+    """SQLite更新失敗はプロセス終了と区別できるエラーログを残す。"""
+    from app.api import generate as generate_api
+    from app.services.episode_service import EpisodeService
+    from app.services.generation_control import claim_job
+
+    episode_id = EpisodeService().create_episode("2099-06-02", status="generating")
+    claim = claim_job(1, "synthesize", "finish-job-locked", {"episode_id": episode_id})
+
+    def completed_stream(episode_id, _body):
+        EpisodeService().update_episode_status(episode_id, "completed")
+        yield b"event: complete\ndata: {}\n\n"
+
+    monkeypatch.setattr(generate_api, "_stream_synthesize", completed_stream)
+    monkeypatch.setattr(
+        generate_api, "finish_job",
+        lambda *_args: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked")),
+    )
+
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        list(generate_api._stream_synthesize_with_audit(
+            episode_id, generate_api.SynthesizeRequest(), 1, claim.job_id,
+        ))
+
+    assert "failed to finish synthesis job" in caplog.text
+    with get_db_connection() as conn:
+        assert conn.execute(
+            "SELECT status FROM generation_jobs WHERE id = ?", (claim.job_id,)
+        ).fetchone()["status"] == "active"
 
 
 def test_generation_audit_contains_hashes_and_rejection_reason(client):
