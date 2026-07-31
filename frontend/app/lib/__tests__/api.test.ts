@@ -79,6 +79,22 @@ describe('生成制御エラー', () => {
     global.fetch = previousFetch
   })
 
+  it.each([401, 403, 409])('%sは認可・競合エラーとして再試行不可で扱う', async (status) => {
+    const previousFetch = global.fetch
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status,
+      headers: new Headers(),
+      text: async () => JSON.stringify({ detail: 'error' }),
+    }) as typeof fetch
+
+    await expect(generateEpisode('2026-07-25')).rejects.toMatchObject<Partial<GenerationError>>({
+      status,
+      retryable: false,
+    })
+    global.fetch = previousFetch
+  })
+
   it('429はRetry-Afterの待機時間を案内する', () => {
     expect(describeGenerationError(429, '', '60')).toBe('利用制限に達しました。約1分後に再試行できます。')
   })
