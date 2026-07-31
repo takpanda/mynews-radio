@@ -15,6 +15,7 @@ DAILY_LIMIT = 10
 ACTIVE_LIMIT = 1
 IP_ACTIVE_LIMIT = 1
 GLOBAL_ACTIVE_LIMIT = 1
+STALE_ACTIVE_TIMEOUT = timedelta(minutes=10)
 IDEMPOTENCY_RETENTION = timedelta(hours=24)
 
 
@@ -109,6 +110,12 @@ def claim_job(
 
     with get_db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        stale_cutoff = _utc_text(now - STALE_ACTIVE_TIMEOUT)
+        conn.execute(
+            "UPDATE generation_jobs SET status = 'failed', finished_at = CURRENT_TIMESTAMP "
+            "WHERE status = 'active' AND claimed_at < ?",
+            (stale_cutoff,),
+        )
         conn.execute("DELETE FROM generation_jobs WHERE claimed_at < ?", (retention_cutoff,))
         existing = conn.execute(
             "SELECT id, episode_id, input_hash, status FROM generation_jobs "

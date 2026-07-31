@@ -1,6 +1,6 @@
 """生成開始時の利用上限・冪等性の受入テスト。"""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import time
 import pytest
 
@@ -36,6 +36,84 @@ def test_active_generation_returns_retry_after(client):
     assert response.status_code == 429
     assert response.headers["Retry-After"] == "60"
     finish_job(claim.job_id, False)
+
+
+def test_claim_job_recovers_stale_active_job_and_allows_new_claim(client, monkeypatch):
+    import app.services.generation_control as control
+
+    fixed_now = datetime(2026, 7, 31, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(control, "_utc_now", lambda: fixed_now)
+    stale = claim_job(1, "generate", "stale-active", {"n": 1})
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE generation_jobs SET claimed_at = ? WHERE id = ?",
+            ((fixed_now - timedelta(minutes=10, seconds=1)).strftime("%Y-%m-%d %H:%M:%S"), stale.job_id),
+        )
+
+    replacement = claim_job(1, "generate", "replacement-active", {"n": 2})
+    assert replacement.duplicate is False
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT status, finished_at FROM generation_jobs WHERE id IN (?, ?) ORDER BY id",
+            (stale.job_id, replacement.job_id),
+        ).fetchall()
+    assert rows[0]["status"] == "failed"
+    assert rows[0]["finished_at"] is not None
+    assert rows[1]["status"] == "active"
+    finish_job(replacement.job_id, False)
+
+
+def test_claim_job_does_not_recover_active_job_at_exact_ten_minute_boundary(client, monkeypatch):
+    import app.services.generation_control as control
+
+    fixed_now = datetime(2026, 7, 31, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(control, "_utc_now", lambda: fixed_now)
+    active = claim_job(1, "generate", "boundary-active", {"n": 1})
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE generation_jobs SET claimed_at = ? WHERE id = ?",
+            ((fixed_now - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S"), active.job_id),
+        )
+
+    with pytest.raises(GenerationControlError) as exc_info:
+        claim_job(1, "generate", "boundary-rejected", {"n": 2})
+    assert exc_info.value.status_code == 429
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT status, finished_at FROM generation_jobs WHERE id = ?", (active.job_id,)
+        ).fetchone()
+    assert row["status"] == "active"
+    assert row["finished_at"] is None
+    finish_job(active.job_id, False)
+
+
+def test_stale_recovery_does_not_change_completed_or_failed_jobs(client, monkeypatch):
+    import app.services.generation_control as control
+
+    fixed_now = datetime(2026, 7, 31, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(control, "_utc_now", lambda: fixed_now)
+    completed = claim_job(1, "generate", "already-completed", {"n": 1})
+    finish_job(completed.job_id, True)
+    failed = claim_job(1, "generate", "already-failed", {"n": 2})
+    finish_job(failed.job_id, False)
+    with get_db_connection() as conn:
+        old_claimed_at = (fixed_now - timedelta(minutes=20)).strftime("%Y-%m-%d %H:%M:%S")
+        conn.execute(
+            "UPDATE generation_jobs SET claimed_at = ? WHERE id IN (?, ?)",
+            (old_claimed_at, completed.job_id, failed.job_id),
+        )
+
+    active = claim_job(1, "generate", "after-finished-jobs", {"n": 3})
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, status FROM generation_jobs WHERE id IN (?, ?) ORDER BY id",
+            (completed.job_id, failed.job_id),
+        ).fetchall()
+    assert [(row["id"], row["status"]) for row in rows] == [
+        (completed.job_id, "completed"),
+        (failed.job_id, "failed"),
+    ]
+    finish_job(active.job_id, False)
 
 
 def test_daily_generation_limit_is_shared_by_operations(client):
