@@ -15,6 +15,16 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://news.beeworks.cc/api/articles"
 
+# 日次フィードの抜粋長。要約バッチはこの長さで足りるため据え置く。
+FEED_TEXT_MAX_CHARS = 1500
+# URL解説用の本文長。解説の情報密度を確保するため十分に長く取る。
+# Ollama 側は num_ctx=65536 なので、この長さでも文脈からあふれない。
+COMMENTARY_TEXT_MAX_CHARS = 12000
+# HTML の読み込み上限。本文が途中で切れると解説も薄くなるため、
+# 解説経路は日次フィードより大きめに取る。
+FEED_HTML_MAX_BYTES = 512 * 1024
+COMMENTARY_HTML_MAX_BYTES = 2 * 1024 * 1024
+
 
 def _parse_article_blocks(content: str) -> list[dict[str, str]]:
     """Parse API content string into individual article dicts.
@@ -265,7 +275,7 @@ def _fetch_article_text(url: str, timeout: int = 10) -> str:
     req.add_header("User-Agent", "Mozilla/5.0 (compatible; mynews-radio-bot/1.0)")
     try:
         with _SAFE_OPENER.open(req, timeout=timeout) as resp:
-            raw = resp.read(512 * 1024)  # max 512 KB
+            raw = resp.read(FEED_HTML_MAX_BYTES)
             charset = resp.headers.get_content_charset() or "utf-8"
     except Exception as exc:
         logger.debug("_fetch_article_text: failed to fetch %s: %s", url, exc)
@@ -288,7 +298,7 @@ def _fetch_article_text(url: str, timeout: int = 10) -> str:
             no_fallback=False,
         )
         if extracted and len(extracted.strip()) >= 50:
-            return extracted.strip()[:1500]
+            return extracted.strip()[:FEED_TEXT_MAX_CHARS]
     except Exception as exc:
         logger.debug("_fetch_article_text: trafilatura failed for %s: %s", url, exc)
 
@@ -320,9 +330,9 @@ def _fetch_article_text(url: str, timeout: int = 10) -> str:
         pass
 
     if ext.og_description:
-        return ext.og_description[:1500]
+        return ext.og_description[:FEED_TEXT_MAX_CHARS]
     if ext.meta_description:
-        return ext.meta_description[:1500]
+        return ext.meta_description[:FEED_TEXT_MAX_CHARS]
     return ""
 
 
@@ -593,8 +603,18 @@ def _extract_title_from_html(html_text: str) -> str:
     return ext.og_title or ext.html_title or ""
 
 
-def fetch_article_by_url(url: str) -> dict[str, Any]:
+def fetch_article_by_url(
+    url: str,
+    max_chars: int = COMMENTARY_TEXT_MAX_CHARS,
+) -> dict[str, Any]:
     """Fetch a single article from the given URL.
+
+    Args:
+        url: Article URL to fetch.
+        max_chars: Upper bound on the extracted body text. Defaults to
+            COMMENTARY_TEXT_MAX_CHARS — the commentary script needs the full
+            article to stay faithful to it, so this is far larger than the
+            daily-feed excerpt length.
 
     Returns a dict with title, url, text, source suitable for
     ArticleService.upsert_article(). Returns all-empty dict on failure.
@@ -609,7 +629,7 @@ def fetch_article_by_url(url: str) -> dict[str, Any]:
     req.add_header("User-Agent", "Mozilla/5.0 (compatible; mynews-radio-bot/1.0)")
     try:
         with _SAFE_OPENER.open(req, timeout=15) as resp:
-            raw = resp.read(512 * 1024)
+            raw = resp.read(COMMENTARY_HTML_MAX_BYTES)
             charset = resp.headers.get_content_charset() or "utf-8"
     except Exception as exc:
         logger.warning("fetch_article_by_url: failed to fetch %s: %s", url, exc)
@@ -634,12 +654,20 @@ def fetch_article_by_url(url: str) -> dict[str, Any]:
             no_fallback=False,
         )
         if extracted and len(extracted.strip()) >= 50:
-            text = extracted.strip()[:1500]
+            stripped = extracted.strip()
+            text = stripped[:max_chars]
+            if len(stripped) > max_chars:
+                logger.info(
+                    "fetch_article_by_url: text truncated %d -> %d chars for %s",
+                    len(stripped), max_chars, url,
+                )
     except Exception as exc:
         logger.debug("fetch_article_by_url: trafilatura failed for %s: %s", url, exc)
 
     if not text:
         logger.warning("fetch_article_by_url: no text extracted from %s", url)
+    else:
+        logger.info("fetch_article_by_url: extracted %d chars from %s", len(text), url)
 
     return {
         "title": title,

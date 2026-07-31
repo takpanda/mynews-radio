@@ -15,9 +15,20 @@ logger = logging.getLogger(__name__)
 _DEFAULT_LINES_SOLO = 6
 _DEFAULT_LINES_DIALOGUE = 8
 
+# 本文この文字数ごとに解説を1行増やす目安。
+_CHARS_PER_LINE = 450
+# 導入・まとめの分の下駄。本文が短くても最低限の構成は保つ。
+_BASE_LINE_OFFSET = 4
+_MAX_LINES = 24
+# dialogue は相槌・受け返しの分だけ行数が増える。
+_DIALOGUE_EXTRA_LINES = 2
+
 
 def _calc_suggested_lines(text_length: int, style: str) -> int:
     """Calculate suggested number of lines based on article text length and style.
+
+    本文長に比例して行数を伸ばす。以前は 4000 文字超で頭打ちだったが、
+    記事本文の取得上限を引き上げたため、長い記事ほど解説も厚くなるようにする。
 
     Args:
         text_length: Length of the article text in characters.
@@ -26,20 +37,17 @@ def _calc_suggested_lines(text_length: int, style: str) -> int:
     Returns:
         Suggested number of lines.
     """
+    min_lines = _DEFAULT_LINES_DIALOGUE if style == "dialogue" else _DEFAULT_LINES_SOLO
+
     # 50文字未満は記事が空/ほぼ空の場合の安全マージン → 最低保証値
     if text_length < 50:
-        return _DEFAULT_LINES_DIALOGUE if style == "dialogue" else _DEFAULT_LINES_SOLO
+        return min_lines
 
-    if text_length < 2000:
-        base = 6
-    elif text_length <= 4000:
-        base = 8 + (text_length - 2000) // 1000
-    else:
-        base = min(15, 12 + (text_length - 4000) * 3 // 4000)
+    base = _BASE_LINE_OFFSET + round(text_length / _CHARS_PER_LINE)
+    if style == "dialogue":
+        base += _DIALOGUE_EXTRA_LINES
 
-    if style == "dialogue" and text_length <= 4000:
-        return base + 2
-    return base
+    return max(min_lines, min(_MAX_LINES, base))
 
 
 def _build_section_details(suggested_lines_count: int, style: str = "solo") -> str:
@@ -59,8 +67,10 @@ def _build_section_details(suggested_lines_count: int, style: str = "solo") -> s
         intro_range = "2"
         news_range = "6〜9"
     else:
+        # 13行以上は intro 2〜3 / outro 1〜2 を固定し、残りを news に充てる。
+        # 固定値だと総行数と食い違うため、suggested_lines_count から逆算する。
         intro_range = "2〜3"
-        news_range = "8〜12"
+        news_range = f"{suggested_lines_count - 5}〜{suggested_lines_count - 3}"
 
     if style == "dialogue":
         progression_guidance = "   - dialogueの場合は田村と山口が掛け合い形式で進行"
