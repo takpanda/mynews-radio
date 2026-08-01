@@ -22,6 +22,160 @@
 	::selection {
 		background: rgba(14, 165, 233, 0.18);
 	}
+
+	.archive-panel {
+		background: #ffffff;
+		background-image: none;
+		border-color: #e2e8f0;
+		box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+	}
+
+	.archive-panel h2 {
+		color: #0f172a;
+	}
+
+	.archive-panel .text-slate-400,
+	.archive-panel .text-slate-500 {
+		color: #64748b;
+	}
+
+	.archive-panel .text-white {
+		color: #0f172a;
+	}
+
+	.archive-panel .border-slate-800 {
+		border-color: #e2e8f0;
+	}
+
+	.archive-panel input {
+		border-color: #cbd5e1;
+		background: #f8fafc;
+		color: #0f172a;
+	}
+
+	.archive-panel input::placeholder {
+		color: #94a3b8;
+	}
+
+	.archive-kicker {
+		color: #38bdf8;
+		font-size: 0.625rem;
+		font-weight: 700;
+		letter-spacing: 0.22em;
+	}
+
+	.archive-card {
+		overflow: hidden;
+		border: 1px solid #e2e8f0;
+		border-radius: 0.875rem;
+		background: #ffffff;
+		box-shadow: 0 8px 18px rgba(15, 23, 42, 0.07);
+		transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+	}
+
+	.archive-card:hover {
+		border-color: #7dd3fc;
+		box-shadow: 0 14px 26px rgba(14, 116, 144, 0.14);
+		transform: translateY(-4px);
+	}
+
+	.archive-thumb {
+		position: relative;
+		display: flex;
+		height: 9.5rem;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+		color: rgba(255, 255, 255, 0.32);
+		font-size: 2.25rem;
+		font-weight: 800;
+		letter-spacing: -0.06em;
+	}
+
+	.archive-thumb::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(135deg, rgba(255, 255, 255, 0.12), transparent 48%, rgba(15, 23, 42, 0.3));
+	}
+
+	.archive-thumb-indigo { background: linear-gradient(135deg, #4f46e5, #7c3aed); }
+	.archive-thumb-coral { background: linear-gradient(135deg, #e11d48, #f97316); }
+	.archive-thumb-cyan { background: linear-gradient(135deg, #0284c7, #0d9488); }
+	.archive-thumb-amber { background: linear-gradient(135deg, #d97706, #b45309); }
+
+	.archive-thumb-code,
+	.archive-episode-badge,
+	.archive-play-icon {
+		position: absolute;
+		z-index: 1;
+	}
+
+	.archive-episode-badge {
+		right: 0.75rem;
+		top: 0.75rem;
+		border: 1px solid rgba(255, 255, 255, 0.14);
+		border-radius: 999px;
+		background: rgba(2, 6, 23, 0.46);
+		padding: 0.25rem 0.625rem;
+		backdrop-filter: blur(8px);
+		color: #f8fafc;
+		font-size: 0.6875rem;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+	}
+
+	.archive-play-icon {
+		bottom: 0.75rem;
+		left: 0.75rem;
+		display: flex;
+		height: 2rem;
+		width: 2rem;
+		align-items: center;
+		justify-content: center;
+		border-radius: 999px;
+		background: rgba(2, 6, 23, 0.48);
+		color: #fff;
+		opacity: 0.7;
+		transition: transform 180ms ease, opacity 180ms ease;
+	}
+
+	.archive-card:hover .archive-play-icon {
+		opacity: 1;
+		transform: scale(1.08);
+	}
+
+	.archive-card-title {
+		display: -webkit-box;
+		overflow: hidden;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		color: #0f172a;
+		font-size: 0.9375rem;
+		font-weight: 600;
+		line-height: 1.45;
+	}
+
+	.archive-card-description {
+		display: -webkit-box;
+		overflow: hidden;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		color: #64748b;
+		font-size: 0.75rem;
+		line-height: 1.55;
+	}
+
+	.archive-card .text-sky-300 {
+		color: #0369a1;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.archive-card,
+		.archive-play-icon {
+			transition: none;
+		}
+	}
 }
 
 @layer utilities {

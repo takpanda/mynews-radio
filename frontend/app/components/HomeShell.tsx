@@ -62,6 +62,11 @@ function durationLabel(seconds: number): string {
   return `${Math.max(1, Math.round(seconds / 60))}分`
 }
 
+function thumbnailTone(id: number): string {
+  const tones = ['archive-thumb-indigo', 'archive-thumb-coral', 'archive-thumb-cyan', 'archive-thumb-amber']
+  return tones[Math.abs(id) % tones.length]
+}
+
 export default function HomeShell({ latest, chapters, initialEpisodes, initialHasNext, isAuthenticated = false }: Props) {
   const [category, setCategory] = useState<CategoryKey>('all')
   const [query, setQuery] = useState('')
@@ -219,28 +224,37 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
       {/* アーカイブ */}
       <section
         id="archive"
-        className="scroll-mt-20 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
+        className="archive-panel scroll-mt-20 rounded-2xl border border-slate-800 p-5 shadow-xl sm:p-6"
       >
-        <div className="flex flex-wrap items-center gap-1.5">
-          {CATEGORY_TABS.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => handleCategoryChange(tab.key)}
-              className={`rounded-full px-3.5 py-1.5 text-xs transition ${
-                category === tab.key
-                  ? 'bg-slate-900 font-medium text-white'
-                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-          <div className="relative ml-auto w-full sm:w-48">
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="archive-kicker">PUBLIC ARCHIVE</p>
+            <h2 className="mt-1 text-xl font-semibold tracking-tight text-white">エピソード一覧</h2>
+            <p className="mt-1 text-xs text-slate-400">気になる回を選んで、いつでも再生できます。</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {CATEGORY_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => handleCategoryChange(tab.key)}
+                className={`rounded-full px-3.5 py-1.5 text-xs transition ${
+                  category === tab.key
+                    ? 'bg-sky-400 font-medium text-slate-950'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="relative mb-5 w-full sm:ml-auto sm:w-56">
             <svg
               aria-hidden="true"
               viewBox="0 0 24 24"
-              className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
+              className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500"
               fill="none"
               stroke="currentColor"
               strokeWidth="2"
@@ -254,72 +268,61 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
               value={query}
               onChange={(e) => handleSearchChange(e.target.value)}
               placeholder="検索"
-              className="w-full rounded-full border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100"
+              className="w-full rounded-full border border-slate-700 bg-slate-900/70 py-2 pl-8 pr-3 text-xs text-slate-200 placeholder:text-slate-500 transition focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400/20"
               aria-label="エピソードを検索"
             />
           </div>
-        </div>
 
         {filteredEpisodes.length === 0 ? (
-          <p className="py-10 text-center text-sm text-slate-400">
+          <p className="rounded-xl border border-dashed border-slate-700 py-10 text-center text-sm text-slate-400">
             {loading ? '読み込み中...' : '該当するエピソードがありません'}
           </p>
         ) : (
-          <div className="mt-4">
+          <div>
             {groupedByMonth.map((group) => (
-              <div key={group.month}>
-                <p className="mb-1 mt-4 text-xs text-slate-400 first:mt-0">{group.month}</p>
-                <div className="border-t border-slate-100">
+              <div key={group.month} className="mb-7 last:mb-0">
+                <p className="mb-3 text-xs font-medium tracking-[0.18em] text-slate-500">{group.month}</p>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {group.items.map((ep) => (
-                    <div key={ep.id} className="border-b border-slate-100">
+                    <article key={ep.id} className="archive-card group">
                       <Link
                         href={`/episodes/${ep.id}`}
-                        className="flex items-center gap-3 px-1 py-2.5 transition hover:bg-slate-50"
+                        className="block h-full"
                       >
-                        <svg
-                          aria-hidden="true"
-                          viewBox="0 0 24 24"
-                          className="h-4 w-4 shrink-0 text-slate-400"
-                          fill="currentColor"
-                        >
-                          <path d="M8 5.5v13a1 1 0 0 0 1.52.86l10.2-6.5a1 1 0 0 0 0-1.7L9.52 4.63A1 1 0 0 0 8 5.5Z" />
-                        </svg>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="truncate text-sm text-slate-900">
-                              {ep.title || `エピソード #${ep.id}`}
-                            </p>
+                        <div className={`archive-thumb ${thumbnailTone(ep.id)}`}>
+                          <span className="archive-thumb-code">E{String(ep.id).padStart(3, '0')}</span>
+                          <span className="archive-episode-badge">#{ep.id}</span>
+                          <span className="archive-play-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4"><path d="M8 5.5v13a1 1 0 0 0 1.52.86l10.2-6.5a1 1 0 0 0 0-1.7L9.52 4.63A1 1 0 0 0 8 5.5Z" /></svg>
+                          </span>
+                        </div>
+                        <div className="flex min-h-[174px] flex-col p-4">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs text-slate-500">{dayLabel(ep.date)}{durationLabel(ep.duration) && ` ・ ${durationLabel(ep.duration)}`}</p>
                             {ep.status === 'generating' && (
-                              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-                                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
-                                生成中
+                              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-400/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />生成中
                               </span>
                             )}
                           </div>
-                          <p className="mt-0.5 text-xs text-slate-400">
-                            {dayLabel(ep.date)}
-                            {durationLabel(ep.duration) && ` ・ ${durationLabel(ep.duration)}`}
-                          </p>
+                          <h3 className="archive-card-title mt-2">{ep.title || `エピソード #${ep.id}`}</h3>
+                          <p className="archive-card-description mt-2">{ep.subtitle || 'このエピソードの詳細を聴いてみましょう。'}</p>
+                          <span className="mt-auto inline-flex items-center gap-1.5 pt-4 text-xs font-medium text-sky-300">▶ 再生する</span>
                         </div>
-                        {ep.type === 'commentary' && (
-                          <span className="shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">
-                            解説
-                          </span>
-                        )}
                       </Link>
                       {ep.has_script && !ep.audio_url && (
-                        <div className="px-1 pb-2.5 pl-8">
-                          {isAuthenticated ? <SynthesizeAudioButton episodeId={ep.id} compact /> : <Link href="/admin/login" className="text-xs text-sky-600 underline">ログインして再合成</Link>}
+                        <div className="border-t border-slate-800 px-4 pb-3 pt-2">
+                          {isAuthenticated ? <SynthesizeAudioButton episodeId={ep.id} compact /> : <Link href="/admin/login" className="rounded-sm text-xs text-sky-300 underline decoration-sky-300/70 underline-offset-2 transition hover:text-sky-200 hover:decoration-sky-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 focus-visible:ring-offset-2 focus-visible:ring-offset-white">ログインして再合成</Link>}
                         </div>
                       )}
-                    </div>
+                    </article>
                   ))}
                 </div>
               </div>
             ))}
 
             {loadError && (
-              <p className="mt-3 text-center text-xs text-red-500">{loadError}</p>
+              <p className="mt-3 text-center text-xs text-red-300">{loadError}</p>
             )}
 
             {hasNext && !loadError && (
@@ -327,14 +330,14 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                 type="button"
                 onClick={handleLoadMore}
                 disabled={loading}
-                className="mt-1 w-full rounded-lg py-2.5 text-center text-sm text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-5 w-full rounded-lg py-2.5 text-center text-sm text-slate-400 transition hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading ? '読み込み中...' : 'もっと見る'}
               </button>
             )}
 
             {!hasNext && items.length > 0 && (
-              <p className="mt-4 text-center text-xs text-slate-400">
+              <p className="mt-5 text-center text-xs text-slate-500">
                 これ以上ありません
               </p>
             )}
