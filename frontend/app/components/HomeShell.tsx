@@ -312,7 +312,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                       </Link>
                       {ep.has_script && !ep.audio_url && (
                         <div className="border-t border-slate-800 px-4 pb-3 pt-2">
-                          {isAuthenticated ? <SynthesizeAudioButton episodeId={ep.id} compact /> : <Link href="/admin/login" className="text-xs text-sky-600 underline">ログインして再合成</Link>}
+                          {isAuthenticated ? <SynthesizeAudioButton episodeId={ep.id} compact /> : <Link href="/admin/login" className="rounded-sm text-xs text-sky-300 underline decoration-sky-300/70 underline-offset-2 transition hover:text-sky-200 hover:decoration-sky-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800">ログインして再合成</Link>}
                         </div>
                       )}
                     </article>
