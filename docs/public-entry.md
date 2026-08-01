@@ -6,6 +6,8 @@ Docker Compose の `proxy` サービスで Nginx `1.27-alpine` を使用する�
 
 `infra/nginx/public-entry.conf` は、受信した `X-Forwarded-For`、`Forwarded`、`X-Verified-Client-IP` を破棄し、TCP 接続元の `$remote_addr` で `X-Verified-Client-IP` を置換する。これにより、入力ヘッダー由来の値ではない単一値だけを Next.js へ付与する。アクセスログは無効化し、エラーログも `/dev/null` の `emerg` レベルとして、接続元IP・設定値・認証情報を記録しない。
 
+プロキシは同時に、環境変数 `PUBLIC_ENTRY_TOKEN` の値を `X-Public-Entry` ヘッダーとして付与する（`docker compose up` の実行には設定が必須）。Next.js のリレーはこのマーカーが一致するときだけ、受信した `X-Verified-Client-IP` に `PROXY_CLIENT_IP_HMAC_SECRET` によるHMAC署名（IP・メソッド・パス・タイムスタンプ）を付してバックエンドへ中継する。バックエンドは署名とタイムスタンプ（60秒以内）を検証し、有効な場合だけそのIPを利用者別・IP別の上限判定に採用する。無効・欠落の場合はTCP接続元へフォールバックする。マーカー単独ではリレー署名は生成されないため、Compose ネットワークからの直接呼び出しでは任意IPの署名を偽造できない。`PUBLIC_ENTRY_TOKEN`・`PROXY_CLIENT_IP_HMAC_SECRET` の値や運用中のSecretは本文に記載しない。
+
 エラーログを捨てるため、Nginx のプロキシ障害ログによる調査はできない。これは接続元IPを記録しない受入条件を優先した運用判断であり、障害調査はコンテナ状態、Composeイベント、Next.js／API側の個人情報を含まないアプリケーションログで行う。
 
 この構成で TLS 終端やロードバランサを Nginx の前段に置く場合、その装置から Nginx までの TCP 接続元を信頼できる構成にすること。任意クライアントから届く `X-Forwarded-For` を Nginx の `real_ip` 設定で採用してはならない。
@@ -59,6 +61,8 @@ Docker Compose の `proxy` サービスで Nginx `1.27-alpine` を使用する�
    ```
 
    `mynews-radio-web` の `3010/tcp` が `null`（ホスト公開なし）であること、`proxy` の `nginx -t` が成功すること、観測エンドポイントが404になることを合格条件とする。
+
+上記の観測エンドポイントは Nginx→Next.js 間の契約だけを確認する。Next.js→バックエンド間のHMACリレー署名（`PROXY_CLIENT_IP_HMAC_SECRET`）の検証は、バックエンドの自動テスト（`test_verified_client_ip.py`）が不正・期限切れ・改ざん署名の拒否を含めて担保する。
 
 ## 本番反映手順
 

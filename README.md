@@ -51,8 +51,10 @@
 | `AIVISPEECH_BASE_URL` | AivisSpeech API のエンドポイント | `http://192.168.1.102:10101` |
 | `AIVISPEECH_SPEAKER_MALE` | AivisSpeech 男性話者 ID | `1310138976`（阿井田茂） |
 | `AIVISPEECH_SPEAKER_FEMALE` | AivisSpeech 女性話者 ID | `1388823424`（湊音エル） |
-| `API_KEY` | API キー（管理API向け。手動の生成開始・再音声合成は管理者セッションが必要） | 空文字 |
-| `GENERATE_RATE_LIMIT` | 生成系 API のレート制限（例: `5/minute`, `100/hour`） | `5/minute` |
+| `API_KEY` | API キー（辞書・レポート等の管理API向け。手動の生成開始・再音声合成は管理者セッションが必要） | 空文字 |
+| `GENERATE_RATE_LIMIT` | 生成系 API のリクエストレート制限（管理者セッション単位。例: `5/minute`, `100/hour`） | `5/minute` |
+| `PROXY_CLIENT_IP_HMAC_SECRET` | 検証済みクライアントIPのリレー署名検証用HMAC秘密鍵。Next.js（リレー）とバックエンドで同一値を設定する。値は公開しない | 空文字（未設定時はリレー署名を検証せずTCP接続元IPを使用） |
+| `PUBLIC_ENTRY_TOKEN` | 公開入口（Nginx）が付与する秘密のトラストマーカー（`X-Public-Entry` ヘッダー）。Next.js はマーカーが一致するときだけ検証済みIPをリレー署名する。値は公開しない | 空文字（ただし `docker compose up` 実行時は設定必須） |
 | `VAPID_PUBLIC_KEY` | Web Push購読でクライアントへ渡すVAPID公開鍵。未設定時は購読APIが503を返す | 空文字（未設定時は購読不可） |
 | `VAPID_PRIVATE_KEY` | Web Push送信用VAPID秘密鍵（ログへ出力しない）。cron環境へ自動注入。未設定時は配信バッチがスキップ | 空文字（未設定時は配信スキップ） |
 | `VAPID_CLAIMS_EMAIL` | Web Push VAPID claims の連絡先メールアドレス。`VAPID_PRIVATE_KEY` と併せて設定必須 | 空文字（未設定時は配信スキップ） |
@@ -88,7 +90,7 @@ curl http://localhost:8010/health
 
 ### Web フロント
 
-ブラウザで `http://localhost:3010` を開きます。最新エピソードの再生と、エピソードの手動生成が可能です。
+ブラウザで `http://localhost:3010` を開きます。最新エピソードの再生はログインなしで利用できます。エピソードの手動生成には管理者ログインが必要です（`POST /admin/login` で発行される `admin_session` Cookie）。
 
 ### バッチ手動実行
 
@@ -239,30 +241,61 @@ Irodori-TTS（OpenAI 互換 API）も利用可能です。詳細は `backend/app
 | GET | `/episodes/:id` | エピソード詳細取得 |
 | GET | `/episodes/:id/script` | スクリプト JSON 取得 |
 | GET | `/audio/:id/*` | 音声ファイル配信 |
-| POST | `/generate` | エピソード生成（SSE で進捗ストリーミング）※管理者セッション認証およびレート制限対象 |
-| POST | `/episodes/:id/synthesize` | エピソード音声合成 ※管理者セッション認証およびレート制限対象 |
+| POST | `/admin/login` | 管理者ログイン（`admin_session` Cookie を発行。生成の前提） |
+| POST | `/admin/logout` | 管理者ログアウト |
+| GET | `/admin/me` | ログイン中の管理者情報取得 |
+| POST | `/generate` | エピソード生成（SSE で進捗ストリーミング）※管理者セッション認証・利用上限・冪等性対象（下記参照） |
+| POST | `/episodes/:id/synthesize` | エピソード音声合成 ※管理者セッション認証・利用上限・冪等性対象（下記参照） |
+| GET | `/admin/audit-logs` | 生成監査ログ取得 ※管理者セッション必須（直近100件。`limit` で1〜500件指定可） |
 | GET | `/push/vapid-public-key` | VAPID公開鍵取得。未設定時は503を返す |
 | POST | `/push/subscriptions` | Web Push購読登録。endpoint(p256dh,auth)を受付け、解除専用の不透明な `subscription_id` を返す（冪等、レート制限対象）。バリデーションエラー時は `{"detail": "Invalid push subscription"}` |
 | DELETE | `/push/subscriptions/:subscription_id` | 不透明な `subscription_id` による購読解除（未登録でも冪等に204、レート制限対象） |
 
 ### エピソード生成リクエスト
 
-> **認証**: 生成開始と再音声合成は、ログイン済みの管理者セッション（`admin_session` Cookie）が必要です。`API_KEY` によるBearer認証では実行できません。
+> **認証**: 生成開始と再音声合成は、ログイン済みの管理者セッション（`admin_session` Cookie）が必要です。`POST /admin/login` でセッションを取得します。`API_KEY` によるBearer認証では実行できません。
 >
-> **レート制限**: 既定値 `5/minute`（環境変数 `GENERATE_RATE_LIMIT` で変更可能）。超過時は `429` と `Retry-After`（秒）を返します。同一操作の再送では同じ `Idempotency-Key` を送信してください。
+> **冪等性**: リクエストに `Idempotency-Key` ヘッダーが必須です（255文字以内）。同一キー・同一入力の再送では、既存ジョブの結果を返します（重複してLLM・TTSジョブを起動しません）。同一キーで入力が異なる場合は `409` を返します。キーは24時間保持されます。
 
 ```bash
 curl -X POST http://localhost:8010/generate \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: generate-2026-06-14-1" \
   -H "Cookie: admin_session=your-admin-session" \
   -d '{
     "date": "2026-06-14",
     "max_articles": 10,
     "news_source": "hatena_bookmark",
-    "tts_engine": "aivispeech",
-    "enable_review": true
+    "tts_engine": "aivispeech"
   }'
 ```
+
+#### 利用上限
+
+生成（`POST /generate`）と再音声合成（`POST /episodes/:id/synthesize`）は、同一の利用上限を共有します。上限は単一プロセスSQLiteのトランザクション内で強制されます。
+
+| 上限の種類 | 対象 | 上限値 |
+|---|---|---|
+| 同時実行数 | 利用者別 / IP別 / 全体 | それぞれ 1件 |
+| 日次上限 | 利用者別 / IP別 / 全体 | それぞれ 10件 |
+
+- 日次上限は **JST（Asia/Tokyo）の 00:00** にリセットされます。生成と再音声合成は合算してカウントされます。
+- 加えて、リクエストのレート制限（既定値 `5/minute`、環境変数 `GENERATE_RATE_LIMIT` で変更可能）が管理者セッション単位で適用されます。
+- クライアントIPは、公開入口（Nginx）が付与した検証済みIPをHMAC署名で検証して採用します（署名が無効・欠落の場合はTCP接続元を使用）。詳細は「公開入口（運用者向け）」を参照してください。
+
+#### エラー時の挙動
+
+| ステータス | 意味 | 再試行の可否 |
+|---|---|---|
+| `400` | `Idempotency-Key` が未指定または255文字超 | リクエストを修正して再送 |
+| `401` | 管理者セッションが無効・期限切れ | 不可（ログイン導線を表示） |
+| `403` | 実行権限がない | 不可（理由表示のみ） |
+| `404` | 対象エピソードが存在しない（再音声合成のみ） | 不可（理由表示のみ） |
+| `409` | 同一 `Idempotency-Key` で入力が異なる | 不可（入力内容を確認） |
+| `429` | リクエストレート制限・同時実行・日次上限のいずれか | `Retry-After` の値に従い可能 |
+
+- `429` の `Retry-After` は、リクエストレート制限・同時実行上限では「秒」、日次上限では「次のJST 00:00までの秒数」を表します。
+- フロントエンドは `401` をログイン導線、`429` を待機時間付きメッセージと再試行ボタンとして表示します（`403`/`409` では再試行ボタンを表示しません）。
 
 `POST /generate` は Server-Sent Events (SSE) で各フェーズの進捗をストリーミングします:
 
@@ -276,6 +309,25 @@ curl -X POST http://localhost:8010/generate \
 | `synthesize` | 音声合成 |
 | `build` | MP3 統合 |
 | `complete` | 完了 |
+
+## 監査ログ（運用者向け）
+
+生成・再音声合成の実行状況を監査できます。`POST /generate`・`POST /episodes/:id/synthesize` の受付（`started`）、成功（`success`）、失敗（`failure`）、拒否（`rejected`）を `audit_logs` テーブルへ記録します。
+
+- **記録する最小項目**: 操作種別、実行主体（管理者ユーザーID）、ジョブID、結果、受理／拒否、拒否理由、実行・開始・終了日時、エピソードID、`Idempotency-Key` のハッシュ、入力内容のハッシュ
+- **保持期間**: 90日。超過分は日次バッチ（`cleanup_episodes.py`）で自動削除されます
+- **秘密情報の扱い**: 秘密情報や生の入力値（キー本文・トークン・Cookie・入力URL等）は保存せず、一方向ハッシュのみを記録します
+- **閲覧権限**: `GET /admin/audit-logs`（管理者セッション必須）。`limit` クエリで 1〜500 件（既定 100 件）を取得できます
+
+## 公開入口（運用者向け）
+
+公開サイト（Next.js）は、Nginx 公開入口プロキシ（`proxy` サービス）経由でのみホストへ公開されます。`web` コンテナはホストへポート公開しません。プロキシは受信した `X-Forwarded-For`・`Forwarded`・`X-Verified-Client-IP` を破棄し、TCP接続元の単一IPを `X-Verified-Client-IP` として付与します。
+
+- **`PUBLIC_ENTRY_TOKEN`**: プロキシが付与する秘密のトラストマーカー（`X-Public-Entry` ヘッダー）。`docker compose up` の実行には設定が必須です。Next.js はマーカーが一致するときだけ、検証済みIPをバックエンド向けにリレー署名します
+- **`PROXY_CLIENT_IP_HMAC_SECRET`**: リレー署名の検証用HMAC秘密鍵。Next.js とバックエンドで同一値を設定します。バックエンドは署名とタイムスタンプ（60秒以内）を検証してIPを採用します
+- **`APP_ENV=staging` + `STAGING_HEADER_CHECK=1`**: ステージング環境で `/api/staging-header-check` を有効化し、プロキシが付与したIPを検証できます
+
+値や運用中のシークレットはドキュメントへ記載しません。設定・ステージング確認手順の詳細は `docs/public-entry.md` を参照してください。
 
 ## ニュースソース
 
