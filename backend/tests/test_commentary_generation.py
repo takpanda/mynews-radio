@@ -913,6 +913,15 @@ class TestSoloDialogueSpeakerBehavior:
 class TestSoloConcreteDataInstructions:
     """Verify concrete data instructions are added to the solo prompt template."""
 
+    def test_prompt_template_limits_commentary_to_input_article_range(self):
+        prompt_path = Path(__file__).resolve().parents[1] / "app" / "prompts" / "generate_commentary_script.md"
+        content = prompt_path.read_text(encoding="utf-8")
+
+        assert "入力本文は取得できた範囲のみであり、記事全体とは限りません" in content
+        assert "最大1,500文字に切り詰められている場合があります" in content
+        assert "入力本文に含まれる情報だけを根拠にし" in content
+        assert "未取得の後半部分や欠落情報の内容・結論・反論・注意点を推測して補完しない" in content
+
     def test_prompt_template_contains_concrete_data_instructions(self):
         prompt_path = Path(__file__).resolve().parents[1] / "app" / "prompts" / "generate_commentary_script.md"
         content = prompt_path.read_text(encoding="utf-8")
