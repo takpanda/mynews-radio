@@ -1,9 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import GenerateEpisodeButton from '../components/GenerateEpisodeButton'
-import { GenerationError } from '../lib/api'
+import { fetchEpisode, GenerationError } from '../lib/api'
 
 const mockSearchEpisodesBySourceUrl = jest.fn()
 const mockGenerateEpisode = jest.fn()
@@ -330,6 +330,76 @@ describe('GenerateEpisodeButton — 通常ラジオ生成（回帰）', () => {
       expect(mockGenerateEpisode).toHaveBeenCalled()
     })
     expect(mockSearchEpisodesBySourceUrl).not.toHaveBeenCalled()
+  })
+})
+
+describe('GenerateEpisodeButton — 存在しない生成エピソードの終端処理', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    localStorage.clear()
+    mockGenerateEpisode.mockResolvedValue({ episode_id: 100 })
+  })
+
+  it('再読込時に対象エピソードが見つからなければ生成状態を解除する', async () => {
+    localStorage.setItem('generating_episode_id', '999')
+    jest.mocked(fetchEpisode).mockResolvedValueOnce(null)
+
+    render(<GenerateEpisodeButton />)
+
+    await waitFor(() => {
+      expect(fetchEpisode).toHaveBeenCalledWith(999)
+      expect(localStorage.getItem('generating_episode_id')).toBeNull()
+    })
+    expect(await screen.findByText('生成の確認に失敗しました。ページを再読み込みしてください。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '再試行' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'この設定で番組を生成する' })).toBeEnabled()
+  })
+
+  it('null終端後に再試行すると新しい生成を開始できる', async () => {
+    localStorage.setItem('generating_episode_id', '999')
+    jest.mocked(fetchEpisode).mockResolvedValue(null)
+    const user = userEvent.setup()
+
+    render(<GenerateEpisodeButton />)
+
+    await user.click(await screen.findByRole('button', { name: '再試行' }))
+
+    await waitFor(() => {
+      expect(mockGenerateEpisode).toHaveBeenCalledTimes(1)
+    })
+    expect(mockGenerateEpisode).toHaveBeenCalled()
+  })
+
+  it('ポーリング中に対象エピソードが見つからなければポーリングを停止する', async () => {
+    jest.useFakeTimers()
+    localStorage.setItem('generating_episode_id', '100')
+    jest.mocked(fetchEpisode)
+      .mockResolvedValueOnce({ id: 100, status: 'generating' } as Awaited<ReturnType<typeof fetchEpisode>>)
+      .mockResolvedValueOnce(null)
+
+    try {
+      render(<GenerateEpisodeButton />)
+
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(fetchEpisode).toHaveBeenCalledTimes(2)
+      expect(localStorage.getItem('generating_episode_id')).toBeNull()
+      expect(screen.getByText('生成の確認に失敗しました。ページを再読み込みしてください。')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '再試行' })).toBeEnabled()
+      expect(screen.getByRole('button', { name: 'この設定で番組を生成する' })).toBeEnabled()
+
+      await act(async () => {
+        jest.advanceTimersByTime(10000)
+        await Promise.resolve()
+      })
+      expect(fetchEpisode).toHaveBeenCalledTimes(2)
+    } finally {
+      jest.useRealTimers()
+    }
   })
 })
 
