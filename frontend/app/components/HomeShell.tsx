@@ -224,7 +224,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
       {/* アーカイブ */}
       <section
         id="archive"
-        className="archive-panel scroll-mt-20 rounded-2xl border border-slate-800 p-5 shadow-xl sm:p-6"
+        className="archive-panel scroll-mt-20 rounded-2xl border border-slate-200 p-5 shadow-xl sm:p-6"
       >
         <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
           <div>
