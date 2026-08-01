@@ -95,7 +95,9 @@ def select_episode_categories(
 {source}
 """
     try:
-        with client_factory(settings.ollama_base_url, settings.ollama_model, max_retries=0, timeout=1.0) as client:
+        # OllamaClient の既定タイムアウト（推論用の十分な時間）を利用する。
+        # カテゴリ処理の失敗は下記で吸収するが、正常な推論を1秒で打ち切らない。
+        with client_factory(settings.ollama_base_url, settings.ollama_model, max_retries=0) as client:
             response = client.generate_json(prompt)
         if not isinstance(response, dict):
             return []
