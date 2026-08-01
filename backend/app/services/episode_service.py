@@ -196,7 +196,7 @@ class EpisodeService:
     ) -> list[dict[str, Any]]:
         with get_db_connection() as conn:
             query = """
-                SELECT id, episode_date, audio_path, status, type, source_url
+                SELECT id, episode_date, audio_path, status, type, source_url, categories
                 FROM episodes
                 ORDER BY episode_date DESC, id DESC
             """
@@ -344,6 +344,15 @@ class EpisodeService:
                 WHERE id = ?
                 """,
                 (_json.dumps(key_points[:3], ensure_ascii=False), episode_id),
+            )
+
+    @retry_on_busy()
+    def update_episode_categories(self, episode_id: int, categories: list[str]) -> None:
+        from app.services.episode_category_service import validate_episode_categories
+        with get_db_connection() as conn:
+            conn.execute(
+                "UPDATE episodes SET categories = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (json.dumps(validate_episode_categories(categories), ensure_ascii=False), episode_id),
             )
 
     @retry_on_busy()

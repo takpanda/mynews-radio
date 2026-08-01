@@ -9,16 +9,17 @@ logger = logging.getLogger(__name__)
 
 
 class OllamaClient:
-    def __init__(self, base_url: str, model: str, max_retries: int = 2):
+    def __init__(self, base_url: str, model: str, max_retries: int = 2, timeout: float = 600.0):
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._max_retries = max_retries
+        self._timeout = timeout
         self._client: Optional[httpx.Client] = None
 
     @property
     def client(self) -> httpx.Client:
         if self._client is None:
-            self._client = httpx.Client(base_url=self._base_url, timeout=httpx.Timeout(600.0))  # 10分
+            self._client = httpx.Client(base_url=self._base_url, timeout=httpx.Timeout(self._timeout))
         return self._client
 
     def close(self) -> None:

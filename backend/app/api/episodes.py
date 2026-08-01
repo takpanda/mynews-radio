@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService
+from app.services.episode_category_service import parse_episode_categories
 
 
 def _parse_key_points(episode: dict) -> list[str]:
@@ -113,6 +114,7 @@ def list_episodes(
                 "audio_path": ep.get("audio_path"),
                 "type": ep.get("type", "radio"),
                 "source_url": ep.get("source_url"),
+                "categories": parse_episode_categories(ep.get("categories")),
             }
         )
 
@@ -201,6 +203,7 @@ def get_latest_episode() -> dict:
             "audio_url": None,
             "articles": [],
             "key_points": _parse_key_points(full_ep),
+            "categories": parse_episode_categories(full_ep.get("categories")),
         }
 
         if episode.get("audio_path"):
@@ -250,6 +253,7 @@ def get_episode(episode_id: int) -> dict:
         "audio_url": None,
         "articles": items,
         "key_points": _parse_key_points(episode),
+        "categories": parse_episode_categories(episode.get("categories")),
     }
 
     if episode.get("audio_path"):
@@ -275,6 +279,7 @@ def get_episode_script(episode_id: int) -> dict:
     return {
         "id": episode["id"],
         "episode_date": episode["episode_date"],
+        "categories": parse_episode_categories(episode.get("categories")),
         "title": script.get("title", ""),
         "subtitle": script.get("subtitle", ""),
         "lines": script.get("lines", []),
