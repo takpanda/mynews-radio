@@ -306,6 +306,18 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                             )}
                           </div>
                           <h3 className="archive-card-title mt-2">{ep.title || `エピソード #${ep.id}`}</h3>
+                          {ep.categories && ep.categories.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5" aria-label="カテゴリ">
+                              {ep.categories.slice(0, 3).map((category) => (
+                                <span
+                                  key={category}
+                                  className="inline-flex max-w-full items-center rounded-full border border-sky-100 bg-sky-50 px-2 py-0.5 text-[10px] font-medium leading-4 text-sky-700"
+                                >
+                                  {category}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           <p className="archive-card-description mt-2">{ep.subtitle || 'このエピソードの詳細を聴いてみましょう。'}</p>
                           <span className="mt-auto inline-flex items-center gap-1.5 pt-4 text-xs font-medium text-sky-700">▶ 再生する</span>
                         </div>

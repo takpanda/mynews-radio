@@ -20,6 +20,8 @@ export interface EpisodeListItem {
   type?: string
   source_url?: string | null
   has_script?: boolean
+  /** 保存順のエピソードカテゴリ。未設定の既存データでは省略／空配列。 */
+  categories?: string[]
 }
 
 export interface Episode {
