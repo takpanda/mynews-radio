@@ -302,6 +302,7 @@ interface GenerationParams {
 }
 
 const STORAGE_KEY = 'generating_episode_id'
+const GENERATION_CHECK_ERROR_MESSAGE = '生成の確認に失敗しました。ページを再読み込みしてください。'
 
 interface Props {
   episodes?: EpisodeListItem[]
@@ -360,6 +361,14 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
       }
       try {
         const episode = await fetchEpisode(id)
+        if (!episode) {
+          localStorage.removeItem(STORAGE_KEY)
+          setEpisodeId(null)
+          setMessage(GENERATION_CHECK_ERROR_MESSAGE)
+          setHasError(true)
+          setIsLoading(false)
+          return
+        }
         if (episode?.status === 'completed' || episode?.status === 'failed') {
           localStorage.removeItem(STORAGE_KEY)
           if (episode) {
@@ -414,7 +423,19 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
           return
         }
         const episode = await fetchEpisode(episodeId)
-        if (!episode || isCancelled) return
+        if (isCancelled) return
+        if (!episode) {
+          isCancelled = true
+          localStorage.removeItem(STORAGE_KEY)
+          setMessage(GENERATION_CHECK_ERROR_MESSAGE)
+          setHasError(true)
+          setIsLoading(false)
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current)
+            pollingRef.current = null
+          }
+          return
+        }
         consecutiveFailuresRef.current = 0
 
         const phase = mapStatusToPhase(episode)
@@ -477,7 +498,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
         if (consecutiveFailuresRef.current >= CONSECUTIVE_ERROR_THRESHOLD || attemptCountRef.current > MAX_ATTEMPTS) {
           isCancelled = true
           localStorage.removeItem(STORAGE_KEY)
-          setMessage('生成の確認に失敗しました。ページを再読み込みしてください。')
+          setMessage(GENERATION_CHECK_ERROR_MESSAGE)
           setHasError(true)
           setIsLoading(false)
         }
