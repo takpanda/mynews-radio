@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS episodes (
     status TEXT NOT NULL DEFAULT 'pending',
     type TEXT NOT NULL DEFAULT 'radio',
     source_url TEXT,
+    categories TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

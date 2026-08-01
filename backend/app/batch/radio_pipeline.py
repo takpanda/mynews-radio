@@ -16,6 +16,7 @@ from app.batch.summarize_articles import summarize_articles
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.config import get_settings
 from app.services.episode_service import EpisodeService, override_script_title, build_radio_title
+from app.services.episode_category_service import select_episode_categories
 from app.services.settings_service import ProgramSettings, get_settings_or_default
 
 
@@ -238,6 +239,13 @@ def run_radio_pipeline(
         if review_result.get("revised"):
             shutil.copy(os.path.join(reviewed_episode_dir, "script.json"), script_path)
             override_script_title(script_path, effective_program_name, episode_date, seq)
+
+        # 台本（レビュー後の最終版）を優先し、失敗しても生成本体は継続する。
+        try:
+            categories = select_episode_categories(script_path, summaries_path)
+            service.update_episode_categories(episode_id, categories)
+        except Exception:
+            logger.warning("episode category persistence failed (non-fatal)", exc_info=True)
 
         # -- SYNTHESIZE TTS --
         _progress("synthesize", "音声を合成しています…")

@@ -66,6 +66,10 @@ def _fresh_db(tmp_path):
         conn.execute("ALTER TABLE episodes ADD COLUMN key_points TEXT")
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE episodes ADD COLUMN categories TEXT NOT NULL DEFAULT '[]'")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
