@@ -350,15 +350,15 @@ class TestCalcSuggestedLines:
 
     def test_short_text_solo_returns_minimum(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(0, "solo") == 6
-        assert _calc_suggested_lines(30, "solo") == 6
-        assert _calc_suggested_lines(49, "solo") == 6
+        assert _calc_suggested_lines(0, "solo") == 10
+        assert _calc_suggested_lines(30, "solo") == 10
+        assert _calc_suggested_lines(49, "solo") == 10
 
     def test_short_text_dialogue_returns_minimum(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(0, "dialogue") == 8
-        assert _calc_suggested_lines(30, "dialogue") == 8
-        assert _calc_suggested_lines(49, "dialogue") == 8
+        assert _calc_suggested_lines(0, "dialogue") == 14
+        assert _calc_suggested_lines(30, "dialogue") == 14
+        assert _calc_suggested_lines(49, "dialogue") == 14
 
     def test_below_2000_solo_returns_6(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
@@ -402,8 +402,8 @@ class TestCalcSuggestedLines:
 
     def test_empty_string_text(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(len(""), "solo") == 6
-        assert _calc_suggested_lines(len(""), "dialogue") == 8
+        assert _calc_suggested_lines(len(""), "solo") == 10
+        assert _calc_suggested_lines(len(""), "dialogue") == 14
 
     def test_exact_50_char_boundary(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
@@ -929,6 +929,17 @@ class TestSoloConcreteDataInstructions:
         assert "モデル名・製品名・企業名・固有名詞" in content
         assert "比較対象や検証条件" in content
         assert "各 news ラインには最低1件以上の具体的な事実・数字を含める" in content
+
+    def test_prompt_template_requires_explanatory_causality_and_late_conclusion(self):
+        prompt_path = Path(__file__).resolve().parents[1] / "app" / "prompts" / "generate_commentary_script.md"
+        content = prompt_path.read_text(encoding="utf-8")
+
+        assert "目安として6〜9行" in content
+        assert "なぜ起きたのか" in content
+        assert "どういう仕組み・経緯なのか" in content
+        assert "だから何が言えるか" in content
+        assert "記事後半に重要な主張や結論" in content
+        assert "事実を並べて圧縮するだけにせず" in content
 
     def test_dialogue_section_unchanged(self):
         prompt_path = Path(__file__).resolve().parents[1] / "app" / "prompts" / "generate_commentary_script.md"

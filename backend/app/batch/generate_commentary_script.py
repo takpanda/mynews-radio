@@ -12,8 +12,8 @@ from app.services.ollama_client import OllamaClient
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_LINES_SOLO = 6
-_DEFAULT_LINES_DIALOGUE = 8
+_DEFAULT_LINES_SOLO = 10
+_DEFAULT_LINES_DIALOGUE = 14
 
 
 def _calc_suggested_lines(text_length: int, style: str) -> int:
