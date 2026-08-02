@@ -207,6 +207,57 @@ class TestFetchArticleByUrlSsrf:
         assert any("blocked SSRF" in rec.getMessage() for rec in caplog.records)
 
 
+def _patch_fetch(html: str, extracted: str):
+    """Context managers that make fetch_article_by_url return *extracted* as body text."""
+    resp = MagicMock()
+    resp.read.return_value = html.encode("utf-8")
+    resp.headers.get_content_charset.return_value = "utf-8"
+    resp.__enter__ = lambda self: resp
+    resp.__exit__ = lambda self, *args: None
+
+    import trafilatura
+    return (
+        patch("app.services.hatena_fetcher._validate_url_public"),
+        patch("app.services.hatena_fetcher._SAFE_OPENER.open", return_value=resp),
+        patch.object(trafilatura, "extract", return_value=extracted),
+    )
+
+
+class TestFetchArticleByUrlTextLength:
+    """URL解説は記事本文全体を必要とするため、日次フィードより長い本文を返す。"""
+
+    def _run(self, extracted: str, **kwargs):
+        from app.services.hatena_fetcher import fetch_article_by_url
+        validate, opener, extract = _patch_fetch("<html><title>t</title></html>", extracted)
+        with validate, opener, extract:
+            return fetch_article_by_url("https://example.com/a", **kwargs)
+
+    def test_keeps_text_well_beyond_the_feed_excerpt_length(self):
+        from app.services.hatena_fetcher import FEED_TEXT_MAX_CHARS
+        body = "あ" * 9000
+        result = self._run(body)
+        assert len(result["text"]) == 9000
+        assert len(result["text"]) > FEED_TEXT_MAX_CHARS
+
+    def test_truncates_at_commentary_limit(self):
+        from app.services.hatena_fetcher import COMMENTARY_TEXT_MAX_CHARS
+        body = "あ" * (COMMENTARY_TEXT_MAX_CHARS + 5000)
+        result = self._run(body)
+        assert len(result["text"]) == COMMENTARY_TEXT_MAX_CHARS
+
+    def test_max_chars_override_is_respected(self):
+        result = self._run("あ" * 3000, max_chars=1000)
+        assert len(result["text"]) == 1000
+
+    def test_short_article_is_not_padded(self):
+        result = self._run("あ" * 200)
+        assert len(result["text"]) == 200
+
+    def test_below_50_chars_is_rejected(self):
+        result = self._run("あ" * 49)
+        assert result["text"] == ""
+
+
 # ---------------------------------------------------------------------------
 # _fetch_article_text (hatena_fetcher.py)
 # ---------------------------------------------------------------------------

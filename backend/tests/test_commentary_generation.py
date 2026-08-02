@@ -346,7 +346,10 @@ class TestNonEmptyTextValidation:
 
 
 class TestCalcSuggestedLines:
-    """Unit tests for _calc_suggested_lines."""
+    """Unit tests for _calc_suggested_lines.
+
+    行数は本文長に比例して伸び、_MAX_LINES で頭打ちになる。
+    """
 
     def test_short_text_solo_returns_minimum(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
@@ -360,86 +363,62 @@ class TestCalcSuggestedLines:
         assert _calc_suggested_lines(30, "dialogue") == 8
         assert _calc_suggested_lines(49, "dialogue") == 8
 
-    def test_below_2000_solo_returns_6(self):
+    def test_no_discontinuity_at_50_char_boundary(self):
+        """50文字境界（空記事ガード）の前後で行数が飛ばないこと。"""
+        from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(49, "solo") == _calc_suggested_lines(50, "solo")
+        assert _calc_suggested_lines(49, "dialogue") == _calc_suggested_lines(50, "dialogue")
+
+    def test_short_article_floors_at_style_minimum(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
         assert _calc_suggested_lines(500, "solo") == 6
-        assert _calc_suggested_lines(1999, "solo") == 6
-
-    def test_below_2000_dialogue_returns_8(self):
-        from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(1000, "solo") == 6
         assert _calc_suggested_lines(500, "dialogue") == 8
-        assert _calc_suggested_lines(1999, "dialogue") == 8
+        assert _calc_suggested_lines(1000, "dialogue") == 8
 
-    def test_2000_to_4000_solo_returns_8_to_10(self):
+    def test_medium_article_scales_with_length_solo(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(1500, "solo") == 7
         assert _calc_suggested_lines(2000, "solo") == 8
-        assert _calc_suggested_lines(2999, "solo") == 8
-        assert _calc_suggested_lines(3000, "solo") == 9
-        assert _calc_suggested_lines(3999, "solo") == 9
-        assert _calc_suggested_lines(4000, "solo") == 10
+        assert _calc_suggested_lines(3000, "solo") == 11
+        assert _calc_suggested_lines(4000, "solo") == 13
 
-    def test_2000_to_4000_dialogue_returns_10_to_12(self):
+    def test_medium_article_scales_with_length_dialogue(self):
+        """dialogue は相槌の分だけ solo より2行多い。"""
         from app.batch.generate_commentary_script import _calc_suggested_lines
+        assert _calc_suggested_lines(1500, "dialogue") == 9
         assert _calc_suggested_lines(2000, "dialogue") == 10
-        assert _calc_suggested_lines(2999, "dialogue") == 10
-        assert _calc_suggested_lines(3000, "dialogue") == 11
-        assert _calc_suggested_lines(3999, "dialogue") == 11
-        assert _calc_suggested_lines(4000, "dialogue") == 12
+        assert _calc_suggested_lines(3000, "dialogue") == 13
+        assert _calc_suggested_lines(4000, "dialogue") == 15
 
-    def test_over_4000_solo_returns_12_to_15(self):
+    def test_long_article_keeps_growing_past_4000(self):
+        """旧実装は4000文字超で15行に頭打ちだった。取得上限の引き上げに追随する。"""
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(4001, "solo") == 12
-        assert _calc_suggested_lines(6000, "solo") == 13
-        assert _calc_suggested_lines(8000, "solo") == 15
-        assert _calc_suggested_lines(10000, "solo") == 15
+        assert _calc_suggested_lines(6000, "solo") == 17
+        assert _calc_suggested_lines(8000, "solo") == 22
+        assert _calc_suggested_lines(6000, "dialogue") == 19
 
-    def test_over_4000_dialogue_returns_12_to_15(self):
+    def test_caps_at_max_lines(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(4001, "dialogue") == 12
-        assert _calc_suggested_lines(6000, "dialogue") == 13
-        assert _calc_suggested_lines(8000, "dialogue") == 15
-        assert _calc_suggested_lines(10000, "dialogue") == 15
+        assert _calc_suggested_lines(9000, "solo") == 24
+        assert _calc_suggested_lines(12000, "solo") == 24
+        assert _calc_suggested_lines(100000, "solo") == 24
+        assert _calc_suggested_lines(8000, "dialogue") == 24
+        assert _calc_suggested_lines(100000, "dialogue") == 24
+
+    def test_monotonically_non_decreasing(self):
+        from app.batch.generate_commentary_script import _calc_suggested_lines
+        for style in ("solo", "dialogue"):
+            previous = 0
+            for length in range(0, 15000, 137):
+                current = _calc_suggested_lines(length, style)
+                assert current >= previous, f"{style}: {length} chars dropped to {current}"
+                previous = current
 
     def test_empty_string_text(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
         assert _calc_suggested_lines(len(""), "solo") == 6
         assert _calc_suggested_lines(len(""), "dialogue") == 8
-
-    def test_exact_50_char_boundary(self):
-        from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(50, "solo") == 6
-        assert _calc_suggested_lines(50, "dialogue") == 8
-        # < 50 returns minimum; >= 50 still returns minimum in < 2000 range
-
-    def test_intermediate_2000_to_4000_granular(self):
-        from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(1000, "solo") == 6
-        assert _calc_suggested_lines(1500, "solo") == 6
-        assert _calc_suggested_lines(1999, "solo") == 6
-        assert _calc_suggested_lines(2000, "solo") == 8
-        assert _calc_suggested_lines(2500, "solo") == 8
-        assert _calc_suggested_lines(3000, "solo") == 9
-        assert _calc_suggested_lines(3500, "solo") == 9
-        assert _calc_suggested_lines(4000, "solo") == 10
-
-    def test_intermediate_4000_granular(self):
-        from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(4001, "solo") == 12
-        assert _calc_suggested_lines(4500, "solo") == 12
-        assert _calc_suggested_lines(5333, "solo") == 12
-        assert _calc_suggested_lines(5334, "solo") == 13
-        assert _calc_suggested_lines(6000, "solo") == 13
-        assert _calc_suggested_lines(6666, "solo") == 13
-        assert _calc_suggested_lines(6667, "solo") == 14
-        assert _calc_suggested_lines(7000, "solo") == 14
-        assert _calc_suggested_lines(8000, "solo") == 15
-        assert _calc_suggested_lines(10000, "solo") == 15
-        assert _calc_suggested_lines(13333, "solo") == 15
-        assert _calc_suggested_lines(13334, "solo") == 15
-        # dialogue > 4000 should match solo (no +2 bonus)
-        assert _calc_suggested_lines(4001, "dialogue") == 12
-        assert _calc_suggested_lines(8000, "dialogue") == 15
-        assert _calc_suggested_lines(10000, "dialogue") == 15
 
 
 class TestBuildSectionDetails:
@@ -463,8 +442,14 @@ class TestBuildSectionDetails:
         from app.batch.generate_commentary_script import _build_section_details
         result = _build_section_details(13, "solo")
         assert "intro、2〜3行" in result
-        assert "news、8〜12行" in result
+        assert "news、8〜10行" in result
         assert "outro、1〜2行" in result
+
+    def test_large_count_news_range_scales_with_total(self):
+        """13行以上では news の行数を総行数から逆算する（固定値だと総数と矛盾する）。"""
+        from app.batch.generate_commentary_script import _build_section_details
+        assert "news、19〜21行" in _build_section_details(24, "solo")
+        assert "news、13〜15行" in _build_section_details(18, "solo")
 
     def test_boundary_8_returns_small(self):
         from app.batch.generate_commentary_script import _build_section_details
