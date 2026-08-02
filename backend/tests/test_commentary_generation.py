@@ -350,41 +350,43 @@ class TestCalcSuggestedLines:
 
     def test_short_text_solo_returns_minimum(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(0, "solo") == 6
-        assert _calc_suggested_lines(30, "solo") == 6
-        assert _calc_suggested_lines(49, "solo") == 6
+        assert _calc_suggested_lines(0, "solo") == 10
+        assert _calc_suggested_lines(30, "solo") == 10
+        assert _calc_suggested_lines(49, "solo") == 10
 
     def test_short_text_dialogue_returns_minimum(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(0, "dialogue") == 8
-        assert _calc_suggested_lines(30, "dialogue") == 8
-        assert _calc_suggested_lines(49, "dialogue") == 8
+        assert _calc_suggested_lines(0, "dialogue") == 14
+        assert _calc_suggested_lines(30, "dialogue") == 14
+        assert _calc_suggested_lines(49, "dialogue") == 14
 
-    def test_below_2000_solo_returns_6(self):
+    def test_below_2000_solo_returns_standard_lines(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(500, "solo") == 6
-        assert _calc_suggested_lines(1999, "solo") == 6
+        assert _calc_suggested_lines(50, "solo") == 10
+        assert _calc_suggested_lines(500, "solo") == 10
+        assert _calc_suggested_lines(1999, "solo") == 10
 
-    def test_below_2000_dialogue_returns_8(self):
+    def test_below_2000_dialogue_returns_standard_lines(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(500, "dialogue") == 8
-        assert _calc_suggested_lines(1999, "dialogue") == 8
+        assert _calc_suggested_lines(50, "dialogue") == 14
+        assert _calc_suggested_lines(500, "dialogue") == 14
+        assert _calc_suggested_lines(1999, "dialogue") == 14
 
-    def test_2000_to_4000_solo_returns_8_to_10(self):
+    def test_2000_to_4000_solo_returns_10_to_12(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(2000, "solo") == 8
-        assert _calc_suggested_lines(2999, "solo") == 8
-        assert _calc_suggested_lines(3000, "solo") == 9
-        assert _calc_suggested_lines(3999, "solo") == 9
-        assert _calc_suggested_lines(4000, "solo") == 10
+        assert _calc_suggested_lines(2000, "solo") == 10
+        assert _calc_suggested_lines(2999, "solo") == 10
+        assert _calc_suggested_lines(3000, "solo") == 11
+        assert _calc_suggested_lines(3999, "solo") == 11
+        assert _calc_suggested_lines(4000, "solo") == 12
 
-    def test_2000_to_4000_dialogue_returns_10_to_12(self):
+    def test_2000_to_4000_dialogue_returns_14_to_16(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(2000, "dialogue") == 10
-        assert _calc_suggested_lines(2999, "dialogue") == 10
-        assert _calc_suggested_lines(3000, "dialogue") == 11
-        assert _calc_suggested_lines(3999, "dialogue") == 11
-        assert _calc_suggested_lines(4000, "dialogue") == 12
+        assert _calc_suggested_lines(2000, "dialogue") == 14
+        assert _calc_suggested_lines(2999, "dialogue") == 14
+        assert _calc_suggested_lines(3000, "dialogue") == 15
+        assert _calc_suggested_lines(3999, "dialogue") == 15
+        assert _calc_suggested_lines(4000, "dialogue") == 16
 
     def test_over_4000_solo_returns_12_to_15(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
@@ -393,34 +395,34 @@ class TestCalcSuggestedLines:
         assert _calc_suggested_lines(8000, "solo") == 15
         assert _calc_suggested_lines(10000, "solo") == 15
 
-    def test_over_4000_dialogue_returns_12_to_15(self):
+    def test_over_4000_dialogue_returns_14_to_16(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(4001, "dialogue") == 12
-        assert _calc_suggested_lines(6000, "dialogue") == 13
-        assert _calc_suggested_lines(8000, "dialogue") == 15
-        assert _calc_suggested_lines(10000, "dialogue") == 15
+        assert _calc_suggested_lines(4001, "dialogue") == 16
+        assert _calc_suggested_lines(6000, "dialogue") == 16
+        assert _calc_suggested_lines(8000, "dialogue") == 16
+        assert _calc_suggested_lines(10000, "dialogue") == 16
 
     def test_empty_string_text(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(len(""), "solo") == 6
-        assert _calc_suggested_lines(len(""), "dialogue") == 8
+        assert _calc_suggested_lines(len(""), "solo") == 10
+        assert _calc_suggested_lines(len(""), "dialogue") == 14
 
     def test_exact_50_char_boundary(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(50, "solo") == 6
-        assert _calc_suggested_lines(50, "dialogue") == 8
-        # < 50 returns minimum; >= 50 still returns minimum in < 2000 range
+        assert _calc_suggested_lines(50, "solo") == 10
+        assert _calc_suggested_lines(50, "dialogue") == 14
+        # 2,000文字未満は標準行数を維持する
 
     def test_intermediate_2000_to_4000_granular(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(1000, "solo") == 6
-        assert _calc_suggested_lines(1500, "solo") == 6
-        assert _calc_suggested_lines(1999, "solo") == 6
-        assert _calc_suggested_lines(2000, "solo") == 8
-        assert _calc_suggested_lines(2500, "solo") == 8
-        assert _calc_suggested_lines(3000, "solo") == 9
-        assert _calc_suggested_lines(3500, "solo") == 9
-        assert _calc_suggested_lines(4000, "solo") == 10
+        assert _calc_suggested_lines(1000, "solo") == 10
+        assert _calc_suggested_lines(1500, "solo") == 10
+        assert _calc_suggested_lines(1999, "solo") == 10
+        assert _calc_suggested_lines(2000, "solo") == 10
+        assert _calc_suggested_lines(2500, "solo") == 10
+        assert _calc_suggested_lines(3000, "solo") == 11
+        assert _calc_suggested_lines(3500, "solo") == 11
+        assert _calc_suggested_lines(4000, "solo") == 12
 
     def test_intermediate_4000_granular(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
@@ -436,10 +438,9 @@ class TestCalcSuggestedLines:
         assert _calc_suggested_lines(10000, "solo") == 15
         assert _calc_suggested_lines(13333, "solo") == 15
         assert _calc_suggested_lines(13334, "solo") == 15
-        # dialogue > 4000 should match solo (no +2 bonus)
-        assert _calc_suggested_lines(4001, "dialogue") == 12
-        assert _calc_suggested_lines(8000, "dialogue") == 15
-        assert _calc_suggested_lines(10000, "dialogue") == 15
+        assert _calc_suggested_lines(4001, "dialogue") == 16
+        assert _calc_suggested_lines(8000, "dialogue") == 16
+        assert _calc_suggested_lines(10000, "dialogue") == 16
 
 
 class TestBuildSectionDetails:
@@ -461,7 +462,7 @@ class TestBuildSectionDetails:
 
     def test_large_count_returns_large_section_details(self):
         from app.batch.generate_commentary_script import _build_section_details
-        result = _build_section_details(13, "solo")
+        result = _build_section_details(17, "solo")
         assert "intro、2〜3行" in result
         assert "news、8〜12行" in result
         assert "outro、1〜2行" in result
@@ -481,9 +482,14 @@ class TestBuildSectionDetails:
         result = _build_section_details(12, "solo")
         assert "intro、2行" in result
 
-    def test_boundary_13_returns_large(self):
+    def test_boundary_16_returns_medium(self):
         from app.batch.generate_commentary_script import _build_section_details
-        result = _build_section_details(13, "solo")
+        result = _build_section_details(16, "solo")
+        assert "intro、2行" in result
+
+    def test_boundary_17_returns_large(self):
+        from app.batch.generate_commentary_script import _build_section_details
+        result = _build_section_details(17, "solo")
         assert "intro、2〜3行" in result
 
     def test_solo_contains_monologue_guidance(self):
@@ -929,6 +935,69 @@ class TestSoloConcreteDataInstructions:
         assert "モデル名・製品名・企業名・固有名詞" in content
         assert "比較対象や検証条件" in content
         assert "各 news ラインには最低1件以上の具体的な事実・数字を含める" in content
+
+    def test_prompt_template_requires_explanatory_causality_and_late_conclusion(self):
+        prompt_path = Path(__file__).resolve().parents[1] / "app" / "prompts" / "generate_commentary_script.md"
+        content = prompt_path.read_text(encoding="utf-8")
+
+        assert "目安として6〜9行" in content
+        assert "なぜ起きたのか" in content
+        assert "どういう仕組み・経緯なのか" in content
+        assert "だから何が言えるか" in content
+        assert "記事後半に重要な主張や結論" in content
+        assert "事実を並べて圧縮するだけにせず" in content
+
+    def test_fixed_article_generation_preserves_causality_and_late_conclusion(self, tmp_path):
+        """後半に結論がある固定記事で、生成結果の検証観点を再現する。"""
+        from app.batch.generate_commentary_script import generate_commentary_script
+
+        article = {
+            "id": 307,
+            "title": "E307相当の検証記事",
+            "text": (
+                "E307は2026年4月に導入された仕組みで、処理時間を30%短縮した。"
+                "短縮の理由は、検証を段階化して不要な再計算を減らしたためである。"
+                "記事後半では、この結果から一律導入ではなく用途別の運用が必要だと結論づけている。"
+            ),
+        }
+        response = {
+            "title": article["title"],
+            "subtitle": "仕組みと運用上の結論",
+            "lines": [
+                {"speaker": "male", "text": "E307が2026年4月に導入され、処理時間を30%短縮しました。", "section": "news"},
+                {"speaker": "male", "text": "短縮できたのは検証を段階化し、不要な再計算を減らしたためです。", "section": "news"},
+                {"speaker": "male", "text": "つまり、処理を分けたことが短縮につながり、記事は用途別の運用が必要だと結論づけています。", "section": "news"},
+            ],
+        }
+
+        class CapturingClient:
+            prompt = None
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args, **kwargs):
+                pass
+
+            def generate_json(self, prompt):
+                self.prompt = prompt
+                CapturingClient.prompt = prompt
+                return response
+
+        output = tmp_path / "e307_script.json"
+        with patch("app.batch.generate_commentary_script.OllamaClient", CapturingClient):
+            count = generate_commentary_script(str(output), article, style="solo", mc_gender="male")
+
+        generated = json.loads(output.read_text(encoding="utf-8"))
+        generated_text = " ".join(line["text"] for line in generated["lines"])
+        assert count == 3
+        assert "30%" in generated_text
+        assert "段階化" in generated_text
+        assert "用途別の運用が必要" in generated_text
+        assert "記事後半" in CapturingClient.prompt
 
     def test_dialogue_section_unchanged(self):
         prompt_path = Path(__file__).resolve().parents[1] / "app" / "prompts" / "generate_commentary_script.md"
