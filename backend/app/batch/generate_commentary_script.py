@@ -26,20 +26,19 @@ def _calc_suggested_lines(text_length: int, style: str) -> int:
     Returns:
         Suggested number of lines.
     """
-    # 50文字未満は記事が空/ほぼ空の場合の安全マージン → 最低保証値
-    if text_length < 50:
+    # 2,000文字未満は記事が短い場合も含め、解説に必要な標準行数を確保する。
+    if text_length < 2000:
         return _DEFAULT_LINES_DIALOGUE if style == "dialogue" else _DEFAULT_LINES_SOLO
 
-    if text_length < 2000:
-        base = 6
-    elif text_length <= 4000:
-        base = 8 + (text_length - 2000) // 1000
-    else:
-        base = min(15, 12 + (text_length - 4000) * 3 // 4000)
+    if text_length <= 4000:
+        base = 10 + (text_length - 2000) // 1000
+        if style == "dialogue":
+            return base + 4
+        return base
 
-    if style == "dialogue" and text_length <= 4000:
-        return base + 2
-    return base
+    if style == "dialogue":
+        return min(16, 14 + (text_length - 4000) * 2 // 4000)
+    return min(15, 12 + (text_length - 4000) * 3 // 4000)
 
 
 def _build_section_details(suggested_lines_count: int, style: str = "solo") -> str:
@@ -55,7 +54,7 @@ def _build_section_details(suggested_lines_count: int, style: str = "solo") -> s
     if suggested_lines_count <= 8:
         intro_range = "1〜2"
         news_range = "3〜6"
-    elif suggested_lines_count <= 12:
+    elif suggested_lines_count <= 16:
         intro_range = "2"
         news_range = "6〜9"
     else:
