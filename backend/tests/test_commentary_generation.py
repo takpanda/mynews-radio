@@ -397,8 +397,8 @@ class TestCalcSuggestedLines:
 
     def test_over_4000_dialogue_returns_14_to_16(self):
         from app.batch.generate_commentary_script import _calc_suggested_lines
-        assert _calc_suggested_lines(4001, "dialogue") == 14
-        assert _calc_suggested_lines(6000, "dialogue") == 15
+        assert _calc_suggested_lines(4001, "dialogue") == 16
+        assert _calc_suggested_lines(6000, "dialogue") == 16
         assert _calc_suggested_lines(8000, "dialogue") == 16
         assert _calc_suggested_lines(10000, "dialogue") == 16
 
@@ -438,7 +438,7 @@ class TestCalcSuggestedLines:
         assert _calc_suggested_lines(10000, "solo") == 15
         assert _calc_suggested_lines(13333, "solo") == 15
         assert _calc_suggested_lines(13334, "solo") == 15
-        assert _calc_suggested_lines(4001, "dialogue") == 14
+        assert _calc_suggested_lines(4001, "dialogue") == 16
         assert _calc_suggested_lines(8000, "dialogue") == 16
         assert _calc_suggested_lines(10000, "dialogue") == 16
 

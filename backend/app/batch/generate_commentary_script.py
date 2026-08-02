@@ -37,7 +37,8 @@ def _calc_suggested_lines(text_length: int, style: str) -> int:
         return base
 
     if style == "dialogue":
-        return min(16, 14 + (text_length - 4000) * 2 // 4000)
+        # 4,000文字を超えても行数を減らさず、記事後半の説明余地を維持する。
+        return 16
     return min(15, 12 + (text_length - 4000) * 3 // 4000)
 
 
