@@ -310,14 +310,15 @@ class OllamaClient:
 
 class OpenAICompatibleClient:
     """LM Studio/vLLM の OpenAI互換APIアダプター。"""
-    def __init__(self, base_url: str, model: str, timeout: float = 600.0):
-        self._base_url, self._model, self._timeout = base_url.rstrip("/"), model, timeout
+    def __init__(self, base_url: str, model: str, api_key: str = "", timeout: float = 600.0):
+        self._base_url, self._model, self._api_key, self._timeout = base_url.rstrip("/"), model, api_key, timeout
         self._client: Optional[httpx.Client] = None
 
     @property
     def client(self) -> httpx.Client:
         if self._client is None:
-            self._client = httpx.Client(base_url=self._base_url, timeout=httpx.Timeout(self._timeout))
+            headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
+            self._client = httpx.Client(base_url=self._base_url, timeout=httpx.Timeout(self._timeout), headers=headers)
         return self._client
 
     def close(self) -> None:
@@ -334,8 +335,21 @@ class OpenAICompatibleClient:
                 "messages": [{"role": "user", "content": prompt}], "temperature": 0,
                 "response_format": {"type": "json_object"}})
             response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
-            return content if isinstance(content, dict) else json.loads(content)
+            message = response.json()["choices"][0]["message"]
+            content = message.get("content")
+            if not content:
+                content = message.get("reasoning_content") or message.get("reasoning") or message.get("thinking")
+            if isinstance(content, dict):
+                return content
+            if isinstance(content, list):
+                content = "".join(
+                    part.get("text", "") if isinstance(part, dict) else str(part)
+                    for part in content
+                )
+            if not isinstance(content, str):
+                return None
+            extracted = OllamaClient._extract_output_from_reasoning(OllamaClient, content)
+            return json.loads(extracted)
         except Exception as exc:
             logger.error("OpenAI-compatible LLM request failed: %s", exc)
             return None
@@ -344,4 +358,4 @@ class OpenAICompatibleClient:
 def create_llm_client(provider: str | None = None, model: str | None = None):
     from app.services.llm_provider import validate_provider_model
     config = validate_provider_model(provider, model)
-    return OllamaClient(config.base_url, config.model) if config.native else OpenAICompatibleClient(config.base_url, config.model)
+    return OllamaClient(config.base_url, config.model) if config.native else OpenAICompatibleClient(config.base_url, config.model, config.api_key)

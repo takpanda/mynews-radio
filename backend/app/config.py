@@ -14,8 +14,10 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen3.6:35b"
     lm_studio_base_url: str = "http://127.0.0.1:1234"
     lm_studio_model: str = ""
+    lm_studio_api_key: str = ""
     vllm_base_url: str = "http://127.0.0.1:8000"
     vllm_model: str = ""
+    vllm_api_key: str = ""
     llm_provider: str = "ollama"
     llm_connect_timeout: float = 2.0
     llm_response_timeout: float = 5.0

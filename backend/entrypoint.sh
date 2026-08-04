@@ -21,6 +21,8 @@ CRONTAB_HEADER
 # Note: only non-empty values are written; empty/undefined vars are skipped.
 # CR/LF characters are stripped to prevent cron definition injection.
 for _var in OLLAMA_BASE_URL OLLAMA_MODEL DGX_HOST \
+    LLM_PROVIDER LM_STUDIO_BASE_URL LM_STUDIO_MODEL LM_STUDIO_API_KEY \
+    VLLM_BASE_URL VLLM_MODEL VLLM_API_KEY \
     VOICEVOX_BASE_URL VOICEVOX_SPEAKER_MALE VOICEVOX_SPEAKER_FEMALE \
     AIVISPEECH_BASE_URL AIVISPEECH_SPEAKER_MALE AIVISPEECH_SPEAKER_FEMALE \
     API_KEY CORS_ORIGINS VAPID_PRIVATE_KEY VAPID_CLAIMS_EMAIL; do
@@ -44,7 +46,8 @@ chmod 0644 /etc/cron.d/mynews-batch
 # Install the crontab
 crontab /etc/cron.d/mynews-batch
 echo "[entrypoint] crontab installed (API_KEY masked):"
-crontab -l | grep -v -e '^API_KEY=' -e '^VAPID_PRIVATE_KEY='
+crontab -l | grep -v -e '^API_KEY=' -e '^VAPID_PRIVATE_KEY=' \
+    -e '^LM_STUDIO_API_KEY=' -e '^VLLM_API_KEY='
 
 # Start cron daemon (avoid duplicate startup)
 if ! pgrep -x "cron" >/dev/null 2>&1; then

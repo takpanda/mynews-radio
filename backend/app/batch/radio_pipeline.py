@@ -164,7 +164,9 @@ def run_radio_pipeline(
         _progress("summarize", "記事を要約しています…")
         try:
             summaries_path = os.path.join(base_dir, "summaries.json")
-            summarized = summarize_articles(summaries_path, **({"llm_provider": llm_provider, "llm_model": llm_model} if (llm_provider or llm_model) else {}))
+            summarized = summarize_articles(
+                summaries_path, llm_provider=llm.name, llm_model=llm.model,
+            )
             logger.info("summarize done: count=%d", summarized)
         except Exception as exc:
             logger.exception("summarize failed")
@@ -184,8 +186,7 @@ def run_radio_pipeline(
                 max_articles=effective_max_articles,
                 min_importance_score=effective_min_score,
             )
-            if llm_provider or llm_model:
-                script_kwargs.update(llm_provider=llm_provider, llm_model=llm_model)
+            script_kwargs.update(llm_provider=llm.name, llm_model=llm.model)
             line_count = generate_script(script_path, **script_kwargs)
         finally:
             if old_max is None:
@@ -231,7 +232,10 @@ def run_radio_pipeline(
             reviewed_episode_dir = os.path.join(base_dir, "review")
             Path(reviewed_episode_dir).mkdir(parents=True, exist_ok=True)
             Path(os.path.join(reviewed_episode_dir, "lines")).mkdir(exist_ok=True)
-            review_result = review_script(script_path, reviewed_episode_dir, **({"llm_provider": llm_provider, "llm_model": llm_model} if (llm_provider or llm_model) else {}))
+            review_result = review_script(
+                script_path, reviewed_episode_dir,
+                llm_provider=llm.name, llm_model=llm.model,
+            )
             logger.info(
                 "review_script: revised=%s review_count=%d",
                 review_result["revised"],

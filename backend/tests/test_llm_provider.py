@@ -47,7 +47,23 @@ def test_provider_result_does_not_expose_endpoint_or_exception(monkeypatch):
     result = asyncio.run(llm_provider.discover_providers())
     assert "internal" not in repr(result)
     assert "exception" not in repr(result).lower()
-    assert set(result["providers"][0]) <= {"provider", "models", "available", "stale"}
+    assert set(result["providers"][0]) <= {"provider", "models", "available", "stale", "error_code"}
+
+
+@pytest.mark.parametrize("error_code", ["timeout", "connection_failed", "invalid_response"])
+def test_unavailable_provider_has_safe_error_code(monkeypatch, error_code):
+    _configs(monkeypatch)
+
+    async def failed(_config):
+        return {"provider": "ollama", "models": [], "available": False, "error_code": error_code,
+                "detail": "http://secret.internal/exception"}
+
+    monkeypatch.setattr(llm_provider, "_fetch", failed)
+    result = asyncio.run(llm_provider.discover_providers())
+    provider = next(item for item in result["providers"] if item["provider"] == "ollama")
+    assert provider["error_code"] == error_code
+    assert "detail" not in provider
+    assert "secret.internal" not in repr(result)
 
 
 def test_success_cache_and_stale_fallback(monkeypatch):
