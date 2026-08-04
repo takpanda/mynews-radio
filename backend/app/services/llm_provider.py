@@ -99,7 +99,7 @@ async def discover_providers() -> dict[str, Any]:
         cached = _cache.get(name)
         # Successful discovery is cached for 60s; failures only for 10s so a
         # provider recovering from a restart is noticed promptly.
-        cache_ttl = 60 if cached and cached[1].get("available") else 10
+        cache_ttl = 10 if cached and cached[1].get("stale") else (60 if cached and cached[1].get("available") else 10)
         if cached and now - cached[0] < cache_ttl:
             results.append(cached[1])
         else:

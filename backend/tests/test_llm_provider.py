@@ -65,11 +65,17 @@ def test_success_cache_and_stale_fallback(monkeypatch):
 
     llm_provider._cache["ollama"] = (time.monotonic() - 61, first["providers"][0])
     async def fail(config):
+        calls.append(f"failed:{config.name}")
         return {"provider": config.name, "models": [], "available": False}
     monkeypatch.setattr(llm_provider, "_fetch", fail)
     stale = asyncio.run(llm_provider.discover_providers())
     assert stale["providers"][0]["models"] == ["one"]
     assert stale["providers"][0]["stale"] is True
+
+    # stale fallback is still a failed refresh and must be retried after 10s.
+    llm_provider._cache["ollama"] = (time.monotonic() - 11, llm_provider._cache["ollama"][1])
+    asyncio.run(llm_provider.discover_providers())
+    assert calls.count("failed:ollama") == 2
 
 
 def test_failure_cache_is_shorter_than_success_cache(monkeypatch):
