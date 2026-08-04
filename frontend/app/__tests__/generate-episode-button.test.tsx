@@ -7,11 +7,13 @@ import { fetchEpisode, GenerationError } from '../lib/api'
 
 const mockSearchEpisodesBySourceUrl = jest.fn()
 const mockGenerateEpisode = jest.fn()
+const mockFetchLlmProviders = jest.fn()
 
 jest.mock('../lib/api', () => ({
   ...jest.requireActual('../lib/api'),
   searchEpisodesBySourceUrl: (...args: unknown[]) => mockSearchEpisodesBySourceUrl(...args),
   generateEpisode: (...args: unknown[]) => mockGenerateEpisode(...args),
+  fetchLlmProviders: (...args: unknown[]) => mockFetchLlmProviders(...args),
   fetchEpisode: jest.fn().mockResolvedValue(null),
 }))
 
@@ -33,7 +35,75 @@ describe('GenerateEpisodeButton — 解説モード重複チェック', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockGenerateEpisode.mockResolvedValue({ episode_id: 100 })
+    mockFetchLlmProviders.mockResolvedValue({ providers: [
+      { provider: 'ollama', models: ['qwen3:8b', 'llama3.2'], available: true },
+      { provider: 'lm_studio', models: ['local-model'], available: true },
+    ] })
     localStorage.clear()
+  })
+
+  it('プロバイダー変更時は所属モデルだけを表示する', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await waitFor(() => expect(screen.getByLabelText('LLMモデル')).toHaveValue('qwen3:8b'))
+    expect(screen.getByRole('option', { name: 'qwen3:8b' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'llama3.2' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'local-model' })).toBeNull()
+
+    await user.selectOptions(screen.getByLabelText('LLMプロバイダー'), 'lm_studio')
+    expect(screen.getByLabelText('LLMモデル')).toHaveValue('local-model')
+    expect(screen.queryByRole('option', { name: 'qwen3:8b' })).toBeNull()
+  })
+
+  it.each([
+    ['空配列', { providers: [] }, '利用可能なプロバイダー・モデルがありません。'],
+    ['取得失敗', new Error('upstream failed'), 'upstream failed'],
+  ])('%s時は既定値フォールバックを表示する', async (_label, response, message) => {
+    if (response instanceof Error) mockFetchLlmProviders.mockRejectedValue(response)
+    else mockFetchLlmProviders.mockResolvedValue(response)
+    render(<GenerateEpisodeButton />)
+    await waitFor(() => expect(screen.getByText(new RegExp(message))).toBeInTheDocument())
+    expect(screen.queryByLabelText('LLMプロバイダー')).toBeNull()
+  })
+
+  it('利用不可・部分失敗・staleを区別して表示する', async () => {
+    mockFetchLlmProviders.mockResolvedValue({ providers: [
+      { provider: 'ollama', models: ['qwen3:8b'], available: true, stale: true },
+      { provider: 'vllm', models: [], available: false },
+    ] })
+    render(<GenerateEpisodeButton />)
+    await waitFor(() => expect(screen.getByText(/最新情報ではありません/)).toBeInTheDocument())
+    expect(screen.getByRole('option', { name: 'vllm（利用不可）' })).toBeDisabled()
+    expect(screen.getByText(/一部のプロバイダーは利用できない/)).toBeInTheDocument()
+  })
+
+  it('取得失敗時はLLM項目を生成payloadへ送らない', async () => {
+    mockFetchLlmProviders.mockResolvedValue({ providers: [] })
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+    await waitFor(() => expect(screen.getByText(/利用可能なプロバイダー・モデルがありません/)).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    expect(mockGenerateEpisode.mock.calls[0][10]).toBeUndefined()
+    expect(mockGenerateEpisode.mock.calls[0][11]).toBeUndefined()
+  })
+
+  it('重複確認後の続行でも選択したLLM値を維持する', async () => {
+    mockSearchEpisodesBySourceUrl.mockResolvedValue([
+      { id: 42, title: '既存解説', status: 'completed', type: 'commentary', source_url: 'https://example.com/article', episode_date: '2026-07-15', created_at: '', has_script: true },
+    ])
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+    await waitFor(() => expect(screen.getByLabelText('LLMプロバイダー')).toHaveValue('ollama'))
+    await user.selectOptions(screen.getByLabelText('LLMプロバイダー'), 'lm_studio')
+    await user.type(urlInput(), 'https://example.com/article')
+    await user.click(submitButton())
+    await waitFor(() => expect(screen.getByText('URLの重複を検出しました')).toBeInTheDocument())
+    await user.click(screen.getByText('生成を続行'))
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    expect(mockGenerateEpisode.mock.calls[0][10]).toBe('lm_studio')
+    expect(mockGenerateEpisode.mock.calls[0][11]).toBe('local-model')
   })
 
   it('重複なしで生成が開始される', async () => {

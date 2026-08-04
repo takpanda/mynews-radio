@@ -681,6 +681,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
       : isDuplicateError
         ? 'border-amber-200 bg-amber-50 text-amber-800'
       : 'border-sky-200 bg-sky-50 text-sky-800'
+  const selectedProvider = llmProviders.find((item) => item.provider === llmProvider)
 
   if (!isAuthenticated) {
     return (
@@ -806,16 +807,16 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
                       aria-label="LLMモデル"
                       value={llmModel}
                       onChange={(event) => setLlmModel(event.target.value)}
-                      disabled={!llmProvider || !llmProviders.find((item) => item.provider === llmProvider)?.models.length}
+                      disabled={!llmProvider || !selectedProvider?.models.length}
                       className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-50"
                     >
-                      {llmProviders.find((item) => item.provider === llmProvider)?.models.map((model) => (
+                      {selectedProvider?.models.map((model) => (
                         <option key={model} value={model}>{model}</option>
                       ))}
                     </select>
                   </label>
                 </div>
-                {llmProviders.find((item) => item.provider === llmProvider)?.stale && (
+                {selectedProvider?.stale && (
                   <p className="mt-2 text-xs text-amber-700" role="status">モデル一覧は最新情報ではありません。現在確認できたモデルを表示しています。</p>
                 )}
                 {llmProviders.some((item) => !item.available) && (

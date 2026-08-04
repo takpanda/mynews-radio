@@ -74,6 +74,23 @@ describe('generateEpisode settings snapshot', () => {
     expect(request.llm_model).toBe('qwen3:8b')
     global.fetch = previousFetch
   })
+
+  it.each([
+    ['プロバイダーのみ', 'ollama', undefined],
+    ['モデルのみ', undefined, 'qwen3:8b'],
+  ])('%s指定ではLLM項目を送らない', async (_label, provider, model) => {
+    const previousFetch = global.fetch
+    const fetchMock = jest.fn().mockResolvedValue(
+      { ok: true, json: async () => ({ episode_id: 12 }) },
+    )
+    global.fetch = fetchMock as typeof fetch
+    await generateEpisode('2026-07-25', 6, 'hatena_bookmark', 'aivispeech', false, undefined, undefined, undefined, undefined, undefined, provider, model)
+
+    const request = JSON.parse((fetchMock.mock.calls[0][1]?.body as string))
+    expect(request).not.toHaveProperty('llm_provider')
+    expect(request).not.toHaveProperty('llm_model')
+    global.fetch = previousFetch
+  })
 })
 
 describe('生成制御エラー', () => {

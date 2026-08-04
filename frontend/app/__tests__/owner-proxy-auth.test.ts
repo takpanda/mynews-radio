@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server'
 import * as generateRoute from '../api/generate/route'
 import * as settingsRoute from '../api/settings/route'
 import * as synthesizeRoute from '../api/episodes/[id]/synthesize/route'
+import * as llmProvidersRoute from '../api/llm/providers/route'
 
 function request(url: string, body = '{}', cookie = 'admin_session=session-token') {
   return new NextRequest(url, {
@@ -20,6 +21,35 @@ beforeEach(() => {
 })
 
 describe('オーナー操作プロキシの認証情報転送', () => {
+  it('LLMプロバイダー取得はCookie転送と上流ステータスを維持する', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ...upstream,
+      status: 503,
+      ok: false,
+      text: () => Promise.resolve('{"detail":"provider unavailable"}'),
+    })
+
+    const response = await llmProvidersRoute.GET(request('http://localhost/api/llm/providers'))
+
+    expect(response.status).toBe(503)
+    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/llm/providers'), expect.objectContaining({
+      headers: { Cookie: 'admin_session=session-token' },
+      cache: 'no-store',
+    }))
+  })
+
+  it('LLMプロバイダー取得の上流障害は504にし、内部情報を返さない', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('http://internal:8010 API_KEY=secret'))
+
+    const response = await llmProvidersRoute.GET(request('http://localhost/api/llm/providers'))
+    const body = await response.text()
+
+    expect(response.status).toBe(504)
+    expect(body).toBe(JSON.stringify({ error: 'upstream error' }))
+    expect(body).not.toContain('internal:8010')
+    expect(body).not.toContain('secret')
+  })
+
   it('生成は上流のRetry-Afterを転送する', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ...upstream,
