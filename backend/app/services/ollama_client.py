@@ -154,6 +154,7 @@ class OllamaClient:
 
         return None
 
+
     def _is_thinking_artifact(self, parsed: dict) -> bool:
         """{"thought": <非dict/非list>} のような思考プロセスのアーティファクトかどうかを判定する。"""
         if len(parsed) == 1 and "thought" in parsed:
@@ -305,3 +306,42 @@ class OllamaClient:
 
     def __exit__(self, *args) -> None:
         self.close()
+
+
+class OpenAICompatibleClient:
+    """LM Studio/vLLM の OpenAI互換APIアダプター。"""
+    def __init__(self, base_url: str, model: str, timeout: float = 600.0):
+        self._base_url, self._model, self._timeout = base_url.rstrip("/"), model, timeout
+        self._client: Optional[httpx.Client] = None
+
+    @property
+    def client(self) -> httpx.Client:
+        if self._client is None:
+            self._client = httpx.Client(base_url=self._base_url, timeout=httpx.Timeout(self._timeout))
+        return self._client
+
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+
+    def __enter__(self): return self
+    def __exit__(self, *_args): self.close()
+
+    def generate_json(self, prompt: str) -> Optional[dict[str, Any]]:
+        try:
+            response = self.client.post("/v1/chat/completions", json={"model": self._model,
+                "messages": [{"role": "user", "content": prompt}], "temperature": 0,
+                "response_format": {"type": "json_object"}})
+            response.raise_for_status()
+            content = response.json()["choices"][0]["message"]["content"]
+            return content if isinstance(content, dict) else json.loads(content)
+        except Exception as exc:
+            logger.error("OpenAI-compatible LLM request failed: %s", exc)
+            return None
+
+
+def create_llm_client(provider: str | None = None, model: str | None = None):
+    from app.services.llm_provider import validate_provider_model
+    config = validate_provider_model(provider, model)
+    return OllamaClient(config.base_url, config.model) if config.native else OpenAICompatibleClient(config.base_url, config.model)

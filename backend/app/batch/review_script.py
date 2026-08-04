@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.config import get_settings
-from app.services.ollama_client import OllamaClient
+from app.services.ollama_client import OllamaClient, create_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +138,7 @@ def _build_output_issue_example(style: str) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
-def review_script(source_script_path: str, output_dir: str) -> dict:
+def review_script(source_script_path: str, output_dir: str, *, llm_provider: str | None = None, llm_model: str | None = None) -> dict:
     """Review *source_script_path* with 5 directors and write a revised script.
 
     Args:
@@ -170,7 +170,8 @@ def review_script(source_script_path: str, output_dir: str) -> dict:
     revision_summary = ""
     lines_count = 0
 
-    with OllamaClient(settings.ollama_base_url, settings.ollama_model) as client:
+    client_factory = (lambda: create_llm_client(llm_provider, llm_model)) if (llm_provider or llm_model) else (lambda: OllamaClient(settings.ollama_base_url, settings.ollama_model))
+    with client_factory() as client:
 
         # --- Step 1: collect individual director reviews ---
         style = source.get("style", "")  # "solo", "dialogue", or "" (radio)

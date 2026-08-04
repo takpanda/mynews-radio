@@ -30,6 +30,7 @@ from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_u
 from app.services.settings_service import get_settings_or_default, validate_settings
 from app.services.generation_control import GenerationControlError, bind_episode, claim_job, finish_job
 from app.services.verified_client_ip import get_verified_client_ip
+from app.services.llm_provider import validate_provider_model
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,8 @@ class GenerateRequest(BaseModel):
     style: str = Field(default="solo", description="解説スタイル (solo | dialogue)")
     mc_gender: str = Field(default="male", description="MC性別 (male | female)")
     settings_snapshot: dict[str, Any] | None = Field(default=None, description="生成開始時に適用する番組設定")
+    llm_provider: str | None = Field(default=None, description="LLMプロバイダー")
+    llm_model: str | None = Field(default=None, description="LLMモデル")
 
 
 def _run_generation(episode_id: int, body: GenerateRequest) -> None:
@@ -143,6 +146,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
     seq = ep.get("seq", 0) if ep else 0
 
     news_source = body.news_source if body.news_source in {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news"} else "hatena_bookmark"
+    llm = validate_provider_model(body.llm_provider, body.llm_model)
 
     logger.info("Background generation started: episode_id=%d date=%s seq=%d", episode_id, body.date, seq)
 
@@ -163,6 +167,8 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
         tts_engine=body.tts_engine,
         default_episodes_dir=DEFAULT_EPISODES_DIR,
         progress_callback=_progress,
+        llm_provider=llm.name,
+        llm_model=llm.model,
     )
 
     if result is None:
@@ -232,7 +238,9 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         # -- GENERATE COMMENTARY SCRIPT --
         service.update_episode_phase(episode_id, "generate_commentary", "解説台本を生成しています…")
         script_path = os.path.join(base_dir, "script.json")
-        line_count = generate_commentary_script(script_path, article, style=style, mc_gender=mc_gender)
+        llm = validate_provider_model(body.llm_provider, body.llm_model)
+        line_count = generate_commentary_script(script_path, article, style=style, mc_gender=mc_gender,
+                                                llm_provider=llm.name, llm_model=llm.model)
 
         if line_count <= 0:
             service.update_episode_status(episode_id, "failed")
@@ -246,7 +254,8 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             reviewed_episode_dir = os.path.join(base_dir, "review")
             Path(reviewed_episode_dir).mkdir(parents=True, exist_ok=True)
             Path(os.path.join(reviewed_episode_dir, "lines")).mkdir(exist_ok=True)
-            review_result = review_script(script_path, reviewed_episode_dir)
+            review_result = review_script(script_path, reviewed_episode_dir,
+                                          llm_provider=llm.name, llm_model=llm.model)
             logger.info(
                 "review_script: revised=%s review_count=%d",
                 review_result["revised"],
@@ -351,6 +360,11 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=f"invalid settings_snapshot: {exc}") from exc
 
+    try:
+        validate_provider_model(body.llm_provider, body.llm_model)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"invalid llm selection: {exc}") from exc
+
     # Validate: url 指定時は style をチェック → SSRFチェック
     if body.url:
         if body.style not in {"solo", "dialogue"}:
@@ -374,7 +388,8 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
     try:
         claim = claim_job(
             owner_user_id, operation, idempotency_key or "",
-            body.model_dump() if hasattr(body, "model_dump") else body.dict(),
+            ({k: v for k, v in (body.model_dump() if hasattr(body, "model_dump") else body.dict()).items()
+              if not (k in {"llm_provider", "llm_model"} and v is None)}),
             episode_date=body.date, episode_type=episode_type, source_url=body.url,
             client_ip=_client_ip(request),
         )

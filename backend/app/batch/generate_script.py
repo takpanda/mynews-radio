@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.config import get_settings
 from app.services.article_service import ArticleService
-from app.services.ollama_client import OllamaClient
+from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.settings_service import ProgramSettings, get_settings_or_default
 
 logger = logging.getLogger(__name__)
@@ -558,6 +558,8 @@ def generate_script(
     program_settings: ProgramSettings | None = None,
     max_articles: int | None = None,
     min_importance_score: int | None = None,
+    llm_provider: str | None = None,
+    llm_model: str | None = None,
 ) -> int:
     settings = get_settings()
     profile = program_settings or get_settings_or_default()
@@ -592,7 +594,8 @@ def generate_script(
     response = None
     ordered_summaries = summaries  # デフォルトは元の順序
 
-    with OllamaClient(settings.ollama_base_url, settings.ollama_model) as client:
+    client_factory = (lambda: create_llm_client(llm_provider, llm_model)) if (llm_provider or llm_model) else (lambda: OllamaClient(settings.ollama_base_url, settings.ollama_model))
+    with client_factory() as client:
 
         # --- Step 1: Architect — Narrative Arc 生成 ---
         logger.info("=== Script Step 1/2: Narrative Arc (Architect) ===")
