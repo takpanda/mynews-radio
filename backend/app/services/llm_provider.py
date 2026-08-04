@@ -41,6 +41,27 @@ def validate_provider_model(provider: str | None, model: str | None) -> Provider
     selected = model or config.model
     if not selected:
         raise ValueError("llm model is not configured")
+    # A configured default is an explicit server-side allow-list entry. For a
+    # request override, require a successful discovery result (or a recent
+    # successful result kept for stale operation) before accepting it.
+    if selected != config.model:
+        now = time.monotonic()
+        cached = _cache.get(name)
+        discovered = cached[1].get("models", []) if cached and cached[1].get("available") else []
+        if not discovered and name in _last_success and now - _last_success[name][0] < 600:
+            discovered = _last_success[name][1].get("models", [])
+        if selected not in discovered:
+            if cached is None or (not cached[1].get("available") and name not in _last_success):
+                try:
+                    fetched = asyncio.run(_fetch(config))
+                except RuntimeError:
+                    fetched = {"available": False, "models": []}
+                _cache[name] = (now, fetched)
+                if fetched.get("available"):
+                    _last_success[name] = (now, fetched)
+                    discovered = fetched.get("models", [])
+            if selected not in discovered:
+                raise ValueError("model is not available for provider")
     return ProviderConfig(config.name, config.base_url, selected, config.native)
 
 
@@ -91,6 +112,9 @@ async def discover_providers() -> dict[str, Any]:
             _last_success[name] = (now, result)
         elif name in _last_success and now - _last_success[name][0] < 600:
             result = {**_last_success[name][1], "stale": True}
+            # Keep serving the bounded stale result during the short failure
+            # cache window instead of exposing a transient empty response.
+            _cache[name] = (now, result)
         results.append(result)
     results.sort(key=lambda item: PROVIDERS.index(item["provider"]))
     return {"providers": results}
