@@ -75,15 +75,20 @@ def test_radio_pipeline_persists_applied_settings(monkeypatch, tmp_path):
     profile = validate_settings(["business"], ["sports"], "short")
 
     monkeypatch.setattr(radio_pipeline, "import_articles_by_source", lambda _: (1, 0))
-    monkeypatch.setattr(radio_pipeline, "summarize_articles", lambda _: 1)
+    llm_calls = []
+    monkeypatch.setattr(radio_pipeline, "summarize_articles", lambda *_args, **kwargs: (llm_calls.append(kwargs) or 1))
 
     def write_script(path, **kwargs):
         with open(path, "w", encoding="utf-8") as f:
             json.dump({"title": "test", "date": "2099-02-01", "lines": [{"text": "line"}]}, f)
         return 1
 
-    monkeypatch.setattr(radio_pipeline, "generate_script", write_script)
-    monkeypatch.setattr(radio_pipeline, "review_script", lambda *_: {"revised": False, "review_count": 0})
+    def generate_with_capture(path, **kwargs):
+        llm_calls.append(kwargs)
+        return write_script(path, **kwargs)
+
+    monkeypatch.setattr(radio_pipeline, "generate_script", generate_with_capture)
+    monkeypatch.setattr(radio_pipeline, "review_script", lambda *_args, **kwargs: (llm_calls.append(kwargs) or {"revised": False, "review_count": 0}))
     monkeypatch.setattr(radio_pipeline, "synthesize_episode", lambda *_args, **_kwargs: 1)
     monkeypatch.setattr(
         radio_pipeline,
@@ -103,6 +108,11 @@ def test_radio_pipeline_persists_applied_settings(monkeypatch, tmp_path):
 
     expected = profile.to_dict()
     assert result["applied_settings"] == expected
+    assert [(call["llm_provider"], call["llm_model"]) for call in llm_calls] == [
+        ("ollama", "qwen3.6:35b"),
+        ("ollama", "qwen3.6:35b"),
+        ("ollama", "qwen3.6:35b"),
+    ]
     with open(episode_dir / "metadata.json", encoding="utf-8") as f:
         assert json.load(f)["applied_settings"] == expected
 
