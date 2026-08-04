@@ -67,14 +67,19 @@ describe('GenerateEpisodeButton — 解説モード重複チェック', () => {
     expect(screen.queryByLabelText('LLMプロバイダー')).toBeNull()
   })
 
-  it('利用不可・部分失敗・staleを区別して表示する', async () => {
+  it.each([
+    ['timeout', '応答がタイムアウトしました'],
+    ['connection_failed', '接続できませんでした'],
+    ['invalid_response', '応答を確認できませんでした'],
+  ] as const)('利用不可理由（%s）を安全な文言で表示する', async (error_code, message) => {
     mockFetchLlmProviders.mockResolvedValue({ providers: [
       { provider: 'ollama', models: ['qwen3:8b'], available: true, stale: true },
-      { provider: 'vllm', models: [], available: false },
+      { provider: 'vllm', models: [], available: false, error_code },
     ] })
     render(<GenerateEpisodeButton />)
     await waitFor(() => expect(screen.getByText(/最新情報ではありません/)).toBeInTheDocument())
-    expect(screen.getByRole('option', { name: 'vllm（利用不可）' })).toBeDisabled()
+    expect(screen.getByRole('option', { name: `vllm（${message}）` })).toBeDisabled()
+    expect(screen.getByText(new RegExp(`vllm: ${message}`))).toBeInTheDocument()
     expect(screen.getByText(/一部のプロバイダーは利用できない/)).toBeInTheDocument()
   })
 

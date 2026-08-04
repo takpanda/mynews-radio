@@ -38,6 +38,19 @@ describe('オーナー操作プロキシの認証情報転送', () => {
     }))
   })
 
+  it.each(['timeout', 'connection_failed', 'invalid_response'])('LLMプロバイダーの安全なエラーコード（%s）をそのまま転送する', async (error_code) => {
+    const payload = JSON.stringify({ providers: [{ provider: 'vllm', models: [], available: false, error_code }] })
+    global.fetch = jest.fn().mockResolvedValue({
+      ...upstream,
+      text: () => Promise.resolve(payload),
+    })
+
+    const response = await llmProvidersRoute.GET(request('http://localhost/api/llm/providers'))
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe(payload)
+  })
+
   it('LLMプロバイダー取得の上流障害は504にし、内部情報を返さない', async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error('http://internal:8010 API_KEY=secret'))
 

@@ -76,6 +76,8 @@ export interface Article {
 export type ProgramTheme = 'technology' | 'business' | 'society' | 'sports' | 'entertainment' | 'general'
 export type DurationPreset = 'short' | 'normal' | 'long'
 
+export type LlmProviderErrorCode = 'timeout' | 'connection_failed' | 'invalid_response'
+
 export interface ProgramSettings {
   priority_themes: ProgramTheme[]
   excluded_themes: ProgramTheme[]
@@ -87,6 +89,7 @@ export interface LlmProvider {
   models: string[]
   available: boolean
   stale?: boolean
+  error_code?: LlmProviderErrorCode
 }
 
 export interface LlmProvidersResponse {
