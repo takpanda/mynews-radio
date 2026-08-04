@@ -46,7 +46,8 @@ chmod 0644 /etc/cron.d/mynews-batch
 # Install the crontab
 crontab /etc/cron.d/mynews-batch
 echo "[entrypoint] crontab installed (API_KEY masked):"
-crontab -l | grep -v -e '^API_KEY=' -e '^VAPID_PRIVATE_KEY='
+crontab -l | grep -v -e '^API_KEY=' -e '^VAPID_PRIVATE_KEY=' \
+    -e '^LM_STUDIO_API_KEY=' -e '^VLLM_API_KEY='
 
 # Start cron daemon (avoid duplicate startup)
 if ! pgrep -x "cron" >/dev/null 2>&1; then

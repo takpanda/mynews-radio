@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.services.ollama_client import OpenAICompatibleClient
 
 
@@ -17,10 +19,11 @@ def test_api_key_is_sent_only_as_authorization_header():
     assert client.client.headers["Authorization"] == "Bearer secret-key"
 
 
-def test_reasoning_content_is_normalized_when_content_is_empty():
+@pytest.mark.parametrize("field", ["reasoning_content", "reasoning", "thinking"])
+def test_reasoning_fields_are_normalized_when_content_is_empty(field):
     client = OpenAICompatibleClient("http://llm.internal", "local-model")
     with patch("app.services.ollama_client.httpx.Client.post", return_value=_response({
-        "content": None, "reasoning_content": '{"ok": true}',
+        "content": None, field: '{"ok": true}',
     })):
         assert client.generate_json("prompt") == {"ok": True}
 

@@ -84,6 +84,8 @@ set -e
 OUTPUT_FILE="$1"
 printf 'SHELL=/bin/bash\nPATH=/dummy\n' > "$OUTPUT_FILE"
 for _var in OLLAMA_BASE_URL OLLAMA_MODEL DGX_HOST \
+    LLM_PROVIDER LM_STUDIO_BASE_URL LM_STUDIO_MODEL LM_STUDIO_API_KEY \
+    VLLM_BASE_URL VLLM_MODEL VLLM_API_KEY \
     VOICEVOX_BASE_URL VOICEVOX_SPEAKER_MALE VOICEVOX_SPEAKER_FEMALE \
     AIVISPEECH_BASE_URL AIVISPEECH_SPEAKER_MALE AIVISPEECH_SPEAKER_FEMALE \
     API_KEY CORS_ORIGINS VAPID_PRIVATE_KEY VAPID_CLAIMS_EMAIL; do
@@ -137,6 +139,8 @@ class TestCronEnvInjectionViaSubprocess:
 
     CRON_TARGET_VARS = [
         "OLLAMA_BASE_URL", "OLLAMA_MODEL", "DGX_HOST",
+        "LLM_PROVIDER", "LM_STUDIO_BASE_URL", "LM_STUDIO_MODEL", "LM_STUDIO_API_KEY",
+        "VLLM_BASE_URL", "VLLM_MODEL", "VLLM_API_KEY",
         "VOICEVOX_BASE_URL", "VOICEVOX_SPEAKER_MALE", "VOICEVOX_SPEAKER_FEMALE",
         "AIVISPEECH_BASE_URL", "AIVISPEECH_SPEAKER_MALE", "AIVISPEECH_SPEAKER_FEMALE",
         "API_KEY", "CORS_ORIGINS",
@@ -154,11 +158,28 @@ class TestCronEnvInjectionViaSubprocess:
             "AIVISPEECH_SPEAKER_MALE": "1310138976",
             "AIVISPEECH_SPEAKER_FEMALE": "1388823424",
             "API_KEY": "test-key-123",
+            "LM_STUDIO_API_KEY": "lm-secret",
+            "VLLM_API_KEY": "vllm-secret",
             "CORS_ORIGINS": "http://localhost:3010,https://radio.beeworks.cc",
         }
         output = _run_cron_env_cmd(env)
         for var, val in env.items():
             assert f"{var}={val}" in output, f"{var}={val} が出力に見つかりません"
+
+    def test_cron_log_hides_both_openai_compatible_api_keys(self):
+        output = _run_cron_env_cmd({
+            "LM_STUDIO_API_KEY": "lm-secret",
+            "VLLM_API_KEY": "vllm-secret",
+            "API_KEY": "admin-secret",
+        })
+        result = subprocess.run(
+            ["bash", "-c", "grep -v -e '^API_KEY=' -e '^VAPID_PRIVATE_KEY=' "
+             "-e '^LM_STUDIO_API_KEY=' -e '^VLLM_API_KEY='"],
+            input=output, capture_output=True, text=True, check=True,
+        )
+        assert "lm-secret" not in result.stdout
+        assert "vllm-secret" not in result.stdout
+        assert "admin-secret" not in result.stdout
 
     def test_empty_vars_are_skipped(self):
         output = _run_cron_env_cmd({
