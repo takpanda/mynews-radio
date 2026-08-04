@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.config import get_settings
-from app.services.ollama_client import OllamaClient
+from app.services.ollama_client import OllamaClient, create_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +125,8 @@ def generate_commentary_script(
     article: dict,
     style: str = "solo",
     mc_gender: str = "male",
+    llm_provider: str | None = None,
+    llm_model: str | None = None,
 ) -> int:
     """Generate a commentary script for a single article.
 
@@ -161,7 +163,8 @@ def generate_commentary_script(
 
     response = None
 
-    with OllamaClient(settings.ollama_base_url, settings.ollama_model) as client:
+    client_factory = (lambda: create_llm_client(llm_provider, llm_model)) if (llm_provider or llm_model) else (lambda: OllamaClient(settings.ollama_base_url, settings.ollama_model))
+    with client_factory() as client:
         response = client.generate_json(prompt)
 
     if response is None or not isinstance(response.get("lines"), list):

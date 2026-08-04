@@ -28,6 +28,7 @@ from app.api.settings import router as settings_router
 from app.api.push import router as push_router
 from app.api.audit import router as audit_router
 from app.api.dictionary_sync import router as dictionary_sync_router
+from app.api.llm import router as llm_router
 from app.services.episode_service import EpisodeService
 settings = get_settings()
 app = FastAPI(title="MyNews Radio API", version="0.1.0")
@@ -293,6 +294,7 @@ app.include_router(settings_router)
 app.include_router(push_router)
 app.include_router(audit_router)
 app.include_router(dictionary_sync_router)
+app.include_router(llm_router)
 
 
 # -- Audio file serving --

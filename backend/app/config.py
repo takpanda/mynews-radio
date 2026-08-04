@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     dgx_host: str = "192.168.1.102"
     ollama_base_url: str = "http://192.168.1.102:11434"
     ollama_model: str = "qwen3.6:35b"
+    lm_studio_base_url: str = "http://127.0.0.1:1234"
+    lm_studio_model: str = ""
+    vllm_base_url: str = "http://127.0.0.1:8000"
+    vllm_model: str = ""
+    llm_provider: str = "ollama"
+    llm_connect_timeout: float = 2.0
+    llm_response_timeout: float = 5.0
     voicevox_base_url: str = "http://192.168.1.102:50021"
     voicevox_speaker_male: int = 11
     voicevox_speaker_female: int = 2

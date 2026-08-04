@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.config import get_settings
 from app.services.article_service import ArticleService
-from app.services.ollama_client import OllamaClient
+from app.services.ollama_client import OllamaClient, create_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ def _load_prompt_template() -> str:
     return prompt_path.read_text(encoding="utf-8")
 
 
-def summarize_articles(output_path: str) -> int:
+def summarize_articles(output_path: str, *, llm_provider: str | None = None, llm_model: str | None = None) -> int:
     settings = get_settings()
     service = ArticleService()
 
@@ -31,7 +31,8 @@ def summarize_articles(output_path: str) -> int:
     template = _load_prompt_template()
     results: list[dict] = []
 
-    with OllamaClient(settings.ollama_base_url, settings.ollama_model) as client:
+    client_factory = (lambda: create_llm_client(llm_provider, llm_model)) if (llm_provider or llm_model) else (lambda: OllamaClient(settings.ollama_base_url, settings.ollama_model))
+    with client_factory() as client:
         for article in articles:
             # Skip articles with too short text (not enough content to summarize)
             article_text = article.get("text", "") or ""
