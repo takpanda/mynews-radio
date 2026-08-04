@@ -60,6 +60,20 @@ describe('generateEpisode settings snapshot', () => {
     expect(fetchMock.mock.calls[0][1]?.headers).toEqual(expect.objectContaining({ 'Idempotency-Key': 'same-operation-key' }))
     global.fetch = previousFetch
   })
+
+  it('選択したLLMプロバイダーとモデルを生成payloadへ含める', async () => {
+    const previousFetch = global.fetch
+    const fetchMock = jest.fn().mockResolvedValue(
+      { ok: true, json: async () => ({ episode_id: 12 }) },
+    )
+    global.fetch = fetchMock as typeof fetch
+    await generateEpisode('2026-07-25', 6, 'hatena_bookmark', 'aivispeech', false, undefined, undefined, undefined, undefined, undefined, 'ollama', 'qwen3:8b')
+
+    const request = JSON.parse((fetchMock.mock.calls[0][1]?.body as string))
+    expect(request.llm_provider).toBe('ollama')
+    expect(request.llm_model).toBe('qwen3:8b')
+    global.fetch = previousFetch
+  })
 })
 
 describe('生成制御エラー', () => {

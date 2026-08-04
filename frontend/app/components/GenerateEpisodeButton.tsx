@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'react-hot-toast'
-import { generateEpisode, fetchEpisode, searchEpisodesBySourceUrl, GenerationError, type EpisodeListItem, type DuplicateEpisodeInfo } from '../lib/api'
+import { generateEpisode, fetchEpisode, fetchLlmProviders, searchEpisodesBySourceUrl, GenerationError, type EpisodeListItem, type DuplicateEpisodeInfo, type LlmProvider } from '../lib/api'
 import DuplicateUrlConfirmDialog from './DuplicateUrlConfirmDialog'
 import ProgramSettingsPanel from './ProgramSettingsPanel'
 import type { ProgramSettings } from '../lib/api'
@@ -299,6 +299,8 @@ interface GenerationParams {
   maxArticles: number
   recreateSummary: boolean
   settingsSnapshot?: ProgramSettings
+  llmProvider: string
+  llmModel: string
 }
 
 const STORAGE_KEY = 'generating_episode_id'
@@ -326,6 +328,11 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   const [urlInput, setUrlInput] = useState('')
   const [commentaryStyle, setCommentaryStyle] = useState<'solo' | 'dialogue'>('solo')
   const [mcGender, setMcGender] = useState<'male' | 'female'>('male')
+  const [llmProviders, setLlmProviders] = useState<LlmProvider[]>([])
+  const [llmLoading, setLlmLoading] = useState(true)
+  const [llmError, setLlmError] = useState<string | null>(null)
+  const [llmProvider, setLlmProvider] = useState('')
+  const [llmModel, setLlmModel] = useState('')
   const [urlError, setUrlError] = useState<string | null>(null)
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false)
   const [duplicateDialog, setDuplicateDialog] = useState<{
@@ -349,6 +356,22 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   useEffect(() => {
     isLoadingRef.current = isLoading
   }, [isLoading])
+
+  useEffect(() => {
+    let cancelled = false
+    fetchLlmProviders().then(({ providers }) => {
+      if (cancelled) return
+      setLlmProviders(providers)
+      const first = providers.find((item) => item.available && item.models.length > 0)
+      setLlmProvider(first?.provider ?? '')
+      setLlmModel(first?.models[0] ?? '')
+    }).catch((error) => {
+      if (!cancelled) setLlmError(error instanceof Error ? error.message : 'プロバイダー一覧を読み込めません')
+    }).finally(() => {
+      if (!cancelled) setLlmLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     const checkAndResume = async () => {
@@ -536,6 +559,8 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
     const engine = params ? params.ttsEngine : ttsEngine
     const articles = params ? params.maxArticles : maxArticles
     const recreate = params ? params.recreateSummary : recreateSummary
+    const selectedLlmProvider = params ? params.llmProvider : llmProvider
+    const selectedLlmModel = params ? params.llmModel : llmModel
 
     setIsLoading(true)
     setProgress([{ phase: 'start', message: '番組の生成を準備しています…', updatedAt: Date.now() }])
@@ -565,7 +590,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
         : undefined)
       setAppliedSettings(settingsSnapshot ?? null)
       if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID()
-      const { episode_id } = await generateEpisode(today, articles, source, engine, recreate, url, url ? style : undefined, url && style === 'solo' ? gender : undefined, settingsSnapshot, idempotencyKeyRef.current)
+      const { episode_id } = await generateEpisode(today, articles, source, engine, recreate, url, url ? style : undefined, url && style === 'solo' ? gender : undefined, settingsSnapshot, idempotencyKeyRef.current, selectedLlmProvider || undefined, selectedLlmModel || undefined)
       idempotencyKeyRef.current = null
       localStorage.setItem(STORAGE_KEY, String(episode_id))
       setEpisodeId(episode_id)
@@ -597,6 +622,8 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
             duration_preset: programSettings.duration_preset,
           }
         : undefined,
+      llmProvider,
+      llmModel,
     }
     setIsCheckingDuplicate(true)
     setDuplicateDialog(null)
@@ -737,6 +764,66 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
               setMaxArticles(settings.duration_preset === 'short' ? 6 : settings.duration_preset === 'long' ? 14 : 10)
             }}
           />
+          <fieldset className="rounded-xl border border-slate-200 bg-slate-50/70 p-3" disabled={isLoading || llmLoading}>
+            <legend className="px-1 text-sm font-medium text-slate-900">LLMプロバイダー・モデル</legend>
+            <p className="mt-1 text-xs leading-5 text-slate-500">生成に使用するプロバイダーとモデルを選択できます。</p>
+            {llmLoading ? (
+              <p className="mt-3 text-xs text-slate-500" aria-live="polite">利用可能なモデルを読み込み中…</p>
+            ) : llmError ? (
+              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800" role="status">
+                {llmError} 標準設定で生成できます。
+              </p>
+            ) : llmProviders.length === 0 ? (
+              <p className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-500" role="status">
+                利用可能なプロバイダー・モデルがありません。標準設定で生成できます。
+              </p>
+            ) : (
+              <>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-medium text-slate-700">
+                    プロバイダー
+                    <select
+                      aria-label="LLMプロバイダー"
+                      value={llmProvider}
+                      onChange={(event) => {
+                        const nextProvider = event.target.value
+                        const next = llmProviders.find((item) => item.provider === nextProvider)
+                        setLlmProvider(nextProvider)
+                        setLlmModel(next?.models[0] ?? '')
+                      }}
+                      className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                    >
+                      {llmProviders.map((item) => (
+                        <option key={item.provider} value={item.provider} disabled={!item.available || item.models.length === 0}>
+                          {item.provider}{!item.available ? '（利用不可）' : item.models.length === 0 ? '（モデルなし）' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-xs font-medium text-slate-700">
+                    モデル
+                    <select
+                      aria-label="LLMモデル"
+                      value={llmModel}
+                      onChange={(event) => setLlmModel(event.target.value)}
+                      disabled={!llmProvider || !llmProviders.find((item) => item.provider === llmProvider)?.models.length}
+                      className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-50"
+                    >
+                      {llmProviders.find((item) => item.provider === llmProvider)?.models.map((model) => (
+                        <option key={model} value={model}>{model}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                {llmProviders.find((item) => item.provider === llmProvider)?.stale && (
+                  <p className="mt-2 text-xs text-amber-700" role="status">モデル一覧は最新情報ではありません。現在確認できたモデルを表示しています。</p>
+                )}
+                {llmProviders.some((item) => !item.available) && (
+                  <p className="mt-2 text-xs text-slate-500">一部のプロバイダーは利用できないため選択できません。</p>
+                )}
+              </>
+            )}
+          </fieldset>
           <fieldset>
             <legend className="text-sm font-medium text-slate-900">ニュースソース</legend>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
