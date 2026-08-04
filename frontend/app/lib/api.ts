@@ -82,6 +82,17 @@ export interface ProgramSettings {
   duration_preset: DurationPreset
 }
 
+export interface LlmProvider {
+  provider: string
+  models: string[]
+  available: boolean
+  stale?: boolean
+}
+
+export interface LlmProvidersResponse {
+  providers: LlmProvider[]
+}
+
 const SERVER_API_BASE = process.env.API_BASE ?? 'http://api:8010'
 const CLIENT_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '/api'
 
@@ -110,6 +121,14 @@ export async function resetProgramSettings(): Promise<ProgramSettings> {
   const res = await fetch(`${getApiBase()}/settings`, { method: 'DELETE' })
   if (!res.ok) throw new Error(res.status === 401 ? 'ログインが必要です。再度ログインしてください。' : '設定を初期化できませんでした')
   return res.json() as Promise<ProgramSettings>
+}
+
+export async function fetchLlmProviders(): Promise<LlmProvidersResponse> {
+  const res = await fetch('/api/llm/providers', { cache: 'no-store' })
+  if (!res.ok) {
+    throw new Error(res.status === 401 ? 'ログインが必要です。再度ログインしてください。' : 'プロバイダー一覧の読み込みに失敗しました')
+  }
+  return res.json() as Promise<LlmProvidersResponse>
 }
 
 function getApiBase(): string {
@@ -255,7 +274,7 @@ function parseErrorDetail(body: string): string {
   return body
 }
 
-export async function generateEpisode(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', recreateSummary = false, url?: string, style?: 'solo' | 'dialogue', mcGender?: 'male' | 'female', settingsSnapshot?: ProgramSettings, idempotencyKey?: string): Promise<GenerateResponse> {
+export async function generateEpisode(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', recreateSummary = false, url?: string, style?: 'solo' | 'dialogue', mcGender?: 'male' | 'female', settingsSnapshot?: ProgramSettings, idempotencyKey?: string, llmProvider?: string, llmModel?: string): Promise<GenerateResponse> {
   const res = await fetch('/api/generate', {
     method: 'POST',
     headers: {
@@ -272,6 +291,7 @@ export async function generateEpisode(date: string, maxArticles = 10, newsSource
       ...(style ? { style } : {}),
       ...(style === 'solo' && mcGender ? { mc_gender: mcGender } : {}),
       ...(settingsSnapshot ? { settings_snapshot: settingsSnapshot } : {}),
+      ...(llmProvider && llmModel ? { llm_provider: llmProvider, llm_model: llmModel } : {}),
     }),
   })
   if (!res.ok) {
