@@ -436,6 +436,18 @@ describe('GenerateEpisodeButton — 通常ラジオ生成（回帰）', () => {
     await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
     expect(mockGenerateEpisode.mock.calls[0][3]).toBe('fishs2pro')
   })
+
+  it('VOICEVOXを選択して通常生成するとvoicevoxを生成APIへ送信する', async () => {
+    const user = userEvent.setup()
+
+    render(<GenerateEpisodeButton />)
+
+    await user.click(screen.getByRole('radio', { name: /VOICEVOX/ }))
+    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    expect(mockGenerateEpisode.mock.calls[0][3]).toBe('voicevox')
+  })
 })
 
 describe('GenerateEpisodeButton — 存在しない生成エピソードの終端処理', () => {
