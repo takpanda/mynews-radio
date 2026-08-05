@@ -682,6 +682,14 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
         ? 'border-amber-200 bg-amber-50 text-amber-800'
       : 'border-sky-200 bg-sky-50 text-sky-800'
   const selectedProvider = llmProviders.find((item) => item.provider === llmProvider)
+  const unavailableReason = (errorCode: LlmProvider['error_code']): string => {
+    switch (errorCode) {
+      case 'timeout': return '応答がタイムアウトしました'
+      case 'connection_failed': return '接続できませんでした'
+      case 'invalid_response': return '応答を確認できませんでした'
+      default: return '利用できません'
+    }
+  }
 
   if (!isAuthenticated) {
     return (
@@ -796,7 +804,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
                     >
                       {llmProviders.map((item) => (
                         <option key={item.provider} value={item.provider} disabled={!item.available || item.models.length === 0}>
-                          {item.provider}{!item.available ? '（利用不可）' : item.models.length === 0 ? '（モデルなし）' : ''}
+                          {item.provider}{!item.available ? `（${unavailableReason(item.error_code)}）` : item.models.length === 0 ? '（モデルなし）' : ''}
                         </option>
                       ))}
                     </select>
@@ -820,7 +828,12 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
                   <p className="mt-2 text-xs text-amber-700" role="status">モデル一覧は最新情報ではありません。現在確認できたモデルを表示しています。</p>
                 )}
                 {llmProviders.some((item) => !item.available) && (
-                  <p className="mt-2 text-xs text-slate-500">一部のプロバイダーは利用できないため選択できません。</p>
+                  <div className="mt-2 space-y-1 text-xs text-slate-500" role="status">
+                    <p>一部のプロバイダーは利用できないため選択できません。</p>
+                    {llmProviders.filter((item) => !item.available).map((item) => (
+                      <p key={item.provider}>{item.provider}: {unavailableReason(item.error_code)}</p>
+                    ))}
+                  </div>
                 )}
               </>
             )}
