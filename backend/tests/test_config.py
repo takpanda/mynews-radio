@@ -43,6 +43,15 @@ class TestConfigDefaults:
         settings = Settings()
         assert settings.aivispeech_base_url == "http://192.168.1.102:10101"
 
+    def test_fishs2pro_base_url_default(self):
+        from app.config import Settings
+        assert Settings().fishs2pro_base_url == "http://192.168.1.102:8000"
+
+    def test_fishs2pro_base_url_can_be_overridden(self, monkeypatch):
+        from app.config import Settings
+        monkeypatch.setenv("FISHS2PRO_BASE_URL", "http://fish.local:9000")
+        assert Settings().fishs2pro_base_url == "http://fish.local:9000"
+
 
 # =========================================================================
 # entrypoint.sh shellcheck
@@ -88,6 +97,7 @@ for _var in OLLAMA_BASE_URL OLLAMA_MODEL DGX_HOST \
     VLLM_BASE_URL VLLM_MODEL VLLM_API_KEY \
     VOICEVOX_BASE_URL VOICEVOX_SPEAKER_MALE VOICEVOX_SPEAKER_FEMALE \
     AIVISPEECH_BASE_URL AIVISPEECH_SPEAKER_MALE AIVISPEECH_SPEAKER_FEMALE \
+    FISHS2PRO_BASE_URL \
     API_KEY CORS_ORIGINS VAPID_PRIVATE_KEY VAPID_CLAIMS_EMAIL; do
   _val="${!_var:-}"
   if [ -n "$_val" ]; then
@@ -143,6 +153,7 @@ class TestCronEnvInjectionViaSubprocess:
         "VLLM_BASE_URL", "VLLM_MODEL", "VLLM_API_KEY",
         "VOICEVOX_BASE_URL", "VOICEVOX_SPEAKER_MALE", "VOICEVOX_SPEAKER_FEMALE",
         "AIVISPEECH_BASE_URL", "AIVISPEECH_SPEAKER_MALE", "AIVISPEECH_SPEAKER_FEMALE",
+        "FISHS2PRO_BASE_URL",
         "API_KEY", "CORS_ORIGINS",
     ]
 
@@ -157,6 +168,7 @@ class TestCronEnvInjectionViaSubprocess:
             "AIVISPEECH_BASE_URL": "http://192.168.1.102:10101",
             "AIVISPEECH_SPEAKER_MALE": "1310138976",
             "AIVISPEECH_SPEAKER_FEMALE": "1388823424",
+            "FISHS2PRO_BASE_URL": "http://192.168.1.102:8000",
             "API_KEY": "test-key-123",
             "LM_STUDIO_API_KEY": "lm-secret",
             "VLLM_API_KEY": "vllm-secret",
