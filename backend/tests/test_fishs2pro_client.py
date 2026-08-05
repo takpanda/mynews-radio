@@ -31,6 +31,16 @@ def test_synthesize_line_posts_text_speaker_delivery_and_saves_wav(tmp_path):
     assert len(requests) == 1
 
 
+def test_synthesize_line_posts_female_speaker_and_saves_wav(tmp_path):
+    def handler(request):
+        assert json.loads(request.content)["speaker"] == "female"
+        return httpx.Response(200, content=b"RIFF-female", headers={"content-type": "audio/wav; charset=binary"})
+
+    output = tmp_path / "female.wav"
+    assert _client(handler).synthesize_line("女性本文", "female", str(output))
+    assert output.read_bytes() == b"RIFF-female"
+
+
 def test_health_check_requires_ok_and_both_voices():
     client = _client(
         lambda request: httpx.Response(
@@ -47,11 +57,34 @@ def test_health_check_rejects_missing_voice():
     assert client.health_check()["status"] == "error"
 
 
+def test_health_check_rejects_invalid_json():
+    client = _client(lambda request: httpx.Response(200, text="not-json"))
+    assert client.health_check()["status"] == "error"
+
+
+def test_health_check_returns_error_on_http_error():
+    client = _client(lambda request: httpx.Response(503, text="unavailable"))
+    assert client.health_check()["status"] == "error"
+
+
 def test_synthesize_line_rejects_non_wav_response(tmp_path):
     client = _client(
         lambda request: httpx.Response(200, content=b"not-wav", headers={"content-type": "application/json"})
     )
     assert not client.synthesize_line("本文", "female", str(tmp_path / "line.wav"))
+
+
+def test_synthesize_line_rejects_empty_body(tmp_path):
+    client = _client(lambda request: httpx.Response(200, content=b"", headers={"content-type": "audio/wav"}))
+    assert not client.synthesize_line("本文", "male", str(tmp_path / "line.wav"))
+
+
+def test_synthesize_line_returns_false_on_timeout(tmp_path):
+    def handler(request):
+        raise httpx.ReadTimeout("timed out")
+
+    client = _client(handler)
+    assert not client.synthesize_line("本文", "male", str(tmp_path / "line.wav"))
 
 
 def test_synthesize_line_returns_false_on_http_error(tmp_path):
