@@ -9,6 +9,7 @@ from typing import Dict, List
 sys.path.insert(0, __import__("os").path.join(__import__("os").path.dirname(__file__), "..", ".."))
 
 from app.services.ollama_client import OllamaClient  # noqa: E402
+from app.services.fishs2pro_client import FishS2ProClient  # noqa: E402
 from app.services.voicevox_client import VoicevoxClient  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,8 @@ def health_check_ollama(base_url: str, model: str) -> Dict[str, str]:
 
 def health_check_tts(base_url: str, engine: str) -> Dict[str, str]:
     """TTS エンジンのヘルスチェックを実行して結果をログに記録する."""
-    with VoicevoxClient(base_url) as client:
+    client_type = FishS2ProClient if engine == "fishs2pro" else VoicevoxClient
+    with client_type(base_url) as client:
         result = client.health_check()
 
     status = result.get("status", "error")
@@ -77,7 +79,10 @@ if __name__ == "__main__":
     from app.config import get_settings  # noqa: E402
 
     settings = get_settings()
-    tts_url = settings.aivispeech_base_url if settings.default_tts_engine == "aivispeech" else settings.voicevox_base_url
+    if settings.default_tts_engine == "fishs2pro":
+        tts_url = settings.fishs2pro_base_url
+    else:
+        tts_url = settings.aivispeech_base_url if settings.default_tts_engine == "aivispeech" else settings.voicevox_base_url
     results = run_health_checks(settings.ollama_base_url, settings.ollama_model, tts_url, settings.default_tts_engine)
     for r in results:
         print(f" {r['service']}: {r['status']} {r.get('detail', '')}")
