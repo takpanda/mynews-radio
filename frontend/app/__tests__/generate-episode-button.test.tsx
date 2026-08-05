@@ -420,6 +420,22 @@ describe('GenerateEpisodeButton — 通常ラジオ生成（回帰）', () => {
     })
     expect(mockSearchEpisodesBySourceUrl).not.toHaveBeenCalled()
   })
+
+  it('Fish S2 Proを選択するとfishs2proを生成APIへ送信する', async () => {
+    const user = userEvent.setup()
+
+    render(<GenerateEpisodeButton />)
+
+    expect(screen.getByRole('radio', { name: /AivisSpeech/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /VOICEVOX/ })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /Fish S2 Pro/ })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: /Fish S2 Pro/ }))
+    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    expect(mockGenerateEpisode.mock.calls[0][3]).toBe('fishs2pro')
+  })
 })
 
 describe('GenerateEpisodeButton — 存在しない生成エピソードの終端処理', () => {
