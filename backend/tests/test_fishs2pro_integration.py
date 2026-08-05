@@ -57,6 +57,98 @@ def test_fishs2pro_episode_uses_male_and_female_and_44100hz(tmp_path):
         assert wav.getframerate() == 44100
 
 
+def test_fishs2pro_normalizes_transition_before_combining(tmp_path):
+    from app.batch.synthesize_voicevox import synthesize_episode
+    from app.services.ffmpeg_service import combine_wav_files
+
+    episode_dir = tmp_path / "episode"
+    episode_dir.mkdir()
+    (episode_dir / "script.json").write_text(
+        json.dumps({"lines": [{"text": "遷移後本文", "speaker": "male", "section": "transition"}]}),
+        encoding="utf-8",
+    )
+
+    class FakeFishClient:
+        def __init__(self, base_url):
+            pass
+
+        def synthesize_line(self, text, speaker, output_path, delivery="neutral"):
+            with wave.open(output_path, "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(44100)
+                wav.writeframes(b"\0\0" * 10)
+            return True
+
+        def close(self):
+            pass
+
+    def fake_convert(source, destination, sample_rate):
+        with wave.open(destination, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+            wav.writeframes(b"\0\0" * 10)
+        return True
+
+    with patch("app.batch.synthesize_voicevox.get_settings", return_value=_settings()), \
+         patch("app.batch.synthesize_voicevox.FishS2ProClient", FakeFishClient), \
+         patch("app.batch.synthesize_voicevox.convert_to_wav", side_effect=fake_convert):
+        assert synthesize_episode(str(episode_dir), tts_engine="fishs2pro") == 1
+
+    wav_files = sorted((episode_dir / "lines").glob("*.wav"))
+    combined = episode_dir / "combined.wav"
+    combine_wav_files([str(path) for path in wav_files], str(combined))
+    with wave.open(str(combined), "rb") as wav:
+        assert (wav.getframerate(), wav.getnchannels(), wav.getsampwidth()) == (44100, 1, 2)
+
+
+def test_unset_generate_and_resynthesize_requests_use_configured_default(tmp_path):
+    from app.api import generate as generate_api
+    from app.batch.radio_pipeline import _determine_tts_config
+    from app.services.episode_service import EpisodeService
+
+    fish_settings = _settings()
+    fish_settings.default_tts_engine = "fishs2pro"
+    assert generate_api.GenerateRequest(date="2099-01-01").tts_engine is None
+    assert generate_api.SynthesizeRequest().tts_engine is None
+
+    with patch.object(generate_api, "get_settings", return_value=fish_settings), \
+         patch("app.batch.radio_pipeline.get_settings", return_value=fish_settings):
+        assert _determine_tts_config(None)["tts_engine"] == "fishs2pro"
+
+        episode_id, _ = EpisodeService().create_radio_episode("2099-01-01")
+        episode_dir = tmp_path / str(episode_id)
+        (episode_dir / "lines").mkdir(parents=True)
+        (episode_dir / "script.json").write_text(json.dumps({"lines": []}), encoding="utf-8")
+
+        with patch.object(generate_api, "DEFAULT_EPISODES_DIR", str(tmp_path)), \
+             patch.object(generate_api, "synthesize_episode", return_value=1) as synthesize, \
+             patch.object(generate_api, "build_episode", return_value={"audio_path": "episode.mp3"}):
+            list(generate_api._stream_synthesize(episode_id, generate_api.SynthesizeRequest()))
+
+    kwargs = synthesize.call_args.kwargs
+    assert kwargs["base_url"] == "http://fish.test"
+    assert kwargs["speaker_male"] is None
+    assert kwargs["speaker_female"] is None
+    assert kwargs["tts_engine"] == "fishs2pro"
+
+
+def test_unset_generate_request_passes_configured_default_to_pipeline():
+    from app.api import generate as generate_api
+    from app.services.episode_service import EpisodeService
+
+    fish_settings = _settings()
+    fish_settings.default_tts_engine = "fishs2pro"
+    episode_id, _ = EpisodeService().create_radio_episode("2099-01-02")
+
+    with patch.object(generate_api, "get_settings", return_value=fish_settings), \
+         patch.object(generate_api, "run_radio_pipeline", return_value={"audio_path": "episode.mp3"}) as pipeline:
+        generate_api._run_generation(episode_id, generate_api.GenerateRequest(date="2099-01-02"))
+
+    assert pipeline.call_args.kwargs["tts_engine"] == "fishs2pro"
+
+
 def test_determine_tts_config_for_fishs2pro():
     from app.batch import radio_pipeline
 

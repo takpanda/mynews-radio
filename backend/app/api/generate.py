@@ -35,6 +35,12 @@ from app.services.llm_provider import validate_provider_model
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+TTS_ENGINES = {"voicevox", "aivispeech", "fishs2pro"}
+
+
+def _resolve_tts_engine(request_engine: str | None, default_engine: str) -> str:
+    """リクエスト未指定・不正時は設定済みの既定エンジンを使う。"""
+    return request_engine if request_engine in TTS_ENGINES else default_engine
 
 
 def _get_generate_rate_limit() -> str:
@@ -129,7 +135,7 @@ class GenerateRequest(BaseModel):
     max_articles: int | None = Field(default=None, ge=1, le=50)
     duration_minutes: int | None = Field(default=None, ge=1, le=640)
     news_source: str = Field(default="hatena_bookmark", description="ニュースソース (hatena_bookmark | hatena_hotentry_all | yahoo_news)")
-    tts_engine: str = Field(default="aivispeech", description="TTSエンジン (voicevox | aivispeech | fishs2pro)")
+    tts_engine: str | None = Field(default=None, description="TTSエンジン (voicevox | aivispeech | fishs2pro)。未指定時は設定値を使用")
     url: str | None = Field(default=None, description="解説対象の記事URL（指定時はnews_sourceは無視）")
     style: str = Field(default="solo", description="解説スタイル (solo | dialogue)")
     mc_gender: str = Field(default="male", description="MC性別 (male | female)")
@@ -164,7 +170,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
             if body.settings_snapshot is not None
             else get_settings_or_default()
         ),
-        tts_engine=body.tts_engine,
+        tts_engine=_resolve_tts_engine(body.tts_engine, get_settings().default_tts_engine),
         default_episodes_dir=DEFAULT_EPISODES_DIR,
         progress_callback=_progress,
         llm_provider=llm.name,
@@ -271,8 +277,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
 
         # -- TTS SETUP --
         settings = get_settings()
-        tts_engines = {"voicevox", "aivispeech", "fishs2pro"}
-        tts_engine = body.tts_engine if body.tts_engine in tts_engines else settings.default_tts_engine
+        tts_engine = _resolve_tts_engine(body.tts_engine, settings.default_tts_engine)
         if tts_engine == "fishs2pro":
             tts_base_url = settings.fishs2pro_base_url
             tts_speaker_male = None
@@ -466,7 +471,7 @@ async def _async_wrapper(episode_id: int, body: GenerateRequest, pipeline: calla
 
 class SynthesizeRequest(BaseModel):
     """音声合成リクエスト"""
-    tts_engine: str = Field(default="aivispeech", description="TTSエンジン (voicevox | aivispeech | fishs2pro)")
+    tts_engine: str | None = Field(default=None, description="TTSエンジン (voicevox | aivispeech | fishs2pro)。未指定時は設定値を使用")
 
 
 def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[bytes, None, None]:
@@ -484,8 +489,7 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
         return
 
     settings = get_settings()
-    TTS_ENGINES = {"voicevox", "aivispeech", "fishs2pro"}
-    tts_engine = body.tts_engine if body.tts_engine in TTS_ENGINES else settings.default_tts_engine
+    tts_engine = _resolve_tts_engine(body.tts_engine, settings.default_tts_engine)
     if tts_engine == "fishs2pro":
         tts_base_url = settings.fishs2pro_base_url
         tts_speaker_male = None
