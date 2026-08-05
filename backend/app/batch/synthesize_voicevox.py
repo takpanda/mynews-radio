@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.config import get_settings
 from app.services.ffmpeg_service import convert_to_wav
+from app.services.fishs2pro_client import FishS2ProClient
 from app.services.voicevox_client import VoicevoxClient
 from app.services.replacement_table import apply_replacements
 
@@ -41,7 +42,7 @@ def _create_silence_wav(
         return False
 
 
-def _normalize_wavs_to_speech_rate(wav_dir: str) -> None:
+def _normalize_wavs_to_speech_rate(wav_dir: str, target_rate: int | None = None) -> None:
     """lines/ 以下の全 WAV を TTS 出力のサンプリングレートに統一する。
 
     TTS エンジン（VOICEVOX: 24000Hz / AivisSpeech: 44100Hz 等）によって
@@ -66,8 +67,8 @@ def _normalize_wavs_to_speech_rate(wav_dir: str) -> None:
     if not rates:
         return
 
-    # 最多数のレートをターゲットとする
-    target_rate: int = collections.Counter(rates.values()).most_common(1)[0][0]
+    # エンジン固有のレートが指定されていない場合は最多数のレートを使う。
+    target_rate = target_rate or collections.Counter(rates.values()).most_common(1)[0][0]
 
     for path, rate in rates.items():
         if rate == target_rate:
@@ -90,6 +91,7 @@ def synthesize_episode(
     base_url: str | None = None,
     speaker_male: int | None = None,
     speaker_female: int | None = None,
+    tts_engine: str | None = None,
 ) -> int:
     """
     Read script.json from *directory*, generate a WAV for each line,
@@ -101,8 +103,11 @@ def synthesize_episode(
     Returns total number of lines successfully synthesized.
     """
     settings = get_settings()
-    default_engine_is_aivispeech = settings.default_tts_engine == "aivispeech"
+    engine = tts_engine or settings.default_tts_engine
+    default_engine_is_aivispeech = engine == "aivispeech"
+    is_fishs2pro = engine == "fishs2pro"
     effective_base_url = base_url if base_url is not None else (
+        settings.fishs2pro_base_url if is_fishs2pro else
         settings.aivispeech_base_url if default_engine_is_aivispeech else settings.voicevox_base_url
     )
     effective_speaker_male = speaker_male if speaker_male is not None else (
@@ -129,7 +134,7 @@ def synthesize_episode(
     wav_dir = os.path.join(directory, "lines")
     os.makedirs(wav_dir, exist_ok=True)
 
-    client = VoicevoxClient(
+    client = FishS2ProClient(effective_base_url) if is_fishs2pro else VoicevoxClient(
         effective_base_url,
         speaker_male=effective_speaker_male,
         speaker_female=effective_speaker_female,
@@ -178,10 +183,13 @@ def synthesize_episode(
             idx, speaker, section, delivery, original_text[:50], filepath,
         )
 
-        ok = client.synthesize_line(
-            spoken_text, speaker, filepath, delivery=delivery,
-            kana_text=spoken_text if spoken_text != original_text else None,
-        )
+        if is_fishs2pro:
+            ok = client.synthesize_line(spoken_text, speaker, filepath, delivery=delivery)
+        else:
+            ok = client.synthesize_line(
+                spoken_text, speaker, filepath, delivery=delivery,
+                kana_text=spoken_text if spoken_text != original_text else None,
+            )
         if ok and os.path.isfile(filepath):
             success_count += 1
             # Store both display and spoken text back into line object
@@ -194,7 +202,7 @@ def synthesize_episode(
         file_counter += 1
 
     # すべての WAV を同一サンプリングレートに正規化（TTS エンジン切替時のレート不一致を解消）
-    _normalize_wavs_to_speech_rate(wav_dir)
+    _normalize_wavs_to_speech_rate(wav_dir, target_rate=44100 if is_fishs2pro else None)
 
     # Write updated script.json with display/spoken separation
     script["lines"] = lines

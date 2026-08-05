@@ -82,8 +82,15 @@ def _resolve_max_articles(max_articles: int | None, settings_params: dict[str, A
 
 def _determine_tts_config(tts_engine: str | None = None) -> dict[str, Any]:
     settings = get_settings()
-    tts_engines = {"voicevox", "aivispeech"}
+    tts_engines = {"voicevox", "aivispeech", "fishs2pro"}
     engine = tts_engine if tts_engine and tts_engine in tts_engines else settings.default_tts_engine
+    if engine == "fishs2pro":
+        return {
+            "tts_engine": engine,
+            "base_url": settings.fishs2pro_base_url,
+            "speaker_male": None,
+            "speaker_female": None,
+        }
     if engine == "aivispeech":
         return {
             "tts_engine": engine,
@@ -214,6 +221,7 @@ def run_radio_pipeline(
             logger.warning("key_points extraction failed (non-fatal)", exc_info=True)
 
         # -- TTS SETUP --
+        tts_config = _determine_tts_config(tts_engine)
         if tts_base_url is not None and tts_speaker_male is not None and tts_speaker_female is not None:
             effective_tts_base_url = tts_base_url
             effective_tts_male = tts_speaker_male
@@ -265,6 +273,7 @@ def run_radio_pipeline(
                 base_url=effective_tts_base_url,
                 speaker_male=effective_tts_male,
                 speaker_female=effective_tts_female,
+                tts_engine=tts_config["tts_engine"],
             )
         except Exception as exc:
             logger.exception("tts synthesis failed")

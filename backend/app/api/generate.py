@@ -129,7 +129,7 @@ class GenerateRequest(BaseModel):
     max_articles: int | None = Field(default=None, ge=1, le=50)
     duration_minutes: int | None = Field(default=None, ge=1, le=640)
     news_source: str = Field(default="hatena_bookmark", description="ニュースソース (hatena_bookmark | hatena_hotentry_all | yahoo_news)")
-    tts_engine: str = Field(default="aivispeech", description="TTSエンジン (voicevox | aivispeech)")
+    tts_engine: str = Field(default="aivispeech", description="TTSエンジン (voicevox | aivispeech | fishs2pro)")
     url: str | None = Field(default=None, description="解説対象の記事URL（指定時はnews_sourceは無視）")
     style: str = Field(default="solo", description="解説スタイル (solo | dialogue)")
     mc_gender: str = Field(default="male", description="MC性別 (male | female)")
@@ -271,9 +271,13 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
 
         # -- TTS SETUP --
         settings = get_settings()
-        tts_engines = {"voicevox", "aivispeech"}
+        tts_engines = {"voicevox", "aivispeech", "fishs2pro"}
         tts_engine = body.tts_engine if body.tts_engine in tts_engines else settings.default_tts_engine
-        if tts_engine == "aivispeech":
+        if tts_engine == "fishs2pro":
+            tts_base_url = settings.fishs2pro_base_url
+            tts_speaker_male = None
+            tts_speaker_female = None
+        elif tts_engine == "aivispeech":
             tts_base_url = settings.aivispeech_base_url
             tts_speaker_male = settings.aivispeech_speaker_male
             tts_speaker_female = settings.aivispeech_speaker_female
@@ -290,6 +294,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
                 base_url=tts_base_url,
                 speaker_male=tts_speaker_male,
                 speaker_female=tts_speaker_female,
+                tts_engine=tts_engine,
             )
         except Exception as exc:
             logger.exception("tts synthesis failed")
@@ -461,7 +466,7 @@ async def _async_wrapper(episode_id: int, body: GenerateRequest, pipeline: calla
 
 class SynthesizeRequest(BaseModel):
     """音声合成リクエスト"""
-    tts_engine: str = Field(default="aivispeech", description="TTSエンジン (voicevox | aivispeech)")
+    tts_engine: str = Field(default="aivispeech", description="TTSエンジン (voicevox | aivispeech | fishs2pro)")
 
 
 def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[bytes, None, None]:
@@ -479,9 +484,14 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
         return
 
     settings = get_settings()
-    TTS_ENGINES = {"voicevox", "aivispeech"}
+    TTS_ENGINES = {"voicevox", "aivispeech", "fishs2pro"}
     tts_engine = body.tts_engine if body.tts_engine in TTS_ENGINES else settings.default_tts_engine
-    if tts_engine == "aivispeech":
+    if tts_engine == "fishs2pro":
+        tts_base_url = settings.fishs2pro_base_url
+        tts_speaker_male = None
+        tts_speaker_female = None
+        tts_engine_label = "Fish S2 Pro"
+    elif tts_engine == "aivispeech":
         tts_base_url = settings.aivispeech_base_url
         tts_speaker_male = settings.aivispeech_speaker_male
         tts_speaker_female = settings.aivispeech_speaker_female
@@ -501,6 +511,7 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
             base_url=tts_base_url,
             speaker_male=tts_speaker_male,
             speaker_female=tts_speaker_female,
+            tts_engine=tts_engine,
         )
     except Exception as exc:
         logger.exception("tts synthesis failed for episode %d", episode_id)
