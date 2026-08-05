@@ -51,6 +51,7 @@
 | `AIVISPEECH_BASE_URL` | AivisSpeech API のエンドポイント | `http://192.168.1.102:10101` |
 | `AIVISPEECH_SPEAKER_MALE` | AivisSpeech 男性話者 ID | `1310138976`（阿井田茂） |
 | `AIVISPEECH_SPEAKER_FEMALE` | AivisSpeech 女性話者 ID | `1388823424`（湊音エル） |
+| `FISHS2PRO_BASE_URL` | Fish S2 Pro TTS API のエンドポイント | `http://192.168.1.102:8000` |
 | `API_KEY` | API キー（辞書・レポート等の管理API向け。手動の生成開始・再音声合成は管理者セッションが必要） | 空文字 |
 | `GENERATE_RATE_LIMIT` | 生成系 API のリクエストレート制限（管理者セッション単位。例: `5/minute`, `100/hour`） | `5/minute` |
 | `PROXY_CLIENT_IP_HMAC_SECRET` | 検証済みクライアントIPのリレー署名検証用HMAC秘密鍵。Next.js（リレー）とバックエンドで同一値を設定する。値は公開しない | 空文字（未設定時はリレー署名を検証せずTCP接続元IPを使用） |
@@ -223,6 +224,12 @@ import_articles
 |---|---|---|
 | `aivispeech` | AivisSpeech | デフォルト。高品質な日本語音声合成 |
 | `voicevox` | VOICEVOX | オープンソース TTS エンジン |
+
+Fish S2 Pro の専用HTTPクライアントは `backend/app/services/fishs2pro_client.py` にあります。
+既定の接続先は `http://192.168.1.102:8000` で、`FISHS2PRO_BASE_URL` で上書きできます。
+Fish S2 Pro API は `POST /synthesize`（JSON: `text`、`speaker`、`delivery`）と
+`GET /health` を使用します。Fish S2 Pro を利用する場合も既存の
+`DEFAULT_TTS_ENGINE=aivispeech` は変更されません。
 
 Irodori-TTS（OpenAI 互換 API）も利用可能です。詳細は `backend/app/services/irodori_client.py` を参照してください。
 

@@ -43,6 +43,15 @@ class TestConfigDefaults:
         settings = Settings()
         assert settings.aivispeech_base_url == "http://192.168.1.102:10101"
 
+    def test_fishs2pro_base_url_default(self):
+        from app.config import Settings
+        assert Settings().fishs2pro_base_url == "http://192.168.1.102:8000"
+
+    def test_fishs2pro_base_url_can_be_overridden(self, monkeypatch):
+        from app.config import Settings
+        monkeypatch.setenv("FISHS2PRO_BASE_URL", "http://fish.local:9000")
+        assert Settings().fishs2pro_base_url == "http://fish.local:9000"
+
 
 # =========================================================================
 # entrypoint.sh shellcheck
