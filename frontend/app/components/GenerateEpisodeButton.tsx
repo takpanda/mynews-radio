@@ -295,7 +295,7 @@ interface GenerationParams {
   newsSource: 'hatena_bookmark' | 'hatena_hotentry_all' | 'yahoo_news'
   commentaryStyle: 'solo' | 'dialogue'
   mcGender: 'male' | 'female'
-  ttsEngine: 'voicevox' | 'aivispeech'
+  ttsEngine: 'voicevox' | 'aivispeech' | 'fishs2pro'
   maxArticles: number
   recreateSummary: boolean
   settingsSnapshot?: ProgramSettings
@@ -318,7 +318,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   const [showLogs, setShowLogs] = useState(false)
   const [newsSource, setNewsSource] = useState<'hatena_bookmark' | 'hatena_hotentry_all' | 'yahoo_news'>('hatena_bookmark')
   const [recreateSummary, setRecreateSummary] = useState(false)
-  const [ttsEngine, setTtsEngine] = useState<'voicevox' | 'aivispeech'>('aivispeech')
+  const [ttsEngine, setTtsEngine] = useState<'voicevox' | 'aivispeech' | 'fishs2pro'>('aivispeech')
   const [maxArticles, setMaxArticles] = useState(10)
   const [programSettings, setProgramSettings] = useState<ProgramSettings | null>(null)
   const [appliedSettings, setAppliedSettings] = useState<ProgramSettings | null>(null)
@@ -902,7 +902,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
 
           <fieldset>
             <legend className="text-sm font-medium text-slate-900">音声エンジン</legend>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
               <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(ttsEngine === 'voicevox', isLoading)}`}>
                 <input
                   type="radio"
@@ -939,6 +939,25 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
                   </span>
                 </span>
                 <RadioDot checked={ttsEngine === 'aivispeech'} />
+              </label>
+
+              <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(ttsEngine === 'fishs2pro', isLoading)}`}>
+                <input
+                  type="radio"
+                  name="ttsEngine"
+                  value="fishs2pro"
+                  checked={ttsEngine === 'fishs2pro'}
+                  onChange={() => setTtsEngine('fishs2pro')}
+                  disabled={isLoading}
+                  className="sr-only"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-slate-900">Fish S2 Pro</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                    自然な表現の読み上げを試したいときに選べます。
+                  </span>
+                </span>
+                <RadioDot checked={ttsEngine === 'fishs2pro'} />
               </label>
             </div>
           </fieldset>
