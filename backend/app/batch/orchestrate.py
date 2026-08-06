@@ -28,6 +28,7 @@ from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
 from app.services.article_service import ArticleService
 from app.services.episode_service import EpisodeService, retry_on_busy, override_script_title, build_radio_title
+from app.services.telegram_notifier import notify_failure, notify_success
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,17 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
 
     episode_dir = os.path.join(EPISODES_DIR, str(episode_id))
     artifact_dir = os.path.join(episode_dir, "lines")
+    notification_sent = False
+
+    def _notify_failure(phase: str, error: str) -> None:
+        nonlocal notification_sent
+        if notification_sent:
+            return
+        notification_sent = True
+        try:
+            notify_failure(episode_id=episode_id, phase=phase, error=error)
+        except Exception:
+            logger.warning("[%d] Telegram failure notification could not be sent", episode_id)
 
     # Ensure output directories
     os.makedirs(episode_dir, exist_ok=True)
@@ -160,6 +172,15 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
 
         _update_episode_audio(episode_id, "episode.mp3")
         ep_service.complete_radio_episode_with_notification(episode_id)
+        try:
+            notify_success(
+                title=build_radio_title(program_name, date_str, seq),
+                episode_id=episode_id,
+                seq=seq,
+            )
+            notification_sent = True
+        except Exception:
+            logger.warning("[%d] Telegram success notification could not be sent", episode_id)
 
         logger.info("=== Episode generation completed successfully ===")
         logger.info("Episode ID: %d  |  Date: %s  |  Audio: episode.mp3  |  Duration: %.1fs",
@@ -170,6 +191,7 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
         if getattr(exc, "code", 0) != 0:
             logger.error("Batch step exited with code %s — aborting remaining steps", exc.code)
             _set_episode_status(episode_id, "failed")
+            _notify_failure("batch", "バッチ工程が失敗しました")
             raise
         # Exit code 0 is success; fall through to the next step
         raise
@@ -177,6 +199,7 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
     except Exception as exc:
         logger.exception("Orchestration failed at an intermediate step — setting status=failed")
         _set_episode_status(episode_id, "failed")
+        _notify_failure("batch", "番組生成に失敗しました")
         raise
 
 

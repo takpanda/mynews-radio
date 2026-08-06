@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     vapid_private_key: str = ""
     vapid_claims_email: str = ""
     rss_base_url: str = "http://localhost:8010"
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = "-1004344317656"
+    public_base_url: str = "https://radio.beeworks.cc"
     jingle_duration: float = 10.0
     jingle_fade_duration: float = 1.0
 
