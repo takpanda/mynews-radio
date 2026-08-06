@@ -18,6 +18,7 @@ from app.config import get_settings
 from app.services.episode_service import EpisodeService, override_script_title, build_radio_title
 from app.services.episode_category_service import select_episode_categories
 from app.services.settings_service import ProgramSettings, get_settings_or_default
+from app.services.telegram_notifier import notify_failure, notify_success
 
 
 def _extract_key_points(script: dict, summaries_path: str) -> list[str]:
@@ -150,6 +151,28 @@ def run_radio_pipeline(
             progress_callback(phase, message)
         logger.info("[%d] phase=%s %s", episode_id, phase, message)
 
+    notification_sent = False
+
+    def _notify_failure(phase: str, error: object) -> None:
+        try:
+            notify_failure(episode_id=episode_id, phase=phase, error=error)
+        except Exception:
+            logger.warning("[%d] Telegram failure notification could not be sent", episode_id)
+
+    def _notify_success(title: str) -> None:
+        try:
+            notify_success(title=title, episode_id=episode_id, seq=seq)
+        except Exception:
+            logger.warning("[%d] Telegram success notification could not be sent", episode_id)
+
+    def _fail(phase: str, error: object = "処理に失敗しました") -> None:
+        """Keep the original failed state and emit at most one notification."""
+        nonlocal notification_sent
+        service.update_episode_status(episode_id, "failed")
+        if not notification_sent:
+            notification_sent = True
+            _notify_failure(phase, error)
+
     try:
         _progress("start", "番組の生成を準備しています…")
 
@@ -160,11 +183,11 @@ def run_radio_pipeline(
             logger.info("RSS import done: inserted=%d duplicated=%d", ins, dup)
         except Exception as exc:
             logger.exception("RSS import failed")
-            service.update_episode_status(episode_id, "failed")
+            _fail("import", "ニュース記事の取得に失敗しました")
             return None
 
         if ins == 0 and dup == 0:
-            service.update_episode_status(episode_id, "failed")
+            _fail("import", "処理対象の記事がありません")
             return None
 
         # -- SUMMARIZE --
@@ -177,7 +200,7 @@ def run_radio_pipeline(
             logger.info("summarize done: count=%d", summarized)
         except Exception as exc:
             logger.exception("summarize failed")
-            service.update_episode_status(episode_id, "failed")
+            _fail("summarize", "記事の要約に失敗しました")
             return None
 
         # -- GENERATE SCRIPT --
@@ -277,18 +300,18 @@ def run_radio_pipeline(
             )
         except Exception as exc:
             logger.exception("tts synthesis failed")
-            service.update_episode_status(episode_id, "failed")
+            _fail("synthesize", "音声合成に失敗しました")
             return None
 
         if success_count <= 0:
-            service.update_episode_status(episode_id, "failed")
+            _fail("synthesize", "音声ファイルが生成されませんでした")
             return None
 
         # -- BUILD MP3 --
         _progress("build", "音声をまとめています…")
         ep_metadata = build_episode(base_dir)
         if not ep_metadata:
-            service.update_episode_status(episode_id, "failed")
+            _fail("build", "音声ファイルの統合に失敗しました")
             return None
 
         # Keep the exact profile used for this episode available to the result
@@ -319,10 +342,13 @@ def run_radio_pipeline(
                 )
         except Exception:
             logger.exception("failed to persist episode_items")
-            service.update_episode_status(episode_id, "failed")
+            _fail("persist", "番組データの保存に失敗しました")
             return None
 
         service.complete_radio_episode_with_notification(episode_id)
+        if not notification_sent:
+            notification_sent = True
+            _notify_success(str(ep_metadata.get("title") or effective_program_name))
         _progress("complete", "生成が完了しました")
         logger.info("[%d] completed successfully", episode_id)
 
@@ -334,7 +360,7 @@ def run_radio_pipeline(
             current_status = current["status"] if current else None
             if current_status not in {"completed", "failed"}:
                 logger.exception("[%d] generation failed unexpectedly", episode_id)
-                service.update_episode_status(episode_id, "failed")
+                _fail("unknown", "予期しないエラーが発生しました")
         else:
             logger.exception("[%d] generation failed before service init", episode_id)
         return None
