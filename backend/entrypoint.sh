@@ -49,7 +49,8 @@ chmod 0644 /etc/cron.d/mynews-batch
 crontab /etc/cron.d/mynews-batch
 echo "[entrypoint] crontab installed (API_KEY masked):"
 crontab -l | grep -v -e '^API_KEY=' -e '^VAPID_PRIVATE_KEY=' \
-    -e '^LM_STUDIO_API_KEY=' -e '^VLLM_API_KEY=' -e '^TELEGRAM_BOT_TOKEN='
+    -e '^LM_STUDIO_API_KEY=' -e '^VLLM_API_KEY=' \
+    -e '^TELEGRAM_BOT_TOKEN=' -e '^TELEGRAM_CHAT_ID='
 
 # Start cron daemon (avoid duplicate startup)
 if ! pgrep -x "cron" >/dev/null 2>&1; then

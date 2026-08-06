@@ -4,11 +4,11 @@
 
 ```dotenv
 TELEGRAM_BOT_TOKEN=<Telegram Bot API token>
-TELEGRAM_CHAT_ID=-1004344317656
+TELEGRAM_CHAT_ID=<Telegram destination chat id>
 PUBLIC_BASE_URL=https://radio.beeworks.cc
 ```
 
-`TELEGRAM_CHAT_ID`の既定値は`-1004344317656`です。tokenはリポジトリ、Issue、通常ログへ記録しないでください。既存の`.env`注入経路を使い、`docker compose up -d --build api`後にプロセスを再起動します。
+`TELEGRAM_CHAT_ID`に通知先を設定します。tokenとchat idはリポジトリ、Issue、通常ログへ記録しないでください。既存の`.env`注入経路を使い、`docker compose up -d --build api`後にプロセスを再起動します。
 
 ### 手動確認
 
