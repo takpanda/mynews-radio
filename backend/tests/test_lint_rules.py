@@ -394,17 +394,16 @@ class TestExistingLintRulesRegression:
         dup_errors = [e for e in errors if "テキストが重複" in e]
         assert len(dup_errors) == 1
 
-    def test_catchphrase_repetition_detected(self):
+    def test_forbidden_phrase_detected_on_single_occurrence(self):
         from app.batch.generate_script import lint_script
 
         lines = [
             _make_line("intro", "「ニュースのとなり」の時間です。"),
             _make_line("news", "一見シンプルに見えますが、実は構造的な問題があります"),
-            _make_line("news", "一見シンプルに見えますが、実は構造的な問題があります"),
         ]
         errors = lint_script(lines)
-        catchphrase_errors = [e for e in errors if "口癖" in e]
-        assert len(catchphrase_errors) == 1
+        phrase_errors = [e for e in errors if "禁止フレーズ" in e]
+        assert len(phrase_errors) == 1
 
     def test_requires_digits_detected(self):
         from app.batch.generate_script import lint_script
