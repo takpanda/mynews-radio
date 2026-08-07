@@ -593,6 +593,67 @@ def _extract_title_from_html(html_text: str) -> str:
     return ext.og_title or ext.html_title or ""
 
 
+_NUXT_DATA_SCRIPT_RE = re.compile(
+    r'<script[^>]*id="__NUXT_DATA__"[^>]*>(.*?)</script>', re.DOTALL
+)
+
+
+def _extract_studio_design_nuxt_body(html_text: str, url: str) -> str:
+    """Extract article body HTML from a Studio.Design Nuxt page's embedded payload.
+
+    Studio.Design renders the article body client-side only; the static HTML
+    ships it pre-serialized inside a ``#__NUXT_DATA__`` JSON payload (Nuxt's
+    devalue array format) under a ``dynamicData<url-path>`` entry. This walks
+    that payload to find the entry matching *url*'s path and returns the
+    referenced ``body`` HTML string.
+
+    Any malformed payload, missing entry, out-of-range reference, or
+    unexpected value type is treated as "not found": this returns "" rather
+    than raising, so callers can fall back to the existing failure handling.
+    """
+    match = _NUXT_DATA_SCRIPT_RE.search(html_text)
+    if not match:
+        return ""
+
+    try:
+        payload = json.loads(match.group(1))
+    except (json.JSONDecodeError, ValueError):
+        return ""
+
+    if not isinstance(payload, list):
+        return ""
+
+    path = urllib.parse.urlparse(url).path.lstrip("/")
+    if not path:
+        return ""
+    target_key = f"dynamicData{path}"
+
+    def _deref(idx: Any) -> Any:
+        if isinstance(idx, bool) or not isinstance(idx, int):
+            return None
+        if not (0 <= idx < len(payload)):
+            return None
+        return payload[idx]
+
+    entry_idx = None
+    for item in payload:
+        if isinstance(item, dict) and target_key in item:
+            entry_idx = item[target_key]
+            break
+    if entry_idx is None:
+        return ""
+
+    article_obj = _deref(entry_idx)
+    if not isinstance(article_obj, dict) or "body" not in article_obj:
+        return ""
+
+    body_html = _deref(article_obj["body"])
+    if not isinstance(body_html, str):
+        return ""
+
+    return body_html
+
+
 def fetch_article_by_url(url: str) -> dict[str, Any]:
     """Fetch a single article from the given URL.
 
@@ -622,8 +683,9 @@ def fetch_article_by_url(url: str) -> dict[str, Any]:
 
     title = _extract_title_from_html(html_text)
 
-    # Extract body text via trafilatura
+    # Primary: extract body text from the static HTML via trafilatura.
     text = ""
+    extraction_source = "static_html"
     try:
         import trafilatura
         extracted = trafilatura.extract(
@@ -638,8 +700,35 @@ def fetch_article_by_url(url: str) -> dict[str, Any]:
     except Exception as exc:
         logger.debug("fetch_article_by_url: trafilatura failed for %s: %s", url, exc)
 
+    # Fallback: some pages (e.g. Studio.Design) render the body client-side
+    # only, leaving nothing for trafilatura to find in the static HTML. Try
+    # the page's embedded Nuxt payload instead.
+    if not text:
+        try:
+            nuxt_body_html = _extract_studio_design_nuxt_body(html_text, url)
+        except Exception as exc:
+            logger.debug("fetch_article_by_url: nuxt payload parsing failed for %s: %s", url, exc)
+            nuxt_body_html = ""
+
+        if nuxt_body_html:
+            try:
+                import trafilatura
+                nuxt_extracted = trafilatura.extract(
+                    nuxt_body_html,
+                    include_comments=False,
+                    include_tables=False,
+                    no_fallback=False,
+                )
+                if nuxt_extracted and len(nuxt_extracted.strip()) >= 50:
+                    text = nuxt_extracted.strip()[:1500]
+                    extraction_source = "nuxt_payload"
+            except Exception as exc:
+                logger.debug("fetch_article_by_url: trafilatura failed on nuxt payload for %s: %s", url, exc)
+
     if not text:
         logger.warning("fetch_article_by_url: no text extracted from %s", url)
+    else:
+        logger.info("fetch_article_by_url: extracted text via %s for %s", extraction_source, url)
 
     return {
         "title": title,
