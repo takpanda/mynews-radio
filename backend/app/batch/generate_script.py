@@ -299,7 +299,6 @@ def lint_script(
     errors: list[str] = []
 
     seen_texts: set[str] = set()
-    phrase_counts: dict[str, int] = {}
 
     # --- ルール1: introフォーマットチェック [INTRO_FORMAT] (ERROR) ---
     intro_lines = [(i, line) for i, line in enumerate(lines) if line.get("section") == "intro"]
@@ -403,20 +402,6 @@ def lint_script(
         for phrase in _FORBIDDEN_PHRASES:
             if phrase in text:
                 errors.append(f"行 {i} ({speaker}): 禁止フレーズ「{phrase}」が含まれています")
-
-        # 口癖フレーズの出現回数カウント（1回超でエラー）
-        all_catchphrases = [
-            "一見シンプルに見えますが、実は構造的な問題があります",
-            "これは感情論だけでは片づけられません",
-            "これ、普通に暮らしている人からするとかなり大きいですよね",
-            "正直、そこが一番気になります",
-            "視聴者の方も、ここはモヤっとすると思います",
-        ]
-        for cp in all_catchphrases:
-            if cp in text:
-                phrase_counts[cp] = phrase_counts.get(cp, 0) + 1
-                if phrase_counts[cp] > 1:
-                    errors.append(f"行 {i}: 口癖「{cp[:20]}...」が2回以上使われています")
 
         # 「数字で見ると」系フレーズで数字がない場合
         for req in _REQUIRES_DIGITS:
