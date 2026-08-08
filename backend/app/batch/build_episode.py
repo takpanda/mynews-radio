@@ -6,6 +6,7 @@ import logging
 import wave
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -13,6 +14,11 @@ from app.services.ffmpeg_service import combine_wav_files, wav_to_mp3, add_jingl
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Fish S2 Pro 経路限定: MC交代時に結合処理が追加する無音（秒）。受入条件の 0.4〜0.5 秒の範囲内。
+FISHS2PRO_SPEAKER_CHANGE_SILENCE_SEC = 0.45
+# Fish S2 Pro 経路限定: 同一MCの連続発話間に結合処理が追加する無音（秒）。受入条件の 0.2〜0.3 秒の範囲内。
+FISHS2PRO_SAME_SPEAKER_SILENCE_SEC = 0.25
 
 
 def _get_audio_duration(path: str) -> float:
@@ -44,8 +50,59 @@ def _get_opening_path(script: dict, settings) -> str:
     return opening_path
 
 
-def _annotate_start_times(script: dict, wav_dir: str, wav_files_sorted: list, settings) -> tuple[float, str]:
+def _ensure_wav_file_assigned(script: dict) -> None:
+    """wav_file が未設定の行がある場合、synthesize_voicevox.py の file_counter ロジックを
+    再現して推定し、script['lines'] に書き戻す（transition行の前でjingle WAV分を1つ進める）。
+    """
+    lines = script.get("lines", [])
+    if any("wav_file" not in line for line in lines):
+        file_counter = 1
+        for line in lines:
+            if line.get("section") == "transition":
+                file_counter += 1  # jingle WAV が先に挿入される
+            line.setdefault("wav_file", f"{file_counter:03d}.wav")
+            file_counter += 1
+
+
+def _compute_fishs2pro_silence_before(script: dict, wav_files_sorted: list) -> list[float]:
+    """Fish S2 Pro 経路限定で、各WAVファイルの直前に追加する無音秒数（wav_files_sorted と同じ長さ）を計算する。
+
+    台本行に紐付かないWAV（transition挿入用のジングル/無音ファイル）の前後は対象外とし、
+    既存のジングル無音規則（1秒）をそのまま維持する。
+    """
+    _ensure_wav_file_assigned(script)
+    speaker_by_wav_file = {
+        line["wav_file"]: line.get("speaker", "male")
+        for line in script.get("lines", [])
+        if "wav_file" in line
+    }
+
+    silence_before = [0.0] * len(wav_files_sorted)
+    prev_speaker: Optional[str] = None
+    for i, wav_path in enumerate(wav_files_sorted):
+        basename = os.path.basename(wav_path)
+        speaker = speaker_by_wav_file.get(basename)
+        if speaker is not None and prev_speaker is not None:
+            silence_before[i] = (
+                FISHS2PRO_SPEAKER_CHANGE_SILENCE_SEC
+                if speaker != prev_speaker
+                else FISHS2PRO_SAME_SPEAKER_SILENCE_SEC
+            )
+        prev_speaker = speaker
+    return silence_before
+
+
+def _annotate_start_times(
+    script: dict,
+    wav_dir: str,
+    wav_files_sorted: list,
+    settings,
+    silence_before: Optional[list[float]] = None,
+) -> tuple[float, str]:
     """各 script line に start_time (秒) を付与する。
+
+    silence_before が指定された場合、combine_wav_files に渡した値と同じリストを使い、
+    各WAVの直前に追加された無音を累積位置に反映する（Fish S2 Pro 経路限定）。
 
     Returns (opening_offset, opening_path_used).
     """
@@ -58,21 +115,16 @@ def _annotate_start_times(script: dict, wav_dir: str, wav_files_sorted: list, se
         actual_dur = _get_audio_duration(opening_path)
         opening_offset = actual_dur if actual_dur > 0 else float(settings.jingle_duration)
 
-    # wav_file が未設定の行がある場合、file_counter ロジックを再現して推定する
+    _ensure_wav_file_assigned(script)
     lines = script.get("lines", [])
-    if any("wav_file" not in line for line in lines):
-        file_counter = 1
-        for line in lines:
-            if line.get("section") == "transition":
-                file_counter += 1  # jingle WAV が先に挿入される
-            line.setdefault("wav_file", f"{file_counter:03d}.wav")
-            file_counter += 1
 
     # WAV ファイル名 → 累積開始時刻マップを構築
     cumulative = opening_offset
     wav_start: dict[str, float] = {}
-    for wav_path in wav_files_sorted:
+    for i, wav_path in enumerate(wav_files_sorted):
         basename = os.path.basename(wav_path)
+        if silence_before is not None:
+            cumulative += silence_before[i]
         wav_start[basename] = cumulative
         with wave.open(wav_path, "rb") as wf:
             duration = wf.getnframes() / float(wf.getframerate())
@@ -119,17 +171,23 @@ def build_episode(directory: str) -> dict:
 
     settings = get_settings()
 
+    # Fish S2 Pro 経路限定: MC交代/同一MC連続発話の無音を追加する（他経路は従来どおり無音追加なし）
+    is_fishs2pro = script.get("tts_engine") == "fishs2pro"
+    silence_before = (
+        _compute_fishs2pro_silence_before(script, wav_files) if is_fishs2pro else None
+    )
+
     # Step 1: Combine all WAVs into one
     combined_wav = os.path.join(directory, "episode_combined.wav")
     try:
-        combine_wav_files(wav_files, combined_wav)
+        combine_wav_files(wav_files, combined_wav, silence_before=silence_before)
     except Exception as exc:
         logger.error("WAV combine failed: %s", exc)
         return {}
 
     # Step 1.5: Calculate per-line start_time and write back to script.json
     try:
-        _annotate_start_times(script, wav_dir, wav_files, settings)
+        _annotate_start_times(script, wav_dir, wav_files, settings, silence_before=silence_before)
         with open(script_path, "w", encoding="utf-8") as f:
             json.dump(script, f, ensure_ascii=False, indent=2)
     except Exception as exc:
