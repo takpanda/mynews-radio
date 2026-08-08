@@ -387,6 +387,63 @@ def lint_script(
                 f"(discussion 最初の行インデックス={first_discussion}, 最後の news インデックス={last_news})"
             )
 
+    # --- ルール6: discussion行数チェック [DISCUSSION_LENGTH] (ERROR) ---
+    # 対象記事の根拠のみで4〜8行の対話にする受入条件（BEE-630 QA指摘）を検査する
+    if discussion_indices:
+        discussion_count = len(discussion_indices)
+        if not (4 <= discussion_count <= 8):
+            errors.append(
+                f"[DISCUSSION_LENGTH] discussionが{discussion_count}行です（4〜8行である必要があります）"
+            )
+
+        # --- ルール7: discussion記事逸脱チェック [DISCUSSION_ARTICLE_DRIFT] (ERROR) ---
+        # discussion は選んだ1本の記事のみを深掘りする前提のため、article_id が
+        # 混在している場合は他記事の話題が紛れ込んでいる兆候として検出する
+        discussion_article_ids = {
+            lines[i].get("article_id") for i in discussion_indices
+        }
+        if len(discussion_article_ids) > 1:
+            errors.append(
+                f"[DISCUSSION_ARTICLE_DRIFT] discussion内でarticle_idが複数混在しています: "
+                f"{sorted(str(a) for a in discussion_article_ids)}（1本の記事に統一してください）"
+            )
+
+    # --- ルール8: 記事境界transitionの単独告知チェック [TRANSITION_SOLO] (ERROR) ---
+    # discussion直前のtransitionを除き、記事境界のtransitionは両MCの短い掛け合い
+    # （2行以上・話者が異なる）である必要がある（BEE-630 QA指摘）
+    transition_blocks: list[list[int]] = []
+    _current_block: list[int] = []
+    for i, s in enumerate(sections):
+        if s == "transition":
+            _current_block.append(i)
+        elif _current_block:
+            transition_blocks.append(_current_block)
+            _current_block = []
+    if _current_block:
+        transition_blocks.append(_current_block)
+
+    discussion_precursor_block = None
+    if discussion_indices:
+        first_discussion = min(discussion_indices)
+        for block in transition_blocks:
+            if block[-1] == first_discussion - 1:
+                discussion_precursor_block = block
+                break
+
+    for block in transition_blocks:
+        if block is discussion_precursor_block:
+            continue
+        if len(block) < 2:
+            errors.append(
+                f"[TRANSITION_SOLO] transition行 {block} が1行の単独告知になっています"
+                "（記事境界のtransitionは両MCの短い掛け合い2行にしてください）"
+            )
+        elif lines[block[0]].get("speaker") == lines[block[-1]].get("speaker"):
+            errors.append(
+                f"[TRANSITION_SOLO] transition行 {block} の話者が同一です"
+                "（記事境界のtransitionはもう一方のMCが短く受ける構成にしてください）"
+            )
+
     for i, line in enumerate(lines):
         text = line.get("text", "").strip()
         section = line.get("section", "")
