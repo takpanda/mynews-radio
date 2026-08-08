@@ -27,13 +27,30 @@ def find_ffmpeg() -> str:
     raise RuntimeError("ffmpegがインストールされていません")
 
 
-def combine_wav_files(wav_paths: List[str], output_path: str) -> None:
+def _silence_frames(duration_seconds: float, n_channels: int, sampwidth: int, framerate: int) -> bytes:
+    """指定秒数分の無音フレームを、対象WAVの標本化周波数・チャンネル数・標本幅に合わせて生成する。"""
+    n_frames = int(round(duration_seconds * framerate))
+    return b"\x00" * (n_frames * n_channels * sampwidth)
+
+
+def combine_wav_files(
+    wav_paths: List[str],
+    output_path: str,
+    silence_before: Optional[List[float]] = None,
+) -> None:
     """
     Combine multiple WAV files into one using the standard library wave module.
     All input WAVs must share the same sample rate, channels, and sampwidth.
+
+    silence_before: wav_paths と同じ長さのリスト。指定した場合、各インデックスの
+    秒数だけ対応するファイルの直前に無音を挿入する。省略時（None）は無音を挿入
+    せず、従来どおり単純連結する。
     """
     if not wav_paths:
         raise ValueError("wav_pathsは空にできません")
+
+    if silence_before is not None and len(silence_before) != len(wav_paths):
+        raise ValueError("silence_beforeはwav_pathsと同じ長さである必要があります")
 
     with wave.open(wav_paths[0], "rb") as first:
         params = first.getparams()
@@ -42,12 +59,16 @@ def combine_wav_files(wav_paths: List[str], output_path: str) -> None:
         framerate = first.getframerate()
 
     combined_frames = b""
-    for path in wav_paths:
+    for i, path in enumerate(wav_paths):
         with wave.open(path, "rb") as wf:
             if wf.getparams()[:3] != params[:3]:
                 raise ValueError(
                     f"WAVパラメータが一致しません: {path} "
                     f"({wf.getparams()[:3]} vs {params[:3]})"
+                )
+            if silence_before is not None and silence_before[i] > 0:
+                combined_frames += _silence_frames(
+                    silence_before[i], n_channels, sampwidth, framerate
                 )
             combined_frames += wf.readframes(wf.getnframes())
 

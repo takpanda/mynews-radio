@@ -245,6 +245,8 @@ def synthesize_episode(
 
     # Write updated script.json with display/spoken separation
     script["lines"] = lines
+    # build_episode 側で Fish S2 Pro 限定の無音付与を判定するために使用エンジンを記録する。
+    script["tts_engine"] = engine
     with open(script_path, "w", encoding="utf-8") as f:
         json.dump(script, f, ensure_ascii=False, indent=2)
 
