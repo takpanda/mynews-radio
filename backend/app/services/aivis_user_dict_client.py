@@ -4,6 +4,8 @@ from typing import Any
 
 import httpx
 
+from app.services.text_normalization import normalize_dictionary_surface
+
 
 def _to_katakana(reading: str) -> str:
     return reading.translate(
@@ -32,7 +34,7 @@ class AivisUserDictClient:
         response = self._client.post(
             "/user_dict_word",
             params={
-                "surface": surface,
+                "surface": normalize_dictionary_surface(surface),
                 "pronunciation": _to_katakana(reading),
                 "accent_type": 0,
                 "word_type": "PROPER_NOUN",
@@ -47,7 +49,7 @@ class AivisUserDictClient:
         response = self._client.put(
             f"/user_dict_word/{uuid}",
             params={
-                "surface": surface,
+                "surface": normalize_dictionary_surface(surface),
                 "pronunciation": _to_katakana(reading),
                 "accent_type": 0,
                 "word_type": "PROPER_NOUN",
