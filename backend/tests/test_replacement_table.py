@@ -220,7 +220,7 @@ class TestSynthesizeEpisodeNullText:
             mock_synthesize_line,
         )
 
-        result = synthesize_episode(str(ep_dir))
+        result = synthesize_episode(str(ep_dir), tts_engine="voicevox")
 
         assert result == 3, "全3行が合成成功すること"
 

@@ -52,6 +52,35 @@ class TestConfigDefaults:
         monkeypatch.setenv("FISHS2PRO_BASE_URL", "http://fish.local:9000")
         assert Settings().fishs2pro_base_url == "http://fish.local:9000"
 
+    def test_fishs2pro_voice_defaults(self):
+        from app.config import Settings
+        settings = Settings()
+        assert settings.fishs2pro_voice_male == "male"
+        assert settings.fishs2pro_voice_female == "morigawa"
+
+    def test_fishs2pro_voice_can_be_overridden(self, monkeypatch):
+        from app.config import Settings
+        monkeypatch.setenv("FISHS2PRO_VOICE_MALE", "kenji")
+        monkeypatch.setenv("FISHS2PRO_VOICE_FEMALE", "yuki")
+        settings = Settings()
+        assert settings.fishs2pro_voice_male == "kenji"
+        assert settings.fishs2pro_voice_female == "yuki"
+
+    def test_default_tts_engine_is_aivispeech(self):
+        """POST /generate 等の手動生成系で tts_engine 未指定時に使う既定値。"""
+        from app.config import Settings
+        assert Settings().default_tts_engine == "aivispeech"
+
+    def test_batch_default_tts_engine_is_fishs2pro(self):
+        """run_daily.py（定期ニュース生成）で tts_engine 未指定時に使う既定値。"""
+        from app.config import Settings
+        assert Settings().batch_default_tts_engine == "fishs2pro"
+
+    def test_batch_default_tts_engine_can_be_overridden(self, monkeypatch):
+        from app.config import Settings
+        monkeypatch.setenv("BATCH_DEFAULT_TTS_ENGINE", "aivispeech")
+        assert Settings().batch_default_tts_engine == "aivispeech"
+
 
 # =========================================================================
 # entrypoint.sh shellcheck
@@ -97,7 +126,8 @@ for _var in OLLAMA_BASE_URL OLLAMA_MODEL DGX_HOST \
     VLLM_BASE_URL VLLM_MODEL VLLM_API_KEY \
     VOICEVOX_BASE_URL VOICEVOX_SPEAKER_MALE VOICEVOX_SPEAKER_FEMALE \
     AIVISPEECH_BASE_URL AIVISPEECH_SPEAKER_MALE AIVISPEECH_SPEAKER_FEMALE \
-    FISHS2PRO_BASE_URL \
+    FISHS2PRO_BASE_URL FISHS2PRO_VOICE_MALE FISHS2PRO_VOICE_FEMALE \
+    BATCH_DEFAULT_TTS_ENGINE \
     API_KEY CORS_ORIGINS VAPID_PRIVATE_KEY VAPID_CLAIMS_EMAIL; do
   _val="${!_var:-}"
   if [ -n "$_val" ]; then
@@ -153,7 +183,8 @@ class TestCronEnvInjectionViaSubprocess:
         "VLLM_BASE_URL", "VLLM_MODEL", "VLLM_API_KEY",
         "VOICEVOX_BASE_URL", "VOICEVOX_SPEAKER_MALE", "VOICEVOX_SPEAKER_FEMALE",
         "AIVISPEECH_BASE_URL", "AIVISPEECH_SPEAKER_MALE", "AIVISPEECH_SPEAKER_FEMALE",
-        "FISHS2PRO_BASE_URL",
+        "FISHS2PRO_BASE_URL", "FISHS2PRO_VOICE_MALE", "FISHS2PRO_VOICE_FEMALE",
+        "BATCH_DEFAULT_TTS_ENGINE",
         "API_KEY", "CORS_ORIGINS",
     ]
 
@@ -169,6 +200,9 @@ class TestCronEnvInjectionViaSubprocess:
             "AIVISPEECH_SPEAKER_MALE": "1310138976",
             "AIVISPEECH_SPEAKER_FEMALE": "1388823424",
             "FISHS2PRO_BASE_URL": "http://192.168.1.102:8000",
+            "FISHS2PRO_VOICE_MALE": "male",
+            "FISHS2PRO_VOICE_FEMALE": "morigawa",
+            "BATCH_DEFAULT_TTS_ENGINE": "fishs2pro",
             "API_KEY": "test-key-123",
             "LM_STUDIO_API_KEY": "lm-secret",
             "VLLM_API_KEY": "vllm-secret",

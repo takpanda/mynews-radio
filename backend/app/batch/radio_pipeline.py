@@ -89,8 +89,8 @@ def _determine_tts_config(tts_engine: str | None = None) -> dict[str, Any]:
         return {
             "tts_engine": engine,
             "base_url": settings.fishs2pro_base_url,
-            "speaker_male": None,
-            "speaker_female": None,
+            "speaker_male": settings.fishs2pro_voice_male,
+            "speaker_female": settings.fishs2pro_voice_female,
         }
     if engine == "aivispeech":
         return {
@@ -118,8 +118,8 @@ def run_radio_pipeline(
     program_settings: ProgramSettings | None = None,
     tts_engine: str | None = None,
     tts_base_url: str | None = None,
-    tts_speaker_male: int | None = None,
-    tts_speaker_female: int | None = None,
+    tts_speaker_male: int | str | None = None,
+    tts_speaker_female: int | str | None = None,
     default_episodes_dir: str | None = None,
     progress_callback: ProgressCallback = None,
     llm_provider: str | None = None,

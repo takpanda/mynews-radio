@@ -8,6 +8,7 @@ from typing import Dict, List
 # Ensure backend root is on sys.path (mirrors what batch scripts do).
 sys.path.insert(0, __import__("os").path.join(__import__("os").path.dirname(__file__), "..", ".."))
 
+from app.config import get_settings  # noqa: E402
 from app.services.ollama_client import OllamaClient  # noqa: E402
 from app.services.fishs2pro_client import FishS2ProClient  # noqa: E402
 from app.services.voicevox_client import VoicevoxClient  # noqa: E402
@@ -33,8 +34,16 @@ def health_check_ollama(base_url: str, model: str) -> Dict[str, str]:
 
 def health_check_tts(base_url: str, engine: str) -> Dict[str, str]:
     """TTS エンジンのヘルスチェックを実行して結果をログに記録する."""
-    client_type = FishS2ProClient if engine == "fishs2pro" else VoicevoxClient
-    with client_type(base_url) as client:
+    if engine == "fishs2pro":
+        settings = get_settings()
+        client = FishS2ProClient(
+            base_url,
+            voice_male=settings.fishs2pro_voice_male,
+            voice_female=settings.fishs2pro_voice_female,
+        )
+    else:
+        client = VoicevoxClient(base_url)
+    with client as client:
         result = client.health_check()
 
     status = result.get("status", "error")
@@ -76,8 +85,6 @@ if __name__ == "__main__":
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
-    from app.config import get_settings  # noqa: E402
-
     settings = get_settings()
     if settings.default_tts_engine == "fishs2pro":
         tts_url = settings.fishs2pro_base_url

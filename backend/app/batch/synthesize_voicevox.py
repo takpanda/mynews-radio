@@ -10,12 +10,16 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.config import get_settings
-from app.services.ffmpeg_service import convert_to_wav
+from app.services.ffmpeg_service import convert_to_wav, normalize_mean_volume
 from app.services.fishs2pro_client import FishS2ProClient
 from app.services.voicevox_client import VoicevoxClient
 from app.services.replacement_table import apply_replacements
 
 logger = logging.getLogger(__name__)
+
+# Fish S2 Pro の女性行に適用する音量調整の目標値
+_FISHS2PRO_FEMALE_TARGET_MEAN_DBFS = -16.0
+_FISHS2PRO_FEMALE_PEAK_LIMIT_DBFS = -1.0
 
 # VOICEVOX が出力する WAV の標準パラメータ（無音挿入時に使用）
 _SILENCE_SAMPLE_RATE = 24000
@@ -40,6 +44,30 @@ def _create_silence_wav(
     except Exception as exc:
         logger.error("無音 WAV の生成に失敗しました: %s", exc)
         return False
+
+
+def _apply_female_volume_target(filepath: str) -> bool:
+    """Fish S2 Pro の女性行WAVの平均音量を目標値へ調整する。
+
+    音量調整に失敗した場合は未調整ファイルを残さず削除し、Falseを返す
+    （呼び出し側はこの行を合成失敗として扱うこと）。
+    """
+    tmp_path = filepath + "._vol.wav"
+    ok = normalize_mean_volume(
+        filepath, tmp_path,
+        target_mean_dbfs=_FISHS2PRO_FEMALE_TARGET_MEAN_DBFS,
+        peak_limit_dbfs=_FISHS2PRO_FEMALE_PEAK_LIMIT_DBFS,
+    )
+    if ok:
+        os.replace(tmp_path, filepath)
+        return True
+
+    logger.error("女性行の音量調整に失敗しました: %s", filepath)
+    if os.path.isfile(tmp_path):
+        os.remove(tmp_path)
+    if os.path.isfile(filepath):
+        os.remove(filepath)
+    return False
 
 
 def _normalize_wavs_to_speech_rate(wav_dir: str, target_rate: int | None = None) -> None:
@@ -89,8 +117,8 @@ def _normalize_wavs_to_speech_rate(wav_dir: str, target_rate: int | None = None)
 def synthesize_episode(
     directory: str,
     base_url: str | None = None,
-    speaker_male: int | None = None,
-    speaker_female: int | None = None,
+    speaker_male: int | str | None = None,
+    speaker_female: int | str | None = None,
     tts_engine: str | None = None,
 ) -> int:
     """
@@ -99,6 +127,7 @@ def synthesize_episode(
 
     base_url / speaker_male / speaker_female override the settings values
     (useful for switching between VOICEVOX and AivisSpeech at runtime).
+    Fish S2 Pro の場合、speaker_male / speaker_female はボイス名（例: morigawa）。
 
     Returns total number of lines successfully synthesized.
     """
@@ -111,9 +140,11 @@ def synthesize_episode(
         settings.aivispeech_base_url if default_engine_is_aivispeech else settings.voicevox_base_url
     )
     effective_speaker_male = speaker_male if speaker_male is not None else (
+        settings.fishs2pro_voice_male if is_fishs2pro else
         settings.aivispeech_speaker_male if default_engine_is_aivispeech else settings.voicevox_speaker_male
     )
     effective_speaker_female = speaker_female if speaker_female is not None else (
+        settings.fishs2pro_voice_female if is_fishs2pro else
         settings.aivispeech_speaker_female if default_engine_is_aivispeech else settings.voicevox_speaker_female
     )
 
@@ -134,7 +165,11 @@ def synthesize_episode(
     wav_dir = os.path.join(directory, "lines")
     os.makedirs(wav_dir, exist_ok=True)
 
-    client = FishS2ProClient(effective_base_url) if is_fishs2pro else VoicevoxClient(
+    client = FishS2ProClient(
+        effective_base_url,
+        voice_male=effective_speaker_male,
+        voice_female=effective_speaker_female,
+    ) if is_fishs2pro else VoicevoxClient(
         effective_base_url,
         speaker_male=effective_speaker_male,
         speaker_female=effective_speaker_female,
@@ -185,6 +220,10 @@ def synthesize_episode(
 
         if is_fishs2pro:
             ok = client.synthesize_line(spoken_text, speaker, filepath, delivery=delivery)
+            # 女性行は男性MCと音量バランスを揃えるため、目標平均音量へ調整する。
+            # 調整に失敗した場合は未調整ファイルを成功扱いにせず、行を合成失敗とする。
+            if ok and speaker == "female" and os.path.isfile(filepath):
+                ok = _apply_female_volume_target(filepath)
         else:
             ok = client.synthesize_line(
                 spoken_text, speaker, filepath, delivery=delivery,

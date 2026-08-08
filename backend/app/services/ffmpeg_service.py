@@ -248,6 +248,80 @@ def add_jingles_and_encode(
         raise
 
 
+def _measure_mean_volume_dbfs(input_path: str) -> Optional[float]:
+    """ffmpegのvolumedetectフィルタで平均音量(dBFS)を計測する。取得失敗時はNone。"""
+    ffmpeg_bin = find_ffmpeg()
+    try:
+        result = subprocess.run(
+            [ffmpeg_bin, "-i", input_path, "-af", "volumedetect", "-f", "null", "-"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except FileNotFoundError:
+        logger.error("ffmpegが見つかりません")
+        return None
+    except subprocess.TimeoutExpired:
+        logger.error("音量計測がタイムアウトしました: %s", input_path)
+        return None
+
+    for line in result.stderr.splitlines():
+        if "mean_volume:" in line:
+            try:
+                return float(line.split("mean_volume:")[1].strip().split(" ")[0])
+            except (ValueError, IndexError):
+                break
+    logger.error("音量計測結果を取得できませんでした: %s", input_path)
+    return None
+
+
+def normalize_mean_volume(
+    input_path: str,
+    output_path: str,
+    target_mean_dbfs: float = -16.0,
+    peak_limit_dbfs: float = -1.0,
+) -> bool:
+    """WAVの平均音量をtarget_mean_dbfs付近へ調整し、ピークをpeak_limit_dbfs以下に抑制する。
+
+    音量計測・ffmpeg実行のいずれかに失敗した場合はFalseを返す
+    （呼び出し側は未調整ファイルを成功扱いにしないこと）。
+    """
+    mean_volume = _measure_mean_volume_dbfs(input_path)
+    if mean_volume is None:
+        return False
+
+    gain_db = target_mean_dbfs - mean_volume
+    peak_limit_linear = 10 ** (peak_limit_dbfs / 20)
+
+    ffmpeg_bin = find_ffmpeg()
+    try:
+        result = subprocess.run(
+            [
+                ffmpeg_bin, "-y",
+                "-i", input_path,
+                "-af", f"volume={gain_db}dB,alimiter=limit={peak_limit_linear}",
+                output_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except FileNotFoundError:
+        logger.error("ffmpegが見つかりません")
+        return False
+    except subprocess.TimeoutExpired:
+        logger.error("音量調整がタイムアウトしました: %s", input_path)
+        return False
+
+    if result.returncode != 0:
+        logger.error(
+            "ffmpeg 音量調整失敗: %s -> %s: %s",
+            input_path, output_path, result.stderr,
+        )
+        return False
+    return True
+
+
 def _parse_ffmpeg_duration(stderr_text: str) -> Optional[float]:
     """stderrからMP3のduration(sec)を抽出（最後の time= を使用）"""
     if not stderr_text:
