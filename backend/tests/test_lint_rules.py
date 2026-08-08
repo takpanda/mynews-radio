@@ -456,10 +456,13 @@ class TestExistingLintRulesRegression:
             _make_line("intro", "「ニュースのとなり」の時間です。"),
             _make_line("news", "ニュース1", article_id=1),
             _make_line("transition", "では次の話題です。"),
-            _make_line("discussion", "今日の話題を振り返ります。"),
+            _make_line("discussion", "今日の話題を振り返ります。その1。", speaker="male", article_id=1),
+            _make_line("discussion", "今日の話題を振り返ります。その2。", speaker="female", article_id=1),
+            _make_line("discussion", "今日の話題を振り返ります。その3。", speaker="male", article_id=1),
+            _make_line("discussion", "今日の話題を振り返ります。その4。", speaker="female", article_id=1),
         ]
         errors = lint_script(lines)
-        discussion_errors = [e for e in errors if "discussion" in e]
+        discussion_errors = [e for e in errors if "discussion" in e and "前に挿入" in e]
         assert len(discussion_errors) == 0
 
     def test_discussion_before_news_detected(self):
@@ -467,11 +470,14 @@ class TestExistingLintRulesRegression:
 
         lines = [
             _make_line("intro", "「ニュースのとなり」の時間です。"),
-            _make_line("discussion", "今日の話題を振り返ります。"),
+            _make_line("discussion", "今日の話題を振り返ります。その1。", speaker="male", article_id=1),
+            _make_line("discussion", "今日の話題を振り返ります。その2。", speaker="female", article_id=1),
+            _make_line("discussion", "今日の話題を振り返ります。その3。", speaker="male", article_id=1),
+            _make_line("discussion", "今日の話題を振り返ります。その4。", speaker="female", article_id=1),
             _make_line("news", "ニュース1", article_id=1),
         ]
         errors = lint_script(lines)
-        discussion_errors = [e for e in errors if "discussion" in e]
+        discussion_errors = [e for e in errors if "discussion" in e and "前に挿入" in e]
         assert len(discussion_errors) == 1
 
 
@@ -631,3 +637,203 @@ class TestPlaceholderBracketCheck:
         errors = lint_script(lines)
         bracket_errors = [e for e in errors if "プレースホルダー表記" in e]
         assert len(bracket_errors) == 1
+
+
+class TestDiscussionLengthCheck:
+    """[DISCUSSION_LENGTH]: discussionが4〜8行であることの検査（BEE-630 QA指摘）"""
+
+    def _discussion_lines(self, n: int, article_id: int = 1) -> list:
+        speakers = ["male", "female"]
+        return [
+            _make_line("discussion", f"discussion発言その{i+1}。", speaker=speakers[i % 2], article_id=article_id)
+            for i in range(n)
+        ]
+
+    def test_four_lines_no_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [_make_line("intro", "「ニュースのとなり」の時間です。")] + self._discussion_lines(4)
+        errors = lint_script(lines)
+        length_errors = [e for e in errors if "[DISCUSSION_LENGTH]" in e]
+        assert len(length_errors) == 0
+
+    def test_eight_lines_no_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [_make_line("intro", "「ニュースのとなり」の時間です。")] + self._discussion_lines(8)
+        errors = lint_script(lines)
+        length_errors = [e for e in errors if "[DISCUSSION_LENGTH]" in e]
+        assert len(length_errors) == 0
+
+    def test_three_lines_raises_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [_make_line("intro", "「ニュースのとなり」の時間です。")] + self._discussion_lines(3)
+        errors = lint_script(lines)
+        length_errors = [e for e in errors if "[DISCUSSION_LENGTH]" in e]
+        assert len(length_errors) == 1
+
+    def test_nine_lines_raises_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [_make_line("intro", "「ニュースのとなり」の時間です。")] + self._discussion_lines(9)
+        errors = lint_script(lines)
+        length_errors = [e for e in errors if "[DISCUSSION_LENGTH]" in e]
+        assert len(length_errors) == 1
+
+    def test_no_discussion_section_no_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("news", "ニュース1"),
+        ]
+        errors = lint_script(lines)
+        length_errors = [e for e in errors if "[DISCUSSION_LENGTH]" in e]
+        assert len(length_errors) == 0
+
+
+class TestDiscussionArticleDriftCheck:
+    """[DISCUSSION_ARTICLE_DRIFT]: discussionが1本の記事のみを扱っていることの検査（BEE-630 QA指摘）"""
+
+    def test_same_article_id_no_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("discussion", "発言1", speaker="male", article_id=54),
+            _make_line("discussion", "発言2", speaker="female", article_id=54),
+            _make_line("discussion", "発言3", speaker="male", article_id=54),
+            _make_line("discussion", "発言4", speaker="female", article_id=54),
+        ]
+        errors = lint_script(lines)
+        drift_errors = [e for e in errors if "[DISCUSSION_ARTICLE_DRIFT]" in e]
+        assert len(drift_errors) == 0
+
+    def test_mixed_article_id_raises_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("discussion", "発言1", speaker="male", article_id=54),
+            _make_line("discussion", "発言2", speaker="female", article_id=54),
+            _make_line("discussion", "発言3", speaker="male", article_id=48),
+            _make_line("discussion", "発言4", speaker="female", article_id=54),
+        ]
+        errors = lint_script(lines)
+        drift_errors = [e for e in errors if "[DISCUSSION_ARTICLE_DRIFT]" in e]
+        assert len(drift_errors) == 1
+
+    def test_internally_consistent_but_wrong_article_raises_error(self):
+        """BEE-630 レビュー指摘の再現ケース: discussion内のarticle_idは一意（48で統一）だが、
+        Narrative Arcで選定された記事（54）とは異なる記事を深掘りしている場合、
+        従来の一意性チェックだけでは検出できなかった。expected_discussion_article_id を
+        渡すことでこのケースを検出できることを確認する。"""
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("discussion", "発言1", speaker="male", article_id=48),
+            _make_line("discussion", "発言2", speaker="female", article_id=48),
+            _make_line("discussion", "発言3", speaker="male", article_id=48),
+            _make_line("discussion", "発言4", speaker="female", article_id=48),
+        ]
+        # expected_discussion_article_id を渡さない場合は従来どおり検出されない
+        errors_without_expected = lint_script(lines)
+        assert [e for e in errors_without_expected if "[DISCUSSION_ARTICLE_DRIFT]" in e] == []
+
+        # expected_discussion_article_id=54 を渡すと、内部的に統一されていても
+        # 選定記事(54)と異なる(48)ため不一致として検出される
+        errors = lint_script(lines, expected_discussion_article_id=54)
+        drift_errors = [e for e in errors if "[DISCUSSION_ARTICLE_DRIFT]" in e]
+        assert len(drift_errors) == 1
+        assert "48" in drift_errors[0] and "54" in drift_errors[0]
+
+    def test_expected_matches_actual_no_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("discussion", "発言1", speaker="male", article_id=54),
+            _make_line("discussion", "発言2", speaker="female", article_id=54),
+            _make_line("discussion", "発言3", speaker="male", article_id=54),
+            _make_line("discussion", "発言4", speaker="female", article_id=54),
+        ]
+        errors = lint_script(lines, expected_discussion_article_id=54)
+        drift_errors = [e for e in errors if "[DISCUSSION_ARTICLE_DRIFT]" in e]
+        assert len(drift_errors) == 0
+
+    def test_expected_none_disables_check(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("discussion", "発言1", speaker="male", article_id=48),
+            _make_line("discussion", "発言2", speaker="female", article_id=48),
+            _make_line("discussion", "発言3", speaker="male", article_id=48),
+            _make_line("discussion", "発言4", speaker="female", article_id=48),
+        ]
+        errors = lint_script(lines, expected_discussion_article_id=None)
+        drift_errors = [e for e in errors if "[DISCUSSION_ARTICLE_DRIFT]" in e]
+        assert len(drift_errors) == 0
+
+
+class TestTransitionSoloCheck:
+    """[TRANSITION_SOLO]: 記事境界のtransitionが両MCの短い掛け合い（2行）であることの検査（BEE-630 QA指摘）"""
+
+    def test_two_line_alternating_speaker_no_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("news", "ニュース1", article_id=1),
+            _make_line("transition", "橋渡し発言です。", speaker="male", article_id=2),
+            _make_line("transition", "短い受けです。", speaker="female", article_id=2),
+            _make_line("news", "ニュース2", article_id=2),
+        ]
+        errors = lint_script(lines)
+        solo_errors = [e for e in errors if "[TRANSITION_SOLO]" in e]
+        assert len(solo_errors) == 0
+
+    def test_single_line_transition_raises_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("news", "ニュース1", article_id=1),
+            _make_line("transition", "単独告知です。", speaker="female", article_id=2),
+            _make_line("news", "ニュース2", article_id=2),
+        ]
+        errors = lint_script(lines)
+        solo_errors = [e for e in errors if "[TRANSITION_SOLO]" in e]
+        assert len(solo_errors) == 1
+
+    def test_two_line_same_speaker_raises_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("news", "ニュース1", article_id=1),
+            _make_line("transition", "橋渡し発言です。", speaker="male", article_id=2),
+            _make_line("transition", "追加で話す。", speaker="male", article_id=2),
+            _make_line("news", "ニュース2", article_id=2),
+        ]
+        errors = lint_script(lines)
+        solo_errors = [e for e in errors if "[TRANSITION_SOLO]" in e]
+        assert len(solo_errors) == 1
+
+    def test_discussion_precursor_transition_exempt_from_two_line_rule(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("news", "ニュース1", article_id=1),
+            _make_line("transition", "掘り下げてみましょう。", speaker="female", article_id=1),
+            _make_line("discussion", "発言1", speaker="male", article_id=1),
+            _make_line("discussion", "発言2", speaker="female", article_id=1),
+            _make_line("discussion", "発言3", speaker="male", article_id=1),
+            _make_line("discussion", "発言4", speaker="female", article_id=1),
+        ]
+        errors = lint_script(lines)
+        solo_errors = [e for e in errors if "[TRANSITION_SOLO]" in e]
+        assert len(solo_errors) == 0

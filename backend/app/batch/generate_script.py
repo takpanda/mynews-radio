@@ -71,6 +71,20 @@ _DISCUSSION_TRANSITIONS = [
     "{topic}について、二人で頭を絞ってみますよ。",
 ]
 
+# 記事境界のtransitionは両MCの短い掛け合い（橋渡し＋短い受け）にする必要がある（BEE-630）。
+# LLMがtransitionを省略しプログラム側で補完する場合も、この「短い受け」を橋渡しの直後に
+# 挿入し、単独1行の告知にならないようにする。次の記事の内容は先取りしない。
+_TRANSITION_REACTION_PHRASES = [
+    "気になりますね。",
+    "それは見逃せません。",
+    "楽しみですね。",
+    "詳しく聞きたいです。",
+    "早速聞いてみましょう。",
+    "そちらも気になっていました。",
+    "続けてお願いします。",
+    "興味深いですね。",
+]
+
 
 def _pick_phrase(phrases: list, used_indices: dict):
     """乱択でフレーズを選んで返す。直前に使用した同じプレースホルダー位置のものを回避する。"""
@@ -184,6 +198,7 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
     result: list = []
     last_content_aid = None   # 直前の news/discussion の article_id
     trans_phrase_used = {"last": None}  # 乱択重複回避用状態
+    reaction_phrase_used = {"last": None}  # 短い受けフレーズの乱択重複回避用状態
 
     for line in lines:
         section = line.get("section", "news")
@@ -223,6 +238,20 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                     "delivery": "neutral",
                 })
                 logger.debug("transition 挿入: article_id=%s text=%s", article_id, text)
+
+                # 記事境界（news）のtransitionは両MCの短い掛け合い（2行）にする（BEE-630）。
+                # discussion直前のtransitionは従来どおり1行のまま維持する。
+                if section == "news":
+                    reaction_speaker = "female" if speaker == "male" else "male"
+                    reaction_text = _pick_phrase(_TRANSITION_REACTION_PHRASES, reaction_phrase_used)
+                    result.append({
+                        "speaker": reaction_speaker,
+                        "text": reaction_text,
+                        "article_id": article_id,
+                        "section": "transition",
+                        "delivery": "neutral",
+                    })
+                    logger.debug("transition 短い受け挿入: article_id=%s text=%s", article_id, reaction_text)
 
             last_content_aid = article_id
 
@@ -293,9 +322,16 @@ def lint_script(
     lines: list,
     program_name: str = "ニュースのとなり",
     bridges: list[dict] | None = None,
+    expected_discussion_article_id=None,
 ) -> list[str]:
     """生成済み lines に対して品質チェックを行い、問題点のリストを返す。
-    返値が空リストなら合格。"""
+    返値が空リストなら合格。
+
+    expected_discussion_article_id: Narrative Arc で選定された discussion 対象記事の
+    article_id。指定した場合、discussion内のarticle_idがこれと一致するかも検査する
+    （BEE-630 レビュー指摘: 内部的に統一されていても、選定記事と異なる記事に統一されて
+    しまうケースを検出できていなかった）。
+    """
     errors: list[str] = []
 
     seen_texts: set[str] = set()
@@ -385,6 +421,73 @@ def lint_script(
             errors.append(
                 f"discussion が全 news より前に挿入されています "
                 f"(discussion 最初の行インデックス={first_discussion}, 最後の news インデックス={last_news})"
+            )
+
+    # --- ルール6: discussion行数チェック [DISCUSSION_LENGTH] (ERROR) ---
+    # 対象記事の根拠のみで4〜8行の対話にする受入条件（BEE-630 QA指摘）を検査する
+    if discussion_indices:
+        discussion_count = len(discussion_indices)
+        if not (4 <= discussion_count <= 8):
+            errors.append(
+                f"[DISCUSSION_LENGTH] discussionが{discussion_count}行です（4〜8行である必要があります）"
+            )
+
+        # --- ルール7: discussion記事逸脱チェック [DISCUSSION_ARTICLE_DRIFT] (ERROR) ---
+        # discussion は選んだ1本の記事のみを深掘りする前提のため、article_id が
+        # 混在している場合は他記事の話題が紛れ込んでいる兆候として検出する
+        discussion_article_ids = {
+            lines[i].get("article_id") for i in discussion_indices
+        }
+        if len(discussion_article_ids) > 1:
+            errors.append(
+                f"[DISCUSSION_ARTICLE_DRIFT] discussion内でarticle_idが複数混在しています: "
+                f"{sorted(str(a) for a in discussion_article_ids)}（1本の記事に統一してください）"
+            )
+        elif (
+            expected_discussion_article_id is not None
+            and discussion_article_ids != {expected_discussion_article_id}
+        ):
+            actual_aid = next(iter(discussion_article_ids))
+            errors.append(
+                f"[DISCUSSION_ARTICLE_DRIFT] discussionのarticle_id={actual_aid} が"
+                f"選定記事(article_id={expected_discussion_article_id})と一致しません"
+                "（別記事の話題を深掘りしている可能性があります）"
+            )
+
+    # --- ルール8: 記事境界transitionの単独告知チェック [TRANSITION_SOLO] (ERROR) ---
+    # discussion直前のtransitionを除き、記事境界のtransitionは両MCの短い掛け合い
+    # （2行以上・話者が異なる）である必要がある（BEE-630 QA指摘）
+    transition_blocks: list[list[int]] = []
+    _current_block: list[int] = []
+    for i, s in enumerate(sections):
+        if s == "transition":
+            _current_block.append(i)
+        elif _current_block:
+            transition_blocks.append(_current_block)
+            _current_block = []
+    if _current_block:
+        transition_blocks.append(_current_block)
+
+    discussion_precursor_block = None
+    if discussion_indices:
+        first_discussion = min(discussion_indices)
+        for block in transition_blocks:
+            if block[-1] == first_discussion - 1:
+                discussion_precursor_block = block
+                break
+
+    for block in transition_blocks:
+        if block is discussion_precursor_block:
+            continue
+        if len(block) < 2:
+            errors.append(
+                f"[TRANSITION_SOLO] transition行 {block} が1行の単独告知になっています"
+                "（記事境界のtransitionは両MCの短い掛け合い2行にしてください）"
+            )
+        elif lines[block[0]].get("speaker") == lines[block[-1]].get("speaker"):
+            errors.append(
+                f"[TRANSITION_SOLO] transition行 {block} の話者が同一です"
+                "（記事境界のtransitionはもう一方のMCが短く受ける構成にしてください）"
             )
 
     for i, line in enumerate(lines):
@@ -617,6 +720,7 @@ def generate_script(
                 response["lines"],
                 program_name=program_name,
                 bridges=arc.get("bridges", []) if arc else None,
+                expected_discussion_article_id=arc.get("discussion_article_id") if arc else None,
             )
             if not lint_errors:
                 logger.info("Auto-Lint PASSED (attempt=%d)", lint_attempt)

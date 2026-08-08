@@ -176,12 +176,15 @@ def synthesize_episode(
     )
     success_count = 0
     file_counter = 1  # WAV ファイルの通し番号（無音挿入分も含む）
+    prev_section: str | None = None
 
     for idx, line in enumerate(lines, start=1):
         section = line.get("section", "news")
 
-        # transition 行の前にケルト風ジングル（なければ無音）を挿入する
-        if section == "transition":
+        # transition ブロックの先頭でのみケルト風ジングル（なければ無音）を挿入する。
+        # 記事境界のtransitionは両MCの短い掛け合い（複数行）になりうるため、
+        # ブロック内の2行目以降には挿入せず、境界につき1回に保つ。
+        if section == "transition" and prev_section != "transition":
             insert_path = os.path.join(wav_dir, f"{file_counter:03d}.wav")
             transition_wav = settings.jingle_transition_path
             if transition_wav and os.path.isfile(transition_wav):
@@ -239,6 +242,7 @@ def synthesize_episode(
             logger.error("Failed to synthesize line %d", idx)
 
         file_counter += 1
+        prev_section = section
 
     # すべての WAV を同一サンプリングレートに正規化（TTS エンジン切替時のレート不一致を解消）
     _normalize_wavs_to_speech_rate(wav_dir, target_rate=44100 if is_fishs2pro else None)

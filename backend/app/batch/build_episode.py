@@ -52,16 +52,20 @@ def _get_opening_path(script: dict, settings) -> str:
 
 def _ensure_wav_file_assigned(script: dict) -> None:
     """wav_file が未設定の行がある場合、synthesize_voicevox.py の file_counter ロジックを
-    再現して推定し、script['lines'] に書き戻す（transition行の前でjingle WAV分を1つ進める）。
+    再現して推定し、script['lines'] に書き戻す（transitionブロックの先頭でjingle WAV分を
+    1つ進める。記事境界のtransitionは複数行になりうるため、ブロック内の2行目以降では進めない）。
     """
     lines = script.get("lines", [])
     if any("wav_file" not in line for line in lines):
         file_counter = 1
+        prev_section = None
         for line in lines:
-            if line.get("section") == "transition":
+            section = line.get("section")
+            if section == "transition" and prev_section != "transition":
                 file_counter += 1  # jingle WAV が先に挿入される
             line.setdefault("wav_file", f"{file_counter:03d}.wav")
             file_counter += 1
+            prev_section = section
 
 
 def _compute_fishs2pro_silence_before(script: dict, wav_files_sorted: list) -> list[float]:

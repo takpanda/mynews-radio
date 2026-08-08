@@ -96,6 +96,28 @@ class TestComputeFishs2ProSilenceBefore:
         assert script["lines"][1]["wav_file"] == "002.wav"
         assert script["lines"][2]["wav_file"] == "004.wav"
 
+    def test_wav_file_fallback_reserves_jingle_once_for_multiline_transition_block(self):
+        """記事境界のtransitionが複数行（両MCの短い掛け合い）でも、ジングル予約は
+        ブロックの先頭で1回だけ行われ、2行目以降はジングル分を追加で進めない（BEE-630）。"""
+        script = {
+            "lines": [
+                {"speaker": "male"},
+                {"speaker": "female", "section": "transition"},
+                {"speaker": "male", "section": "transition"},
+                {"speaker": "male"},
+            ]
+        }
+        # 期待される割当: 001(male content), 002=jingle予約,
+        # 003(female/transition1), 004(male/transition2), 005(male content)
+        result = _compute_fishs2pro_silence_before(
+            script, ["001.wav", "002.wav", "003.wav", "004.wav", "005.wav"]
+        )
+        assert len(result) == 5
+        assert script["lines"][0]["wav_file"] == "001.wav"
+        assert script["lines"][1]["wav_file"] == "003.wav"
+        assert script["lines"][2]["wav_file"] == "004.wav"
+        assert script["lines"][3]["wav_file"] == "005.wav"
+
 
 class TestBuildEpisodeFishs2ProIntegration:
     """build_episode() の結合処理・start_time計算の統合試験（MP3段のみモック）。"""
