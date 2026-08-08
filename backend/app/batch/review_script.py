@@ -12,6 +12,7 @@ module; failures are logged and indicated via the "revised" key.
 import json
 import logging
 import os
+import re as _re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -135,6 +136,82 @@ def _build_output_issue_example(style: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Dialogue balance check — 山口(female)の質問偏重・一問一答の連続を検知する
+#
+# generate_radio_script.md / review_synthesize.md の「山口の非質問文の義務化」
+# 「一問一答の連続を避ける」要件（BEE-631）が守られているかを news セクション
+# 単位で検査する。transition・discussion の構造やプロンプト本文は対象外。
+# ---------------------------------------------------------------------------
+
+_QUESTION_SUFFIX_RE = _re.compile(r"[?？]\s*$")
+
+
+def _is_question(text: str) -> bool:
+    """text が疑問文（末尾が「?」または「？」）かどうかを判定する。"""
+    return bool(_QUESTION_SUFFIX_RE.search(text.strip()))
+
+
+def _news_blocks(lines: list) -> list:
+    """section が連続する "news" 行を記事単位のブロックへまとめて返す。
+
+    transition・discussion など他セクションを挟むとブロックが区切られる。
+    各ブロックは (行インデックス, 行dict) のタプルのリスト。
+    """
+    blocks: list = []
+    current: list = []
+    for i, line in enumerate(lines):
+        if line.get("section") == "news":
+            current.append((i, line))
+        elif current:
+            blocks.append(current)
+            current = []
+    if current:
+        blocks.append(current)
+    return blocks
+
+
+def check_dialogue_balance(lines: list) -> list[str]:
+    """山口(female)の発言が質問のみに偏っていないか、newsブロック単位で検査する。
+
+    既存の lint_script（app/batch/generate_script.py）と同じ
+    「[TAG] メッセージ」形式でリストを返す。空リストなら合格。
+
+    - [YAMAGUCHI_QUESTION_ONLY]: newsブロック内の山口の発言が全て疑問文
+    - [QA_RELAY]: 山口の質問→田村の回答の1往復だけでブロックが終わっている
+    """
+    issues: list[str] = []
+
+    for block in _news_blocks(lines):
+        female_entries = [
+            (i, line.get("text", "")) for i, line in block
+            if line.get("speaker") == "female" and line.get("text", "").strip()
+        ]
+        if not female_entries:
+            continue
+
+        if all(_is_question(text) for _, text in female_entries):
+            indices = [i for i, _ in female_entries]
+            issues.append(
+                f"[YAMAGUCHI_QUESTION_ONLY] news行 {indices} の山口(female)発言が全て疑問文です。"
+                "感想・分析・別角度の提起など疑問文以外の発言を1行以上含めてください"
+            )
+
+        if len(block) >= 2:
+            (prev_idx, prev_line), (last_idx, last_line) = block[-2], block[-1]
+            if (
+                prev_line.get("speaker") == "female"
+                and _is_question(prev_line.get("text", ""))
+                and last_line.get("speaker") == "male"
+            ):
+                issues.append(
+                    f"[QA_RELAY] news行 {prev_idx}〜{last_idx} が山口の質問→田村の回答の1往復だけで終わっています。"
+                    "田村の回答の後に山口の感想・意見などの掛け合いを続けてください"
+                )
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -148,10 +225,13 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
 
     Returns:
         dict with keys:
-            revised (bool)          – True when a revised script was written.
-            review_count (int)      – Number of director reviews that succeeded.
-            revision_summary (str)  – LLM-generated summary of changes, or "".
-            lines_count (int)       – Number of lines in the revised script, or 0.
+            revised (bool)                    – True when a revised script was written.
+            review_count (int)                – Number of director reviews that succeeded.
+            revision_summary (str)            – LLM-generated summary of changes, or "".
+            lines_count (int)                 – Number of lines in the revised script, or 0.
+            dialogue_balance_issues (list[str]) – 山口(female)の質問偏重・一問一答の
+                                                   連続を検出した警告。空リストなら合格。
+                                                   (style="solo" の台本では常に空)
     """
     settings = get_settings()
 
@@ -160,7 +240,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
         source: dict = json.loads(Path(source_script_path).read_text(encoding="utf-8"))
     except Exception as exc:
         logger.error("review_script: failed to read source script %s: %s", source_script_path, exc)
-        return {"revised": False, "review_count": 0, "revision_summary": "", "lines_count": 0}
+        return {"revised": False, "review_count": 0, "revision_summary": "", "lines_count": 0, "dialogue_balance_issues": []}
 
     script_json_str = json.dumps(source, ensure_ascii=False, indent=2)
 
@@ -169,6 +249,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
     revised = False
     revision_summary = ""
     lines_count = 0
+    revised_script: dict | None = None
 
     client_factory = (lambda: create_llm_client(llm_provider, llm_model)) if (llm_provider or llm_model) else (lambda: OllamaClient(settings.ollama_base_url, settings.ollama_model))
     with client_factory() as client:
@@ -245,6 +326,20 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
         except Exception as exc:
             logger.warning("review_script: synthesis step failed: %s", exc)
 
+    # --- Step 3: 掛け合いバランスの自動検査（非fatal）---
+    # revised が書き出す最終行を対象に、山口(female)の質問偏重・一問一答の
+    # 連続を検査する。solo（一人喋り）は対話が成立しないため対象外。
+    dialogue_balance_issues: list[str] = []
+    if style != "solo":
+        dialogue_check_lines = revised_script["lines"] if (revised and revised_script) else source.get("lines", [])
+        dialogue_balance_issues = check_dialogue_balance(dialogue_check_lines)
+        if dialogue_balance_issues:
+            logger.warning(
+                "review_script: dialogue balance check found %d issue(s):\n%s",
+                len(dialogue_balance_issues),
+                "\n".join(f"  - {issue}" for issue in dialogue_balance_issues),
+            )
+
     # --- Save review.json ---
     _write_review_json(
         output_dir=output_dir,
@@ -252,6 +347,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
         reviews=reviews,
         revision_summary=revision_summary,
         revised=revised,
+        dialogue_balance_issues=dialogue_balance_issues,
     )
 
     return {
@@ -259,6 +355,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
         "review_count": review_count,
         "revision_summary": revision_summary,
         "lines_count": lines_count,
+        "dialogue_balance_issues": dialogue_balance_issues,
     }
 
 
@@ -323,6 +420,7 @@ def _write_review_json(
     reviews: dict,
     revision_summary: str,
     revised: bool,
+    dialogue_balance_issues: list[str] | None = None,
 ) -> None:
     review_data = {
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
@@ -330,6 +428,7 @@ def _write_review_json(
         "reviews": reviews,
         "revision_summary": revision_summary,
         "revised": revised,
+        "dialogue_balance_issues": dialogue_balance_issues or [],
     }
     review_path = os.path.join(output_dir, "review.json")
     try:
