@@ -205,6 +205,124 @@ def test_sync_dry_run_mixed_selection_no_side_effects(client):
     fake.update_word.assert_not_called()
 
 
+def test_sync_sends_comma_surface_as_is_and_lets_client_normalize(client):
+    entry_id = _entry(client, "1,000万人", "いっせんまんにん")
+    fake = Mock()
+    fake.list_words.return_value = []
+
+    with patch("app.api.dictionary_sync.AivisUserDictClient", return_value=fake):
+        response = client.post("/admin/user_dict_sync", json={"dictionary_entry_ids": [entry_id]})
+
+    data = response.json()
+    assert response.status_code == 200
+    assert data["added"] == 1
+    assert data["details"][0]["surface"] == "1,000万人"
+    fake.add_word.assert_called_once_with("1,000万人", "いっせんまんにん")
+
+
+def test_sync_detects_existing_entry_across_comma_and_width_differences(client):
+    entry_id = _entry(client, "1,000万人", "いっせんまんにん")
+    fake = Mock()
+    # AIVIS Engineは半角登録済みの表記を全角で返す（Stage1調査で確認済み）。
+    fake.list_words.return_value = [{"uuid": "remote-1", "surface": "１０００万人", "pronunciation": "いっせんまんにん"}]
+
+    with patch("app.api.dictionary_sync.AivisUserDictClient", return_value=fake):
+        response = client.post("/admin/user_dict_sync", json={"dictionary_entry_ids": [entry_id]})
+
+    data = response.json()
+    assert response.status_code == 200
+    assert data["added"] == 0
+    assert data["updated"] == 0
+    # 正規化キーで既存項目を検出できたため「新規」ではなく確認要求として扱われる。
+    assert data["details"][0]["status"] == "confirmation_required"
+    assert data["details"][0]["reason"] == "remote_exists"
+    fake.add_word.assert_not_called()
+    fake.update_word.assert_not_called()
+
+
+def test_sync_does_not_repeat_registration_on_resync(client):
+    entry_id = _entry(client, "1000万人", "いっせんまんにん")
+    fake = Mock()
+    fake.list_words.return_value = [{"uuid": "remote-1", "surface": "１０００万人", "pronunciation": "いっせんまんにん"}]
+
+    with patch("app.api.dictionary_sync.AivisUserDictClient", return_value=fake):
+        response = client.post(
+            "/admin/user_dict_sync",
+            json={"dictionary_entry_ids": [entry_id], "overwrite_confirmed": True},
+        )
+
+    data = response.json()
+    assert response.status_code == 200
+    assert data["added"] == 0
+    assert data["updated"] == 0
+    assert data["details"][0]["reason"] == "same_reading"
+    fake.add_word.assert_not_called()
+    fake.update_word.assert_not_called()
+
+
+def test_sync_skips_entries_that_collide_after_normalization(client):
+    comma_id = _entry(client, "1,000万人", "いっせんまんにん")
+    plain_id = _entry(client, "1000万人", "いっせんまんにん")
+    fake = Mock()
+    fake.list_words.return_value = []
+
+    with patch("app.api.dictionary_sync.AivisUserDictClient", return_value=fake):
+        response = client.post(
+            "/admin/user_dict_sync", json={"dictionary_entry_ids": [comma_id, plain_id]}
+        )
+
+    data = response.json()
+    assert response.status_code == 200
+    assert data["added"] == 0
+    assert data["updated"] == 0
+    reasons = {item["dictionary_entry_id"]: item["reason"] for item in data["details"]}
+    assert reasons[comma_id] == "normalized_surface_conflict"
+    assert reasons[plain_id] == "normalized_surface_conflict"
+    fake.add_word.assert_not_called()
+    fake.update_word.assert_not_called()
+
+
+def test_sync_skips_non_thousands_comma_as_unsupported(client):
+    entry_id = _entry(client, "A,B", "えーびー")
+    fake = Mock()
+    fake.list_words.return_value = []
+
+    with patch("app.api.dictionary_sync.AivisUserDictClient", return_value=fake):
+        response = client.post("/admin/user_dict_sync", json={"dictionary_entry_ids": [entry_id]})
+
+    data = response.json()
+    assert response.status_code == 200
+    assert data["added"] == 0
+    assert data["details"][0]["status"] == "skipped"
+    assert data["details"][0]["reason"] == "unsupported_comma"
+    assert data["details"][0]["surface"] == "A,B"
+    fake.add_word.assert_not_called()
+
+
+def test_sync_skips_non_thousands_comma_like_two_digit_group(client):
+    entry_id = _entry(client, "1,23", "いちにさん")
+    fake = Mock()
+    fake.list_words.return_value = []
+
+    with patch("app.api.dictionary_sync.AivisUserDictClient", return_value=fake):
+        response = client.post("/admin/user_dict_sync", json={"dictionary_entry_ids": [entry_id]})
+
+    data = response.json()
+    assert response.status_code == 200
+    assert data["details"][0]["status"] == "skipped"
+    assert data["details"][0]["reason"] == "unsupported_comma"
+    fake.add_word.assert_not_called()
+
+
+def test_sync_unsupported_comma_entry_does_not_call_aivis(client):
+    entry_id = _entry(client, "1,23", "いちにさん")
+    with patch("app.api.dictionary_sync.AivisUserDictClient") as aivis_client:
+        response = client.post("/admin/user_dict_sync", json={"dictionary_entry_ids": [entry_id]})
+
+    assert response.status_code == 200
+    aivis_client.assert_not_called()
+
+
 def test_sync_requires_admin(client):
     from fastapi.testclient import TestClient
     from app.main import app

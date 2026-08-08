@@ -12,6 +12,7 @@ from app.auth import require_admin
 from app.config import get_settings
 from app.db.connection import get_db_connection
 from app.services.aivis_user_dict_client import AivisUserDictClient
+from app.services.text_normalization import has_unsupported_comma, normalize_dictionary_surface
 
 logger = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(require_admin)])
@@ -72,7 +73,34 @@ def sync_user_dictionary(body: DictionarySyncRequest) -> dict:
             if row["id"] != winner["id"]:
                 details.append(_detail(row["id"], surface, "skipped", "duplicate_surface", selected_id=winner["id"]))
 
-    if not selected:
+    # 正規化後の比較キー（NFKC + 3桁区切りカンマ除去）でAIVIS Engine側の既存項目と照合する。
+    # DBの保存値（row["surface"]）は変更せず、同期結果にもそのまま表示する。
+    rows_by_normalized_surface: dict[str, list[Any]] = defaultdict(list)
+    for row in selected:
+        normalized_surface = normalize_dictionary_surface(row["surface"])
+        if has_unsupported_comma(normalized_surface):
+            details.append(_detail(row["id"], row["surface"], "skipped", "unsupported_comma"))
+            continue
+        rows_by_normalized_surface[normalized_surface].append(row)
+
+    to_sync: list[tuple[Any, str]] = []
+    for normalized_surface, rows_for_key in rows_by_normalized_surface.items():
+        if len(rows_for_key) > 1:
+            conflicting_ids = [candidate["id"] for candidate in rows_for_key]
+            for row in rows_for_key:
+                details.append(
+                    _detail(
+                        row["id"],
+                        row["surface"],
+                        "skipped",
+                        "normalized_surface_conflict",
+                        conflicting_ids=[i for i in conflicting_ids if i != row["id"]],
+                    )
+                )
+            continue
+        to_sync.append((rows_for_key[0], normalized_surface))
+
+    if not to_sync:
         return {
             "synced_at": datetime.now(timezone.utc).isoformat(),
             "added": 0,
@@ -91,17 +119,17 @@ def sync_user_dictionary(body: DictionarySyncRequest) -> dict:
             logger.error("AIVIS user dictionary unavailable: %s", type(exc).__name__)
             raise HTTPException(status_code=503, detail="AIVIS Speech user dictionary is unavailable") from exc
 
-        remote_by_surface: dict[str, list[dict]] = defaultdict(list)
+        remote_by_normalized_surface: dict[str, list[dict]] = defaultdict(list)
         for word in remote_words:
             surface = word.get("surface")
             if surface:
-                remote_by_surface[surface].append(word)
+                remote_by_normalized_surface[normalize_dictionary_surface(surface)].append(word)
 
         counts = {"added": 0, "updated": 0, "deleted": 0, "skipped": len(details), "errors": 0}
-        for row in selected:
+        for row, normalized_surface in to_sync:
             surface = row["surface"]
             reading = row["reading"]
-            existing = remote_by_surface.get(surface, [])
+            existing = remote_by_normalized_surface.get(normalized_surface, [])
             if existing and not body.overwrite_confirmed:
                 counts["skipped"] += 1
                 details.append(_detail(row["id"], surface, "confirmation_required", "remote_exists", remote=existing))
