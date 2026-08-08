@@ -67,6 +67,8 @@
 
 # 出力フォーマット
 
+以下は出力形式を示すための架空のサンプルです。数値・調査結果・効果などは形式説明用の仮の例であり、実際の入力要約の内容を裏付けるものではありません。実際の生成では、必ず入力要約に明記された事実の範囲で内容を構成すること。
+
 {{
   "title": "ニュースのとなり",
   "subtitle": "副題（その日の主なトピックを凝縮した15〜25文字の一文）",
@@ -78,7 +80,7 @@
     {{ "speaker": "male",   "text": "OpenAIが最新モデルを公開しました。",                        "article_id": 1,    "section": "news", "delivery": "neutral" }},
     {{ "speaker": "male",   "text": "ある調査によると、AIの導入によって業務効率が最大40%向上したそうです。", "article_id": 1,    "section": "news", "delivery": "emphasis" }},
     {{ "speaker": "female", "text": "また新しいモデルですか。どれくらい凄いんですか？",          "article_id": 1,    "section": "news", "delivery": "neutral" }},
-    {{ "speaker": "male",   "text": "体感できるレベルで応答が速くなっていて、日常の作業がぐっと楽になりそうです。", "article_id": 1, "section": "news", "delivery": "neutral" }},
+    {{ "speaker": "male",   "text": "使い方によっては、日常の作業の進めやすさが変わるかもしれません。", "article_id": 1, "section": "news", "delivery": "neutral" }},
     {{ "speaker": "female", "text": "それなら仕事の効率化にもつながりそうで、期待しちゃいますね。",  "article_id": 1,    "section": "news", "delivery": "neutral" }},
     {{ "speaker": "female", "text": "では次は気候変動の話題をご紹介します。",                    "article_id": 2,    "section": "transition", "delivery": "neutral" }},
     {{ "speaker": "male",   "text": "COP29で新たな排出削減目標が合意されました。",               "article_id": 2,    "section": "news", "delivery": "neutral" }},
