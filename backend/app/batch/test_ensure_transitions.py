@@ -1,4 +1,10 @@
-from app.batch.generate_script import _ensure_transitions, _pick_phrase, _pick_speaker, _BRIDGE_TRANSITION_PHRASES
+from app.batch.generate_script import (
+    _BRIDGE_TRANSITION_PHRASES,
+    _ensure_transitions,
+    _pick_phrase,
+    _pick_speaker,
+    lint_script,
+)
 
 
 class TestPickPhraseNoConsecutiveDuplicate:
@@ -40,9 +46,11 @@ class TestEnsureTransitionsDiscussionInsertion:
         ]
         summaries = [{"id": 1, "title": "T1"}, {"id": 2, "title": "T2"}]
         result = _ensure_transitions(lines, summaries)
-        # art1 boundary inserts a transition; input transition at art2 is preserved but no extra one inserted before news(art2)
+        # art1 boundary has no LLM transition, so it's auto-inserted as a 2-line
+        # exchange (bridge + short reaction, BEE-630); the input transition at
+        # art2 is preserved as-is (1 line) and no extra one is inserted before news(art2)
         trans_count = sum(1 for r in result if r["section"] == "transition")
-        assert 1 < trans_count <= 2, f"unexpected transition count: {trans_count}"
+        assert trans_count == 3, f"unexpected transition count: {trans_count}"
 
 
 class TestEnsureTransitionsArticleBoundary:
@@ -63,7 +71,7 @@ class TestEnsureTransitionsArticleBoundary:
         assert trans_count >= 2, f"expected at least 2 transitions across 3 articles, got {trans_count}"
 
     def test_same_article_id_no_extra_transition(self):
-        # intro->news(1) inserts 1 transition (first content line)
+        # intro->news(1) inserts a 2-line transition (bridge + short reaction, BEE-630)
         # news(1)->news(1) does NOT insert because article_id unchanged
         lines = [
             {"section": "intro", "speaker": "male"},
@@ -73,7 +81,7 @@ class TestEnsureTransitionsArticleBoundary:
         summaries = [{"id": 1, "title": "Single"}]
         result = _ensure_transitions(lines, summaries)
         trans_count = sum(1 for r in result if r["section"] == "transition")
-        assert trans_count == 1, f"expected exactly 1 transition on intro->news boundary, got {trans_count}"
+        assert trans_count == 2, f"expected exactly 2 transition lines on intro->news boundary, got {trans_count}"
 
 
 class TestPickSpeaker:
@@ -178,12 +186,15 @@ class TestEnsureTransitionsBridgeContextual:
             ],
         }
         result = _ensure_transitions(lines, summaries, arc=arc)
-        for line in result:
-            if line["section"] == "transition" and line.get("article_id") == 2:
-                text = line.get("text", "")
-                assert "気候変動の影響は経済にも及んでいます" in text, (
-                    f"bridge text not found in transition: {text}"
-                )
+        # 記事境界のtransitionは橋渡し＋短い受けの2行（BEE-630）。bridgeテキストは
+        # 1行目（橋渡し）にのみ含まれ、2行目（短い受け）には含まれない。
+        art2_transitions = [
+            l for l in result if l["section"] == "transition" and l.get("article_id") == 2
+        ]
+        assert len(art2_transitions) == 2
+        assert "気候変動の影響は経済にも及んでいます" in art2_transitions[0].get("text", ""), (
+            f"bridge text not found in transition: {art2_transitions[0].get('text', '')}"
+        )
 
     def test_bridge_not_used_for_first_article(self):
         """intro→news で last_content_aid=None の場合、bridge は使われず通常フォールバック"""
@@ -271,19 +282,24 @@ class TestEnsureTransitionsBridgeContextual:
             ],
         }
         result = _ensure_transitions(lines, summaries, arc=arc)
+        # article_idごとにtransitionは2行（橋渡し＋短い受け）。bridgeテキストは
+        # 1行目（橋渡し）にのみ含まれる（BEE-630）。
+        transitions_by_aid: dict = {}
         for line in result:
-            if line["section"] == "transition":
-                text = line.get("text", "")
-                assert "{bridge}" not in text, f"unformatted bridge placeholder: {text}"
-                assert "{topic}" not in text, f"unformatted topic placeholder: {text}"
-                if line.get("article_id") == 3:
-                    assert "BとCをつなぐ橋渡し" in text, (
-                        f"bridge text should appear in transition to article 3: {text}"
-                    )
-                elif line.get("article_id") in (2, 4):
-                    assert "BとCをつなぐ橋渡し" not in text, (
-                        f"bridge text should NOT appear in transition to article {line.get('article_id')}: {text}"
-                    )
+            if line["section"] != "transition":
+                continue
+            text = line.get("text", "")
+            assert "{bridge}" not in text, f"unformatted bridge placeholder: {text}"
+            assert "{topic}" not in text, f"unformatted topic placeholder: {text}"
+            transitions_by_aid.setdefault(line.get("article_id"), []).append(text)
+
+        assert "BとCをつなぐ橋渡し" in transitions_by_aid[3][0], (
+            f"bridge text should appear in the bridging line for article 3: {transitions_by_aid[3]}"
+        )
+        for aid in (2, 4):
+            assert all("BとCをつなぐ橋渡し" not in t for t in transitions_by_aid[aid]), (
+                f"bridge text should NOT appear in transition to article {aid}: {transitions_by_aid[aid]}"
+            )
 
     def test_bridge_text_in_bridge_phrases_only(self):
         """bridge が使われる際は _BRIDGE_TRANSITION_PHRASES のいずれかのフォーマットに従うこと"""
@@ -302,13 +318,17 @@ class TestEnsureTransitionsBridgeContextual:
             ],
         }
         result = _ensure_transitions(lines, summaries, arc=arc)
-        for line in result:
-            if line["section"] == "transition" and line.get("article_id") == 2:
-                text = line.get("text", "")
-                # _BRIDGE_TRANSITION_PHRASES のテンプレートに従っていれば
-                # "{bridge}" は bridge text で置換済みのはず
-                assert "橋渡し文" in text, f"bridge text missing: {text}"
-                assert "テーマB" in text, f"topic missing in bridge transition: {text}"
+        # 記事境界のtransitionは2行（橋渡し＋短い受け）。_BRIDGE_TRANSITION_PHRASES に
+        # 従ったbridgeテキストは1行目（橋渡し）にのみ含まれる（BEE-630）。
+        art2_transitions = [
+            l for l in result if l["section"] == "transition" and l.get("article_id") == 2
+        ]
+        assert len(art2_transitions) == 2
+        bridge_text = art2_transitions[0].get("text", "")
+        # _BRIDGE_TRANSITION_PHRASES のテンプレートに従っていれば
+        # "{bridge}" は bridge text で置換済みのはず
+        assert "橋渡し文" in bridge_text, f"bridge text missing: {bridge_text}"
+        assert "テーマB" in bridge_text, f"topic missing in bridge transition: {bridge_text}"
 
     def test_bridge_not_in_first_transition(self):
         """intro→article1 の最初の transition には bridge は適用されない"""
@@ -336,4 +356,50 @@ class TestEnsureTransitionsBridgeContextual:
             assert "つなぎの文" not in t.get("text", ""), (
                 "bridge should not appear in transition to article 1"
             )
+
+
+class TestEnsureTransitionsMissingInputRegression:
+    """BEE-630 レビュー指摘の回帰テスト: LLMがtransitionを完全に省略した入力でも、
+    _ensure_transitions() 後の最終台本が記事境界transitionの2行・異話者制約
+    ([TRANSITION_SOLO]) を満たすこと。"""
+
+    def test_missing_transitions_are_completed_as_two_line_alternating_speaker(self):
+        # LLM出力を模した、transition行が一切ない2記事構成の台本
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
+            {"section": "news", "article_id": 1, "speaker": "female", "text": "記事1についての感想です。"},
+            {"section": "news", "article_id": 2, "speaker": "male", "text": "記事2の内容です。"},
+            {"section": "news", "article_id": 2, "speaker": "female", "text": "記事2についての感想です。"},
+            {"section": "outro", "speaker": "male", "text": "以上、本日のニュースでした。"},
+            {"section": "outro", "speaker": "female", "text": "また明日お会いしましょう。"},
+        ]
+        summaries = [
+            {"id": 1, "title": "記事1タイトル", "summary": "記事1の要約です。"},
+            {"id": 2, "title": "記事2タイトル", "summary": "記事2の要約です。"},
+        ]
+
+        # 補完前は transition が存在しないため TRANSITION_SOLO は検出されない
+        # （そもそもtransitionブロックが無い = 対象外）
+        pre_errors = lint_script(lines)
+        pre_solo_errors = [e for e in pre_errors if "[TRANSITION_SOLO]" in e]
+        assert pre_solo_errors == []
+
+        result = _ensure_transitions(lines, summaries)
+
+        # 補完後は各記事境界のtransitionが2行・異話者になっているため
+        # TRANSITION_SOLO は検出されないこと（BEE-630 レビュー指摘の再現ケース）
+        post_errors = lint_script(result)
+        post_solo_errors = [e for e in post_errors if "[TRANSITION_SOLO]" in e]
+        assert post_solo_errors == [], f"unexpected TRANSITION_SOLO errors: {post_solo_errors}"
+
+        transitions = [l for l in result if l["section"] == "transition"]
+        # intro→記事1、記事1→記事2 の2境界 × 2行 = 4行
+        assert len(transitions) == 4
+        for i in range(0, len(transitions), 2):
+            pair = transitions[i:i + 2]
+            assert pair[0]["speaker"] != pair[1]["speaker"], (
+                f"transition pair should alternate speakers: {pair}"
+            )
+            assert pair[0]["article_id"] == pair[1]["article_id"]
 

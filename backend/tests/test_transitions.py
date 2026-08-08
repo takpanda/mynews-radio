@@ -105,8 +105,9 @@ class TestEnsureTransitionsTopicExtraction:
         result = _ensure_transitions(lines, summaries)
 
         transitions = [l for l in result if l.get("section") == "transition"]
-        # 同じ article_id 内では transition は挿入されない（最初の1回のみ）
-        assert len(transitions) == 1
+        # 同じ article_id 内では transition は挿入されない（最初の境界の1回のみ）。
+        # 境界のtransitionは両MCの短い掛け合い（橋渡し＋短い受け）の2行になる（BEE-630）
+        assert len(transitions) == 2
 
     def test_transition_inserted_on_article_change(self):
         from app.batch.generate_script import _ensure_transitions
@@ -123,8 +124,9 @@ class TestEnsureTransitionsTopicExtraction:
         result = _ensure_transitions(lines, summaries)
 
         transitions = [l for l in result if l.get("section") == "transition"]
-        # article_id が変わった箇所で transition が挿入される
-        assert len(transitions) == 2
+        # article_id が変わった2箇所（intro→記事1、記事1→記事2）でそれぞれ
+        # 2行（橋渡し＋短い受け）のtransitionが挿入される（BEE-630）
+        assert len(transitions) == 4
 
 
 class TestTitleNoFifteenCharTruncation:
