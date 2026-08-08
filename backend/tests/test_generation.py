@@ -663,8 +663,12 @@ class TestRadioPipelineArgPropagation:
     @patch("app.batch.radio_pipeline.generate_script", return_value=5)
     @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
     @patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "ep.mp3"})
-    def test_tts_default_fishs2pro_when_unspecified(self, mock_build, mock_review, mock_gen, mock_sum, mock_import):
-        """tts_engine 未指定時は settings.default_tts_engine (fishs2pro) が使われる(Batch互換)."""
+    def test_tts_default_aivispeech_when_unspecified(self, mock_build, mock_review, mock_gen, mock_sum, mock_import):
+        """tts_engine 未指定時は settings.default_tts_engine (aivispeech) が使われる。
+
+        定期ニュース生成(run_daily.py)は batch_default_tts_engine (fishs2pro) を
+        明示的に渡すため、この汎用フォールバックの対象外(別途 test_run_daily_* で検証)。
+        """
         from app.batch.radio_pipeline import run_radio_pipeline
         from app.services.episode_service import EpisodeService
         from app.config import Settings
@@ -680,9 +684,9 @@ class TestRadioPipelineArgPropagation:
         mock_synth.assert_called_once()
         _call_kwargs = mock_synth.call_args[1]
         settings = Settings()
-        assert _call_kwargs["base_url"] == settings.fishs2pro_base_url
-        assert _call_kwargs["speaker_male"] == settings.fishs2pro_voice_male
-        assert _call_kwargs["speaker_female"] == settings.fishs2pro_voice_female
+        assert _call_kwargs["base_url"] == settings.aivispeech_base_url
+        assert _call_kwargs["speaker_male"] == settings.aivispeech_speaker_male
+        assert _call_kwargs["speaker_female"] == settings.aivispeech_speaker_female
 
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
@@ -747,7 +751,8 @@ class TestRunGenerationArgPropagation:
         assert mock_pipeline.call_args[1]["tts_engine"] == "voicevox"
 
     @patch("app.api.generate.run_radio_pipeline", return_value={"audio_path": "ep.mp3"})
-    def test_default_tts_engine_fishs2pro_from_request(self, mock_pipeline):
+    def test_default_tts_engine_aivispeech_from_request(self, mock_pipeline):
+        """POST /generate で tts_engine 未指定時は settings.default_tts_engine (aivispeech) を維持する。"""
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
 
@@ -758,7 +763,7 @@ class TestRunGenerationArgPropagation:
         _run_generation(ep_id, body)
 
         mock_pipeline.assert_called_once()
-        assert mock_pipeline.call_args[1]["tts_engine"] == "fishs2pro"
+        assert mock_pipeline.call_args[1]["tts_engine"] == "aivispeech"
 
     @patch("app.api.generate.run_radio_pipeline", return_value={"audio_path": "ep.mp3"})
     def test_news_source_passed_to_pipeline(self, mock_pipeline):
@@ -829,6 +834,44 @@ class TestDetermineTtsConfig:
         settings = Settings()
         config = _determine_tts_config(None)
         assert config["tts_engine"] == settings.default_tts_engine
+
+
+class TestRunDailyTtsEngineDefault:
+    """run_daily.main() が定期生成専用の既定TTSエンジンを明示的に渡すことの検証(BEE-619 review対応)。"""
+
+    @patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(99, 0))
+    @patch("app.batch.run_daily.setup_daily_logging")
+    def test_batch_defaults_to_fishs2pro_when_unspecified(self, mock_log, mock_create):
+        """batch_default_tts_engine (既定 fishs2pro) が run_radio_pipeline へ明示的に渡される。"""
+        from app.batch.run_daily import main
+
+        with patch("app.batch.run_daily.run_radio_pipeline", return_value={"audio_path": "ep.mp3"}) as mock_pipeline, \
+             patch("app.batch.run_daily._write_manifest"), \
+             patch.dict(os.environ, {"BATCH_DATE": "2099-06-03"}):
+
+            main()
+
+        mock_pipeline.assert_called_once()
+        assert mock_pipeline.call_args.kwargs["tts_engine"] == "fishs2pro"
+
+    @patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(99, 0))
+    @patch("app.batch.run_daily.setup_daily_logging")
+    def test_batch_tts_engine_can_be_overridden_via_env(self, mock_log, mock_create, monkeypatch):
+        """BATCH_DEFAULT_TTS_ENGINE で定期生成の既定エンジンを上書きできる。"""
+        from app.config import get_settings
+        from app.batch.run_daily import main
+
+        monkeypatch.setenv("BATCH_DEFAULT_TTS_ENGINE", "aivispeech")
+        get_settings.cache_clear()
+
+        with patch("app.batch.run_daily.run_radio_pipeline", return_value={"audio_path": "ep.mp3"}) as mock_pipeline, \
+             patch("app.batch.run_daily._write_manifest"), \
+             patch.dict(os.environ, {"BATCH_DATE": "2099-06-04"}):
+
+            main()
+
+        mock_pipeline.assert_called_once()
+        assert mock_pipeline.call_args.kwargs["tts_engine"] == "aivispeech"
 
 
 class TestRunDailyFailureModes:

@@ -13,6 +13,7 @@ ALL_VARS=(OLLAMA_BASE_URL OLLAMA_MODEL DGX_HOST \
           VOICEVOX_BASE_URL VOICEVOX_SPEAKER_MALE VOICEVOX_SPEAKER_FEMALE \
           AIVISPEECH_BASE_URL AIVISPEECH_SPEAKER_MALE AIVISPEECH_SPEAKER_FEMALE \
           FISHS2PRO_BASE_URL FISHS2PRO_VOICE_MALE FISHS2PRO_VOICE_FEMALE \
+          BATCH_DEFAULT_TTS_ENGINE \
           API_KEY CORS_ORIGINS)
 
 _cleanup_env() {
@@ -90,6 +91,7 @@ _set_env \
   FISHS2PRO_BASE_URL http://192.168.1.102:8000 \
   FISHS2PRO_VOICE_MALE male \
   FISHS2PRO_VOICE_FEMALE morigawa \
+  BATCH_DEFAULT_TTS_ENGINE fishs2pro \
   API_KEY test-key-123 \
   CORS_ORIGINS "http://localhost:3010,https://radio.beeworks.cc"
 _write_env
@@ -99,6 +101,7 @@ check "all vars written when set" \
    grep -q '^DGX_HOST=192.168.1.102' \"\$OUTPUT_FILE\" && \
    grep -q '^FISHS2PRO_BASE_URL=http://192.168.1.102:8000' \"\$OUTPUT_FILE\" && \
    grep -q '^FISHS2PRO_VOICE_MALE=male' \"\$OUTPUT_FILE\" && \
+   grep -q '^BATCH_DEFAULT_TTS_ENGINE=fishs2pro' \"\$OUTPUT_FILE\" && \
    grep -q '^FISHS2PRO_VOICE_FEMALE=morigawa' \"\$OUTPUT_FILE\" && \
    grep -q '^API_KEY=test-key-123' \"\$OUTPUT_FILE\" && \
    grep -q '^CORS_ORIGINS=http://localhost:3010,https://radio.beeworks.cc' \"\$OUTPUT_FILE\""

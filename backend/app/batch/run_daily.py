@@ -13,10 +13,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.batch.radio_pipeline import PipelineResult, run_radio_pipeline  # noqa: E402
 from app.batch.cleanup_episodes import cleanup_episodes  # noqa: E402
+from app.config import get_settings                       # noqa: E402
 from app.logging_config import setup_daily_logging       # noqa: E402
 from app.services.episode_service import EpisodeService   # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+_TTS_ENGINES = {"voicevox", "aivispeech", "fishs2pro"}
 
 
 def main() -> None:
@@ -29,6 +32,16 @@ def main() -> None:
     news_source = os.environ.get("BATCH_NEWS_SOURCE", "hatena_bookmark")
     episode_date = os.environ.get("BATCH_DATE") or dt.date.today().isoformat()
 
+    # 定期ニュース生成はエンジン未指定時、API/UIとは別に batch_default_tts_engine
+    # (既定 fishs2pro) を使う。POST /generate 等の未指定時は従来どおり
+    # settings.default_tts_engine (aivispeech) を維持するため、経路をここで分離する。
+    settings = get_settings()
+    batch_tts_engine = (
+        settings.batch_default_tts_engine
+        if settings.batch_default_tts_engine in _TTS_ENGINES
+        else settings.default_tts_engine
+    )
+
     episode_service = EpisodeService()
     episode_id, seq = episode_service.create_radio_episode(
         episode_date=episode_date, status="generating",
@@ -40,6 +53,7 @@ def main() -> None:
         episode_date=episode_date,
         news_source=news_source,
         seq=seq,
+        tts_engine=batch_tts_engine,
         default_episodes_dir="data/episodes",
     )
 

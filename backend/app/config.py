@@ -34,7 +34,10 @@ class Settings(BaseSettings):
     api_key: str = ""
     proxy_client_ip_hmac_secret: str = ""
     cookie_secure: bool = True
-    default_tts_engine: str = "fishs2pro"
+    default_tts_engine: str = "aivispeech"
+    # 定期ニュース生成（run_daily.py）でエンジン未指定時に使う既定値。
+    # POST /generate・再合成APIの未指定時は default_tts_engine（aivispeech）を維持する。
+    batch_default_tts_engine: str = "fishs2pro"
     episode_retention_days: int = 30
     jingle_opening_path: str = "/app/data/jingles/opening.mp3"
     jingle_ending_path: str = "/app/data/jingles/ending.mp3"

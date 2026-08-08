@@ -8,7 +8,7 @@
 2. **要約生成** — Ollama（ローカル LLM）で各記事を日本語要約
 3. **スクリプト生成** — 要約をもとにラジオ番組スクリプト（男女2人のトーク形式）を生成
 4. **脚本レビュー** — 4 監督（天才・新人・心配性・楽観的）による LLM レビューで脚本改訂
-5. **音声合成** — Fish S2 Pro（既定）/ AivisSpeech / VOICEVOX / Irodori-TTS でスクリプトを WAV に変換
+5. **音声合成** — 定期生成は Fish S2 Pro（既定）、手動生成は AivisSpeech（既定）/ VOICEVOX / Irodori-TTS でスクリプトを WAV に変換
 6. **エピソード組み立て** — ジングル付きで WAV を結合し `episode.mp3` を生成
 
 バッチは毎朝6時（デフォルト）に自動実行されます。Web フロントから手動実行も可能です。
@@ -20,7 +20,7 @@
 | バックエンド | Python 3.11 / FastAPI / SQLite |
 | フロントエンド | Next.js 14 / React 18 / Tailwind CSS |
 | LLM | Ollama（例: qwen3.6:35b） |
-| 音声合成 | Fish S2 Pro（デフォルト）/ AivisSpeech / VOICEVOX / Irodori-TTS |
+| 音声合成 | Fish S2 Pro（定期生成の既定）/ AivisSpeech（手動生成の既定）/ VOICEVOX / Irodori-TTS |
 | 音声結合 | ffmpeg |
 | インフラ | Docker Compose |
 
@@ -62,7 +62,8 @@
 | `VAPID_PRIVATE_KEY` | Web Push送信用VAPID秘密鍵（ログへ出力しない）。cron環境へ自動注入。未設定時は配信バッチがスキップ | 空文字（未設定時は配信スキップ） |
 | `VAPID_CLAIMS_EMAIL` | Web Push VAPID claims の連絡先メールアドレス。`VAPID_PRIVATE_KEY` と併せて設定必須 | 空文字（未設定時は配信スキップ） |
 | `PUSH_RATE_LIMIT` | Web Push購読登録・解除APIのレート制限 | `30/minute` |
-| `DEFAULT_TTS_ENGINE` | デフォルト TTS エンジン (`fishs2pro` / `aivispeech` / `voicevox`) | `fishs2pro` |
+| `DEFAULT_TTS_ENGINE` | `tts_engine` 未指定時に使う既定 TTS エンジン (`fishs2pro` / `aivispeech` / `voicevox`)。`POST /generate`・`POST /episodes/:id/synthesize` など手動生成系に適用 | `aivispeech` |
+| `BATCH_DEFAULT_TTS_ENGINE` | 定期ニュース生成（`run_daily.py`）でエンジン未指定時に使う既定 TTS エンジン (`fishs2pro` / `aivispeech` / `voicevox`) | `fishs2pro` |
 | `CRON_SCHEDULE` | バッチ実行スケジュール（cron 形式） | `0 6 * * *` |
 | `EPISODE_RETENTION_DAYS` | エピソード保持日数 | `30` |
 | `MAX_SCRIPT_ARTICLES` | スクリプト生成に使用する最大記事数 | `10` |
@@ -220,16 +221,19 @@ import_articles
 
 ## TTS エンジン切替
 
-`DEFAULT_TTS_ENGINE` 環境変数でデフォルトの音声合成エンジンを切替できます:
+音声合成エンジンの既定値は、経路によって別々の環境変数で切替できます:
+
+- `BATCH_DEFAULT_TTS_ENGINE`（既定 `fishs2pro`） — 定期ニュース生成（`run_daily.py`）で `tts_engine` 未指定時に使用
+- `DEFAULT_TTS_ENGINE`（既定 `aivispeech`） — `POST /generate`・`POST /episodes/:id/synthesize` など手動生成系で `tts_engine` 未指定時に使用
 
 | 値 | エンジン | 説明 |
 |---|---|---|
-| `fishs2pro` | Fish S2 Pro | デフォルト。女性MC（森川夕貴クローン）＋男性MCの音声合成 |
+| `fishs2pro` | Fish S2 Pro | 女性MC（森川夕貴クローン）＋男性MCの音声合成 |
 | `aivispeech` | AivisSpeech | 高品質な日本語音声合成 |
 | `voicevox` | VOICEVOX | オープンソース TTS エンジン |
 
 音声合成エンジンを明示指定したリクエスト（`tts_engine` パラメータ）は、
-`DEFAULT_TTS_ENGINE` の値に関わらず指定されたエンジンをそのまま使用します。
+上記の既定値設定に関わらず指定されたエンジンをそのまま使用します。
 
 Fish S2 Pro の専用HTTPクライアントは `backend/app/services/fishs2pro_client.py` にあります。
 既定の接続先は `http://192.168.1.102:8000` で、`FISHS2PRO_BASE_URL` で上書きできます。

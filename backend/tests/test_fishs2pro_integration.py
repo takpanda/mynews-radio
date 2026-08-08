@@ -203,6 +203,39 @@ def test_unset_generate_request_passes_configured_default_to_pipeline():
     assert pipeline.call_args.kwargs["tts_engine"] == "fishs2pro"
 
 
+def test_unset_generate_request_keeps_aivispeech_default_with_real_settings(tmp_path):
+    """実設定(default_tts_engine=aivispeech)で、未指定のPOST /generateはFish S2 Proへ切り替わらない(BEE-619 review対応)。"""
+    from app.api import generate as generate_api
+    from app.config import Settings
+    from app.services.episode_service import EpisodeService
+
+    assert Settings().default_tts_engine == "aivispeech"
+    episode_id, _ = EpisodeService().create_radio_episode("2099-01-03")
+
+    with patch.object(generate_api, "run_radio_pipeline", return_value={"audio_path": "episode.mp3"}) as pipeline:
+        generate_api._run_generation(episode_id, generate_api.GenerateRequest(date="2099-01-03"))
+
+    assert pipeline.call_args.kwargs["tts_engine"] == "aivispeech"
+
+
+def test_unset_resynthesize_request_keeps_aivispeech_default_with_real_settings(tmp_path):
+    """実設定で、未指定の再合成APIはFish S2 Proへ切り替わらない(BEE-619 review対応)。"""
+    from app.api import generate as generate_api
+    from app.services.episode_service import EpisodeService
+
+    episode_id, _ = EpisodeService().create_radio_episode("2099-01-04")
+    episode_dir = tmp_path / str(episode_id)
+    (episode_dir / "lines").mkdir(parents=True)
+    (episode_dir / "script.json").write_text(json.dumps({"lines": []}), encoding="utf-8")
+
+    with patch.object(generate_api, "DEFAULT_EPISODES_DIR", str(tmp_path)), \
+         patch.object(generate_api, "synthesize_episode", return_value=1) as synthesize, \
+         patch.object(generate_api, "build_episode", return_value={"audio_path": "episode.mp3"}):
+        list(generate_api._stream_synthesize(episode_id, generate_api.SynthesizeRequest()))
+
+    assert synthesize.call_args.kwargs["tts_engine"] == "aivispeech"
+
+
 def test_determine_tts_config_for_fishs2pro():
     from app.batch import radio_pipeline
 
