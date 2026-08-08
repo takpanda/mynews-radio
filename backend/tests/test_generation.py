@@ -654,8 +654,8 @@ class TestRadioPipelineArgPropagation:
         kwargs = mock_synth.call_args.kwargs
         settings = Settings()
         assert kwargs["base_url"] == settings.fishs2pro_base_url
-        assert kwargs["speaker_male"] is None
-        assert kwargs["speaker_female"] is None
+        assert kwargs["speaker_male"] == settings.fishs2pro_voice_male
+        assert kwargs["speaker_female"] == settings.fishs2pro_voice_female
         assert kwargs["tts_engine"] == "fishs2pro"
 
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
@@ -663,8 +663,8 @@ class TestRadioPipelineArgPropagation:
     @patch("app.batch.radio_pipeline.generate_script", return_value=5)
     @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
     @patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "ep.mp3"})
-    def test_tts_default_aivispeech_when_unspecified(self, mock_build, mock_review, mock_gen, mock_sum, mock_import):
-        """tts_engine 未指定時は settings.default_tts_engine (aivispeech) が使われる(Batch互換)."""
+    def test_tts_default_fishs2pro_when_unspecified(self, mock_build, mock_review, mock_gen, mock_sum, mock_import):
+        """tts_engine 未指定時は settings.default_tts_engine (fishs2pro) が使われる(Batch互換)."""
         from app.batch.radio_pipeline import run_radio_pipeline
         from app.services.episode_service import EpisodeService
         from app.config import Settings
@@ -680,9 +680,9 @@ class TestRadioPipelineArgPropagation:
         mock_synth.assert_called_once()
         _call_kwargs = mock_synth.call_args[1]
         settings = Settings()
-        assert _call_kwargs["base_url"] == settings.aivispeech_base_url
-        assert _call_kwargs["speaker_male"] == settings.aivispeech_speaker_male
-        assert _call_kwargs["speaker_female"] == settings.aivispeech_speaker_female
+        assert _call_kwargs["base_url"] == settings.fishs2pro_base_url
+        assert _call_kwargs["speaker_male"] == settings.fishs2pro_voice_male
+        assert _call_kwargs["speaker_female"] == settings.fishs2pro_voice_female
 
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
@@ -747,7 +747,7 @@ class TestRunGenerationArgPropagation:
         assert mock_pipeline.call_args[1]["tts_engine"] == "voicevox"
 
     @patch("app.api.generate.run_radio_pipeline", return_value={"audio_path": "ep.mp3"})
-    def test_default_tts_engine_aivispeech_from_request(self, mock_pipeline):
+    def test_default_tts_engine_fishs2pro_from_request(self, mock_pipeline):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
 
@@ -758,7 +758,7 @@ class TestRunGenerationArgPropagation:
         _run_generation(ep_id, body)
 
         mock_pipeline.assert_called_once()
-        assert mock_pipeline.call_args[1]["tts_engine"] == "aivispeech"
+        assert mock_pipeline.call_args[1]["tts_engine"] == "fishs2pro"
 
     @patch("app.api.generate.run_radio_pipeline", return_value={"audio_path": "ep.mp3"})
     def test_news_source_passed_to_pipeline(self, mock_pipeline):

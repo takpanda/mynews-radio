@@ -52,6 +52,24 @@ class TestConfigDefaults:
         monkeypatch.setenv("FISHS2PRO_BASE_URL", "http://fish.local:9000")
         assert Settings().fishs2pro_base_url == "http://fish.local:9000"
 
+    def test_fishs2pro_voice_defaults(self):
+        from app.config import Settings
+        settings = Settings()
+        assert settings.fishs2pro_voice_male == "male"
+        assert settings.fishs2pro_voice_female == "morigawa"
+
+    def test_fishs2pro_voice_can_be_overridden(self, monkeypatch):
+        from app.config import Settings
+        monkeypatch.setenv("FISHS2PRO_VOICE_MALE", "kenji")
+        monkeypatch.setenv("FISHS2PRO_VOICE_FEMALE", "yuki")
+        settings = Settings()
+        assert settings.fishs2pro_voice_male == "kenji"
+        assert settings.fishs2pro_voice_female == "yuki"
+
+    def test_default_tts_engine_is_fishs2pro(self):
+        from app.config import Settings
+        assert Settings().default_tts_engine == "fishs2pro"
+
 
 # =========================================================================
 # entrypoint.sh shellcheck

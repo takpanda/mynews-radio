@@ -15,9 +15,10 @@ class FishS2ProClient:
     通信・レスポンス・ファイル書き込み失敗時 ``False`` を返す。
     """
 
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, voice_male: str = "male", voice_female: str = "female"):
         self._base_url = base_url.rstrip("/")
         self._client: Optional[httpx.Client] = None
+        self._voice_names = {"male": voice_male, "female": voice_female}
 
     @property
     def client(self) -> httpx.Client:
@@ -40,14 +41,19 @@ class FishS2ProClient:
         output_path: str,
         delivery: str = "neutral",
     ) -> bool:
-        """1行を合成し、audio/wavレスポンスを指定先へ保存する。"""
-        if speaker not in {"male", "female"}:
+        """1行を合成し、audio/wavレスポンスを指定先へ保存する。
+
+        speaker は論理話者種別（male/female）で受け取り、設定済みの
+        Fish S2 Pro サーバーボイス名（例: female -> morigawa）へ変換して送信する。
+        """
+        if speaker not in self._voice_names:
             raise ValueError(f"不明なスピーカー種類: {speaker}")
+        voice_name = self._voice_names[speaker]
 
         try:
             response = self.client.post(
                 "/synthesize",
-                json={"text": text, "speaker": speaker, "delivery": delivery},
+                json={"text": text, "speaker": voice_name, "delivery": delivery},
             )
             response.raise_for_status()
             content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
@@ -77,7 +83,8 @@ class FishS2ProClient:
             return False
 
     def health_check(self) -> dict:
-        """Fish S2 Pro の稼働状態と male/female 声の提供状態を確認する。"""
+        """Fish S2 Pro の稼働状態と設定済みボイス（male/female）の提供状態を確認する。"""
+        required_voices = set(self._voice_names.values())
         try:
             response = self.client.get("/health")
             response.raise_for_status()
@@ -85,10 +92,10 @@ class FishS2ProClient:
             voices = data.get("voices")
             if data.get("status") != "ok":
                 return {"status": "error", "detail": "health status is not ok"}
-            if not isinstance(voices, list) or not {"male", "female"}.issubset(voices):
+            if not isinstance(voices, list) or not required_voices.issubset(voices):
                 return {
                     "status": "error",
-                    "detail": "health response does not provide male and female voices",
+                    "detail": f"health response does not provide required voices: {sorted(required_voices)}",
                 }
             return {"status": "ok", "voices": voices}
         except (httpx.HTTPError, ValueError) as exc:

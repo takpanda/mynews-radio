@@ -280,8 +280,8 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         tts_engine = _resolve_tts_engine(body.tts_engine, settings.default_tts_engine)
         if tts_engine == "fishs2pro":
             tts_base_url = settings.fishs2pro_base_url
-            tts_speaker_male = None
-            tts_speaker_female = None
+            tts_speaker_male = settings.fishs2pro_voice_male
+            tts_speaker_female = settings.fishs2pro_voice_female
         elif tts_engine == "aivispeech":
             tts_base_url = settings.aivispeech_base_url
             tts_speaker_male = settings.aivispeech_speaker_male
@@ -492,8 +492,8 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
     tts_engine = _resolve_tts_engine(body.tts_engine, settings.default_tts_engine)
     if tts_engine == "fishs2pro":
         tts_base_url = settings.fishs2pro_base_url
-        tts_speaker_male = None
-        tts_speaker_female = None
+        tts_speaker_male = settings.fishs2pro_voice_male
+        tts_speaker_female = settings.fishs2pro_voice_female
         tts_engine_label = "Fish S2 Pro"
     elif tts_engine == "aivispeech":
         tts_base_url = settings.aivispeech_base_url

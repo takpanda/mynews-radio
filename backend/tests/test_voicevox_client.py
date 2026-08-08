@@ -121,7 +121,7 @@ class TestSynthesizeVoicevoxKanaTextIntegration:
         ])
 
         from app.batch.synthesize_voicevox import synthesize_episode
-        result = synthesize_episode(str(ep_dir))
+        result = synthesize_episode(str(ep_dir), tts_engine="voicevox")
 
         assert result == 1
         assert captured_kwargs.get("kana_text") is None, \
@@ -157,7 +157,7 @@ class TestSynthesizeVoicevoxKanaTextIntegration:
         ])
 
         from app.batch.synthesize_voicevox import synthesize_episode
-        result = synthesize_episode(str(ep_dir))
+        result = synthesize_episode(str(ep_dir), tts_engine="voicevox")
 
         assert result == 1
         assert captured_kwargs.get("kana_text") == "グーグル announced", \
@@ -192,7 +192,7 @@ class TestSynthesizeVoicevoxKanaTextIntegration:
         ])
 
         from app.batch.synthesize_voicevox import synthesize_episode
-        result = synthesize_episode(str(ep_dir))
+        result = synthesize_episode(str(ep_dir), tts_engine="voicevox")
 
         assert result == 1
         assert captured_kwargs.get("kana_text") is None, \
@@ -227,7 +227,7 @@ class TestSynthesizeVoicevoxKanaTextIntegration:
         ])
 
         from app.batch.synthesize_voicevox import synthesize_episode
-        result = synthesize_episode(str(ep_dir))
+        result = synthesize_episode(str(ep_dir), tts_engine="voicevox")
 
         assert result == 3
         # 1行目: AWS → エーダブリューエス（置換あり → kana_text 設定）

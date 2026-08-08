@@ -8,7 +8,7 @@
 2. **要約生成** — Ollama（ローカル LLM）で各記事を日本語要約
 3. **スクリプト生成** — 要約をもとにラジオ番組スクリプト（男女2人のトーク形式）を生成
 4. **脚本レビュー** — 4 監督（天才・新人・心配性・楽観的）による LLM レビューで脚本改訂
-5. **音声合成** — AivisSpeech / VOICEVOX / Irodori-TTS でスクリプトを WAV に変換
+5. **音声合成** — Fish S2 Pro（既定）/ AivisSpeech / VOICEVOX / Irodori-TTS でスクリプトを WAV に変換
 6. **エピソード組み立て** — ジングル付きで WAV を結合し `episode.mp3` を生成
 
 バッチは毎朝6時（デフォルト）に自動実行されます。Web フロントから手動実行も可能です。
@@ -20,7 +20,7 @@
 | バックエンド | Python 3.11 / FastAPI / SQLite |
 | フロントエンド | Next.js 14 / React 18 / Tailwind CSS |
 | LLM | Ollama（例: qwen3.6:35b） |
-| 音声合成 | AivisSpeech（デフォルト）/ VOICEVOX / Irodori-TTS |
+| 音声合成 | Fish S2 Pro（デフォルト）/ AivisSpeech / VOICEVOX / Irodori-TTS |
 | 音声結合 | ffmpeg |
 | インフラ | Docker Compose |
 
@@ -52,6 +52,8 @@
 | `AIVISPEECH_SPEAKER_MALE` | AivisSpeech 男性話者 ID | `1310138976`（阿井田茂） |
 | `AIVISPEECH_SPEAKER_FEMALE` | AivisSpeech 女性話者 ID | `1388823424`（湊音エル） |
 | `FISHS2PRO_BASE_URL` | Fish S2 Pro TTS API のエンドポイント | `http://192.168.1.102:8000` |
+| `FISHS2PRO_VOICE_MALE` | Fish S2 Pro 男性ボイス名（論理話者 `male` → 送信するサーバーボイス名） | `male` |
+| `FISHS2PRO_VOICE_FEMALE` | Fish S2 Pro 女性ボイス名（論理話者 `female` → 送信するサーバーボイス名） | `morigawa`（森川夕貴クローン） |
 | `API_KEY` | API キー（辞書・レポート等の管理API向け。手動の生成開始・再音声合成は管理者セッションが必要） | 空文字 |
 | `GENERATE_RATE_LIMIT` | 生成系 API のリクエストレート制限（管理者セッション単位。例: `5/minute`, `100/hour`） | `5/minute` |
 | `PROXY_CLIENT_IP_HMAC_SECRET` | 検証済みクライアントIPのリレー署名検証用HMAC秘密鍵。Next.js（リレー）とバックエンドで同一値を設定する。値は公開しない | 空文字（未設定時はリレー署名を検証せずTCP接続元IPを使用） |
@@ -60,7 +62,7 @@
 | `VAPID_PRIVATE_KEY` | Web Push送信用VAPID秘密鍵（ログへ出力しない）。cron環境へ自動注入。未設定時は配信バッチがスキップ | 空文字（未設定時は配信スキップ） |
 | `VAPID_CLAIMS_EMAIL` | Web Push VAPID claims の連絡先メールアドレス。`VAPID_PRIVATE_KEY` と併せて設定必須 | 空文字（未設定時は配信スキップ） |
 | `PUSH_RATE_LIMIT` | Web Push購読登録・解除APIのレート制限 | `30/minute` |
-| `DEFAULT_TTS_ENGINE` | デフォルト TTS エンジン (`aivispeech` / `voicevox`) | `aivispeech` |
+| `DEFAULT_TTS_ENGINE` | デフォルト TTS エンジン (`fishs2pro` / `aivispeech` / `voicevox`) | `fishs2pro` |
 | `CRON_SCHEDULE` | バッチ実行スケジュール（cron 形式） | `0 6 * * *` |
 | `EPISODE_RETENTION_DAYS` | エピソード保持日数 | `30` |
 | `MAX_SCRIPT_ARTICLES` | スクリプト生成に使用する最大記事数 | `10` |
@@ -222,14 +224,25 @@ import_articles
 
 | 値 | エンジン | 説明 |
 |---|---|---|
-| `aivispeech` | AivisSpeech | デフォルト。高品質な日本語音声合成 |
+| `fishs2pro` | Fish S2 Pro | デフォルト。女性MC（森川夕貴クローン）＋男性MCの音声合成 |
+| `aivispeech` | AivisSpeech | 高品質な日本語音声合成 |
 | `voicevox` | VOICEVOX | オープンソース TTS エンジン |
+
+音声合成エンジンを明示指定したリクエスト（`tts_engine` パラメータ）は、
+`DEFAULT_TTS_ENGINE` の値に関わらず指定されたエンジンをそのまま使用します。
 
 Fish S2 Pro の専用HTTPクライアントは `backend/app/services/fishs2pro_client.py` にあります。
 既定の接続先は `http://192.168.1.102:8000` で、`FISHS2PRO_BASE_URL` で上書きできます。
-Fish S2 Pro API は `POST /synthesize`（JSON: `text`、`speaker`、`delivery`）と
-`GET /health` を使用します。Fish S2 Pro を利用する場合も既存の
-`DEFAULT_TTS_ENGINE=aivispeech` は変更されません。
+台本上の論理話者 `male` / `female` は、`FISHS2PRO_VOICE_MALE`（既定 `male`）/
+`FISHS2PRO_VOICE_FEMALE`（既定 `morigawa`）で設定したサーバーボイス名に変換してから
+`POST /synthesize` に送信します。Fish S2 Pro API は `POST /synthesize`（JSON: `text`、
+`speaker`、`delivery`）と `GET /health` を使用します。`GET /health` の `voices` に
+設定済みの男女ボイス名が含まれない場合、ヘルスチェックはエラーを返します。
+
+Fish S2 Pro の女性行（`morigawa`）は、男性MCとの音量バランスを揃えるため、
+合成後に平均音量が約 -16 dBFS に近づくよう自動調整され、ピークが 0 dBFS を
+超えないよう抑制されます（クリッピング防止）。音量調整に失敗した場合、その行は
+未調整のまま成功扱いにはせず、合成失敗としてログに記録されます。
 
 Irodori-TTS（OpenAI 互換 API）も利用可能です。詳細は `backend/app/services/irodori_client.py` を参照してください。
 
