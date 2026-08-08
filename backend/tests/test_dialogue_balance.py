@@ -68,6 +68,45 @@ class TestCheckDialogueBalanceQuestionOnly:
         issues = check_dialogue_balance(lines)
         assert any("[YAMAGUCHI_QUESTION_ONLY]" in i for i in issues)
 
+    def test_natural_question_without_question_mark_detected(self):
+        """『?』『？』が付かない自然な日本語の疑問文（〜ですか。/〜でしょうか。）も検出できること。"""
+        from app.batch.review_script import check_dialogue_balance
+
+        lines = [
+            _make_line("news", "新しい制度が始まります。", speaker="male"),
+            _make_line("news", "利用者への影響は大きいでしょうか。", speaker="female"),
+            _make_line("news", "手続きは簡単ですか。", speaker="female"),
+            _make_line("news", "影響は限定的なようです。", speaker="male"),
+        ]
+        issues = check_dialogue_balance(lines)
+        assert any("[YAMAGUCHI_QUESTION_ONLY]" in i for i in issues)
+
+
+class TestIsQuestion:
+    """_is_question() の疑問文判定ロジックを直接検証する。"""
+
+    def test_zenkaku_question_mark(self):
+        from app.batch.review_script import _is_question
+
+        assert _is_question("それはどれくらい凄いんですか？") is True
+
+    def test_hankaku_question_mark(self):
+        from app.batch.review_script import _is_question
+
+        assert _is_question("本当ですか?") is True
+
+    def test_natural_japanese_question_with_period(self):
+        from app.batch.review_script import _is_question
+
+        assert _is_question("利用者への影響は大きいでしょうか。") is True
+        assert _is_question("手続きは簡単ですか。") is True
+
+    def test_non_question_statement_not_detected(self):
+        from app.batch.review_script import _is_question
+
+        assert _is_question("それは楽しみですね。") is False
+        assert _is_question("使い方によっては、日常の作業の進めやすさが変わるかもしれません。") is False
+
 
 class TestCheckDialogueBalanceQaRelay:
     """[QA_RELAY]: 山口の質問→田村の回答の1往復だけでnewsブロックが終わる場合を検出する。"""
@@ -113,6 +152,40 @@ class TestCheckDialogueBalanceQaRelay:
         ]
         issues = check_dialogue_balance(lines)
         assert not any("[QA_RELAY]" in i for i in issues)
+
+    def test_prior_non_question_and_multiple_round_trips_avoids_relay_detection(self):
+        """山口の非質問発言・複数往復を経た上での質問→回答は、既に十分な掛け合いが
+        成立しているため [QA_RELAY] の対象外であること（レビュー指摘の回帰テスト）。
+
+        田村の説明 → 山口の生活者視点の分析 → 田村の応答 → 山口の質問 → 田村の応答
+        という、末尾だけを見ると質問→回答で終わるが、山口が既に非質問発言で
+        対等に掛け合いへ参加している台本を合格させる。
+        """
+        from app.batch.review_script import check_dialogue_balance
+
+        lines = [
+            _make_line("news", "新しい制度が始まります。", speaker="male"),
+            _make_line("news", "生活者としては、負担が増えないか気になりますね。", speaker="female"),
+            _make_line("news", "その点は経過措置が用意されているので安心してください。", speaker="male"),
+            _make_line("news", "経過措置はいつまで続くんですか？", speaker="female"),
+            _make_line("news", "来年度末までの予定です。", speaker="male"),
+        ]
+        issues = check_dialogue_balance(lines)
+        assert issues == []
+
+    def test_male_narration_before_sole_question_still_detected(self):
+        """山口の発言がブロック内で唯一・末尾の質問だけの場合は、
+        直前に田村の説明行が何行あっても [QA_RELAY] を検出すること。"""
+        from app.batch.review_script import check_dialogue_balance
+
+        lines = [
+            _make_line("news", "1つ目のニュースです。", speaker="male"),
+            _make_line("news", "詳細を補足します。", speaker="male"),
+            _make_line("news", "本当ですか？", speaker="female"),
+            _make_line("news", "本当です。", speaker="male"),
+        ]
+        issues = check_dialogue_balance(lines)
+        assert any("[QA_RELAY]" in i for i in issues)
 
 
 class TestCheckDialogueBalanceSectionScope:

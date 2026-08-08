@@ -143,11 +143,15 @@ def _build_output_issue_example(style: str) -> str:
 # 単位で検査する。transition・discussion の構造やプロンプト本文は対象外。
 # ---------------------------------------------------------------------------
 
-_QUESTION_SUFFIX_RE = _re.compile(r"[?？]\s*$")
+_QUESTION_SUFFIX_RE = _re.compile(r"(?:[?？]|か)[。!！]?\s*$")
 
 
 def _is_question(text: str) -> bool:
-    """text が疑問文（末尾が「?」または「？」）かどうかを判定する。"""
+    """text が疑問文かどうかを判定する。
+
+    末尾が「?」「？」の場合に加えて、「〜ですか。」「〜でしょうか。」のような
+    句点付きの疑問終助詞「か」で終わる自然な日本語の疑問文も疑問文として扱う。
+    """
     return bool(_QUESTION_SUFFIX_RE.search(text.strip()))
 
 
@@ -177,7 +181,9 @@ def check_dialogue_balance(lines: list) -> list[str]:
     「[TAG] メッセージ」形式でリストを返す。空リストなら合格。
 
     - [YAMAGUCHI_QUESTION_ONLY]: newsブロック内の山口の発言が全て疑問文
-    - [QA_RELAY]: 山口の質問→田村の回答の1往復だけでブロックが終わっている
+    - [QA_RELAY]: 山口の発言がブロック内で唯一・末尾の質問だけで、
+      田村の回答を受けた掛け合いの続き（山口の感想・意見や田村の補足）が無い
+      （山口の非質問発言や複数往復を経た上での質問→回答は対象外）
     """
     issues: list[str] = []
 
@@ -196,7 +202,7 @@ def check_dialogue_balance(lines: list) -> list[str]:
                 "感想・分析・別角度の提起など疑問文以外の発言を1行以上含めてください"
             )
 
-        if len(block) >= 2:
+        if len(block) >= 2 and len(female_entries) == 1:
             (prev_idx, prev_line), (last_idx, last_line) = block[-2], block[-1]
             if (
                 prev_line.get("speaker") == "female"
