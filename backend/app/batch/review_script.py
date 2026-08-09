@@ -289,7 +289,17 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
 
     Returns:
         dict with keys:
-            revised (bool)                    – True when a revised script was written.
+            revised (bool)                    – True when a revised script was written AND
+                                                 safe to adopt. 呼び出し元（orchestrate.py /
+                                                 radio_pipeline.py / app/api/generate.py）は
+                                                 全てこのフラグのみを見て output_dir/script.json
+                                                 を本番の script.json へ上書きコピーするため、
+                                                 transition_integrity_issues を検出した場合は
+                                                 revised が書き出されていても False に強制し、
+                                                 呼び出し元に生成工程で既に安全化済みの
+                                                 script.json を維持させる（BEE-661/BEE-662,
+                                                 CodeReviewer must指摘）。output_dir/script.json
+                                                 自体は診断用にそのまま残る。
             review_count (int)                – Number of director reviews that succeeded.
             revision_summary (str)            – LLM-generated summary of changes, or "".
             lines_count (int)                 – Number of lines in the revised script, or 0.
@@ -299,11 +309,13 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
             transition_integrity_issues (list[str]) – 記事境界のtransitionに前の記事の
                                                    締め文と次の記事の告知が混在した壊れた
                                                    文（BEE-661/BEE-662）を検出した警告。
-                                                   空リストなら合格。検知のみで自動修正は
-                                                   行わない（次の記事の正しいトピックを
-                                                   持たないため。生成工程の
-                                                   _ensure_transitions() が同じ判定条件で
-                                                   検知・置換する）。
+                                                   空リストなら合格。検知した場合、次の記事の
+                                                   正しいトピックを持たないため自動置換は
+                                                   行わず、代わりに revised を False に落とす
+                                                   ことでレビュー版の採用自体を止める
+                                                   （生成工程の _ensure_transitions() が同じ
+                                                   判定条件で検知・置換済みの安全な
+                                                   script.json が既に存在する前提）。
     """
     settings = get_settings()
 
@@ -419,7 +431,19 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
                 "\n".join(f"  - {issue}" for issue in dialogue_balance_issues),
             )
 
-    # --- Step 4: 記事境界transitionの複文混入チェック（非fatal, BEE-661/BEE-662）---
+    # --- Step 4: 記事境界transitionの複文混入チェック（BEE-661/BEE-662）---
+    # レビューLLMの再統合（review_synthesize.md）が新たに複文混在のtransitionを
+    # 生成し直した場合、そのままでは呼び出し元（orchestrate.py / radio_pipeline.py /
+    # app/api/generate.py）が全て「revised=True なら output_dir/script.json を
+    # 本番の script.json へ上書きコピーする」という同一の判定パターンで動いており、
+    # 壊れたtransitionを含むレビュー後台本がそのまま最終成果物として採用されて
+    # しまう（CodeReviewer must指摘）。
+    #
+    # レビュー工程は次の記事の正しいトピックを持たないため安全な置換文を
+    # 再構成できない（check_transition_integrity のコメント参照）。そのため
+    # ここでは「壊れたレビュー版を採用させない」安全策として revised を False に
+    # 落とし、呼び出し元に生成工程が既に安全化済みの script.json（_ensure_transitions()
+    # 適用済み）を維持させる。output_dir/script.json 自体は診断用にそのまま残す。
     transition_check_lines = revised_script["lines"] if (revised and revised_script) else source.get("lines", [])
     transition_integrity_issues = check_transition_integrity(transition_check_lines)
     if transition_integrity_issues:
@@ -428,6 +452,14 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
             len(transition_integrity_issues),
             "\n".join(f"  - {issue}" for issue in transition_integrity_issues),
         )
+        if revised:
+            logger.warning(
+                "review_script: rejecting reviewed script due to transition integrity "
+                "issues; forcing revised=False so callers keep the pre-review "
+                "script.json instead of adopting %s",
+                os.path.join(output_dir, "script.json"),
+            )
+            revised = False
 
     # --- Save review.json ---
     _write_review_json(

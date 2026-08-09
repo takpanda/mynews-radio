@@ -137,12 +137,16 @@ class TestReviewScriptTransitionIntegrityIntegration:
 
         result, output_dir = self._run(tmp_path, source_script, synth_lines)
 
-        assert result["revised"] is True
+        # must指摘対応: 壊れたtransitionを検知した場合、revisedはFalseに強制され、
+        # 呼び出し元（orchestrate.py等）がレビュー版を本番script.jsonへ採用しない
+        assert result["revised"] is False
         assert any("[TRANSITION_MIXED]" in i for i in result["transition_integrity_issues"])
 
         review_json = json.loads(Path(output_dir, "review.json").read_text(encoding="utf-8"))
         assert review_json["transition_integrity_issues"] == result["transition_integrity_issues"]
-        # 非fatalであるため、問題があっても revised=True のまま script.json は出力される
+        assert review_json["revised"] is False
+        # output_dir/script.json 自体は診断用にそのまま残る（呼び出し元は revised=False
+        # を見て本番script.jsonへコピーしないため、これがそのまま採用されることはない）
         assert Path(output_dir, "script.json").exists()
 
     def test_revised_script_with_clean_transitions_no_issue(self, tmp_path):
@@ -201,3 +205,105 @@ class TestReviewScriptTransitionIntegrityIntegration:
 
         assert result["revised"] is False
         assert any("[TRANSITION_MIXED]" in i for i in result["transition_integrity_issues"])
+
+
+class TestPipelineBoundaryRejectsBrokenReviewOutput:
+    """壊れたレビュー出力が最終的な本番 script.json へ入らないことを検証する
+    パイプライン境界テスト（BEE-661/BEE-662, CodeReviewer must指摘）。
+
+    orchestrate.py / radio_pipeline.py / app/api/generate.py は3箇所とも
+    「if review_result.get("revised"): shutil.copy(output_dir/script.json, script_path)」
+    という同一パターンで、review_script() の revised フラグのみを見て
+    レビュー後台本を本番 script.json へ採用する。この境界契約（revised が
+    False のときはレビュー版を採用しない）を、実際の review_script() の
+    戻り値を使って検証する。
+    """
+
+    def _run(self, tmp_path, source_script, synth_lines, revision_summary="修正しました"):
+        from app.batch.review_script import review_script
+
+        script_path = os.path.join(tmp_path, "script.json")
+        with open(script_path, "w", encoding="utf-8") as f:
+            json.dump(source_script, f, ensure_ascii=False)
+        pre_review_content = Path(script_path).read_text(encoding="utf-8")
+
+        reviewed_episode_dir = os.path.join(tmp_path, "review")
+        os.makedirs(reviewed_episode_dir, exist_ok=True)
+
+        call_count = {"n": 0}
+
+        def side_effect(prompt_text, **_kw):
+            call_count["n"] += 1
+            if call_count["n"] <= 5:
+                return {"overall_score": 7, "issues": [], "general_feedback": ""}
+            return {"lines": synth_lines, "revision_summary": revision_summary}
+
+        mock_client = MagicMock()
+        mock_client.generate_json.side_effect = side_effect
+        mock_cls = MagicMock()
+        mock_cls.__enter__.return_value = mock_client
+
+        with patch("app.batch.review_script.OllamaClient", return_value=mock_cls):
+            result = review_script(script_path, reviewed_episode_dir)
+
+        # 呼び出し元3箇所（orchestrate.py, radio_pipeline.py, app/api/generate.py）と
+        # 同一のコピー判定パターンを再現する
+        if result.get("revised"):
+            import shutil
+            shutil.copy(os.path.join(reviewed_episode_dir, "script.json"), script_path)
+
+        return result, script_path, pre_review_content
+
+    def test_broken_review_output_does_not_overwrite_production_script(self, tmp_path):
+        source_script = {
+            "date": "2026-08-09",
+            "title": "ニュースのとなり",
+            "subtitle": "",
+            "lines": [
+                _make_line("intro", "「ニュースのとなり」の時間です。", speaker="male"),
+                _make_line("news", "海外邦人についての記事です。", speaker="male", article_id=1),
+                _make_line("transition", "それでは、記事2の話題に移ります。", speaker="female", article_id=2),
+                _make_line("news", "行方不明事案についての記事です。", speaker="male", article_id=2),
+            ],
+        }
+        # レビューLLMが記事境界のtransitionをBEE-661型の壊れた文に書き換えて返す
+        synth_lines = [
+            {"speaker": "male", "text": "海外邦人についての記事です。", "article_id": 1, "section": "news", "delivery": "neutral"},
+            {"speaker": "female", "text": _BROKEN_TEXT, "article_id": 2, "section": "transition", "delivery": "neutral"},
+            {"speaker": "male", "text": "行方不明事案についての記事です。", "article_id": 2, "section": "news", "delivery": "neutral"},
+        ]
+
+        result, script_path, pre_review_content = self._run(tmp_path, source_script, synth_lines)
+
+        assert result["revised"] is False
+
+        final_content = Path(script_path).read_text(encoding="utf-8")
+        # 本番 script.json は生成工程時点の内容から一切変更されていないこと
+        assert final_content == pre_review_content
+        # 壊れたtransitionの文言が本番 script.json に混入していないこと（受入条件）
+        assert _BROKEN_TEXT not in final_content
+        assert "息のニュースをどうぞ" not in final_content
+
+    def test_clean_review_output_is_adopted_into_production_script(self, tmp_path):
+        """比較対照: 問題が無ければ従来どおりレビュー版が本番 script.json へ採用されること。"""
+        source_script = {
+            "date": "2026-08-09",
+            "title": "ニュースのとなり",
+            "subtitle": "",
+            "lines": [
+                _make_line("intro", "「ニュースのとなり」の時間です。", speaker="male"),
+                _make_line("news", "記事1の内容です。", speaker="male", article_id=1),
+            ],
+        }
+        synth_lines = [
+            {"speaker": "male", "text": "記事1の内容です（レビューで修正）。", "article_id": 1, "section": "news", "delivery": "neutral"},
+        ]
+
+        result, script_path, pre_review_content = self._run(tmp_path, source_script, synth_lines)
+
+        assert result["revised"] is True
+        assert result["transition_integrity_issues"] == []
+
+        final_content = Path(script_path).read_text(encoding="utf-8")
+        assert final_content != pre_review_content
+        assert "記事1の内容です（レビューで修正）。" in final_content
