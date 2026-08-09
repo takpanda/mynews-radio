@@ -1,6 +1,7 @@
 from app.batch.generate_script import (
     _BRIDGE_TRANSITION_PHRASES,
     _ensure_transitions,
+    _is_broken_transition_text,
     _pick_phrase,
     _pick_speaker,
     lint_script,
@@ -402,4 +403,171 @@ class TestEnsureTransitionsMissingInputRegression:
                 f"transition pair should alternate speakers: {pair}"
             )
             assert pair[0]["article_id"] == pair[1]["article_id"]
+
+
+class TestIsBrokenTransitionText:
+    """_is_broken_transition_text() の判定条件そのものを検証する（BEE-661/BEE-662）。"""
+
+    def test_bee661_episode355_example_detected_as_broken(self):
+        # BEE-661 で報告された、エピソード355 line 11 の実例
+        text = (
+            "制度の不備という見えない制約から、人身の自由を奪う見えない組織への恐怖へ。"
+            "海外邦人の窮状は社会構造の歪みを象徴する それでは、"
+            "カンボジアで息子が行方不明になり8ヶ月経ったが、息のニュースをどうぞ。"
+        )
+        assert _is_broken_transition_text(text) is True
+
+    def test_normal_single_sentence_transition_not_broken(self):
+        for text in (
+            "続いては最新のテクノロジーニュースです。",
+            "それでは、経済の話題に移ります。",
+            "話は変わりまして、気になるスポーツニュースをどうぞ。",
+        ):
+            assert _is_broken_transition_text(text) is False, text
+
+    def test_natural_bridge_with_single_trailing_period_not_broken(self):
+        # レビュープロンプトが良い例として挙げる、前の話題に自然に言及する
+        # Contextual Bridge スタイルの単文（句点は末尾の1個のみ）
+        text = "そういった極限的な脅威から視点を移して、次に経済ニュースを見てみましょう。"
+        assert _is_broken_transition_text(text) is False
+
+    def test_short_reaction_phrase_not_broken(self):
+        assert _is_broken_transition_text("気になりますね。") is False
+
+    def test_empty_text_not_broken(self):
+        assert _is_broken_transition_text("") is False
+        assert _is_broken_transition_text("   ") is False
+
+    def test_two_sentences_without_trailing_period_detected(self):
+        assert _is_broken_transition_text("前の話はここまでです。それでは次の話題です") is True
+
+
+class TestEnsureTransitionsBrokenLLMTransitionReplacement:
+    """LLMが生成した『前記事の締め文＋次記事告知』混在のtransitionを検知し、
+    安全な2行の掛け合いへ置換する回帰テスト（BEE-661/BEE-662）。"""
+
+    _BROKEN_TEXT = (
+        "制度の不備という見えない制約から、人身の自由を奪う見えない組織への恐怖へ。"
+        "海外邦人の窮状は社会構造の歪みを象徴する それでは、"
+        "カンボジアで息子が行方不明になり8ヶ月経ったが、息のニュースをどうぞ。"
+    )
+
+    def test_broken_transition_at_news_boundary_is_replaced(self):
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "海外邦人についての記事です。"},
+            {"section": "transition", "article_id": 2, "speaker": "female", "text": self._BROKEN_TEXT},
+            {"section": "news", "article_id": 2, "speaker": "male", "text": "行方不明事案についての記事です。"},
+        ]
+        summaries = [
+            {"id": 1, "title": "海外邦人の窮状", "summary": "海外邦人の窮状に関する記事です。"},
+            {"id": 2, "title": "行方不明事案", "summary": "カンボジアで行方不明になった邦人に関する記事です。"},
+        ]
+
+        result = _ensure_transitions(lines, summaries)
+
+        # 壊れた文言はどのtransition行にも残っていないこと（受入条件）
+        transition_texts = [l["text"] for l in result if l["section"] == "transition"]
+        assert self._BROKEN_TEXT not in transition_texts
+        assert not any("息のニュースをどうぞ" in t for t in transition_texts), transition_texts
+
+        # 記事2境界のtransitionは、既存の2行（橋渡し＋短い受け）仕様に置き換わること
+        art2_transitions = [
+            l for l in result if l["section"] == "transition" and l.get("article_id") == 2
+        ]
+        assert len(art2_transitions) == 2
+        assert art2_transitions[0]["speaker"] != art2_transitions[1]["speaker"]
+
+        # lint_script でも壊れたtransitionに起因するエラーが出ないこと
+        errors = lint_script(result)
+        assert not any("TRANSITION_SOLO" in e for e in errors), errors
+
+    def test_broken_text_detection_reused_by_lint_is_consistent(self):
+        # _is_broken_transition_text は _ensure_transitions の内部判定にのみ使うが、
+        # 同じ判定関数を直接呼んでも同じ結果になることを確認する（整合性の担保）
+        assert _is_broken_transition_text(self._BROKEN_TEXT) is True
+
+    def test_discussion_precursor_broken_style_is_not_touched(self):
+        # discussion直前のtransitionはテンプレート自体が複文（例:
+        # 「{topic}、私も気になっているんですよ。どう思います？」）を前提とするため、
+        # 句読点構造だけでは対象外として扱われ、除去されないこと
+        two_sentence_discussion_trans = "気になりますね。どう思います？"
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
+            {
+                "section": "transition",
+                "article_id": 1,
+                "speaker": "female",
+                "text": two_sentence_discussion_trans,
+            },
+            {"section": "discussion", "article_id": 1, "speaker": "male", "text": "深掘りします。"},
+        ]
+        summaries = [{"id": 1, "title": "記事1タイトル", "summary": "記事1の要約です。"}]
+
+        result = _ensure_transitions(lines, summaries)
+
+        transition_texts = [l["text"] for l in result if l["section"] == "transition"]
+        assert two_sentence_discussion_trans in transition_texts
+
+    def test_broken_style_text_on_first_article_after_intro_is_not_touched(self):
+        # last_content_aid が None（intro直後 = 前の記事が存在しない）場合は
+        # 『前記事の締め文混入』という前提が成立しないため対象外とする
+        two_sentence_text = "本日も盛りだくさんです。それでは記事1のニュースをどうぞ。"
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
+            {"section": "transition", "article_id": 1, "speaker": "female", "text": two_sentence_text},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
+        ]
+        summaries = [{"id": 1, "title": "記事1タイトル", "summary": "記事1の要約です。"}]
+
+        result = _ensure_transitions(lines, summaries)
+
+        transition_texts = [l["text"] for l in result if l["section"] == "transition"]
+        assert two_sentence_text in transition_texts
+
+    def test_normal_llm_transition_at_news_boundary_is_preserved(self):
+        # 正常な単文transitionは過剰に置換されないこと（受入条件: 既存の正常な
+        # 遷移文を過剰に置換しない判定）
+        normal_text = "それでは、経済ニュースの話題に移ります。"
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
+            {"section": "transition", "article_id": 2, "speaker": "female", "text": normal_text},
+            {"section": "news", "article_id": 2, "speaker": "male", "text": "記事2の内容です。"},
+        ]
+        summaries = [
+            {"id": 1, "title": "記事1タイトル"},
+            {"id": 2, "title": "記事2タイトル"},
+        ]
+
+        result = _ensure_transitions(lines, summaries)
+
+        transition_texts = [l["text"] for l in result if l["section"] == "transition"]
+        assert normal_text in transition_texts
+        # 置換されていないので記事2境界のtransitionは1行のまま
+        art2_transitions = [
+            l for l in result if l["section"] == "transition" and l.get("article_id") == 2
+        ]
+        assert len(art2_transitions) == 1
+
+    def test_natural_contextual_bridge_transition_is_preserved(self):
+        # レビュー観点で推奨される、前の話題に一言触れてから移る自然な
+        # Contextual Bridgeスタイル（句点は末尾の1個のみ）は誤って置換しないこと
+        bridge_text = "そういった課題を踏まえた上で、次はテクノロジーの話題に目を向けてみましょう。"
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
+            {"section": "transition", "article_id": 2, "speaker": "female", "text": bridge_text},
+            {"section": "news", "article_id": 2, "speaker": "male", "text": "記事2の内容です。"},
+        ]
+        summaries = [
+            {"id": 1, "title": "記事1タイトル"},
+            {"id": 2, "title": "テクノロジー"},
+        ]
+
+        result = _ensure_transitions(lines, summaries)
+
+        transition_texts = [l["text"] for l in result if l["section"] == "transition"]
+        assert bridge_text in transition_texts
 

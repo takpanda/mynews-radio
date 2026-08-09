@@ -19,6 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+from app.batch.generate_script import _is_broken_transition_text
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
 
@@ -221,6 +222,60 @@ def check_dialogue_balance(lines: list) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Transition integrity check — 前の記事の締め文と次の記事の告知が1行に
+# 混在した壊れたtransition（BEE-661/BEE-662）がレビュー後の最終台本に
+# 残っていないかを検査する。
+#
+# 生成工程（generate_script.py の _ensure_transitions()）は同じ判定条件で
+# 壊れたtransitionを検知し、安全なテンプレート文へ置換済みの script.json を
+# 本関数の入力とする前提。一方でこのレビュー工程はLLMによる台本再統合
+# （review_synthesize.md）を経るため、レビューLLMが新たに複文混在の
+# transitionを生成し直す可能性はゼロではない。しかしレビュー工程は次の記事の
+# 正しいトピック（記事タイトル・要約）を持たないため、生成工程と同様の
+# 安全な置換文を再構成できない。そのため本関数は検知のみを行い review.json
+# に記録する（非fatal）。置換が必要な場合は台本を再生成するか、後続の
+# レビューサイクルでの修正に委ねる。
+# ---------------------------------------------------------------------------
+
+def check_transition_integrity(lines: list) -> list[str]:
+    """記事境界のtransition行に、前の記事の締め文と次の記事の告知が混在した
+    壊れた文が残っていないかを検査する。
+
+    lint_script（app/batch/generate_script.py）の [TRANSITION_SOLO] と同様に
+    連続するtransition行をブロック単位でまとめ、直後がnews行であるブロック
+    （＝記事境界のtransition）のみを対象とする。discussion直前のtransitionは
+    複文スタイルが正常なため対象外。
+    """
+    issues: list[str] = []
+    sections = [line.get("section") for line in lines]
+
+    blocks: list[list[int]] = []
+    current: list[int] = []
+    for i, s in enumerate(sections):
+        if s == "transition":
+            current.append(i)
+        elif current:
+            blocks.append(current)
+            current = []
+    if current:
+        blocks.append(current)
+
+    for block in blocks:
+        next_idx = block[-1] + 1
+        if next_idx >= len(sections) or sections[next_idx] != "news":
+            continue
+        for i in block:
+            text = lines[i].get("text", "")
+            if _is_broken_transition_text(text):
+                issues.append(
+                    f"[TRANSITION_MIXED] transition行 {i} に前の記事の締め文と次の記事の"
+                    f"告知が混在している可能性があります: 「{text[:40]}...」"
+                )
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -234,13 +289,33 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
 
     Returns:
         dict with keys:
-            revised (bool)                    – True when a revised script was written.
+            revised (bool)                    – True when a revised script was written AND
+                                                 safe to adopt. 呼び出し元（orchestrate.py /
+                                                 radio_pipeline.py / app/api/generate.py）は
+                                                 全てこのフラグのみを見て output_dir/script.json
+                                                 を本番の script.json へ上書きコピーするため、
+                                                 transition_integrity_issues を検出した場合は
+                                                 revised が書き出されていても False に強制し、
+                                                 呼び出し元に生成工程で既に安全化済みの
+                                                 script.json を維持させる（BEE-661/BEE-662,
+                                                 CodeReviewer must指摘）。output_dir/script.json
+                                                 自体は診断用にそのまま残る。
             review_count (int)                – Number of director reviews that succeeded.
             revision_summary (str)            – LLM-generated summary of changes, or "".
             lines_count (int)                 – Number of lines in the revised script, or 0.
             dialogue_balance_issues (list[str]) – 山口(female)の質問偏重・一問一答の
                                                    連続を検出した警告。空リストなら合格。
                                                    (style="solo" の台本では常に空)
+            transition_integrity_issues (list[str]) – 記事境界のtransitionに前の記事の
+                                                   締め文と次の記事の告知が混在した壊れた
+                                                   文（BEE-661/BEE-662）を検出した警告。
+                                                   空リストなら合格。検知した場合、次の記事の
+                                                   正しいトピックを持たないため自動置換は
+                                                   行わず、代わりに revised を False に落とす
+                                                   ことでレビュー版の採用自体を止める
+                                                   （生成工程の _ensure_transitions() が同じ
+                                                   判定条件で検知・置換済みの安全な
+                                                   script.json が既に存在する前提）。
     """
     settings = get_settings()
 
@@ -249,7 +324,14 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
         source: dict = json.loads(Path(source_script_path).read_text(encoding="utf-8"))
     except Exception as exc:
         logger.error("review_script: failed to read source script %s: %s", source_script_path, exc)
-        return {"revised": False, "review_count": 0, "revision_summary": "", "lines_count": 0, "dialogue_balance_issues": []}
+        return {
+            "revised": False,
+            "review_count": 0,
+            "revision_summary": "",
+            "lines_count": 0,
+            "dialogue_balance_issues": [],
+            "transition_integrity_issues": [],
+        }
 
     script_json_str = json.dumps(source, ensure_ascii=False, indent=2)
 
@@ -349,6 +431,36 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
                 "\n".join(f"  - {issue}" for issue in dialogue_balance_issues),
             )
 
+    # --- Step 4: 記事境界transitionの複文混入チェック（BEE-661/BEE-662）---
+    # レビューLLMの再統合（review_synthesize.md）が新たに複文混在のtransitionを
+    # 生成し直した場合、そのままでは呼び出し元（orchestrate.py / radio_pipeline.py /
+    # app/api/generate.py）が全て「revised=True なら output_dir/script.json を
+    # 本番の script.json へ上書きコピーする」という同一の判定パターンで動いており、
+    # 壊れたtransitionを含むレビュー後台本がそのまま最終成果物として採用されて
+    # しまう（CodeReviewer must指摘）。
+    #
+    # レビュー工程は次の記事の正しいトピックを持たないため安全な置換文を
+    # 再構成できない（check_transition_integrity のコメント参照）。そのため
+    # ここでは「壊れたレビュー版を採用させない」安全策として revised を False に
+    # 落とし、呼び出し元に生成工程が既に安全化済みの script.json（_ensure_transitions()
+    # 適用済み）を維持させる。output_dir/script.json 自体は診断用にそのまま残す。
+    transition_check_lines = revised_script["lines"] if (revised and revised_script) else source.get("lines", [])
+    transition_integrity_issues = check_transition_integrity(transition_check_lines)
+    if transition_integrity_issues:
+        logger.warning(
+            "review_script: transition integrity check found %d issue(s):\n%s",
+            len(transition_integrity_issues),
+            "\n".join(f"  - {issue}" for issue in transition_integrity_issues),
+        )
+        if revised:
+            logger.warning(
+                "review_script: rejecting reviewed script due to transition integrity "
+                "issues; forcing revised=False so callers keep the pre-review "
+                "script.json instead of adopting %s",
+                os.path.join(output_dir, "script.json"),
+            )
+            revised = False
+
     # --- Save review.json ---
     _write_review_json(
         output_dir=output_dir,
@@ -357,6 +469,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
         revision_summary=revision_summary,
         revised=revised,
         dialogue_balance_issues=dialogue_balance_issues,
+        transition_integrity_issues=transition_integrity_issues,
     )
 
     return {
@@ -365,6 +478,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
         "revision_summary": revision_summary,
         "lines_count": lines_count,
         "dialogue_balance_issues": dialogue_balance_issues,
+        "transition_integrity_issues": transition_integrity_issues,
     }
 
 
@@ -430,6 +544,7 @@ def _write_review_json(
     revision_summary: str,
     revised: bool,
     dialogue_balance_issues: list[str] | None = None,
+    transition_integrity_issues: list[str] | None = None,
 ) -> None:
     review_data = {
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
@@ -438,6 +553,7 @@ def _write_review_json(
         "revision_summary": revision_summary,
         "revised": revised,
         "dialogue_balance_issues": dialogue_balance_issues or [],
+        "transition_integrity_issues": transition_integrity_issues or [],
     }
     review_path = os.path.join(output_dir, "review.json")
     try:
