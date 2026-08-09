@@ -149,6 +149,31 @@ def _pick_speaker(result: list, section: str):
     return alternate
 
 
+_SENTENCE_END_CHARS = "。！？"
+
+
+def _is_broken_transition_text(text: str) -> bool:
+    """記事境界のtransition行に、独立した文が複数連結されていないかを判定する。
+
+    記事境界のtransitionは次の記事だけを告知する単一の短い文であるべき
+    （BEE-630）。前の記事の締め文と次の記事の告知が1つのtransition行に
+    混在すると、句点（。！？）で区切られた文が2つ以上連結された形になる
+    （BEE-661: エピソード355で「…社会構造の歪みを象徴する それでは、
+    カンボジアで息子が行方不明になり8ヶ月経ったが、息のニュースをどうぞ。」
+    のように、前記事の締め文＋次記事告知が1行に混在し、次記事のキーワード
+    （行方不明→息）も欠落する形で再現された）。
+
+    単純な部分文字列・単語一致ではなく句読点構造のみで判定することで、
+    比喩的な言い換えや文脈を踏まえた自然なtransition（Contextual Bridge）を
+    誤って壊れた文とみなさないようにする（末尾の句点1個は単文として許容）。
+    """
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    body = stripped[:-1] if stripped[-1] in _SENTENCE_END_CHARS else stripped
+    return any(ch in _SENTENCE_END_CHARS for ch in body)
+
+
 def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -> list:
     """LLM が生成した lines を後処理し、article_id 切り替わり境界に
     transition 行を確実に挿入して返す。LLM が既に挿入した transition は保持する。
@@ -214,8 +239,23 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                 llm_trans_aid = result[-1].get("article_id")
                 if llm_trans_aid is not None and llm_trans_aid != article_id:
                     removed = result.pop()
-                    logger.debug("LLM transition 削除: article_id=%s text=%s", removed.get("article_id"), removed.get("text", "")[:60])
+                    logger.debug("LLM transition 削除(article_id不一致): article_id=%s text=%s", removed.get("article_id"), removed.get("text", "")[:60])
                     prev_is_transition = False
+
+            # article_id は次の記事と一致していても、前の記事の締め文と次の記事の
+            # 告知が1行に混在した壊れたtransitionは記事境界（news）でのみ検知して
+            # 破棄する（BEE-661/BEE-662）。discussion直前のtransitionはテンプレート
+            # 自体が複文（「気になりますね。どう思います？」等）を前提とするため対象外。
+            # last_content_aid is None（intro直後で前の記事が存在しない）場合も対象外。
+            if (
+                prev_is_transition
+                and section == "news"
+                and last_content_aid is not None
+                and _is_broken_transition_text(result[-1].get("text", ""))
+            ):
+                removed = result.pop()
+                logger.debug("LLM transition 削除(複文混在): article_id=%s text=%s", removed.get("article_id"), removed.get("text", "")[:60])
+                prev_is_transition = False
 
             # article_id が変わった（または intro→news）かつ直前が transition でない場合に挿入
             if not prev_is_transition and article_id != last_content_aid:
