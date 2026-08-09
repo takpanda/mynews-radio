@@ -1,5 +1,6 @@
 from app.batch.generate_script import (
     _BRIDGE_TRANSITION_PHRASES,
+    _TRANSITION_PHRASES,
     _ensure_transitions,
     _is_broken_transition_text,
     _pick_phrase,
@@ -440,6 +441,41 @@ class TestIsBrokenTransitionText:
 
     def test_two_sentences_without_trailing_period_detected(self):
         assert _is_broken_transition_text("前の話はここまでです。それでは次の話題です") is True
+
+    def test_all_transition_phrases_not_broken(self):
+        # BEE-664: _TRANSITION_PHRASES 31件全件（複文構成の7件を含む）が、
+        # {topic} 差し込み後も壊れたtransitionと誤判定されないこと（受入条件）。
+        assert len(_TRANSITION_PHRASES) == 31
+        for phrase in _TRANSITION_PHRASES:
+            text = phrase.format(topic="経済")
+            assert _is_broken_transition_text(text) is False, text
+
+    def test_all_bridge_transition_phrases_not_broken(self):
+        # BEE-664: _BRIDGE_TRANSITION_PHRASES 6件全件（全て複文構成）が、
+        # {bridge}/{topic} 差し込み後も壊れたtransitionと誤判定されないこと
+        # （受入条件）。bridge_text は narrative arc プロンプトの仕様どおり、
+        # 句点で終わる完結した一文の場合とそうでない場合の両方を確認する。
+        assert len(_BRIDGE_TRANSITION_PHRASES) == 6
+        for phrase in _BRIDGE_TRANSITION_PHRASES:
+            for bridge in (
+                "気候変動の影響は経済にも及んでいます",
+                "地球温暖化が経済活動にも影響を及ぼしています。",
+            ):
+                text = phrase.format(bridge=bridge, topic="テクノロジー")
+                assert _is_broken_transition_text(text) is False, text
+
+    def test_bee661_style_text_disguised_as_bridge_phrase_still_detected(self):
+        # BEE-664: {bridge} は任意の文字列に一致しうるため、壊れたtransition
+        # 自身が「{bridge} それでは、{topic}のニュースをどうぞ。」のような
+        # テンプレート形状とたまたま一致してしまう場合でも、bridge部分自体が
+        # 複文（＝それ自体に前記事の締め文が混在している）であれば壊れている
+        # と判定を維持すること（BEE-661の再発防止に対する回帰試験）。
+        text = (
+            "制度の不備という見えない制約から、人身の自由を奪う見えない組織への恐怖へ。"
+            "海外邦人の窮状は社会構造の歪みを象徴する それでは、"
+            "カンボジアで息子が行方不明になり8ヶ月経ったが、息のニュースをどうぞ。"
+        )
+        assert _is_broken_transition_text(text) is True
 
 
 class TestEnsureTransitionsBrokenLLMTransitionReplacement:
