@@ -88,6 +88,38 @@ class TestCheckTransitionIntegrity:
 
         assert check_transition_integrity([]) == []
 
+    def test_all_transition_phrases_pass_review_check(self):
+        # BEE-664: _TRANSITION_PHRASES 31件全件が、記事境界のtransitionとして
+        # レビュー検査を通過すること（受入条件）。
+        from app.batch.generate_script import _TRANSITION_PHRASES
+        from app.batch.review_script import check_transition_integrity
+
+        assert len(_TRANSITION_PHRASES) == 31
+        for phrase in _TRANSITION_PHRASES:
+            text = phrase.format(topic="経済")
+            lines = [
+                _make_line("news", "記事1の内容です。", speaker="male", article_id=1),
+                _make_line("transition", text, speaker="female", article_id=2),
+                _make_line("news", "記事2の内容です。", speaker="male", article_id=2),
+            ]
+            assert check_transition_integrity(lines) == [], text
+
+    def test_all_bridge_transition_phrases_pass_review_check(self):
+        # BEE-664: _BRIDGE_TRANSITION_PHRASES 6件全件が、記事境界のtransition
+        # としてレビュー検査を通過すること（受入条件）。
+        from app.batch.generate_script import _BRIDGE_TRANSITION_PHRASES
+        from app.batch.review_script import check_transition_integrity
+
+        assert len(_BRIDGE_TRANSITION_PHRASES) == 6
+        for phrase in _BRIDGE_TRANSITION_PHRASES:
+            text = phrase.format(bridge="気候変動の影響は経済にも及んでいます", topic="テクノロジー")
+            lines = [
+                _make_line("news", "記事1の内容です。", speaker="male", article_id=1),
+                _make_line("transition", text, speaker="female", article_id=2),
+                _make_line("news", "記事2の内容です。", speaker="male", article_id=2),
+            ]
+            assert check_transition_integrity(lines) == [], text
+
 
 class TestReviewScriptTransitionIntegrityIntegration:
     """review_script() 本体に transition integrity チェックが統合されていることを確認する。"""
@@ -170,6 +202,39 @@ class TestReviewScriptTransitionIntegrityIntegration:
         assert result["transition_integrity_issues"] == []
 
         review_json = json.loads(Path(output_dir, "review.json").read_text(encoding="utf-8"))
+        assert review_json["transition_integrity_issues"] == []
+
+    def test_revised_script_with_bridge_template_transition_keeps_revised_true(self, tmp_path):
+        # BEE-664: レビューLLMが再統合した台本に、意図的に複文構成の
+        # Contextual Bridgeテンプレート（_BRIDGE_TRANSITION_PHRASES）由来の
+        # transitionが含まれていても、revised=Trueが維持され、レビューで
+        # 行われた他の正当な修正が破棄されないこと（受入条件）。
+        from app.batch.generate_script import _BRIDGE_TRANSITION_PHRASES
+
+        bridge_text = _BRIDGE_TRANSITION_PHRASES[0].format(
+            bridge="気候変動の影響は経済にも及んでいます", topic="テクノロジー"
+        )
+        source_script = {
+            "date": "2026-08-09",
+            "title": "ニュースのとなり",
+            "subtitle": "",
+            "lines": [
+                _make_line("intro", "「ニュースのとなり」の時間です。", speaker="male"),
+            ],
+        }
+        synth_lines = [
+            {"speaker": "male", "text": "記事1の内容です。", "article_id": 1, "section": "news", "delivery": "neutral"},
+            {"speaker": "female", "text": bridge_text, "article_id": 2, "section": "transition", "delivery": "neutral"},
+            {"speaker": "male", "text": "記事2の内容です。", "article_id": 2, "section": "news", "delivery": "neutral"},
+        ]
+
+        result, output_dir = self._run(tmp_path, source_script, synth_lines)
+
+        assert result["revised"] is True
+        assert result["transition_integrity_issues"] == []
+
+        review_json = json.loads(Path(output_dir, "review.json").read_text(encoding="utf-8"))
+        assert review_json["revised"] is True
         assert review_json["transition_integrity_issues"] == []
 
     def test_synthesis_failure_falls_back_to_source_lines(self, tmp_path):

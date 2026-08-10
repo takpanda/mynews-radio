@@ -151,6 +151,63 @@ def _pick_speaker(result: list, section: str):
 
 _SENTENCE_END_CHARS = "。！？"
 
+_TEMPLATE_PLACEHOLDER_RE = _re.compile(r"\{(bridge|topic)\}")
+
+
+def _compile_template_pattern(template: str):
+    """テンプレート文字列（{bridge}/{topic} プレースホルダ入り）を、実際に
+    差し込まれた文字列を named group として捕捉できる正規表現に変換する。
+    プレースホルダ以外の部分はリテラルとして厳密一致させる。"""
+    parts = ["^"]
+    last = 0
+    for m in _TEMPLATE_PLACEHOLDER_RE.finditer(template):
+        parts.append(_re.escape(template[last:m.start()]))
+        parts.append(f"(?P<{m.group(1)}>.+?)")
+        last = m.end()
+    parts.append(_re.escape(template[last:]))
+    parts.append("$")
+    return _re.compile("".join(parts), _re.DOTALL)
+
+
+# _TRANSITION_PHRASES / _BRIDGE_TRANSITION_PHRASES はプログラムが差し込む固定
+# テンプレートであり、その一部（BEE-630のContextual Bridgeを含む）は意図的に
+# 複文構成（前置きの一文＋告知の一文）になっている（BEE-664）。テンプレート
+# 形状そのものに一致するかを構造的に確認することで、句点の個数だけに頼らず
+# これらの安全な複文を「壊れたtransition」と誤判定しないようにする。
+_KNOWN_TRANSITION_TEMPLATE_PATTERNS = [
+    _compile_template_pattern(t) for t in (_TRANSITION_PHRASES + _BRIDGE_TRANSITION_PHRASES)
+]
+
+
+def _is_single_clean_sentence(segment: str) -> bool:
+    """{bridge}/{topic} に実際に差し込まれた文字列自体が、末尾以外に句点等を
+    含む複文になっていないかを判定する（テンプレート一致の追加保証）。"""
+    stripped = segment.strip()
+    if not stripped:
+        return True
+    body = stripped[:-1] if stripped[-1] in _SENTENCE_END_CHARS else stripped
+    return not any(ch in _SENTENCE_END_CHARS for ch in body)
+
+
+def _matches_known_transition_template(text: str) -> bool:
+    """text が既知の安全なtransitionテンプレート（_TRANSITION_PHRASES /
+    _BRIDGE_TRANSITION_PHRASES）の形状に一致し、かつ {bridge}/{topic} に
+    差し込まれた文字列自体も単文であるかを確認する。
+
+    後半の単文チェックが必要な理由（BEE-664）: {bridge} は任意の文字列に
+    一致しうるため、この確認がないと「前の記事の締め文＋それでは、＋次の
+    記事の告知」のように壊れたtransition（BEE-661のエピソード355の実例）が
+    たまたま「{bridge} それでは、{topic}のニュースをどうぞ。」のような
+    テンプレート形状と一致してしまい、壊れた文を安全と誤判定しうる。
+    {bridge}に差し込まれた文字列自体が複文（＝それ自体に前の記事の締め文が
+    混在している）でないことも合わせて確認することで、この誤判定を防ぐ。
+    """
+    for pattern in _KNOWN_TRANSITION_TEMPLATE_PATTERNS:
+        m = pattern.match(text)
+        if m and all(_is_single_clean_sentence(v) for v in m.groupdict().values()):
+            return True
+    return False
+
 
 def _is_broken_transition_text(text: str) -> bool:
     """記事境界のtransition行に、独立した文が複数連結されていないかを判定する。
@@ -166,9 +223,17 @@ def _is_broken_transition_text(text: str) -> bool:
     単純な部分文字列・単語一致ではなく句読点構造のみで判定することで、
     比喩的な言い換えや文脈を踏まえた自然なtransition（Contextual Bridge）を
     誤って壊れた文とみなさないようにする（末尾の句点1個は単文として許容）。
+
+    ただし_TRANSITION_PHRASES/_BRIDGE_TRANSITION_PHRASESには意図的に複文の
+    テンプレートが含まれる（BEE-664）。句読点の数だけで判定すると、これらの
+    プログラム生成の正常な複文まで誤検知してしまうため、既知のテンプレート
+    形状に一致する場合は複文であっても壊れていないとみなす
+    （_matches_known_transition_template）。
     """
     stripped = (text or "").strip()
     if not stripped:
+        return False
+    if _matches_known_transition_template(stripped):
         return False
     body = stripped[:-1] if stripped[-1] in _SENTENCE_END_CHARS else stripped
     return any(ch in _SENTENCE_END_CHARS for ch in body)
