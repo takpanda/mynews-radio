@@ -3,8 +3,12 @@ from app.batch.generate_script import (
     _TRANSITION_PHRASES,
     _ensure_transitions,
     _is_broken_transition_text,
+    _is_usable_bridge_text,
     _pick_phrase,
     _pick_speaker,
+    _safe_topic_from_title,
+    _strip_trailing_particle,
+    _truncate_topic_at_boundary,
     lint_script,
 )
 
@@ -939,4 +943,186 @@ class TestEnsureTransitionsShortBackwardReferenceStillReplaced:
         assert len(art3_transitions) == 2
         assert art3_transitions[0]["text"] == normal_text
         assert art3_transitions[1]["text"] == "気になります。"
+
+
+class TestTopicParticleStripping:
+    """_strip_trailing_particle() の単体テスト（BEE-676: 話題名の末尾が助詞の
+    場合に、テンプレート側の助詞と連結して「個別接種にを」のような助詞の
+    二重連結が生じるのを防ぐ）。"""
+
+    def test_strips_trailing_ni(self):
+        assert _strip_trailing_particle("トランプ氏、3種混合ワクチンを個別接種に") == (
+            "トランプ氏、3種混合ワクチンを個別接種"
+        )
+
+    def test_strips_trailing_wo(self):
+        assert _strip_trailing_particle("市場の動きを") == "市場の動き"
+
+    def test_no_trailing_particle_unchanged(self):
+        assert _strip_trailing_particle("気候変動") == "気候変動"
+
+    def test_does_not_strip_below_minimum_length(self):
+        # 助詞除去後に空文字にはしない（短すぎる場合は元の助詞を残す）
+        assert _strip_trailing_particle("を") == "を"
+
+
+class TestTopicBoundaryTruncation:
+    """_truncate_topic_at_boundary() / _safe_topic_from_title() の単体テスト
+    （BEE-676: 25文字などの固定位置での切り詰めが「事実があっ」「口から
+    吐き出」のような語中切断を生んでいた問題への対策）。"""
+
+    def test_short_text_returned_as_is(self):
+        assert _truncate_topic_at_boundary("短いタイトル") == "短いタイトル"
+
+    def test_truncates_at_boundary_char_within_max_len(self):
+        # 「、」の直後で安全に切れること（語の途中では切らない）
+        text = "日本版GPS衛星みちびき7号機とH3ロケット、打ち上げ成功についての詳細な解説記事です"
+        result = _truncate_topic_at_boundary(text)
+        assert result == "日本版GPS衛星みちびき7号機とH3ロケット"
+        assert len(result) <= 25
+
+    def test_no_boundary_within_max_len_returns_none(self):
+        # 区切り文字が25文字以内に無い場合は、語中切断を避けるためNoneを返す
+        text = "イオン系列店舗で発生した避難誘導トラブルに関する詳細報告、一時入館を認めた事実があった"
+        assert _truncate_topic_at_boundary(text) is None
+
+    def test_safe_topic_from_title_falls_back_when_no_boundary(self):
+        # 切り詰めが語中切断になる場合は、不完全な話題名ではなく汎用語へ
+        # フォールバックすること（受入条件）
+        text = "イオン系列店舗で発生した避難誘導トラブルに関する詳細報告、一時入館を認めた事実があった"
+        assert _safe_topic_from_title(text) == "次の話題"
+
+    def test_safe_topic_from_title_empty_returns_generic(self):
+        assert _safe_topic_from_title("") == "次の話題"
+
+
+class TestBridgeTextQualityGate:
+    """_is_usable_bridge_text() の単体テスト（BEE-676: 既知テンプレートの
+    形状に一致していても、bridge_text が読み上げに適さない冗長な分析文で
+    あれば安全な通常テンプレートへフォールバックさせるための品質判定）。"""
+
+    def test_short_single_sentence_is_usable(self):
+        assert _is_usable_bridge_text("気候変動の影響は経済にも及んでいます") is True
+
+    def test_short_single_sentence_with_period_is_usable(self):
+        assert _is_usable_bridge_text("地球温暖化が経済活動にも影響を及ぼしています。") is True
+
+    def test_empty_bridge_text_not_usable(self):
+        assert _is_usable_bridge_text("") is False
+        assert _is_usable_bridge_text(None) is False
+
+    def test_verbose_analytical_bridge_text_not_usable(self):
+        # エピソード362で確認された「Aの〜から、Bの〜へ。」型の分析的な
+        # メタ注記は、単文ではあるが冗長すぎるため読み上げ用として使わない
+        text = (
+            "トランプ氏の極秘移動が示す「安全への過度な警戒」から、"
+            "ワクチン義務の変更という「管理された秩序」へ。"
+        )
+        assert _is_usable_bridge_text(text) is False
+
+    def test_multi_sentence_bridge_text_not_usable(self):
+        # 前記事の要約と分析的注記が複数文にまたがって混在するケース
+        text = (
+            "家庭内の混乱が、企業の安全対策という「大規模な現場管理」の失敗へとつながる。"
+            "理想の避難計画と現実の混乱。"
+        )
+        assert _is_usable_bridge_text(text) is False
+
+
+class TestEnsureTransitionsEpisode362Regression:
+    """エピソード362で確認された壊れたtransitionの実例が、修正後の
+    _ensure_transitions() では再現しないことを確認する回帰テスト（BEE-676）。"""
+
+    def test_no_particle_duplication_when_topic_ends_with_ni(self):
+        # 「個別接種にを見てみましょう」のような助詞重複が生成されないこと
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "intro"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1"},
+            {"section": "news", "article_id": 2, "speaker": "male", "text": "記事2"},
+        ]
+        summaries = [
+            {"id": 1, "title": "トランプ氏の記事", "summary": ""},
+            {"id": 2, "title": "ワクチン記事", "summary": "個別接種に、変更する方針だ"},
+        ]
+        result = _ensure_transitions(lines, summaries)
+        transition_texts = [l["text"] for l in result if l["section"] == "transition"]
+        assert not any("にを" in t for t in transition_texts), transition_texts
+        for t in transition_texts:
+            assert _is_broken_transition_text(t) is False, t
+
+    def test_no_mid_word_truncation_for_long_title_without_early_boundary(self):
+        # 「事実があっ」のような語中切断が生成されないこと。区切り文字が
+        # 25文字以内に無いタイトルは、途中で切らず汎用語へフォールバックする
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "intro"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1"},
+            {"section": "news", "article_id": 2, "speaker": "male", "text": "記事2"},
+        ]
+        long_title_no_early_boundary = (
+            "イオン系列店舗で発生した避難誘導トラブルに関する詳細報告、一時入館を認めた事実があった"
+        )
+        summaries = [
+            {"id": 1, "title": "記事1タイトル", "summary": ""},
+            {"id": 2, "title": long_title_no_early_boundary, "summary": ""},
+        ]
+        result = _ensure_transitions(lines, summaries)
+        transition_texts = [l["text"] for l in result if l["section"] == "transition"]
+        assert not any("事実があっ" in t for t in transition_texts), transition_texts
+        # 区切り文字が見つからないため、不完全な話題名の代わりに汎用語
+        # 「次の話題」へフォールバックしていること
+        assert any("次の話題" in t for t in transition_texts), transition_texts
+
+    def test_verbose_bridge_text_falls_back_to_normal_template(self):
+        # 分析的なメタ注記（bridge_text）が、既知テンプレート形状に一致して
+        # いても読み上げ用transitionへそのまま混入しないこと（受入条件）
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "intro"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1"},
+            {"section": "news", "article_id": 2, "speaker": "male", "text": "記事2"},
+        ]
+        summaries = [
+            {"id": 1, "title": "トランプ氏の記事"},
+            {"id": 2, "title": "ワクチン方針"},
+        ]
+        verbose_bridge = (
+            "トランプ氏の極秘移動が示す「安全への過度な警戒」から、"
+            "ワクチン義務の変更という「管理された秩序」へ。"
+        )
+        arc = {
+            "bridges": [
+                {"from_article_id": 1, "to_article_id": 2, "bridge_text": verbose_bridge},
+            ],
+        }
+        result = _ensure_transitions(lines, summaries, arc=arc)
+        transition_texts = [l["text"] for l in result if l["section"] == "transition"]
+        assert not any(verbose_bridge in t for t in transition_texts), transition_texts
+        for t in transition_texts:
+            assert _is_broken_transition_text(t) is False, t
+
+    def test_analytical_two_sentence_bridge_text_falls_back(self):
+        # 前記事の要約2文がbridge_textとして混在するケースも安全に
+        # フォールバックすること
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "intro"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1"},
+            {"section": "news", "article_id": 2, "speaker": "male", "text": "記事2"},
+        ]
+        summaries = [
+            {"id": 1, "title": "避難計画の記事"},
+            {"id": 2, "title": "現場管理の記事"},
+        ]
+        two_sentence_bridge = (
+            "家庭内の混乱が、企業の安全対策という「大規模な現場管理」の失敗へとつながる。"
+            "理想の避難計画と現実の混乱。"
+        )
+        arc = {
+            "bridges": [
+                {"from_article_id": 1, "to_article_id": 2, "bridge_text": two_sentence_bridge},
+            ],
+        }
+        result = _ensure_transitions(lines, summaries, arc=arc)
+        transition_texts = [l["text"] for l in result if l["section"] == "transition"]
+        assert not any(text_part in t for t in transition_texts for text_part in ("家庭内の混乱", "理想の避難計画")), transition_texts
+        for t in transition_texts:
+            assert _is_broken_transition_text(t) is False, t
 
