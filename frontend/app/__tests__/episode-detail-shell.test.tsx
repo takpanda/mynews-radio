@@ -97,7 +97,9 @@ describe('EpisodeDetailShell llmModel 表示', () => {
         summary={null}
       />
     )
-    expect(screen.getByText('LLMモデル: qwen3:8b')).toBeInTheDocument()
+    const label = screen.getByText('qwen3:8b')
+    expect(label).toBeInTheDocument()
+    expect(label).toHaveAttribute('aria-label', 'LLMモデル: qwen3:8b')
   })
 
   it.each([null, undefined, ''])('llmModel が %p の場合はラベルを表示しない', (llmModel) => {
@@ -110,7 +112,7 @@ describe('EpisodeDetailShell llmModel 表示', () => {
         summary={null}
       />
     )
-    expect(screen.queryByText(/LLMモデル:/)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/LLMモデル:/)).not.toBeInTheDocument()
   })
 
   it('長いモデル名でもラベルに収まり、タイトルと同じ行の表示を維持する', () => {
@@ -124,7 +126,7 @@ describe('EpisodeDetailShell llmModel 表示', () => {
         summary={null}
       />
     )
-    const label = screen.getByText(`LLMモデル: ${model}`)
+    const label = screen.getByText(model)
     expect(label).toHaveClass('max-w-full', 'break-all')
   })
 })

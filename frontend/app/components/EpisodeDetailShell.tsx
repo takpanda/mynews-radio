@@ -92,8 +92,12 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
             </span>
           )}
           {episode.llmModel?.trim() && (
-            <span className="inline-flex max-w-full whitespace-normal break-all rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-              LLMモデル: {episode.llmModel.trim()}
+            <span
+              className="inline-flex max-w-full whitespace-normal break-all rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600"
+              title="LLMモデル"
+              aria-label={`LLMモデル: ${episode.llmModel.trim()}`}
+            >
+              {episode.llmModel.trim()}
             </span>
           )}
         </div>
