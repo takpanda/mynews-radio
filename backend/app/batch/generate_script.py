@@ -314,6 +314,99 @@ def _is_broken_transition_text(text: str) -> bool:
     return any(ch in _SENTENCE_END_CHARS for ch in body)
 
 
+_TOPIC_MAX_LEN = 25
+
+# 話題名の切り詰めに使う境界文字。この文字の直後でのみ切ることで、
+# 「事実があっ（た）」「口から吐き出（す）」のような語中切断を防ぐ（BEE-676）。
+_TOPIC_BOUNDARY_CHARS = "、,;：・"
+
+# 話題名の末尾がこれらの助詞で終わっていると、テンプレート側の助詞と
+# 連結した際に「個別接種にを」のような助詞の二重連結が生じる（BEE-676）。
+# 長い助詞から先に判定する（「から」を「は」等より先に判定しないと、
+# 「から」の「は」部分だけが誤って一致することはないが、意図を明確にする
+# ため長い順に並べる）。
+_TOPIC_TRAILING_PARTICLES = ("から", "まで", "より", "は", "が", "を", "に", "へ", "で", "と", "も", "や")
+
+
+def _strip_trailing_particle(text: str) -> str:
+    """話題名の末尾の助詞を取り除き、テンプレート側の助詞との二重連結
+    （「個別接種にを」等）を防ぐ（BEE-676）。"""
+    stripped = text
+    for _ in range(2):  # 助詞が連続するケースに備えて最大2回まで
+        for particle in _TOPIC_TRAILING_PARTICLES:
+            if len(stripped) > len(particle) and stripped.endswith(particle):
+                stripped = stripped[: -len(particle)]
+                break
+        else:
+            break
+    return stripped
+
+
+def _truncate_topic_at_boundary(text: str, max_len: int = _TOPIC_MAX_LEN) -> str | None:
+    """text を max_len 文字以内に切り詰める。固定位置での機械的な切り詰めは
+    語の途中で切れる（BEE-676: 「事実があっ」「口から吐き出」）ため、
+    区切り文字（、・等）の直後でのみ切る。max_len 以内に区切り文字が
+    見つからない場合は None を返し、呼び出し側で安全な代替に
+    フォールバックさせる。"""
+    stripped = text.strip()
+    if len(stripped) <= max_len:
+        return stripped
+    boundary = -1
+    for i, ch in enumerate(stripped[:max_len]):
+        if ch in _TOPIC_BOUNDARY_CHARS:
+            boundary = i
+    if boundary <= 0:
+        return None
+    return stripped[:boundary]
+
+
+def _safe_topic_from_title(raw_title: str) -> str:
+    """タイトルから安全な話題名を作る。語中切断になる場合は汎用の代替語へ
+    フォールバックする（不完全な話題名は生成しない、BEE-676）。"""
+    if not raw_title:
+        return "次の話題"
+    truncated = _truncate_topic_at_boundary(raw_title)
+    if not truncated:
+        return "次の話題"
+    finalized = _strip_trailing_particle(truncated.strip())
+    return finalized or "次の話題"
+
+
+# 口語で読み上げるMCの短い橋渡しひとことを想定した上限文字数。Narrative Arc
+# の bridge_text は本来「文脈・対比・共通点」を示す分析的な説明文として
+# 生成されることがあり、そのまま読み上げ用のtransitionに差し込むと
+# 「Aの〜から、Bの〜へ。」のような冗長なメタ注記になる（BEE-676, episode362）。
+_BRIDGE_TEXT_MAX_LEN = 40
+
+# 「安全への警戒から、秩序の変化へ。」のように、40文字以下・単文であっても
+# 「Aの〜から、Bの〜へ」型の分析的な対比表現になっているbridge_textを検出する
+# パターン（BEE-676 must指摘、CodeReviewer）。文字数・単文チェックだけでは、
+# この種の短い分析的メタ注記を弾けず、前記事の分析と次記事告知が同一行に
+# 混在した状態のまま既知テンプレートに一致してしまう。
+_ANALYTICAL_CONTRAST_BRIDGE_RE = _re.compile(r"から[、,]?.*へ[。！？]?$")
+
+
+def _is_usable_bridge_text(bridge_text: str) -> bool:
+    """bridge_text が、そのままMCの短い橋渡し1文として読み上げるのに適した
+    品質かどうかを判定する。既知テンプレートの形状に一致していても、
+    差し込まれる bridge_text 自体が長い・複文・分析的な対比表現・前記事への
+    後方参照であれば安全な通常テンプレートへフォールバックさせる（BEE-676:
+    既知テンプレート一致だけでは壊れた遷移文を安全と判定してしまう問題への
+    対策）。"""
+    stripped = (bridge_text or "").strip()
+    if not stripped:
+        return False
+    if len(stripped) > _BRIDGE_TEXT_MAX_LEN:
+        return False
+    if not _is_single_clean_sentence(stripped):
+        return False
+    if _ANALYTICAL_CONTRAST_BRIDGE_RE.search(stripped):
+        return False
+    if any(marker in stripped for marker in _BACKWARD_REFERENCE_MARKERS):
+        return False
+    return True
+
+
 def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -> list:
     """LLM が生成した lines を後処理し、article_id 切り替わり境界に
     transition 行を確実に挿入して返す。LLM が既に挿入した transition は保持する。
@@ -337,6 +430,7 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
         if art_id is not None:
             raw_summary = art.get("summary", "") or ""
             raw_title = art.get("title") or art.get("url", "") or ""
+            candidate = ""
             if raw_summary:
                 sentence_end = -1
                 for sep in ("。", "…", "..."):
@@ -345,13 +439,16 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                         sentence_end = idx + len(sep)
                 if sentence_end > 0:
                     candidate = raw_summary[:sentence_end]
-                    topic_map[art_id] = candidate if len(candidate) <= 25 else raw_title[:25] or "次の話題"
                 else:
-                    segment = _re.split(r"[、,;：]", raw_summary)[0].strip()
-                    topic_map[art_id] = segment if segment and len(segment) <= 25 else raw_title[:25] or "次の話題"
+                    candidate = _re.split(r"[、,;：]", raw_summary)[0].strip()
+            if candidate and len(candidate) <= _TOPIC_MAX_LEN:
+                topic_map[art_id] = _strip_trailing_particle(candidate) or _safe_topic_from_title(raw_title)
             elif raw_title:
                 title_clean = _re.split(r"[、,;：・]", raw_title)[0].strip()
-                topic_map[art_id] = title_clean if len(title_clean) >= 3 else raw_title[:25] or "次の話題"
+                if title_clean and 3 <= len(title_clean) <= _TOPIC_MAX_LEN:
+                    topic_map[art_id] = _strip_trailing_particle(title_clean) or _safe_topic_from_title(raw_title)
+                else:
+                    topic_map[art_id] = _safe_topic_from_title(raw_title)
             else:
                 topic_map[art_id] = "次の話題"
 
@@ -414,13 +511,27 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                 if section == "discussion":
                     phrases = _DISCUSSION_TRANSITIONS
                     text = _pick_phrase(phrases, trans_phrase_used).format(topic=_topic(article_id))
-                elif last_content_aid is not None and last_content_aid in bridge_map and article_id in bridge_map[last_content_aid]:
+                elif (
+                    last_content_aid is not None
+                    and last_content_aid in bridge_map
+                    and article_id in bridge_map[last_content_aid]
+                    and _is_usable_bridge_text(bridge_map[last_content_aid][article_id])
+                ):
                     bridge_text = bridge_map[last_content_aid][article_id]
                     bridge_topic = _topic(article_id)
                     text = _pick_phrase(_BRIDGE_TRANSITION_PHRASES, trans_phrase_used).format(bridge=bridge_text, topic=bridge_topic)
                 else:
                     phrases = _TRANSITION_PHRASES
                     text = _pick_phrase(phrases, trans_phrase_used).format(topic=_topic(article_id))
+
+                # 既知テンプレートへの一致だけでは安全と判定できない（BEE-676）ため、
+                # プログラム自身が生成したtransitionも念のため同じ判定条件で
+                # 検査し、万一壊れていれば bridge を使わない通常テンプレートへ
+                # 差し替える最終防衛ラインとする。discussion直前のtransitionは
+                # テンプレート自体が意図的な複文構成のため対象外（既存仕様どおり）。
+                if section == "news" and _is_broken_transition_text(text):
+                    logger.warning("生成したtransitionが壊れているため通常テンプレートへ差し替え: article_id=%s text=%s", article_id, text[:60])
+                    text = _pick_phrase(_TRANSITION_PHRASES, trans_phrase_used).format(topic=_topic(article_id))
                 result.append({
                     "speaker": speaker,
                     "text": text,
