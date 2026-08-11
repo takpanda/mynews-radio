@@ -39,6 +39,17 @@ function renderArchive(categories?: string[]) {
   )
 }
 
+function renderArchiveEpisodes(episodes: EpisodeListItem[]) {
+  return render(
+    <HomeShell
+      latest={null}
+      chapters={[]}
+      initialEpisodes={episodes}
+      initialHasNext={false}
+    />,
+  )
+}
+
 describe('HomeShell archive category badges', () => {
   it.each([
     ['1件', ['テック・IT']],
@@ -62,5 +73,44 @@ describe('HomeShell archive category badges', () => {
   it('4件以上のカテゴリを表示しない', () => {
     renderArchive(['政治・行政', '経済・金融', '社会・暮らし', '国際'])
     expect(screen.getByLabelText('カテゴリ').children).toHaveLength(3)
+  })
+})
+
+describe('HomeShell archive thumbnail', () => {
+  it('テックカテゴリではテック用画像を表示する', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), title: 'テックニュースまとめ' }])
+    const img = container.querySelector('.archive-thumb img')
+    expect(img?.getAttribute('src')).toBe('/images/categories/tech.jpg')
+  })
+
+  it('一般カテゴリでは従来のグラデーションを表示する', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), title: '一般ニュースまとめ' }])
+    expect(container.querySelector('.archive-thumb img')).toBeNull()
+    expect(container.querySelector('.archive-thumb-coral')).not.toBeNull()
+  })
+
+  it('解説カテゴリでは従来のグラデーションを表示する', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), title: 'テック解説回', type: 'commentary' }])
+    expect(container.querySelector('.archive-thumb img')).toBeNull()
+  })
+
+  it('テック画像上でもエピソードコード・バッジ・再生アイコン・カード選択が共存する', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), id: 7, title: 'テックニュースまとめ' }])
+    const thumb = container.querySelector('.archive-thumb')
+    expect(thumb).not.toBeNull()
+
+    const img = thumb?.querySelector('img')
+    expect(img?.getAttribute('src')).toBe('/images/categories/tech.jpg')
+
+    const code = thumb?.querySelector('.archive-thumb-code')
+    expect(code?.textContent).toBe('E007')
+
+    const badge = thumb?.querySelector('.archive-episode-badge')
+    expect(badge?.textContent).toBe('#7')
+
+    expect(thumb?.querySelector('.archive-play-icon')).not.toBeNull()
+
+    const cardLink = container.querySelector('.archive-card a')
+    expect(cardLink?.getAttribute('href')).toBe('/episodes/7')
   })
 })

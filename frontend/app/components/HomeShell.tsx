@@ -283,13 +283,22 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
               <div key={group.month} className="mb-7 last:mb-0">
                 <p className="mb-3 text-xs font-medium tracking-[0.18em] text-slate-500">{group.month}</p>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {group.items.map((ep) => (
+                  {group.items.map((ep) => {
+                    const isTech = categorize(ep) === 'tech'
+                    return (
                     <article key={ep.id} className="archive-card group">
                       <Link
                         href={`/episodes/${ep.id}`}
                         className="block h-full"
                       >
-                        <div className={`archive-thumb ${thumbnailTone(ep.id)}`}>
+                        <div className={`archive-thumb ${isTech ? '' : thumbnailTone(ep.id)}`}>
+                          {isTech && (
+                            <img
+                              src="/images/categories/tech.jpg"
+                              alt=""
+                              className="absolute inset-0 h-full w-full object-cover"
+                            />
+                          )}
                           <span className="archive-thumb-code">E{String(ep.id).padStart(3, '0')}</span>
                           <span className="archive-episode-badge">#{ep.id}</span>
                           <span className="archive-play-icon" aria-hidden="true">
@@ -328,7 +337,8 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                         </div>
                       )}
                     </article>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             ))}
