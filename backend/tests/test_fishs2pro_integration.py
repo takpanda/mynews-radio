@@ -1,5 +1,4 @@
 import json
-import shutil
 import wave
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -19,12 +18,6 @@ def _settings():
         voicevox_speaker_female=2,
         jingle_transition_path="",
     )
-
-
-def _fake_normalize_mean_volume(input_path, output_path, target_mean_dbfs=-16.0, peak_limit_dbfs=-1.0):
-    """テスト用フェイク: 実ffmpegを使わず入力をそのまま出力へコピーする。"""
-    shutil.copy(input_path, output_path)
-    return True
 
 
 def test_fishs2pro_episode_uses_male_and_female_and_44100hz(tmp_path):
@@ -60,8 +53,7 @@ def test_fishs2pro_episode_uses_male_and_female_and_44100hz(tmp_path):
             pass
 
     with patch("app.batch.synthesize_voicevox.get_settings", return_value=_settings()), \
-         patch("app.batch.synthesize_voicevox.FishS2ProClient", FakeFishClient), \
-         patch("app.batch.synthesize_voicevox.normalize_mean_volume", side_effect=_fake_normalize_mean_volume):
+         patch("app.batch.synthesize_voicevox.FishS2ProClient", FakeFishClient):
         assert synthesize_episode(str(episode_dir), tts_engine="fishs2pro") == 2
 
     assert [call[1] for call in calls] == ["male", "female"]
@@ -69,9 +61,8 @@ def test_fishs2pro_episode_uses_male_and_female_and_44100hz(tmp_path):
         assert wav.getframerate() == 44100
 
 
-def test_fishs2pro_female_volume_adjustment_failure_is_not_treated_as_success(tmp_path, caplog):
-    """音量調整に失敗した女性行は、未調整ファイルを成功扱いにせず失敗として扱う。"""
-    import logging
+def test_fishs2pro_female_audio_is_not_volume_normalized(tmp_path):
+    """Fish S2 Pro の女性MC音声には専用の平均音量正規化を適用しない（BEE-687回帰テスト）。"""
     from app.batch.synthesize_voicevox import synthesize_episode
 
     episode_dir = tmp_path / "episode"
@@ -99,16 +90,15 @@ def test_fishs2pro_female_volume_adjustment_failure_is_not_treated_as_success(tm
         def close(self):
             pass
 
-    with caplog.at_level(logging.ERROR), \
-         patch("app.batch.synthesize_voicevox.get_settings", return_value=_settings()), \
+    with patch("app.batch.synthesize_voicevox.get_settings", return_value=_settings()), \
          patch("app.batch.synthesize_voicevox.FishS2ProClient", FakeFishClient), \
-         patch("app.batch.synthesize_voicevox.normalize_mean_volume", return_value=False):
-        # 男性行のみ成功（女性行は音量調整失敗のため失敗扱い）
-        assert synthesize_episode(str(episode_dir), tts_engine="fishs2pro") == 1
+         patch("app.services.ffmpeg_service.normalize_mean_volume") as mock_normalize:
+        # 音量正規化用の関数を一切呼ばなくても、男女とも合成が成功すること。
+        assert synthesize_episode(str(episode_dir), tts_engine="fishs2pro") == 2
 
-    # 未調整の女性行WAVは残さない
-    assert not (episode_dir / "lines" / "002.wav").exists()
-    assert "音量調整に失敗しました" in caplog.text
+    mock_normalize.assert_not_called()
+    assert (episode_dir / "lines" / "001.wav").exists()
+    assert (episode_dir / "lines" / "002.wav").exists()
 
 
 def test_fishs2pro_normalizes_transition_before_combining(tmp_path):
