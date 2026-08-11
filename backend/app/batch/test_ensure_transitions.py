@@ -498,6 +498,25 @@ class TestIsBrokenTransitionText:
         text = "続いて経済ニュースです。詳しく見ていきましょう。楽しみですね。"
         assert _is_broken_transition_text(text) is True
 
+    def test_short_backward_reference_lead_in_still_broken(self):
+        # BEE-672 再指摘: 「繋ぎ語で始まる／2文／1文目20文字以内」という
+        # 形状だけでは、短い前記事内容の混在（例:「続いて前の記事の結論
+        # です。次は経済ニュースです。」）を排除できない。前の記事を要約・
+        # 振り返る表現を含む場合は、1文目が短くても引き続き壊れたtransition
+        # とみなすこと（CodeReviewerが再現した誤許容ケース）
+        text = "続いて前の記事の結論です。次は経済ニュースです。"
+        assert _is_broken_transition_text(text) is True
+
+    def test_short_backward_reference_variants_still_broken(self):
+        # 「結論」以外の後方参照表現でも同様に検出されること
+        texts = [
+            "それでは、先ほどの話はここまでです。次は経済ニュースです。",
+            "続いて、前の話をまとめると以上です。次は経済ニュースです。",
+            "では、前のニュースを振り返っておきましょう。次は経済ニュースです。",
+        ]
+        for text in texts:
+            assert _is_broken_transition_text(text) is True, text
+
 
 class TestEnsureTransitionsBrokenLLMTransitionReplacement:
     """LLMが生成した『前記事の締め文＋次記事告知』混在のtransitionを検知し、
@@ -800,4 +819,87 @@ class TestEnsureTransitionsNormalComplexLeadInPreserved:
         assert len(art2_transitions) == 2
         assert art2_transitions[0]["text"] == normal_text
         assert art2_transitions[1]["text"] == reaction_text
+
+
+class TestEnsureTransitionsShortBackwardReferenceStillReplaced:
+    """CodeReviewer再指摘(BEE-672): 「繋ぎ語で始まる／2文／1文目20文字以内」
+    という形状だけを安全とみなす判定では、「続いて前の記事の結論です。
+    次は経済ニュースです。」のような短い前記事内容の混在を見逃す。
+    _is_generic_two_sentence_lead_in に追加した後方参照語ガードが
+    _ensure_transitions() 経由でも機能し、正常な2文遷移の保持と両立する
+    ことを確認する回帰試験。"""
+
+    _SHORT_BACKWARD_REFERENCE_TEXT = "続いて前の記事の結論です。次は経済ニュースです。"
+
+    def test_short_backward_reference_transition_is_replaced(self):
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
+            {
+                "section": "transition",
+                "article_id": 2,
+                "speaker": "female",
+                "text": self._SHORT_BACKWARD_REFERENCE_TEXT,
+            },
+            {"section": "transition", "article_id": 2, "speaker": "male", "text": "楽しみですね。"},
+            {"section": "news", "article_id": 2, "speaker": "female", "text": "記事2の内容です。"},
+        ]
+        summaries = [
+            {"id": 1, "title": "記事1タイトル"},
+            {"id": 2, "title": "経済ニュース"},
+        ]
+
+        result = _ensure_transitions(lines, summaries)
+
+        transition_texts = [l["text"] for l in result if l["section"] == "transition"]
+        # 短い前記事内容が混在したtransitionは最終台本に残らないこと
+        assert self._SHORT_BACKWARD_REFERENCE_TEXT not in transition_texts
+
+        art2_transitions = [
+            l for l in result if l["section"] == "transition" and l.get("article_id") == 2
+        ]
+        assert len(art2_transitions) == 2
+        assert art2_transitions[0]["speaker"] != art2_transitions[1]["speaker"]
+        for t in art2_transitions:
+            assert _is_broken_transition_text(t["text"]) is False, t["text"]
+
+    def test_short_backward_reference_and_normal_lead_in_coexist(self):
+        # 誤許容ケース（記事2境界）と正常ケース（記事3境界）が同一台本内で
+        # それぞれ正しく判定されること（受入条件: 正常な遷移文は不要に
+        # 置換されない、かつ壊れた遷移文は確実に検出・置換される）
+        normal_text = "続いて経済ニュースです。詳しく見ていきましょう。"
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
+            {
+                "section": "transition",
+                "article_id": 2,
+                "speaker": "female",
+                "text": self._SHORT_BACKWARD_REFERENCE_TEXT,
+            },
+            {"section": "transition", "article_id": 2, "speaker": "male", "text": "楽しみですね。"},
+            {"section": "news", "article_id": 2, "speaker": "female", "text": "記事2の内容です。"},
+            {"section": "transition", "article_id": 3, "speaker": "male", "text": normal_text},
+            {"section": "transition", "article_id": 3, "speaker": "female", "text": "気になります。"},
+            {"section": "news", "article_id": 3, "speaker": "male", "text": "記事3の内容です。"},
+        ]
+        summaries = [
+            {"id": 1, "title": "記事1タイトル"},
+            {"id": 2, "title": "経済ニュース"},
+            {"id": 3, "title": "テクノロジー"},
+        ]
+
+        result = _ensure_transitions(lines, summaries)
+
+        transition_texts = [l["text"] for l in result if l["section"] == "transition"]
+        # 誤許容ケースは除去され、正常ケースはそのまま保持されること
+        assert self._SHORT_BACKWARD_REFERENCE_TEXT not in transition_texts
+        assert normal_text in transition_texts
+
+        art3_transitions = [
+            l for l in result if l["section"] == "transition" and l.get("article_id") == 3
+        ]
+        assert len(art3_transitions) == 2
+        assert art3_transitions[0]["text"] == normal_text
+        assert art3_transitions[1]["text"] == "気になります。"
 

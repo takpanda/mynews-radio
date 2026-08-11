@@ -217,6 +217,27 @@ _TRANSITION_LEAD_IN_OPENERS = ("それでは", "では", "続いて", "次は", 
 # 語る長い締め文である可能性が高いとみなし、安全側に倒す
 _LEAD_IN_FIRST_SENTENCE_MAX_LEN = 20
 
+# 前の記事の内容を要約・振り返る表現。繋ぎ語で始まり1文目が短くても、これらの
+# 表現をどこかに含む場合は前の記事の内容（の結論・要約）が混在している疑いが
+# あるとみなし、安全なリード文として除外しない（BEE-672 再指摘: 「続いて
+# 前の記事の結論です。次は経済ニュースです。」のように、繋ぎ語＋短い1文目
+# という形だけでは前記事内容の混在を排除できないため、明示的な後方参照語を
+# 追加のガードとして併用する）。
+_BACKWARD_REFERENCE_MARKERS = (
+    "前の記事",
+    "前の話",
+    "前のニュース",
+    "先ほどの",
+    "先程の",
+    "今の記事",
+    "今の話",
+    "ここまでの",
+    "結論",
+    "まとめる",
+    "まとめ",
+    "振り返",
+)
+
 
 def _is_generic_two_sentence_lead_in(text: str) -> bool:
     """text が、前の記事の内容に触れず次の話題へ移ることだけを告げる、
@@ -233,10 +254,15 @@ def _is_generic_two_sentence_lead_in(text: str) -> bool:
     いずれも前の記事の具体的な内容を語る文から始まり、既知の繋ぎ語では
     始まらない。そのため、(1) 既知の繋ぎ語で始まる、(2) 文がちょうど2つで
     どちらも句点等で正しく終端している（スペース区切りの連結のような
-    文法破綻がない）、(3) 1文目が短い、の3条件を満たす場合に限り、
-    複文であっても安全とみなす。
+    文法破綻がない）、(3) 1文目が短い、の3条件を満たす場合に限り、複文で
+    あっても安全とみなす。ただし「続いて前の記事の結論です。」のように
+    繋ぎ語＋短い1文目という形状だけでは前記事内容の混在を排除しきれない
+    ため、(4) 前の記事を要約・振り返る表現（_BACKWARD_REFERENCE_MARKERS）を
+    含まないことも合わせて要求する。
     """
     if not any(text.startswith(opener) for opener in _TRANSITION_LEAD_IN_OPENERS):
+        return False
+    if any(marker in text for marker in _BACKWARD_REFERENCE_MARKERS):
         return False
     sentences = [s for s in _re.split(r"(?<=[。！？])", text) if s]
     if len(sentences) != 2:
