@@ -92,8 +92,10 @@ def test_fishs2pro_female_audio_is_not_volume_normalized(tmp_path):
 
     with patch("app.batch.synthesize_voicevox.get_settings", return_value=_settings()), \
          patch("app.batch.synthesize_voicevox.FishS2ProClient", FakeFishClient), \
-         patch("app.services.ffmpeg_service.normalize_mean_volume") as mock_normalize:
+         patch("app.batch.synthesize_voicevox.normalize_mean_volume", create=True) as mock_normalize:
         # 音量正規化用の関数を一切呼ばなくても、男女とも合成が成功すること。
+        # 旧実装は本モジュールへ直接importした normalize_mean_volume を呼び出していたため、
+        # 同じ呼び出し位置をモックして退行（呼び出しの復活）を検出できるようにする。
         assert synthesize_episode(str(episode_dir), tts_engine="fishs2pro") == 2
 
     mock_normalize.assert_not_called()
