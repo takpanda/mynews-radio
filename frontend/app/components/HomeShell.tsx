@@ -62,9 +62,10 @@ function durationLabel(seconds: number): string {
   return `${Math.max(1, Math.round(seconds / 60))}分`
 }
 
-function thumbnailTone(id: number): string {
-  const tones = ['archive-thumb-indigo', 'archive-thumb-coral', 'archive-thumb-cyan', 'archive-thumb-amber']
-  return tones[Math.abs(id) % tones.length]
+const CATEGORY_THUMBNAIL_IMAGE: Record<Exclude<CategoryKey, 'all'>, string> = {
+  general: '/images/categories/general.png',
+  tech: '/images/categories/tech.jpg',
+  commentary: '/images/categories/commentary.png',
 }
 
 export default function HomeShell({ latest, chapters, initialEpisodes, initialHasNext, isAuthenticated = false }: Props) {
@@ -284,21 +285,19 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                 <p className="mb-3 text-xs font-medium tracking-[0.18em] text-slate-500">{group.month}</p>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {group.items.map((ep) => {
-                    const isTech = categorize(ep) === 'tech'
+                    const thumbnailImage = CATEGORY_THUMBNAIL_IMAGE[categorize(ep)]
                     return (
                     <article key={ep.id} className="archive-card group">
                       <Link
                         href={`/episodes/${ep.id}`}
                         className="block h-full"
                       >
-                        <div className={`archive-thumb ${isTech ? '' : thumbnailTone(ep.id)}`}>
-                          {isTech && (
-                            <img
-                              src="/images/categories/tech.jpg"
-                              alt=""
-                              className="absolute inset-0 h-full w-full object-cover"
-                            />
-                          )}
+                        <div className="archive-thumb">
+                          <img
+                            src={thumbnailImage}
+                            alt=""
+                            className="absolute inset-0 h-full w-full object-cover"
+                          />
                           <span className="archive-thumb-code">E{String(ep.id).padStart(3, '0')}</span>
                           <span className="archive-episode-badge">#{ep.id}</span>
                           <span className="archive-play-icon" aria-hidden="true">

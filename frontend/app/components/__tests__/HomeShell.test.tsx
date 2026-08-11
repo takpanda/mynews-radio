@@ -83,15 +83,16 @@ describe('HomeShell archive thumbnail', () => {
     expect(img?.getAttribute('src')).toBe('/images/categories/tech.jpg')
   })
 
-  it('一般カテゴリでは従来のグラデーションを表示する', () => {
+  it('一般カテゴリでは一般用画像を表示する', () => {
     const { container } = renderArchiveEpisodes([{ ...episode(), title: '一般ニュースまとめ' }])
-    expect(container.querySelector('.archive-thumb img')).toBeNull()
-    expect(container.querySelector('.archive-thumb-coral')).not.toBeNull()
+    const img = container.querySelector('.archive-thumb img')
+    expect(img?.getAttribute('src')).toBe('/images/categories/general.png')
   })
 
-  it('解説カテゴリでは従来のグラデーションを表示する', () => {
+  it('解説カテゴリでは解説用画像を表示する', () => {
     const { container } = renderArchiveEpisodes([{ ...episode(), title: 'テック解説回', type: 'commentary' }])
-    expect(container.querySelector('.archive-thumb img')).toBeNull()
+    const img = container.querySelector('.archive-thumb img')
+    expect(img?.getAttribute('src')).toBe('/images/categories/commentary.png')
   })
 
   it('テック画像上でもエピソードコード・バッジ・再生アイコン・カード選択が共存する', () => {
@@ -112,5 +113,21 @@ describe('HomeShell archive thumbnail', () => {
 
     const cardLink = container.querySelector('.archive-card a')
     expect(cardLink?.getAttribute('href')).toBe('/episodes/7')
+  })
+
+  it('一般・解説画像上でもエピソードコード・バッジ・再生アイコン・カード選択が共存する', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), id: 3, title: '一般ニュースまとめ', type: 'commentary' }])
+    const thumb = container.querySelector('.archive-thumb')
+    expect(thumb).not.toBeNull()
+
+    const img = thumb?.querySelector('img')
+    expect(img?.getAttribute('src')).toBe('/images/categories/commentary.png')
+
+    expect(thumb?.querySelector('.archive-thumb-code')?.textContent).toBe('E003')
+    expect(thumb?.querySelector('.archive-episode-badge')?.textContent).toBe('#3')
+    expect(thumb?.querySelector('.archive-play-icon')).not.toBeNull()
+
+    const cardLink = container.querySelector('.archive-card a')
+    expect(cardLink?.getAttribute('href')).toBe('/episodes/3')
   })
 })
