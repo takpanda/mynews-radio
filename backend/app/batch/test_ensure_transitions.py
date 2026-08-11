@@ -477,6 +477,27 @@ class TestIsBrokenTransitionText:
         )
         assert _is_broken_transition_text(text) is True
 
+    def test_generic_two_sentence_lead_in_not_broken(self):
+        # BEE-672 レビュー指摘: 既知テンプレート外でも、前の記事の内容に
+        # 触れない短い繋ぎ語（続いて/それでは/等）で始まる自然な2文構成の
+        # transitionは壊れたtransitionと誤判定しないこと
+        assert _is_broken_transition_text("続いて経済ニュースです。詳しく見ていきましょう。") is False
+
+    def test_two_sentence_lead_in_with_long_first_sentence_still_broken(self):
+        # 繋ぎ語で始まっていても、1文目が長く前の記事の具体的な内容を
+        # 語っている可能性が高い場合は、引き続き壊れたtransitionとみなす
+        text = (
+            "それでは、先ほどの記事で紹介した制度の不備と組織への恐怖の話は"
+            "ここで一区切りにしましょう。次は経済ニュースです。"
+        )
+        assert _is_broken_transition_text(text) is True
+
+    def test_three_sentence_lead_in_still_broken(self):
+        # 繋ぎ語で始まっていても、文が3つ以上ある場合は対象外（2文構成の
+        # 例外は適用しない）
+        text = "続いて経済ニュースです。詳しく見ていきましょう。楽しみですね。"
+        assert _is_broken_transition_text(text) is True
+
 
 class TestEnsureTransitionsBrokenLLMTransitionReplacement:
     """LLMが生成した『前記事の締め文＋次記事告知』混在のtransitionを検知し、
@@ -696,4 +717,87 @@ class TestEnsureTransitionsBrokenFollowedByShortReaction:
             ]
             assert len(blocks) == 2
             assert blocks[0]["speaker"] != blocks[1]["speaker"]
+
+
+class TestEnsureTransitionsBrokenBehindMismatchedArticleId:
+    """CodeReviewer指摘(must #1, BEE-672): 壊れたtransitionの直後に、
+    article_idが現在の記事と一致しない短い反応行が続く場合、article_id不一致
+    処理が末尾1行だけを削除して prev_is_transition を無条件に False へ落として
+    いたため、残った壊れたtransitionがブロック検査の対象から外れて見逃されて
+    いた回帰試験。"""
+
+    _BROKEN_TEXT = (
+        "制度の不備という見えない制約から、人身の自由を奪う見えない組織への恐怖へ。"
+        "海外邦人の窮状は社会構造の歪みを象徴する それでは、"
+        "カンボジアで息子が行方不明になり8ヶ月経ったが、息のニュースをどうぞ。"
+    )
+
+    def test_broken_transition_behind_mismatched_article_id_reaction_is_removed(self):
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
+            # 記事2境界の壊れたtransition（article_idは記事2で正しい）
+            {"section": "transition", "article_id": 2, "speaker": "female", "text": self._BROKEN_TEXT},
+            # article_idが記事1のまま残った短い反応行（誤帰属）。これが直前
+            # 1行になり、先にarticle_id不一致処理で削除されるため、その下に
+            # 隠れた壊れたtransitionが見逃されていた
+            {"section": "transition", "article_id": 1, "speaker": "male", "text": "そうなんですね。"},
+            {"section": "news", "article_id": 2, "speaker": "female", "text": "記事2の内容です。"},
+        ]
+        summaries = [
+            {"id": 1, "title": "記事1タイトル", "summary": "記事1の要約です。"},
+            {"id": 2, "title": "行方不明事案", "summary": "カンボジアで行方不明になった邦人に関する記事です。"},
+        ]
+
+        result = _ensure_transitions(lines, summaries)
+
+        transition_texts = [l["text"] for l in result if l["section"] == "transition"]
+        # 壊れた遷移文はどのtransition行にも残っていないこと（受入条件）
+        assert self._BROKEN_TEXT not in transition_texts
+        assert not any("息のニュースをどうぞ" in t for t in transition_texts), transition_texts
+        # article_id不一致だった反応行の文言も残らないこと（ブロックごと
+        # 安全な2行に置き換わる）
+        assert "そうなんですね。" not in transition_texts
+
+        art2_transitions = [
+            l for l in result if l["section"] == "transition" and l.get("article_id") == 2
+        ]
+        assert len(art2_transitions) == 2
+        assert art2_transitions[0]["speaker"] != art2_transitions[1]["speaker"]
+        for t in art2_transitions:
+            assert _is_broken_transition_text(t["text"]) is False, t["text"]
+
+        errors = lint_script(result)
+        assert not any("TRANSITION_SOLO" in e for e in errors), errors
+
+
+class TestEnsureTransitionsNormalComplexLeadInPreserved:
+    """CodeReviewer指摘(must #2, BEE-672): 前の記事の内容を含まない正常な
+    2文構成のtransition（＋短い反応行のブロック）が、過剰に安全なテンプレート
+    文へ置換されないことの回帰試験。"""
+
+    def test_generic_two_sentence_transition_block_is_not_replaced(self):
+        normal_text = "続いて経済ニュースです。詳しく見ていきましょう。"
+        reaction_text = "楽しみですね。"
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
+            {"section": "transition", "article_id": 2, "speaker": "female", "text": normal_text},
+            {"section": "transition", "article_id": 2, "speaker": "male", "text": reaction_text},
+            {"section": "news", "article_id": 2, "speaker": "female", "text": "記事2の内容です。"},
+        ]
+        summaries = [
+            {"id": 1, "title": "記事1タイトル"},
+            {"id": 2, "title": "経済ニュース"},
+        ]
+
+        result = _ensure_transitions(lines, summaries)
+
+        art2_transitions = [
+            l for l in result if l["section"] == "transition" and l.get("article_id") == 2
+        ]
+        # 正常なtransitionブロックはそのまま維持され、置換されないこと
+        assert len(art2_transitions) == 2
+        assert art2_transitions[0]["text"] == normal_text
+        assert art2_transitions[1]["text"] == reaction_text
 

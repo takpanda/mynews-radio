@@ -209,6 +209,43 @@ def _matches_known_transition_template(text: str) -> bool:
     return False
 
 
+# 記事境界transitionが「次の話題へ移る」ことだけを告げる自然な繋ぎ語
+# （前の記事の内容には一切触れない、テンプレートと同種の一般的な言い回し）
+_TRANSITION_LEAD_IN_OPENERS = ("それでは", "では", "続いて", "次は", "さて", "ここで")
+
+# 繋ぎ語で始まる1文目がこの文字数を超える場合、前の記事の具体的な内容を
+# 語る長い締め文である可能性が高いとみなし、安全側に倒す
+_LEAD_IN_FIRST_SENTENCE_MAX_LEN = 20
+
+
+def _is_generic_two_sentence_lead_in(text: str) -> bool:
+    """text が、前の記事の内容に触れず次の話題へ移ることだけを告げる、
+    既知の短い繋ぎ語で始まる自然な2文構成のtransitionかどうかを判定する
+    （BEE-672 レビュー指摘）。
+
+    _is_broken_transition_text は既知テンプレート（_TRANSITION_PHRASES /
+    _BRIDGE_TRANSITION_PHRASES）に一致しない複文を一律に壊れた文として扱う
+    ため、「続いて経済ニュースです。詳しく見ていきましょう。」のような、
+    前の記事の内容を一切含まない正常な2文構成の遷移まで誤って壊れた文と
+    判定してしまう。
+
+    これまでに確認された壊れたtransition（BEE-661/BEE-662/BEE-671）は、
+    いずれも前の記事の具体的な内容を語る文から始まり、既知の繋ぎ語では
+    始まらない。そのため、(1) 既知の繋ぎ語で始まる、(2) 文がちょうど2つで
+    どちらも句点等で正しく終端している（スペース区切りの連結のような
+    文法破綻がない）、(3) 1文目が短い、の3条件を満たす場合に限り、
+    複文であっても安全とみなす。
+    """
+    if not any(text.startswith(opener) for opener in _TRANSITION_LEAD_IN_OPENERS):
+        return False
+    sentences = [s for s in _re.split(r"(?<=[。！？])", text) if s]
+    if len(sentences) != 2:
+        return False
+    if len(sentences[0]) > _LEAD_IN_FIRST_SENTENCE_MAX_LEN:
+        return False
+    return all(s[-1] in _SENTENCE_END_CHARS for s in sentences)
+
+
 def _is_broken_transition_text(text: str) -> bool:
     """記事境界のtransition行に、独立した文が複数連結されていないかを判定する。
 
@@ -228,12 +265,16 @@ def _is_broken_transition_text(text: str) -> bool:
     テンプレートが含まれる（BEE-664）。句読点の数だけで判定すると、これらの
     プログラム生成の正常な複文まで誤検知してしまうため、既知のテンプレート
     形状に一致する場合は複文であっても壊れていないとみなす
-    （_matches_known_transition_template）。
+    （_matches_known_transition_template）。同様に、既知の繋ぎ語で始まる
+    自然な2文構成のリード文も誤検知しないようにする
+    （_is_generic_two_sentence_lead_in、BEE-672）。
     """
     stripped = (text or "").strip()
     if not stripped:
         return False
     if _matches_known_transition_template(stripped):
+        return False
+    if _is_generic_two_sentence_lead_in(stripped):
         return False
     body = stripped[:-1] if stripped[-1] in _SENTENCE_END_CHARS else stripped
     return any(ch in _SENTENCE_END_CHARS for ch in body)
@@ -305,7 +346,12 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                 if llm_trans_aid is not None and llm_trans_aid != article_id:
                     removed = result.pop()
                     logger.debug("LLM transition 削除(article_id不一致): article_id=%s text=%s", removed.get("article_id"), removed.get("text", "")[:60])
-                    prev_is_transition = False
+                    # 削除後もブロックの残り（同じ記事境界に属する他のtransition行）
+                    # が続く場合は、直後の複文混在チェックで漏れなく再検査できる
+                    # よう prev_is_transition を結果の実状態から再評価する
+                    # （直前の実装は無条件で False に落としており、article_id
+                    # 不一致行の下に隠れた壊れたtransitionを見逃していた。BEE-672）
+                    prev_is_transition = bool(result) and result[-1].get("section") == "transition"
 
             # article_id は次の記事と一致していても、前の記事の締め文と次の記事の
             # 告知が1行に混在した壊れたtransitionは記事境界（news）でのみ検知して
