@@ -40,6 +40,8 @@ export interface Episode {
   generation_message?: string
   generated_at?: string
   key_points?: string[]
+  llm_model?: string | null
+  llm_provider?: string | null
 }
 
 export interface EpisodeItem {

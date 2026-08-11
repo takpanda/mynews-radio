@@ -28,6 +28,7 @@ export interface DetailEpisode {
   generationPhase?: string
   generatedAtLabel?: string
   keyPoints?: string[]
+  llmModel?: string | null
 }
 
 export interface EpisodeSummary {
@@ -88,6 +89,11 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
           {episode.isCommentary && (
             <span className="inline-flex items-center rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700">
               解説
+            </span>
+          )}
+          {episode.llmModel?.trim() && (
+            <span className="inline-flex max-w-full whitespace-normal break-all rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+              LLMモデル: {episode.llmModel.trim()}
             </span>
           )}
         </div>

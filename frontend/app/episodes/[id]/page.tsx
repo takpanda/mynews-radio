@@ -140,6 +140,7 @@ function toDetailEpisode(episode: Episode): DetailEpisode {
     durationSeconds: episode.duration_seconds || 0,
     generatedAtLabel: episode.generated_at ? formatGeneratedAt(episode.generated_at) : undefined,
     keyPoints: episode.key_points,
+    llmModel: episode.llm_model,
   }
 }
 
