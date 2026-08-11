@@ -296,7 +296,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                           <img
                             src={thumbnailImage}
                             alt=""
-                            className="absolute inset-0 h-full w-full object-cover"
+                            className="absolute inset-0 h-full w-full object-contain"
                           />
                           <span className="archive-thumb-code">E{String(ep.id).padStart(3, '0')}</span>
                           <span className="archive-episode-badge">#{ep.id}</span>

@@ -95,6 +95,17 @@ describe('HomeShell archive thumbnail', () => {
     expect(img?.getAttribute('src')).toBe('/images/categories/commentary.png')
   })
 
+  it.each([
+    ['テック', { ...episode(), title: 'テックニュースまとめ' }],
+    ['一般', { ...episode(), title: '一般ニュースまとめ' }],
+    ['解説', { ...episode(), title: 'テック解説回', type: 'commentary' }],
+  ])('%sカテゴリの画像はトリミングせず全体を表示する(object-contain)', (_label, ep) => {
+    const { container } = renderArchiveEpisodes([ep])
+    const img = container.querySelector('.archive-thumb img')
+    expect(img?.className).toContain('object-contain')
+    expect(img?.className).not.toContain('object-cover')
+  })
+
   it('テック画像上でもエピソードコード・バッジ・再生アイコン・カード選択が共存する', () => {
     const { container } = renderArchiveEpisodes([{ ...episode(), id: 7, title: 'テックニュースまとめ' }])
     const thumb = container.querySelector('.archive-thumb')
