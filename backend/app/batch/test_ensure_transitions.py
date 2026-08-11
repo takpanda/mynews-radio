@@ -1028,6 +1028,31 @@ class TestBridgeTextQualityGate:
         )
         assert _is_usable_bridge_text(text) is False
 
+    def test_short_analytical_contrast_bridge_text_not_usable(self):
+        # CodeReviewer must指摘(BEE-676): 40文字以下・単文であっても、
+        # 「安全への警戒から、秩序の変化へ。」のような「Aの〜から、Bの〜へ」
+        # 型の分析的な対比表現は、文字数・単文チェックだけでは弾けない。
+        # このような短い分析的メタ注記も読み上げ用として使わないこと。
+        text = "安全への警戒から、秩序の変化へ。"
+        assert len(text) < 40
+        assert _is_usable_bridge_text(text) is False
+
+    def test_short_analytical_contrast_bridge_text_without_comma_not_usable(self):
+        # 読点が無い「Aの〜からBの〜へ」型も同様に拒否すること
+        text = "警戒から秩序へ。"
+        assert _is_usable_bridge_text(text) is False
+
+    def test_backward_reference_bridge_text_not_usable(self):
+        # 前記事の内容を要約・振り返る表現を含むbridge_textも拒否すること
+        text = "前の記事の結論を踏まえると"
+        assert _is_usable_bridge_text(text) is False
+
+    def test_natural_short_bridge_with_kara_not_matching_contrast_pattern_is_usable(self):
+        # 「から」を含んでいても「〜へ」で終わる対比構造でなければ
+        # 誤って拒否しないこと（過剰検知の回帰確認）
+        text = "この流れから、次はテクノロジーの話題です"
+        assert _is_usable_bridge_text(text) is True
+
 
 class TestEnsureTransitionsEpisode362Regression:
     """エピソード362で確認された壊れたtransitionの実例が、修正後の
@@ -1125,4 +1150,41 @@ class TestEnsureTransitionsEpisode362Regression:
         assert not any(text_part in t for t in transition_texts for text_part in ("家庭内の混乱", "理想の避難計画")), transition_texts
         for t in transition_texts:
             assert _is_broken_transition_text(t) is False, t
+
+    def test_short_analytical_contrast_bridge_text_falls_back(self):
+        # CodeReviewer must指摘(BEE-676): 40文字以下・単文の
+        # 「安全への警戒から、秩序の変化へ。」型bridge_textが、修正前は
+        # 品質ゲートを通過し「安全への警戒から、秩序の変化へ。 続いては
+        # 記事二の最新情報です。」のように前記事の分析と次記事告知が
+        # 同一行に混在した状態で生成されていた。修正後はbridgeを使わない
+        # 通常テンプレートへフォールバックし、この文言が最終台本に
+        # 残らないこと。
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "intro"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1"},
+            {"section": "news", "article_id": 2, "speaker": "male", "text": "記事2"},
+        ]
+        summaries = [
+            {"id": 1, "title": "移動記事"},
+            {"id": 2, "title": "ワクチン記事"},
+        ]
+        short_analytical_bridge = "安全への警戒から、秩序の変化へ。"
+        assert len(short_analytical_bridge) < 40
+        arc = {
+            "bridges": [
+                {"from_article_id": 1, "to_article_id": 2, "bridge_text": short_analytical_bridge},
+            ],
+        }
+        result = _ensure_transitions(lines, summaries, arc=arc)
+        transition_texts = [l["text"] for l in result if l["section"] == "transition"]
+        assert not any(short_analytical_bridge in t for t in transition_texts), transition_texts
+        assert not any("秩序の変化へ" in t for t in transition_texts), transition_texts
+        for t in transition_texts:
+            assert _is_broken_transition_text(t) is False, t
+
+        art2_transitions = [
+            l for l in result if l["section"] == "transition" and l.get("article_id") == 2
+        ]
+        assert len(art2_transitions) == 2
+        assert art2_transitions[0]["speaker"] != art2_transitions[1]["speaker"]
 

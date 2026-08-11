@@ -378,19 +378,33 @@ def _safe_topic_from_title(raw_title: str) -> str:
 # 「Aの〜から、Bの〜へ。」のような冗長なメタ注記になる（BEE-676, episode362）。
 _BRIDGE_TEXT_MAX_LEN = 40
 
+# 「安全への警戒から、秩序の変化へ。」のように、40文字以下・単文であっても
+# 「Aの〜から、Bの〜へ」型の分析的な対比表現になっているbridge_textを検出する
+# パターン（BEE-676 must指摘、CodeReviewer）。文字数・単文チェックだけでは、
+# この種の短い分析的メタ注記を弾けず、前記事の分析と次記事告知が同一行に
+# 混在した状態のまま既知テンプレートに一致してしまう。
+_ANALYTICAL_CONTRAST_BRIDGE_RE = _re.compile(r"から[、,]?.*へ[。！？]?$")
+
 
 def _is_usable_bridge_text(bridge_text: str) -> bool:
     """bridge_text が、そのままMCの短い橋渡し1文として読み上げるのに適した
     品質かどうかを判定する。既知テンプレートの形状に一致していても、
-    差し込まれる bridge_text 自体が長い・複文であれば安全な通常テンプレートへ
-    フォールバックさせる（BEE-676: 既知テンプレート一致だけでは壊れた
-    遷移文を安全と判定してしまう問題への対策）。"""
+    差し込まれる bridge_text 自体が長い・複文・分析的な対比表現・前記事への
+    後方参照であれば安全な通常テンプレートへフォールバックさせる（BEE-676:
+    既知テンプレート一致だけでは壊れた遷移文を安全と判定してしまう問題への
+    対策）。"""
     stripped = (bridge_text or "").strip()
     if not stripped:
         return False
     if len(stripped) > _BRIDGE_TEXT_MAX_LEN:
         return False
-    return _is_single_clean_sentence(stripped)
+    if not _is_single_clean_sentence(stripped):
+        return False
+    if _ANALYTICAL_CONTRAST_BRIDGE_RE.search(stripped):
+        return False
+    if any(marker in stripped for marker in _BACKWARD_REFERENCE_MARKERS):
+        return False
+    return True
 
 
 def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -> list:
