@@ -86,6 +86,49 @@ describe('EpisodeDetailShell generatedAtLabel 表示', () => {
   })
 })
 
+describe('EpisodeDetailShell llmModel 表示', () => {
+  it('llmModel がある場合にモデル名ラベルを表示する', () => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ llmModel: 'qwen3:8b' })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.getByText('LLMモデル: qwen3:8b')).toBeInTheDocument()
+  })
+
+  it.each([null, undefined, ''])('llmModel が %p の場合はラベルを表示しない', (llmModel) => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ llmModel })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.queryByText(/LLMモデル:/)).not.toBeInTheDocument()
+  })
+
+  it('長いモデル名でもラベルに収まり、タイトルと同じ行の表示を維持する', () => {
+    const model = 'very-long-model-name-without-spaces-' + 'x'.repeat(80)
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ llmModel: model })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    const label = screen.getByText(`LLMモデル: ${model}`)
+    expect(label).toHaveClass('max-w-full', 'break-all')
+  })
+})
+
 describe('EpisodeDetailShell この回で分かること 表示', () => {
   it('keyPoints が1件の場合に表示される', () => {
     render(
