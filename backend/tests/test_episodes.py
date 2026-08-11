@@ -992,3 +992,91 @@ class TestSearchEpisodesBySourceUrl:
         assert len(data) == 1
         assert data[0]["title"] is None
         assert data[0]["has_script"] is False
+
+
+class TestEpisodeLlmInfo:
+    """/episodes, /episodes/{id} レスポンスの llm_provider / llm_model のテスト"""
+
+    def _write_metadata(self, episode_id, **fields):
+        import json as _json
+        import os as _os
+
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        d = _os.path.join(ep_dir, str(episode_id))
+        _os.makedirs(d, exist_ok=True)
+        with open(_os.path.join(d, "metadata.json"), "w", encoding="utf-8") as f:
+            _json.dump(fields, f)
+
+    def test_detail_contains_llm_info_when_present(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-05")
+        self._write_metadata(eid, llm_provider="ollama", llm_model="gpt-oss:20b")
+
+        resp = client.get(f"/episodes/{eid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["llm_provider"] == "ollama"
+        assert data["llm_model"] == "gpt-oss:20b"
+
+    def test_detail_llm_info_null_when_metadata_missing(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-06")
+
+        resp = client.get(f"/episodes/{eid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["llm_provider"] is None
+        assert data["llm_model"] is None
+
+    def test_detail_llm_info_null_when_metadata_lacks_fields(self, client):
+        """既存エピソード互換: metadata.json に llm_provider/llm_model キーがない場合"""
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-07")
+        self._write_metadata(eid, duration_seconds=123.4)
+
+        resp = client.get(f"/episodes/{eid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["llm_provider"] is None
+        assert data["llm_model"] is None
+        # 既存フィールドへの影響がないことも確認
+        assert data["duration_seconds"] == 123.4
+
+    def test_list_contains_llm_info(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-08")
+        self._write_metadata(eid, llm_provider="openai", llm_model="gpt-4o-mini")
+
+        resp = client.get("/episodes?include_failed=true")
+        assert resp.status_code == 200
+        data = resp.json()
+        target = next(e for e in data if e["id"] == eid)
+        assert target["llm_provider"] == "openai"
+        assert target["llm_model"] == "gpt-4o-mini"
+
+    def test_applied_settings_unaffected_by_llm_info(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-09")
+        self._write_metadata(
+            eid,
+            llm_provider="ollama",
+            llm_model="gpt-oss:20b",
+            applied_settings={"tts_engine": "voicevox"},
+        )
+
+        resp = client.get(f"/episodes/{eid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["applied_settings"] == {"tts_engine": "voicevox"}
+        assert data["llm_provider"] == "ollama"
+        assert data["llm_model"] == "gpt-oss:20b"
