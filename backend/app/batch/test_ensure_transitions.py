@@ -517,6 +517,16 @@ class TestIsBrokenTransitionText:
         for text in texts:
             assert _is_broken_transition_text(text) is True, text
 
+    def test_backward_reference_word_in_second_sentence_not_broken(self):
+        # CodeReviewer再指摘(BEE-672): 後方参照マーカー（「まとめ」等）が
+        # 2文目（次の話題の具体的な内容を説明する文）に含まれるだけでは、
+        # 前の記事の内容が混在しているとは限らない。「市場の動きをまとめて
+        # 確認しましょう」は次の話題（経済ニュース）についての説明であり、
+        # 前の記事を要約・振り返っているわけではないため、壊れたtransition
+        # と誤判定しないこと
+        text = "続いて経済ニュースです。市場の動きをまとめて確認しましょう。"
+        assert _is_broken_transition_text(text) is False
+
 
 class TestEnsureTransitionsBrokenLLMTransitionReplacement:
     """LLMが生成した『前記事の締め文＋次記事告知』混在のtransitionを検知し、
@@ -816,6 +826,33 @@ class TestEnsureTransitionsNormalComplexLeadInPreserved:
             l for l in result if l["section"] == "transition" and l.get("article_id") == 2
         ]
         # 正常なtransitionブロックはそのまま維持され、置換されないこと
+        assert len(art2_transitions) == 2
+        assert art2_transitions[0]["text"] == normal_text
+        assert art2_transitions[1]["text"] == reaction_text
+
+    def test_next_topic_sentence_with_backward_marker_word_is_not_replaced(self):
+        # CodeReviewer再指摘(BEE-672): 後方参照マーカーと同じ語（「まとめ」）を
+        # 2文目に含むだけの正常なtransitionが、全文への部分一致によって
+        # 誤って置換されないこと
+        normal_text = "続いて経済ニュースです。市場の動きをまとめて確認しましょう。"
+        reaction_text = "楽しみですね。"
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
+            {"section": "transition", "article_id": 2, "speaker": "female", "text": normal_text},
+            {"section": "transition", "article_id": 2, "speaker": "male", "text": reaction_text},
+            {"section": "news", "article_id": 2, "speaker": "female", "text": "記事2の内容です。"},
+        ]
+        summaries = [
+            {"id": 1, "title": "記事1タイトル"},
+            {"id": 2, "title": "経済ニュース"},
+        ]
+
+        result = _ensure_transitions(lines, summaries)
+
+        art2_transitions = [
+            l for l in result if l["section"] == "transition" and l.get("article_id") == 2
+        ]
         assert len(art2_transitions) == 2
         assert art2_transitions[0]["text"] == normal_text
         assert art2_transitions[1]["text"] == reaction_text

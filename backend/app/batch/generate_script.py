@@ -217,9 +217,9 @@ _TRANSITION_LEAD_IN_OPENERS = ("それでは", "では", "続いて", "次は", 
 # 語る長い締め文である可能性が高いとみなし、安全側に倒す
 _LEAD_IN_FIRST_SENTENCE_MAX_LEN = 20
 
-# 前の記事の内容を要約・振り返る表現。繋ぎ語で始まり1文目が短くても、これらの
-# 表現をどこかに含む場合は前の記事の内容（の結論・要約）が混在している疑いが
-# あるとみなし、安全なリード文として除外しない（BEE-672 再指摘: 「続いて
+# 前の記事の内容を要約・振り返る表現。1文目（繋ぎ語に続く前置きの文）が
+# これらの表現を含む場合は、前の記事の内容（の結論・要約）が混在している
+# 疑いがあるとみなし、安全なリード文として除外しない（BEE-672 再指摘: 「続いて
 # 前の記事の結論です。次は経済ニュースです。」のように、繋ぎ語＋短い1文目
 # という形だけでは前記事内容の混在を排除できないため、明示的な後方参照語を
 # 追加のガードとして併用する）。
@@ -257,17 +257,25 @@ def _is_generic_two_sentence_lead_in(text: str) -> bool:
     文法破綻がない）、(3) 1文目が短い、の3条件を満たす場合に限り、複文で
     あっても安全とみなす。ただし「続いて前の記事の結論です。」のように
     繋ぎ語＋短い1文目という形状だけでは前記事内容の混在を排除しきれない
-    ため、(4) 前の記事を要約・振り返る表現（_BACKWARD_REFERENCE_MARKERS）を
-    含まないことも合わせて要求する。
+    ため、(4) 1文目に前の記事を要約・振り返る表現
+    （_BACKWARD_REFERENCE_MARKERS）を含まないことも合わせて要求する。
+
+    後方参照マーカーの判定は1文目（繋ぎ語に続く前置きの文）のみを対象と
+    し、2文目には適用しない。2文目は次の話題の具体的な内容を説明する文で
+    あり、「市場の動きをまとめて確認しましょう」のように、後方参照マーカー
+    と同じ語（「まとめ」等）を前の記事とは無関係な文脈で含みうる。全文に
+    対する部分一致では、こうした正常な2文目まで誤って壊れた文と判定して
+    しまうため（CodeReviewer再指摘、BEE-672）、1文目に限定する。
     """
     if not any(text.startswith(opener) for opener in _TRANSITION_LEAD_IN_OPENERS):
-        return False
-    if any(marker in text for marker in _BACKWARD_REFERENCE_MARKERS):
         return False
     sentences = [s for s in _re.split(r"(?<=[。！？])", text) if s]
     if len(sentences) != 2:
         return False
-    if len(sentences[0]) > _LEAD_IN_FIRST_SENTENCE_MAX_LEN:
+    first_sentence = sentences[0]
+    if len(first_sentence) > _LEAD_IN_FIRST_SENTENCE_MAX_LEN:
+        return False
+    if any(marker in first_sentence for marker in _BACKWARD_REFERENCE_MARKERS):
         return False
     return all(s[-1] in _SENTENCE_END_CHARS for s in sentences)
 
