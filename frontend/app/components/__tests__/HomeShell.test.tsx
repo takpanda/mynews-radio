@@ -39,6 +39,17 @@ function renderArchive(categories?: string[]) {
   )
 }
 
+function renderArchiveEpisodes(episodes: EpisodeListItem[]) {
+  return render(
+    <HomeShell
+      latest={null}
+      chapters={[]}
+      initialEpisodes={episodes}
+      initialHasNext={false}
+    />,
+  )
+}
+
 describe('HomeShell archive category badges', () => {
   it.each([
     ['1件', ['テック・IT']],
@@ -62,5 +73,24 @@ describe('HomeShell archive category badges', () => {
   it('4件以上のカテゴリを表示しない', () => {
     renderArchive(['政治・行政', '経済・金融', '社会・暮らし', '国際'])
     expect(screen.getByLabelText('カテゴリ').children).toHaveLength(3)
+  })
+})
+
+describe('HomeShell archive thumbnail', () => {
+  it('テックカテゴリではテック用画像を表示する', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), title: 'テックニュースまとめ' }])
+    const img = container.querySelector('.archive-thumb img')
+    expect(img?.getAttribute('src')).toBe('/images/categories/tech.jpg')
+  })
+
+  it('一般カテゴリでは従来のグラデーションを表示する', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), title: '一般ニュースまとめ' }])
+    expect(container.querySelector('.archive-thumb img')).toBeNull()
+    expect(container.querySelector('.archive-thumb-coral')).not.toBeNull()
+  })
+
+  it('解説カテゴリでは従来のグラデーションを表示する', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), title: 'テック解説回', type: 'commentary' }])
+    expect(container.querySelector('.archive-thumb img')).toBeNull()
   })
 })
