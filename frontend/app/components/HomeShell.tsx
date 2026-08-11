@@ -292,15 +292,14 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                         className="block h-full"
                       >
                         <div className={`archive-thumb ${isTech ? '' : thumbnailTone(ep.id)}`}>
-                          {isTech ? (
+                          {isTech && (
                             <img
                               src="/images/categories/tech.jpg"
                               alt=""
                               className="absolute inset-0 h-full w-full object-cover"
                             />
-                          ) : (
-                            <span className="archive-thumb-code">E{String(ep.id).padStart(3, '0')}</span>
                           )}
+                          <span className="archive-thumb-code">E{String(ep.id).padStart(3, '0')}</span>
                           <span className="archive-episode-badge">#{ep.id}</span>
                           <span className="archive-play-icon" aria-hidden="true">
                             <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4"><path d="M8 5.5v13a1 1 0 0 0 1.52.86l10.2-6.5a1 1 0 0 0 0-1.7L9.52 4.63A1 1 0 0 0 8 5.5Z" /></svg>

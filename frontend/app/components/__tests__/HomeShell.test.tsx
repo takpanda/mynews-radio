@@ -93,4 +93,24 @@ describe('HomeShell archive thumbnail', () => {
     const { container } = renderArchiveEpisodes([{ ...episode(), title: 'テック解説回', type: 'commentary' }])
     expect(container.querySelector('.archive-thumb img')).toBeNull()
   })
+
+  it('テック画像上でもエピソードコード・バッジ・再生アイコン・カード選択が共存する', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), id: 7, title: 'テックニュースまとめ' }])
+    const thumb = container.querySelector('.archive-thumb')
+    expect(thumb).not.toBeNull()
+
+    const img = thumb?.querySelector('img')
+    expect(img?.getAttribute('src')).toBe('/images/categories/tech.jpg')
+
+    const code = thumb?.querySelector('.archive-thumb-code')
+    expect(code?.textContent).toBe('E007')
+
+    const badge = thumb?.querySelector('.archive-episode-badge')
+    expect(badge?.textContent).toBe('#7')
+
+    expect(thumb?.querySelector('.archive-play-icon')).not.toBeNull()
+
+    const cardLink = container.querySelector('.archive-card a')
+    expect(cardLink?.getAttribute('href')).toBe('/episodes/7')
+  })
 })
