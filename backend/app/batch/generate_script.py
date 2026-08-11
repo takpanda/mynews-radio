@@ -312,15 +312,21 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
             # 破棄する（BEE-661/BEE-662）。discussion直前のtransitionはテンプレート
             # 自体が複文（「気になりますね。どう思います？」等）を前提とするため対象外。
             # last_content_aid is None（intro直後で前の記事が存在しない）場合も対象外。
-            if (
-                prev_is_transition
-                and section == "news"
-                and last_content_aid is not None
-                and _is_broken_transition_text(result[-1].get("text", ""))
-            ):
-                removed = result.pop()
-                logger.debug("LLM transition 削除(複文混在): article_id=%s text=%s", removed.get("article_id"), removed.get("text", "")[:60])
-                prev_is_transition = False
+            #
+            # 直前1行だけでなく、直前から連続する transition 行（同じ記事境界に
+            # 属するブロック）全体を検査する。壊れた遷移文の直後に正常な短い
+            # 反応行が続く場合、直前1行のみの検査ではその反応行に隠れて壊れた
+            # 遷移文を見逃すため（BEE-672）。
+            if prev_is_transition and section == "news" and last_content_aid is not None:
+                block_start = len(result)
+                while block_start > 0 and result[block_start - 1].get("section") == "transition":
+                    block_start -= 1
+                if any(_is_broken_transition_text(l.get("text", "")) for l in result[block_start:]):
+                    removed = result[block_start:]
+                    del result[block_start:]
+                    for r in removed:
+                        logger.debug("LLM transition 削除(複文混在): article_id=%s text=%s", r.get("article_id"), r.get("text", "")[:60])
+                    prev_is_transition = False
 
             # article_id が変わった（または intro→news）かつ直前が transition でない場合に挿入
             if not prev_is_transition and article_id != last_content_aid:

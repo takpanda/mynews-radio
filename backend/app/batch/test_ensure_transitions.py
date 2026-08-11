@@ -607,3 +607,93 @@ class TestEnsureTransitionsBrokenLLMTransitionReplacement:
         transition_texts = [l["text"] for l in result if l["section"] == "transition"]
         assert bridge_text in transition_texts
 
+
+class TestEnsureTransitionsBrokenFollowedByShortReaction:
+    """壊れた遷移文の直後に正常な短い反応行が続くケースの回帰テスト（BEE-672）。
+
+    直前1行だけを検査すると、壊れた遷移文が反応行に隠れて見逃される
+    （エピソード360 line 8, 9, 10 に相当する構造）。
+    """
+
+    # BEE-671 で報告されたエピソード360の実例（前記事の要約/注記と次記事の
+    # 告知が混在し、「H3ロケットでを」のような文法破綻もある）
+    _BROKEN_TEXT = (
+        "同じH3ロケットとみちびき衛星の成功を、NHKの視点でさらに詳しく解説。"
+        "技術の進歩がもたらす未来への期待に焦点を当てる。"
+        "ここで視点を変えて、日本版GPS衛星「みちびき7号機」"
+        "H3ロケットでを見てみましょう。"
+    )
+
+    def test_broken_transition_hidden_behind_short_reaction_is_removed(self):
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "H3ロケットとみちびき衛星についての記事です。"},
+            # line 8相当: 壊れたtransition（前記事の要約と次記事告知が混在）
+            {"section": "transition", "article_id": 2, "speaker": "female", "text": self._BROKEN_TEXT},
+            # line 9相当: 正常な短い反応行（これが直前1行になり、壊れた行を隠す）
+            {"section": "transition", "article_id": 2, "speaker": "male", "text": "そうなんですね。"},
+            # line 10相当: 次の記事本文
+            {"section": "news", "article_id": 2, "speaker": "female", "text": "みちびき7号機についての記事です。"},
+        ]
+        summaries = [
+            {"id": 1, "title": "H3ロケットとみちびき衛星", "summary": "H3ロケットとみちびき衛星の成功に関する記事です。"},
+            {"id": 2, "title": "みちびき7号機", "summary": "日本版GPS衛星「みちびき7号機」に関する記事です。"},
+        ]
+
+        result = _ensure_transitions(lines, summaries)
+
+        transition_texts = [l["text"] for l in result if l["section"] == "transition"]
+        # 壊れた遷移文はどのtransition行にも残っていないこと（受入条件）
+        assert self._BROKEN_TEXT not in transition_texts
+        assert not any("H3ロケットでを" in t for t in transition_texts), transition_texts
+
+        # 記事2境界のtransitionは、既存の2行（橋渡し＋短い受け）仕様で
+        # 安全な文に置き換わっていること（両司会者の短い掛け合いが維持される）
+        art2_transitions = [
+            l for l in result if l["section"] == "transition" and l.get("article_id") == 2
+        ]
+        assert len(art2_transitions) == 2
+        assert art2_transitions[0]["speaker"] != art2_transitions[1]["speaker"]
+        for t in art2_transitions:
+            assert _is_broken_transition_text(t["text"]) is False, t["text"]
+
+        # lint_script でも壊れたtransitionに起因するエラーが出ないこと
+        errors = lint_script(result)
+        assert not any("TRANSITION_SOLO" in e for e in errors), errors
+
+    def test_multiple_article_boundaries_each_inspected_independently(self):
+        # 受入条件: 同じ記事境界に属する複数のtransitionだけでなく、
+        # 複数の記事境界がそれぞれ独立して検査対象になること
+        second_broken_text = (
+            "この話題はここまでにして、次のニュースに移りましょう。それでは、"
+            "経済指標の発表についてのニュースをどうぞ。"
+        )
+        lines = [
+            {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
+            {"section": "transition", "article_id": 2, "speaker": "female", "text": self._BROKEN_TEXT},
+            {"section": "transition", "article_id": 2, "speaker": "male", "text": "そうなんですね。"},
+            {"section": "news", "article_id": 2, "speaker": "female", "text": "記事2の内容です。"},
+            {"section": "transition", "article_id": 3, "speaker": "male", "text": second_broken_text},
+            {"section": "transition", "article_id": 3, "speaker": "female", "text": "気になります。"},
+            {"section": "news", "article_id": 3, "speaker": "male", "text": "記事3の内容です。"},
+        ]
+        summaries = [
+            {"id": 1, "title": "記事1タイトル"},
+            {"id": 2, "title": "記事2タイトル"},
+            {"id": 3, "title": "記事3タイトル"},
+        ]
+
+        result = _ensure_transitions(lines, summaries)
+
+        transition_texts = [l["text"] for l in result if l["section"] == "transition"]
+        assert self._BROKEN_TEXT not in transition_texts
+        assert second_broken_text not in transition_texts
+
+        for aid in (2, 3):
+            blocks = [
+                l for l in result if l["section"] == "transition" and l.get("article_id") == aid
+            ]
+            assert len(blocks) == 2
+            assert blocks[0]["speaker"] != blocks[1]["speaker"]
+
