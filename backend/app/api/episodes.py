@@ -310,7 +310,7 @@ def get_episode_review(episode_id: int) -> dict:
 
 
 def _enrich_episode(episode: dict) -> None:
-    """script.json または metadata.json からtitle/subtitle/durationを補完"""
+    """script.json または metadata.json からtitle/subtitle/duration/LLM情報を補完"""
     base_dir = _resolve_episode_directory(episode)
     script_data = os.path.join(base_dir, "script.json")
     if os.path.isfile(script_data):
@@ -319,6 +319,10 @@ def _enrich_episode(episode: dict) -> None:
         episode["title"] = data.get("title", "")
         episode["subtitle"] = data.get("subtitle", "")
         episode["has_script"] = True
+
+    # metadata.json にLLM情報がない旧エピソードでも null として返せるようデフォルトを設定
+    episode.setdefault("llm_provider", None)
+    episode.setdefault("llm_model", None)
 
     metadata_data = os.path.join(base_dir, "metadata.json")
     if os.path.isfile(metadata_data):
@@ -331,6 +335,8 @@ def _enrich_episode(episode: dict) -> None:
         applied_settings = data.get("applied_settings")
         if isinstance(applied_settings, dict):
             episode["applied_settings"] = applied_settings
+        episode["llm_provider"] = data.get("llm_provider")
+        episode["llm_model"] = data.get("llm_model")
 
 
 @router.get("/articles/{article_id}", summary="記事詳細を取得")
