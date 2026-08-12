@@ -188,6 +188,115 @@ class TestSeedDataReplacements:
         assert "ドッカー" in result
 
 
+class TestApplyReplacementsNumericNormalization:
+    """カンマ有無・全角半角の表記ゆれを吸収した辞書照合（BEE-623）のテスト"""
+
+    def test_matches_comma_variant_in_text(self, test_env):
+        """辞書表記がカンマ付きでも、文章中のカンマなし表記に一致する"""
+        from app.db.connection import get_db_connection
+        with get_db_connection() as conn:
+            _insert_entry(conn, "1,000万人", "いっせんまんにん")
+
+        from app.services.replacement_table import apply_replacements
+
+        result = apply_replacements("人口は1000万人を超えた")
+        assert result == "人口はいっせんまんにんを超えた"
+
+    def test_matches_comma_and_original_surface(self, test_env):
+        """文章中のカンマ付き表記にも一致する"""
+        from app.db.connection import get_db_connection
+        with get_db_connection() as conn:
+            _insert_entry(conn, "1,000万人", "いっせんまんにん")
+
+        from app.services.replacement_table import apply_replacements
+
+        result = apply_replacements("人口は1,000万人を超えた")
+        assert result == "人口はいっせんまんにんを超えた"
+
+    def test_matches_fullwidth_with_comma(self, test_env):
+        """全角＋カンマ付き表記に一致する"""
+        from app.db.connection import get_db_connection
+        with get_db_connection() as conn:
+            _insert_entry(conn, "1,000万人", "いっせんまんにん")
+
+        from app.services.replacement_table import apply_replacements
+
+        result = apply_replacements("人口は１，０００万人を超えた")
+        assert result == "人口はいっせんまんにんを超えた"
+
+    def test_matches_fullwidth_without_comma(self, test_env):
+        """全角のみ（カンマなし）表記に一致する"""
+        from app.db.connection import get_db_connection
+        with get_db_connection() as conn:
+            _insert_entry(conn, "1,000万人", "いっせんまんにん")
+
+        from app.services.replacement_table import apply_replacements
+
+        result = apply_replacements("人口は１０００万人を超えた")
+        assert result == "人口はいっせんまんにんを超えた"
+
+    def test_original_text_and_surrounding_text_unchanged_by_reference(self, test_env):
+        """置換対象以外の文章部分は変化しないこと（前後のテキストが保持される）"""
+        from app.db.connection import get_db_connection
+        with get_db_connection() as conn:
+            _insert_entry(conn, "1,000万人", "いっせんまんにん")
+
+        from app.services.replacement_table import apply_replacements
+
+        result = apply_replacements("前置き　1000万人　後書き")
+        assert result == "前置き　いっせんまんにん　後書き"
+
+    def test_colliding_normalized_surfaces_are_not_applied(self, test_env, caplog):
+        """正規化後に同じ照合キーとなる複数エントリがある場合、どちらの読みも適用しない"""
+        from app.db.connection import get_db_connection
+        with get_db_connection() as conn:
+            _insert_entry(conn, "1,000万人", "いっせんまんにん")
+            _insert_entry(conn, "1000万人", "せんまんにん")
+
+        from app.services.replacement_table import apply_replacements
+
+        import logging
+        with caplog.at_level(logging.WARNING):
+            result = apply_replacements("人口は1000万人を超えた")
+
+        assert result == "人口は1000万人を超えた"
+        assert any("競合" in message for message in caplog.messages)
+
+    def test_non_thousands_comma_not_normalized_away(self, test_env):
+        """3桁区切りとして成立しないカンマ（A,B等）は除去されず、別表記へ一致しない"""
+        from app.db.connection import get_db_connection
+        with get_db_connection() as conn:
+            _insert_entry(conn, "AB", "エービー")
+
+        from app.services.replacement_table import apply_replacements
+
+        result = apply_replacements("パターンはA,Bです")
+        assert result == "パターンはA,Bです"
+
+    def test_regression_exact_match_without_comma_entry(self, test_env):
+        """カンマを含まない既存の辞書エントリの完全一致置換に回帰がないこと"""
+        from app.db.connection import get_db_connection
+        with get_db_connection() as conn:
+            _insert_entry(conn, "Google", "グーグル")
+
+        from app.services.replacement_table import apply_replacements
+
+        result = apply_replacements("Google is great")
+        assert result == "グーグル is great"
+
+    def test_regression_longer_surface_preferred(self, test_env):
+        """既存の「長い表記を優先」する照合順に回帰がないこと"""
+        from app.db.connection import get_db_connection
+        with get_db_connection() as conn:
+            _insert_entry(conn, "Google", "グーグル")
+            _insert_entry(conn, "Google Cloud", "グーグル クラウド")
+
+        from app.services.replacement_table import apply_replacements
+
+        result = apply_replacements("Google Cloud is great")
+        assert result == "グーグル クラウド is great"
+
+
 class TestSynthesizeEpisodeNullText:
     """synthesize_episode が text: null を含む script.json を空文字として処理するテスト"""
 
