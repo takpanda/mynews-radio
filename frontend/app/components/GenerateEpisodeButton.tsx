@@ -670,6 +670,8 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   const latestProgress = progress.at(-1)
   const isSuccess = Boolean(progress.some((entry) => entry.phase === 'complete'))
   const isFailure = Boolean(message && !isLoading && !isSuccess && hasError)
+  // 401/403/409などcanRetryがfalseの再試行不可エラーは、生成失敗を示す新バッジの対象外とし従来のエラー表示に留める
+  const isRetryableFailure = isFailure && canRetry
   const currentEstimate = getCurrentEstimate(activeStep, isSuccess, isFailure)
   const isDuplicateError = message === '先に生成中のタスクがあります'
   const phasePresentation = getPhasePresentation(latestProgress, isFailure)
@@ -1147,7 +1149,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
                     </>
                   ) : isDuplicateError ? (
                     '重複'
-                  ) : isFailure ? (
+                  ) : isRetryableFailure ? (
                     <>
                       <svg className="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                         <path d="M8 1.6 1.2 13.8h13.6L8 1.6Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
