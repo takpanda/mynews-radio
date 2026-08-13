@@ -82,16 +82,31 @@
 	.archive-thumb-cyan { background: linear-gradient(135deg, #0284c7, #0d9488); }
 	.archive-thumb-amber { background: linear-gradient(135deg, #d97706, #b45309); }
 
-	.archive-thumb-code,
-	.archive-episode-badge,
+	.archive-thumb-date,
+	.archive-thumb-category,
 	.archive-play-icon {
 		position: absolute;
 		z-index: 1;
 	}
 
-	.archive-episode-badge {
+	.archive-thumb-date {
+		left: 0.75rem;
+		top: 0.75rem;
+		border-radius: 999px;
+		background: rgba(2, 6, 23, 0.4);
+		padding: 0.25rem 0.625rem;
+		backdrop-filter: blur(8px);
+		color: #f8fafc;
+		font-size: 0.6875rem;
+		font-weight: 500;
+		letter-spacing: 0.02em;
+	}
+
+	.archive-thumb-category {
 		right: 0.75rem;
 		top: 0.75rem;
+		max-width: calc(100% - 5.5rem);
+		overflow: hidden;
 		border: 1px solid rgba(255, 255, 255, 0.14);
 		border-radius: 999px;
 		background: rgba(2, 6, 23, 0.46);
@@ -100,7 +115,9 @@
 		color: #f8fafc;
 		font-size: 0.6875rem;
 		font-weight: 600;
-		letter-spacing: 0.04em;
+		letter-spacing: 0.02em;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.archive-play-icon {

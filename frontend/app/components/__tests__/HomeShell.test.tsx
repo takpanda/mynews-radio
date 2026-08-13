@@ -77,28 +77,28 @@ describe('HomeShell archive category badges', () => {
 })
 
 describe('HomeShell archive thumbnail', () => {
-  it('テックカテゴリではテック用画像を表示する', () => {
-    const { container } = renderArchiveEpisodes([{ ...episode(), title: 'テックニュースまとめ' }])
+  it('保存済みカテゴリにテック系が含まれる場合はテック用画像を表示する（タイトル文字列は使わない）', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(['テック・IT']), title: '一般ニュースまとめ' }])
     const img = container.querySelector('.archive-thumb img')
     expect(img?.getAttribute('src')).toBe('/images/categories/tech.jpg')
   })
 
-  it('一般カテゴリでは一般用画像を表示する', () => {
-    const { container } = renderArchiveEpisodes([{ ...episode(), title: '一般ニュースまとめ' }])
+  it('保存済みカテゴリがテック系を含まない場合は一般用画像を表示する（タイトル文字列は使わない）', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(['ビジネス']), title: 'テックニュースまとめ' }])
     const img = container.querySelector('.archive-thumb img')
     expect(img?.getAttribute('src')).toBe('/images/categories/general.png')
   })
 
-  it('解説カテゴリでは解説用画像を表示する', () => {
+  it('type が commentary の場合は解説用画像を表示する', () => {
     const { container } = renderArchiveEpisodes([{ ...episode(), title: 'テック解説回', type: 'commentary' }])
     const img = container.querySelector('.archive-thumb img')
     expect(img?.getAttribute('src')).toBe('/images/categories/commentary.png')
   })
 
   it.each([
-    ['テック', { ...episode(), title: 'テックニュースまとめ' }],
-    ['一般', { ...episode(), title: '一般ニュースまとめ' }],
-    ['解説', { ...episode(), title: 'テック解説回', type: 'commentary' }],
+    ['テック', { ...episode(['テック・IT']) }],
+    ['一般', { ...episode() }],
+    ['解説', { ...episode(), type: 'commentary' }],
   ])('%sカテゴリの画像はトリミングせず全体を表示する(object-contain)', (_label, ep) => {
     const { container } = renderArchiveEpisodes([ep])
     const img = container.querySelector('.archive-thumb img')
@@ -106,40 +106,54 @@ describe('HomeShell archive thumbnail', () => {
     expect(img?.className).not.toContain('object-cover')
   })
 
-  it('テック画像上でもエピソードコード・バッジ・再生アイコン・カード選択が共存する', () => {
-    const { container } = renderArchiveEpisodes([{ ...episode(), id: 7, title: 'テックニュースまとめ' }])
+  it('サムネイル上に日付・カテゴリ・再生アイコンが表示され、エピソード番号は表示されない', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(['テック・IT']), id: 7, date: '2026-08-13' }])
     const thumb = container.querySelector('.archive-thumb')
     expect(thumb).not.toBeNull()
 
-    const img = thumb?.querySelector('img')
-    expect(img?.getAttribute('src')).toBe('/images/categories/tech.jpg')
-
-    const code = thumb?.querySelector('.archive-thumb-code')
-    expect(code?.textContent).toBe('E007')
-
-    const badge = thumb?.querySelector('.archive-episode-badge')
-    expect(badge?.textContent).toBe('#7')
-
+    expect(thumb?.querySelector('.archive-thumb-date')?.textContent).toBe('8月13日')
+    expect(thumb?.querySelector('.archive-thumb-category')?.textContent).toBe('テック・IT')
     expect(thumb?.querySelector('.archive-play-icon')).not.toBeNull()
+
+    expect(thumb?.querySelector('.archive-thumb-code')).toBeNull()
+    expect(thumb?.querySelector('.archive-episode-badge')).toBeNull()
+    expect(container.textContent).not.toContain('#7')
+    expect(container.textContent).not.toContain('E007')
 
     const cardLink = container.querySelector('.archive-card a')
     expect(cardLink?.getAttribute('href')).toBe('/episodes/7')
   })
 
-  it('一般・解説画像上でもエピソードコード・バッジ・再生アイコン・カード選択が共存する', () => {
-    const { container } = renderArchiveEpisodes([{ ...episode(), id: 3, title: '一般ニュースまとめ', type: 'commentary' }])
+  it('カテゴリ未設定の通常回では、サムネイルのカテゴリ表示は省略される', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), id: 3 }])
     const thumb = container.querySelector('.archive-thumb')
-    expect(thumb).not.toBeNull()
+    expect(thumb?.querySelector('.archive-thumb-category')).toBeNull()
+    expect(thumb?.querySelector('.archive-thumb-date')).not.toBeNull()
+  })
 
-    const img = thumb?.querySelector('img')
-    expect(img?.getAttribute('src')).toBe('/images/categories/commentary.png')
+  it('カテゴリ未設定の解説回では、サムネイルに「解説」を表示する', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), id: 3, type: 'commentary' }])
+    const thumb = container.querySelector('.archive-thumb')
+    expect(thumb?.querySelector('.archive-thumb-category')?.textContent).toBe('解説')
+  })
+})
 
-    expect(thumb?.querySelector('.archive-thumb-code')?.textContent).toBe('E003')
-    expect(thumb?.querySelector('.archive-episode-badge')?.textContent).toBe('#3')
-    expect(thumb?.querySelector('.archive-play-icon')).not.toBeNull()
-
-    const cardLink = container.querySelector('.archive-card a')
-    expect(cardLink?.getAttribute('href')).toBe('/episodes/3')
+describe('HomeShell archive card 情報の並び順', () => {
+  it('日付・再生時間 → カテゴリ → タイトル → 副題 の順で表示される', () => {
+    const { container } = renderArchiveEpisodes([
+      { ...episode(['テック・IT']), title: 'カード見出し', subtitle: 'カード副題', duration: 300 },
+    ])
+    const body = container.querySelector('.archive-card .flex.min-h-\\[174px\\]')
+    expect(body).not.toBeNull()
+    const text = body!.textContent || ''
+    const dateIdx = text.indexOf('5分')
+    const categoryIdx = text.indexOf('テック・IT')
+    const titleIdx = text.indexOf('カード見出し')
+    const subtitleIdx = text.indexOf('カード副題')
+    expect(dateIdx).toBeGreaterThanOrEqual(0)
+    expect(categoryIdx).toBeGreaterThan(dateIdx)
+    expect(titleIdx).toBeGreaterThan(categoryIdx)
+    expect(subtitleIdx).toBeGreaterThan(titleIdx)
   })
 })
 
