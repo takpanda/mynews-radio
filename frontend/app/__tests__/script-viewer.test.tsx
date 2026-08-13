@@ -65,8 +65,8 @@ describe('ScriptViewer', () => {
         />
       )
 
-      const buttons = screen.getAllByRole('button')
-      await user.click(buttons[0])
+      const reportButtons = screen.getAllByRole('button', { name: /この行を報告/ })
+      await user.click(reportButtons[0])
 
       expect(onReport).toHaveBeenCalledTimes(1)
       expect(onSeek).not.toHaveBeenCalled()
@@ -130,6 +130,58 @@ describe('ScriptViewer', () => {
       await user.click(lastLineText)
 
       expect(onSeek).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('話者識別と再生中表示（色以外での判別）', () => {
+    it('各行に話者名（MC（男性）/MC（女性））が表示される', () => {
+      render(<ScriptViewer lines={lines} />)
+      expect(screen.getAllByText('MC（男性）').length).toBe(2)
+      expect(screen.getAllByText('MC（女性）').length).toBe(1)
+    })
+
+    it('話者マークは装飾として読み上げ対象から除外される', () => {
+      const { container } = render(<ScriptViewer lines={lines} />)
+      const marks = container.querySelectorAll('[aria-hidden="true"]')
+      const markTexts = Array.from(marks).map((el) => el.textContent)
+      expect(markTexts).toEqual(expect.arrayContaining(['男', '女']))
+    })
+
+    it('再生中の行はaria-currentと「再生中」の文言で識別できる', () => {
+      render(<ScriptViewer lines={lines} currentTime={10} onSeek={jest.fn()} />)
+      const activeBubble = screen.getByRole('button', { name: /（再生中）/ })
+      expect(activeBubble).toHaveAttribute('aria-current', 'true')
+      expect(screen.getByText('再生中')).toBeInTheDocument()
+    })
+
+    it('シーク可能な行はEnterキーでシークできる', async () => {
+      const onSeek = jest.fn()
+      const user = userEvent.setup()
+      render(<ScriptViewer lines={lines} currentTime={5} onSeek={onSeek} />)
+
+      const seekButtons = screen.getAllByRole('button', { name: /の位置に移動/ })
+      seekButtons[0].focus()
+      await user.keyboard('{Enter}')
+
+      expect(onSeek).toHaveBeenCalledWith(0)
+    })
+
+    it('シーク可能な行はSpaceキーでシークできる', async () => {
+      const onSeek = jest.fn()
+      const user = userEvent.setup()
+      render(<ScriptViewer lines={lines} currentTime={5} onSeek={onSeek} />)
+
+      const seekButtons = screen.getAllByRole('button', { name: /の位置に移動/ })
+      seekButtons[1].focus()
+      await user.keyboard(' ')
+
+      expect(onSeek).toHaveBeenCalledWith(10)
+    })
+
+    it('start_timeがない行はキーボードフォーカス対象のボタンにならない', () => {
+      render(<ScriptViewer lines={lines} currentTime={5} onSeek={jest.fn()} />)
+      const seekButtons = screen.getAllByRole('button', { name: /の位置に移動/ })
+      expect(seekButtons.length).toBe(2)
     })
   })
 })
