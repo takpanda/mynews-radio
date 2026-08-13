@@ -18,6 +18,8 @@ export interface HeroEpisode {
   sourceUrl: string | null
   audioUrl: string | null
   durationSeconds: number
+  keyPoints?: string[]
+  categories?: string[]
 }
 
 interface Props {
@@ -68,6 +70,19 @@ const CATEGORY_THUMBNAIL_IMAGE: Record<Exclude<CategoryKey, 'all'>, string> = {
   commentary: '/images/categories/commentary.png',
 }
 
+const MAX_HERO_TOPICS = 3
+
+function heroTopics(latest: HeroEpisode | null): string[] {
+  if (!latest) return []
+  if (latest.keyPoints && latest.keyPoints.length > 0) {
+    return latest.keyPoints.slice(0, MAX_HERO_TOPICS)
+  }
+  if (latest.categories && latest.categories.length > 0) {
+    return latest.categories.slice(0, MAX_HERO_TOPICS)
+  }
+  return []
+}
+
 export default function HomeShell({ latest, chapters, initialEpisodes, initialHasNext, isAuthenticated = false }: Props) {
   const [category, setCategory] = useState<CategoryKey>('all')
   const [query, setQuery] = useState('')
@@ -77,6 +92,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
   const [loadError, setLoadError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const searchLoadRef = useRef<boolean>(false)
+  const heroTopicItems = useMemo(() => heroTopics(latest), [latest])
 
   const filteredEpisodes = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -193,9 +209,21 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
               <p className="mt-1 text-sm leading-6 text-slate-500">{latest.subtitle}</p>
             )}
 
-            <div className="mt-3">
-              <PushSubscriptionToggle />
-            </div>
+            {heroTopicItems.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs font-medium tracking-wide text-slate-500">今回の3トピック</p>
+                <ul className="mt-1.5 flex flex-wrap gap-1.5" aria-label="今回の3トピック">
+                  {heroTopicItems.map((topic, index) => (
+                    <li
+                      key={`${topic}-${index}`}
+                      className="inline-flex max-w-full items-center rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1 text-xs font-medium leading-4 text-sky-700"
+                    >
+                      {topic}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {latest.audioUrl ? (
               <div className="mt-5">
@@ -211,6 +239,10 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                 音声ファイルを準備中です
               </div>
             )}
+
+            <div className="mt-4">
+              <PushSubscriptionToggle />
+            </div>
           </>
         ) : (
           <div className="py-10 text-center">
