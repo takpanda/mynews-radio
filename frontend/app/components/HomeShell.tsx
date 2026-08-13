@@ -70,6 +70,21 @@ const CATEGORY_THUMBNAIL_IMAGE: Record<Exclude<CategoryKey, 'all'>, string> = {
   commentary: '/images/categories/commentary.png',
 }
 
+// サムネイル画像の出し分けは保存済み categories を根拠にする（タイトル文字列は使わない）。
+const TECH_CATEGORY_LABELS = new Set(['テック・IT', 'AI・先端技術'])
+
+function cardCategoryKey(ep: EpisodeListItem): Exclude<CategoryKey, 'all'> {
+  if (ep.type === 'commentary') return 'commentary'
+  if ((ep.categories ?? []).some((c) => TECH_CATEGORY_LABELS.has(c))) return 'tech'
+  return 'general'
+}
+
+function cardThumbnailLabel(ep: EpisodeListItem): string | null {
+  if (ep.categories && ep.categories.length > 0) return ep.categories[0]
+  if (ep.type === 'commentary') return '解説'
+  return null
+}
+
 const MAX_HERO_TOPICS = 3
 
 function heroTopics(latest: HeroEpisode | null): string[] {
@@ -317,7 +332,8 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                 <p className="mb-3 text-xs font-medium tracking-[0.18em] text-slate-500">{group.month}</p>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {group.items.map((ep) => {
-                    const thumbnailImage = CATEGORY_THUMBNAIL_IMAGE[categorize(ep)]
+                    const thumbnailImage = CATEGORY_THUMBNAIL_IMAGE[cardCategoryKey(ep)]
+                    const thumbnailLabel = cardThumbnailLabel(ep)
                     return (
                     <article key={ep.id} className="archive-card group">
                       <Link
@@ -330,8 +346,10 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                             alt=""
                             className="absolute inset-0 h-full w-full object-contain"
                           />
-                          <span className="archive-thumb-code">E{String(ep.id).padStart(3, '0')}</span>
-                          <span className="archive-episode-badge">#{ep.id}</span>
+                          <span className="archive-thumb-date">{dayLabel(ep.date)}</span>
+                          {thumbnailLabel && (
+                            <span className="archive-thumb-category">{thumbnailLabel}</span>
+                          )}
                           <span className="archive-play-icon" aria-hidden="true">
                             <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4"><path d="M8 5.5v13a1 1 0 0 0 1.52.86l10.2-6.5a1 1 0 0 0 0-1.7L9.52 4.63A1 1 0 0 0 8 5.5Z" /></svg>
                           </span>
@@ -345,7 +363,6 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                               </span>
                             )}
                           </div>
-                          <h3 className="archive-card-title mt-2">{ep.title || `エピソード #${ep.id}`}</h3>
                           {ep.categories && ep.categories.length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-1.5" aria-label="カテゴリ">
                               {ep.categories.slice(0, 3).map((category) => (
@@ -358,6 +375,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                               ))}
                             </div>
                           )}
+                          <h3 className="archive-card-title mt-2">{ep.title || `エピソード #${ep.id}`}</h3>
                           <p className="archive-card-description mt-2">{ep.subtitle || 'このエピソードの詳細を聴いてみましょう。'}</p>
                           <span className="mt-auto inline-flex items-center gap-1.5 pt-4 text-xs font-medium text-sky-700">▶ 再生する</span>
                         </div>
