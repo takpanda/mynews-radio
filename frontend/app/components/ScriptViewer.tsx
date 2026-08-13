@@ -77,8 +77,10 @@ function findActiveIndex(lines: ScriptLine[], currentTime: number): number {
 export default function ScriptViewer({ lines, currentTime, onSeek, onMisreadingReport }: Props) {
   const lineRefs = useRef<(HTMLDivElement | null)[]>([])
 
+  // currentTime=0は「先頭行を再生中」を表す有効な値。停止中（未再生）を表す場合は
+  // 呼び出し側がcurrentTimeをundefinedにする想定。
   const activeIndex =
-    currentTime !== undefined && currentTime > 0
+    currentTime !== undefined
       ? findActiveIndex(lines, currentTime)
       : -1
 

@@ -154,6 +154,20 @@ describe('ScriptViewer', () => {
       expect(screen.getByText('再生中')).toBeInTheDocument()
     })
 
+    it('境界値: currentTime=0でも先頭行（start_time=0）が再生中として識別される', () => {
+      render(<ScriptViewer lines={lines} currentTime={0} onSeek={jest.fn()} />)
+      const activeBubble = screen.getByRole('button', { name: /（再生中）/ })
+      expect(activeBubble).toHaveAttribute('aria-current', 'true')
+      expect(activeBubble).toHaveAccessibleName(/最初の行です/)
+      expect(screen.getByText('再生中')).toBeInTheDocument()
+    })
+
+    it('境界値: currentTimeがundefined（未再生）の場合はどの行もaria-currentを持たない', () => {
+      render(<ScriptViewer lines={lines} onSeek={jest.fn()} />)
+      expect(screen.queryByText('再生中')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /（再生中）/ })).not.toBeInTheDocument()
+    })
+
     it('シーク可能な行はEnterキーでシークできる', async () => {
       const onSeek = jest.fn()
       const user = userEvent.setup()
