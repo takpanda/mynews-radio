@@ -60,6 +60,26 @@ _BRIDGE_TRANSITION_PHRASES = [
     "{bridge} ここで視点を変えて、{topic}を見てみましょう。",
 ]
 
+# トピック抽出がフォールバックした場合（_topic が _FALLBACK_TOPIC を返す
+# 場合）に使う専用テンプレート。_TRANSITION_PHRASES / _BRIDGE_TRANSITION_PHRASES
+# は {topic} の直後に「の話題」「のニュース」等の固定接尾辞を伴うため、その
+# まま _FALLBACK_TOPIC を差し込むと「次の話題の話題」「次の話題のニュース」
+# のような重複表現になってしまう（BEE-697）。{topic} プレースホルダを持たない
+# 完結した文を用意することで、この重複を構造的に防ぐ。
+_FALLBACK_TRANSITION_PHRASES = [
+    "さて、次の話題です。",
+    "それでは、次の話題に移りましょう。",
+    "続いて、次の話題です。",
+    "では、次の話題をご紹介します。",
+    "ここで、次の話題に移ります。",
+]
+
+_FALLBACK_BRIDGE_TRANSITION_PHRASES = [
+    "{bridge} さて、次の話題です。",
+    "{bridge} それでは、次の話題に移りましょう。",
+    "{bridge} 続いて、次の話題です。",
+]
+
 _DISCUSSION_TRANSITIONS = [
     "ここで{topic}についてもう少し掘り下げてみましょう。",
     "{topic}、少し深堀りして話し合ってみましょう。",
@@ -175,7 +195,13 @@ def _compile_template_pattern(template: str):
 # 形状そのものに一致するかを構造的に確認することで、句点の個数だけに頼らず
 # これらの安全な複文を「壊れたtransition」と誤判定しないようにする。
 _KNOWN_TRANSITION_TEMPLATE_PATTERNS = [
-    _compile_template_pattern(t) for t in (_TRANSITION_PHRASES + _BRIDGE_TRANSITION_PHRASES)
+    _compile_template_pattern(t)
+    for t in (
+        _TRANSITION_PHRASES
+        + _BRIDGE_TRANSITION_PHRASES
+        + _FALLBACK_TRANSITION_PHRASES
+        + _FALLBACK_BRIDGE_TRANSITION_PHRASES
+    )
 ]
 
 
@@ -302,10 +328,18 @@ def _is_broken_transition_text(text: str) -> bool:
     （_matches_known_transition_template）。同様に、既知の繋ぎ語で始まる
     自然な2文構成のリード文も誤検知しないようにする
     （_is_generic_two_sentence_lead_in、BEE-672）。
+
+    さらに、トピック抽出がフォールバックした「次の話題」がテンプレートの
+    固定接尾辞と結合すると「次の話題の話題」「次の話題のニュース」のような
+    重複表現になる（BEE-697）。この重複は句読点構造上は単文のままのため、
+    既知テンプレート一致チェックをすり抜けてしまう。そのため他のどの判定
+    よりも先に、この重複表現を明示的に不正として検出する。
     """
     stripped = (text or "").strip()
     if not stripped:
         return False
+    if any(pattern in stripped for pattern in _DUPLICATE_FALLBACK_TOPIC_PATTERNS):
+        return True
     if _matches_known_transition_template(stripped):
         return False
     if _is_generic_two_sentence_lead_in(stripped):
@@ -313,6 +347,20 @@ def _is_broken_transition_text(text: str) -> bool:
     body = stripped[:-1] if stripped[-1] in _SENTENCE_END_CHARS else stripped
     return any(ch in _SENTENCE_END_CHARS for ch in body)
 
+
+# トピック名を抽出できなかった場合の汎用フォールバック値。_TRANSITION_PHRASES
+# 等の通常テンプレートは末尾に「の話題」「のニュース」等の固定接尾辞を伴う
+# ため、この値をそのまま差し込むと「次の話題の話題」のような重複表現に
+# なる（BEE-697）。フォールバック時はこの値と等しいかどうかで判定し、
+# 専用テンプレート（_FALLBACK_TRANSITION_PHRASES等）に切り替える。
+_FALLBACK_TOPIC = "次の話題"
+
+# _is_broken_transition_text が不正として検出すべき、フォールバック話題名の
+# 重複表現（BEE-697）。
+_DUPLICATE_FALLBACK_TOPIC_PATTERNS = (
+    f"{_FALLBACK_TOPIC}の話題",
+    f"{_FALLBACK_TOPIC}のニュース",
+)
 
 _TOPIC_MAX_LEN = 25
 
@@ -364,12 +412,12 @@ def _safe_topic_from_title(raw_title: str) -> str:
     """タイトルから安全な話題名を作る。語中切断になる場合は汎用の代替語へ
     フォールバックする（不完全な話題名は生成しない、BEE-676）。"""
     if not raw_title:
-        return "次の話題"
+        return _FALLBACK_TOPIC
     truncated = _truncate_topic_at_boundary(raw_title)
     if not truncated:
-        return "次の話題"
+        return _FALLBACK_TOPIC
     finalized = _strip_trailing_particle(truncated.strip())
-    return finalized or "次の話題"
+    return finalized or _FALLBACK_TOPIC
 
 
 # 口語で読み上げるMCの短い橋渡しひとことを想定した上限文字数。Narrative Arc
@@ -450,12 +498,12 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                 else:
                     topic_map[art_id] = _safe_topic_from_title(raw_title)
             else:
-                topic_map[art_id] = "次の話題"
+                topic_map[art_id] = _FALLBACK_TOPIC
 
     def _topic(article_id) -> str:
         if article_id is None:
-            return "次の話題"
-        return topic_map.get(article_id, "次の話題")
+            return _FALLBACK_TOPIC
+        return topic_map.get(article_id, _FALLBACK_TOPIC)
 
     result: list = []
     last_content_aid = None   # 直前の news/discussion の article_id
@@ -508,9 +556,14 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
             # article_id が変わった（または intro→news）かつ直前が transition でない場合に挿入
             if not prev_is_transition and article_id != last_content_aid:
                 speaker = _pick_speaker(result, section)
+                topic = _topic(article_id)
+                # トピック抽出がフォールバックした場合、通常テンプレートの固定
+                # 接尾辞（「の話題」「のニュース」）と結合すると重複表現になる
+                # ため、専用テンプレートに切り替える（BEE-697）。
+                is_fallback_topic = topic == _FALLBACK_TOPIC
                 if section == "discussion":
                     phrases = _DISCUSSION_TRANSITIONS
-                    text = _pick_phrase(phrases, trans_phrase_used).format(topic=_topic(article_id))
+                    text = _pick_phrase(phrases, trans_phrase_used).format(topic=topic)
                 elif (
                     last_content_aid is not None
                     and last_content_aid in bridge_map
@@ -518,11 +571,15 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                     and _is_usable_bridge_text(bridge_map[last_content_aid][article_id])
                 ):
                     bridge_text = bridge_map[last_content_aid][article_id]
-                    bridge_topic = _topic(article_id)
-                    text = _pick_phrase(_BRIDGE_TRANSITION_PHRASES, trans_phrase_used).format(bridge=bridge_text, topic=bridge_topic)
+                    if is_fallback_topic:
+                        text = _pick_phrase(_FALLBACK_BRIDGE_TRANSITION_PHRASES, trans_phrase_used).format(bridge=bridge_text)
+                    else:
+                        text = _pick_phrase(_BRIDGE_TRANSITION_PHRASES, trans_phrase_used).format(bridge=bridge_text, topic=topic)
+                elif is_fallback_topic:
+                    text = _pick_phrase(_FALLBACK_TRANSITION_PHRASES, trans_phrase_used)
                 else:
                     phrases = _TRANSITION_PHRASES
-                    text = _pick_phrase(phrases, trans_phrase_used).format(topic=_topic(article_id))
+                    text = _pick_phrase(phrases, trans_phrase_used).format(topic=topic)
 
                 # 既知テンプレートへの一致だけでは安全と判定できない（BEE-676）ため、
                 # プログラム自身が生成したtransitionも念のため同じ判定条件で
@@ -531,7 +588,10 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                 # テンプレート自体が意図的な複文構成のため対象外（既存仕様どおり）。
                 if section == "news" and _is_broken_transition_text(text):
                     logger.warning("生成したtransitionが壊れているため通常テンプレートへ差し替え: article_id=%s text=%s", article_id, text[:60])
-                    text = _pick_phrase(_TRANSITION_PHRASES, trans_phrase_used).format(topic=_topic(article_id))
+                    if is_fallback_topic:
+                        text = _pick_phrase(_FALLBACK_TRANSITION_PHRASES, trans_phrase_used)
+                    else:
+                        text = _pick_phrase(_TRANSITION_PHRASES, trans_phrase_used).format(topic=topic)
                 result.append({
                     "speaker": speaker,
                     "text": text,

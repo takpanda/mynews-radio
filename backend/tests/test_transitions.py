@@ -129,6 +129,87 @@ class TestEnsureTransitionsTopicExtraction:
         assert len(transitions) == 4
 
 
+class TestFallbackTopicDuplicatePrevention:
+    """フォールバック話題名「次の話題」とテンプレートの固定接尾辞が結合して
+    「次の話題の話題」「次の話題のニュース」のような重複表現になることを
+    防止する（BEE-697）。"""
+
+    def test_fallback_transition_has_no_duplicate_phrase(self):
+        from app.batch.generate_script import _ensure_transitions
+
+        summaries = [{"id": 1, "title": "", "summary": ""}]
+        lines = [
+            {"section": "intro"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "test"},
+        ]
+        # _pick_phrase は乱択のため、複数回実行してどの候補が選ばれても
+        # 重複表現が発生しないことを確認する
+        for _ in range(20):
+            result = _ensure_transitions(lines, summaries)
+            transitions = [l for l in result if l.get("section") == "transition"]
+            assert len(transitions) >= 1
+            topic_text = transitions[0]["text"]
+            assert "次の話題の話題" not in topic_text
+            assert "次の話題のニュース" not in topic_text
+
+    def test_fallback_transition_uses_natural_phrase(self):
+        from app.batch.generate_script import _ensure_transitions, _FALLBACK_TRANSITION_PHRASES
+
+        summaries = [{"id": 1, "title": "", "summary": ""}]
+        lines = [
+            {"section": "intro"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "test"},
+        ]
+        result = _ensure_transitions(lines, summaries)
+        transitions = [l for l in result if l.get("section") == "transition"]
+        topic_text = transitions[0]["text"]
+        # 「さて、次の話題です。」相当の専用テンプレートから選ばれていること
+        assert topic_text in _FALLBACK_TRANSITION_PHRASES
+        assert "さて、次の話題です。" in _FALLBACK_TRANSITION_PHRASES
+
+    def test_long_title_without_boundary_char_falls_back_without_duplicate(self):
+        """記事41695相当: 先頭25文字以内に区切り文字が無い長いタイトルは
+        安全に「次の話題」へフォールバックし、かつ重複表現を生成しない。"""
+        from app.batch.generate_script import _ensure_transitions
+
+        long_title_without_boundary = "テストニュースタイトルが非常に長くて区切り文字が一つも無い長文です"
+        assert len(long_title_without_boundary) > 25
+        assert not any(c in "、,;：・" for c in long_title_without_boundary[:25])
+
+        summaries = [{"id": 1, "title": long_title_without_boundary, "summary": ""}]
+        lines = [
+            {"section": "intro"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "test"},
+        ]
+        result = _ensure_transitions(lines, summaries)
+        transitions = [l for l in result if l.get("section") == "transition"]
+        assert len(transitions) >= 1
+        topic_text = transitions[0]["text"]
+        assert "次の話題" in topic_text
+        assert "次の話題の話題" not in topic_text
+        assert "次の話題のニュース" not in topic_text
+
+
+class TestIsBrokenTransitionTextDuplicateDetection:
+    """_is_broken_transition_text が「次の話題の話題」「次の話題のニュース」を
+    含む文を不正として検出すること（BEE-697）。"""
+
+    def test_detects_duplicate_topic_phrase(self):
+        from app.batch.generate_script import _is_broken_transition_text
+
+        assert _is_broken_transition_text("さて、次の話題の話題はどうでしょうか。") is True
+
+    def test_detects_duplicate_news_phrase(self):
+        from app.batch.generate_script import _is_broken_transition_text
+
+        assert _is_broken_transition_text("続いては次の話題のニュースです。") is True
+
+    def test_fallback_phrase_itself_is_not_broken(self):
+        from app.batch.generate_script import _is_broken_transition_text
+
+        assert _is_broken_transition_text("さて、次の話題です。") is False
+
+
 class TestTitleNoFifteenCharTruncation:
     """15文字切り出しが廃止されており、より自然なトピック表記になっていること。"""
 
