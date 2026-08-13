@@ -24,8 +24,9 @@ const SPEAKER_META = {
     // 色を識別できない場合でも判別できるよう、色つきリングに加えて濃色の輪郭を重ねる
     activeBubble: 'ring-2 ring-sky-300 ring-offset-2 outline outline-2 outline-slate-900',
     badge: 'text-sky-700',
-    // 話者マーク: 丸型＋既存ラベルの頭文字（男性/女性）で色以外でも区別
-    mark: 'rounded-full border border-sky-300 bg-white text-sky-700',
+    // 話者アイコン（実写）: 丸型トリミングで女性（角丸四角形）と形状でも区別
+    icon: '/images/speakers/mc-male.jpg',
+    iconShape: 'rounded-full border border-sky-300',
   },
   female: {
     label: 'MC（女性）',
@@ -33,15 +34,10 @@ const SPEAKER_META = {
     bubble: 'bg-rose-50 text-slate-800 rounded-tr-md',
     activeBubble: 'ring-2 ring-rose-300 ring-offset-2 outline outline-2 outline-slate-900',
     badge: 'text-rose-700',
-    // 話者マーク: 角丸四角形にして丸型（男性）と形状でも区別
-    mark: 'rounded-md border border-rose-300 bg-white text-rose-700',
+    icon: '/images/speakers/mc-female.jpg',
+    iconShape: 'rounded-md border border-rose-300',
   },
 } as const
-
-function getSpeakerInitial(label: string): string {
-  const matched = label.match(/（(.)/)
-  return matched ? matched[1] : label.charAt(0)
-}
 
 function formatTimeLabel(seconds?: number): string | null {
   if (seconds === undefined || Number.isNaN(seconds)) return null
@@ -112,7 +108,6 @@ export default function ScriptViewer({ lines, currentTime, onSeek, onMisreadingR
               const canSeek = line.start_time !== undefined && onSeek !== undefined
               const speakerMeta = SPEAKER_META[line.speaker]
               const timeLabel = formatTimeLabel(line.start_time)
-              const speakerInitial = getSpeakerInitial(speakerMeta.label)
               const seekAriaLabel = canSeek
                 ? `${speakerMeta.label}${timeLabel ? ` ${timeLabel}` : ''}${isActive ? '（再生中）' : ''}: ${line.text} の位置に移動`
                 : undefined
@@ -146,9 +141,13 @@ export default function ScriptViewer({ lines, currentTime, onSeek, onMisreadingR
                       <span className={`flex items-center gap-1.5 font-medium ${speakerMeta.badge}`}>
                         <span
                           aria-hidden="true"
-                          className={`flex h-4 w-4 shrink-0 items-center justify-center text-[9px] font-bold leading-none ${speakerMeta.mark}`}
+                          className={`h-6 w-6 shrink-0 overflow-hidden ${speakerMeta.iconShape}`}
                         >
-                          {speakerInitial}
+                          <img
+                            src={speakerMeta.icon}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
                         </span>
                         {speakerMeta.label}
                       </span>

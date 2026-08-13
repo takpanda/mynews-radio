@@ -140,11 +140,27 @@ describe('ScriptViewer', () => {
       expect(screen.getAllByText('MC（女性）').length).toBe(1)
     })
 
-    it('話者マークは装飾として読み上げ対象から除外される', () => {
+    it('話者アイコン（実写）は装飾として読み上げ対象から除外される', () => {
       const { container } = render(<ScriptViewer lines={lines} />)
-      const marks = container.querySelectorAll('[aria-hidden="true"]')
-      const markTexts = Array.from(marks).map((el) => el.textContent)
-      expect(markTexts).toEqual(expect.arrayContaining(['男', '女']))
+      const iconWrappers = Array.from(container.querySelectorAll('[aria-hidden="true"]')).filter(
+        (el) => el.querySelector('img'),
+      )
+      expect(iconWrappers.length).toBe(lines.length)
+      iconWrappers.forEach((wrapper) => {
+        const img = wrapper.querySelector('img')!
+        expect(img).toHaveAttribute('alt', '')
+      })
+    })
+
+    it('話者アイコンは男女で異なる画像・形状を使用する', () => {
+      const { container } = render(<ScriptViewer lines={lines} />)
+      const images = Array.from(container.querySelectorAll('img'))
+      const maleImages = images.filter((img) => img.getAttribute('src') === '/images/speakers/mc-male.jpg')
+      const femaleImages = images.filter((img) => img.getAttribute('src') === '/images/speakers/mc-female.jpg')
+      expect(maleImages.length).toBe(2)
+      expect(femaleImages.length).toBe(1)
+      expect(maleImages[0].parentElement).toHaveClass('rounded-full')
+      expect(femaleImages[0].parentElement).toHaveClass('rounded-md')
     })
 
     it('再生中の行はaria-currentと「再生中」の文言で識別できる', () => {
