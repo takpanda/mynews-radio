@@ -107,29 +107,6 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
         {episode.subtitle && (
           <p className="mt-1 text-sm leading-6 text-slate-500">{episode.subtitle}</p>
         )}
-        {episode.sourceUrl && (
-          <a
-            href={episode.sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-2 inline-flex max-w-full items-center gap-1.5 text-xs text-slate-400 transition hover:text-sky-600"
-          >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              className="h-3.5 w-3.5 shrink-0"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-            </svg>
-            <span className="truncate">{episode.sourceUrl}</span>
-          </a>
-        )}
 
         {episode.keyPoints && episode.keyPoints.length > 0 && (
           <div className="mt-4 border-t border-slate-100 pt-4">

@@ -248,3 +248,34 @@ describe('EpisodeDetailShell 元記事見出し', () => {
     expect(screen.getByRole('heading', { name: '元記事' })).toBeInTheDocument()
   })
 })
+
+describe('EpisodeDetailShell sourceUrl 全文表示防止', () => {
+  it('単一URLの解説回でもsourceUrl全文がカード上部に表示されない', () => {
+    const sourceUrl = 'https://www.commentary-source.example.com/2026/08/13/deep-dive-article'
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ isCommentary: true, sourceUrl })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.queryByText(sourceUrl)).not.toBeInTheDocument()
+    expect(screen.queryByText((content) => content.includes(sourceUrl))).not.toBeInTheDocument()
+  })
+
+  it('通常回でもsourceUrlが設定されていれば全文表示されない', () => {
+    const sourceUrl = 'https://example.com/normal-episode-source'
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ isCommentary: false, sourceUrl })}
+        script={null}
+        articles={[{ id: 1, title: 'A', source: null, url: 'https://example.com/a' }]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.queryByText(sourceUrl)).not.toBeInTheDocument()
+  })
+})
