@@ -206,3 +206,76 @@ describe('EpisodeDetailShell この回で分かること 表示', () => {
     expect(keyPointsPos).toBeLessThan(anchorPos)
   })
 })
+
+describe('EpisodeDetailShell 元記事見出し', () => {
+  it('通常回では見出しが「元記事」になる', () => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ isCommentary: false, sourceUrl: null })}
+        script={null}
+        articles={[{ id: 1, title: 'A', source: null, url: 'https://example.com/a' }]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.getByRole('heading', { name: '元記事' })).toBeInTheDocument()
+    expect(screen.queryByText('解説の元記事')).not.toBeInTheDocument()
+  })
+
+  it('単一URLの解説回では見出しが「解説の元記事」になる', () => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ isCommentary: true, sourceUrl: 'https://example.com/source' })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.getByRole('heading', { name: '解説の元記事' })).toBeInTheDocument()
+  })
+
+  it('解説回でも記事一覧が別途ある場合は見出しが「元記事」のままになる', () => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ isCommentary: true, sourceUrl: 'https://example.com/source' })}
+        script={null}
+        articles={[{ id: 1, title: 'A', source: null, url: 'https://example.com/a' }]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.getByRole('heading', { name: '元記事' })).toBeInTheDocument()
+  })
+})
+
+describe('EpisodeDetailShell sourceUrl 全文表示防止', () => {
+  it('単一URLの解説回でもsourceUrl全文がカード上部に表示されない', () => {
+    const sourceUrl = 'https://www.commentary-source.example.com/2026/08/13/deep-dive-article'
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ isCommentary: true, sourceUrl })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.queryByText(sourceUrl)).not.toBeInTheDocument()
+    expect(screen.queryByText((content) => content.includes(sourceUrl))).not.toBeInTheDocument()
+  })
+
+  it('通常回でもsourceUrlが設定されていれば全文表示されない', () => {
+    const sourceUrl = 'https://example.com/normal-episode-source'
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ isCommentary: false, sourceUrl })}
+        script={null}
+        articles={[{ id: 1, title: 'A', source: null, url: 'https://example.com/a' }]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.queryByText(sourceUrl)).not.toBeInTheDocument()
+  })
+})

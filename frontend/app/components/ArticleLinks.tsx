@@ -1,4 +1,5 @@
 import type { Article } from '../lib/api'
+import { extractDomain } from '../lib/url'
 
 interface Props {
   articles: Article[]
@@ -50,6 +51,37 @@ function ArticleActions({ article, onReport }: { article: Article; onReport: (a:
   )
 }
 
+function ArticleLinkContent({
+  title,
+  domain,
+  source,
+}: {
+  title?: string | null
+  domain: string | null
+  source?: string | null
+}) {
+  const trimmedTitle = title?.trim()
+  const primaryText = trimmedTitle || domain || 'リンク先'
+  const metaParts = [
+    ...(trimmedTitle && domain ? [domain] : []),
+    ...(source?.trim() ? [source.trim()] : []),
+  ]
+
+  return (
+    <>
+      <LinkIcon />
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-slate-900 line-clamp-2 hover:underline">
+          {primaryText}
+        </p>
+        {metaParts.length > 0 && (
+          <p className="mt-0.5 truncate text-xs text-slate-400">{metaParts.join(' ・ ')}</p>
+        )}
+      </div>
+    </>
+  )
+}
+
 export default function ArticleLinks({ articles, sourceUrl, onReportArticle }: Props) {
   const articlesWithUrl = articles.filter((a) => a.url)
 
@@ -64,13 +96,7 @@ export default function ArticleLinks({ articles, sourceUrl, onReportArticle }: P
           rel="noopener noreferrer"
           className="flex items-start gap-3 border-b border-slate-100 py-3.5 transition last:border-b-0 hover:bg-slate-50"
         >
-          <LinkIcon />
-          <div className="min-w-0">
-            <p className="break-all text-sm text-sky-700 line-clamp-2 hover:underline">
-              {sourceUrl}
-            </p>
-            <p className="mt-0.5 text-xs text-slate-400">解説元URL</p>
-          </div>
+          <ArticleLinkContent domain={extractDomain(sourceUrl)} />
         </a>
       )}
       {articlesWithUrl.map((article) => (
@@ -84,11 +110,11 @@ export default function ArticleLinks({ articles, sourceUrl, onReportArticle }: P
             rel="noopener noreferrer"
             className="flex min-w-0 flex-1 items-start gap-3"
           >
-            <LinkIcon />
-            <div className="min-w-0">
-              <p className="text-sm text-sky-700 line-clamp-2 hover:underline">{article.title}</p>
-              {article.source && <p className="mt-0.5 text-xs text-slate-400">{article.source}</p>}
-            </div>
+            <ArticleLinkContent
+              title={article.title}
+              domain={extractDomain(article.url!)}
+              source={article.source}
+            />
           </a>
           {onReportArticle && (
             <div className="shrink-0 opacity-60 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">

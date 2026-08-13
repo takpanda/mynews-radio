@@ -54,7 +54,10 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
   const chapters = useMemo(() => buildChapters(script), [script])
 
   const hasScript = Boolean(script && script.lines.length > 0)
-  const hasArticles = articles.some((a) => a.url) || Boolean(episode.sourceUrl)
+  const hasArticleWithUrl = articles.some((a) => a.url)
+  const hasArticles = hasArticleWithUrl || Boolean(episode.sourceUrl)
+  const isSingleUrlCommentary = episode.isCommentary && Boolean(episode.sourceUrl) && !hasArticleWithUrl
+  const articlesHeading = isSingleUrlCommentary ? '解説の元記事' : '元記事'
   const title = episode.title || `エピソード #${episode.id}`
 
   const openPlaybackReport = useCallback(() => {
@@ -103,29 +106,6 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
         </div>
         {episode.subtitle && (
           <p className="mt-1 text-sm leading-6 text-slate-500">{episode.subtitle}</p>
-        )}
-        {episode.sourceUrl && (
-          <a
-            href={episode.sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-2 inline-flex max-w-full items-center gap-1.5 text-xs text-slate-400 transition hover:text-sky-600"
-          >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              className="h-3.5 w-3.5 shrink-0"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-            </svg>
-            <span className="truncate">{episode.sourceUrl}</span>
-          </a>
         )}
 
         {episode.keyPoints && episode.keyPoints.length > 0 && (
@@ -179,7 +159,7 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
                 href="#articles"
                 className="rounded-full border border-slate-200 px-2.5 py-1 text-slate-500 transition hover:border-slate-300 hover:text-slate-800"
               >
-                元記事
+                {articlesHeading}
               </a>
             )}
           </div>
@@ -230,7 +210,7 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
       {/* 元記事 */}
       {hasArticles && (
         <section id="articles" className="scroll-mt-20">
-          <h2 className="mb-2 px-1 text-sm font-semibold text-slate-900">元記事</h2>
+          <h2 className="mb-2 px-1 text-sm font-semibold text-slate-900">{articlesHeading}</h2>
           <ArticleLinks articles={articles} sourceUrl={episode.sourceUrl} onReportArticle={openArticleReport} />
         </section>
       )}
