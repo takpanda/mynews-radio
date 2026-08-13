@@ -42,6 +42,8 @@ export interface Episode {
   key_points?: string[]
   llm_model?: string | null
   llm_provider?: string | null
+  /** 保存順のエピソードカテゴリ。未設定の既存データでは省略／空配列。 */
+  categories?: string[]
 }
 
 export interface EpisodeItem {

@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import HomeShell from '../HomeShell'
+import HomeShell, { type HeroEpisode } from '../HomeShell'
 import type { EpisodeListItem } from '../../lib/api'
 
 jest.mock('next/link', () => ({
@@ -11,9 +11,9 @@ jest.mock('../../lib/api', () => ({
   fetchEpisodes: jest.fn(),
 }))
 
-jest.mock('../EpisodeAudioPlayer', () => ({ __esModule: true, default: () => null }))
+jest.mock('../EpisodeAudioPlayer', () => ({ __esModule: true, default: () => <div data-testid="audio-player" /> }))
 jest.mock('../SynthesizeAudioButton', () => ({ __esModule: true, default: () => null }))
-jest.mock('../PushSubscriptionToggle', () => ({ __esModule: true, default: () => null }))
+jest.mock('../PushSubscriptionToggle', () => ({ __esModule: true, default: () => <div data-testid="push-toggle" /> }))
 
 function episode(categories?: string[]): EpisodeListItem {
   return {
@@ -140,5 +140,58 @@ describe('HomeShell archive thumbnail', () => {
 
     const cardLink = container.querySelector('.archive-card a')
     expect(cardLink?.getAttribute('href')).toBe('/episodes/3')
+  })
+})
+
+function heroEpisode(overrides: Partial<HeroEpisode> = {}): HeroEpisode {
+  return {
+    id: 1,
+    title: '最新エピソードのタイトル',
+    subtitle: '最新エピソードの副題',
+    dateLabel: '8月13日(木)',
+    isCommentary: false,
+    sourceUrl: null,
+    audioUrl: 'https://example.com/audio.mp3',
+    durationSeconds: 300,
+    keyPoints: [],
+    categories: [],
+    ...overrides,
+  }
+}
+
+function renderHero(latest: HeroEpisode | null) {
+  return render(
+    <HomeShell latest={latest} chapters={[]} initialEpisodes={[]} initialHasNext={false} />,
+  )
+}
+
+describe('HomeShell ヒーローのトピック表示', () => {
+  it('key_pointsがある場合は先頭から最大3件を「今回の3トピック」として表示する', () => {
+    renderHero(heroEpisode({ keyPoints: ['トピックA', 'トピックB', 'トピックC', 'トピックD'] }))
+    const list = screen.getByLabelText('今回の3トピック')
+    expect(list.textContent).toBe('トピックAトピックBトピックC')
+    expect(list.children).toHaveLength(3)
+  })
+
+  it('key_pointsがなくカテゴリがある場合はカテゴリを最大3件表示する', () => {
+    renderHero(heroEpisode({ keyPoints: [], categories: ['テック・IT', 'AI・先端技術', 'ビジネス', '国際'] }))
+    const list = screen.getByLabelText('今回の3トピック')
+    expect(list.textContent).toBe('テック・ITAI・先端技術ビジネス')
+    expect(list.children).toHaveLength(3)
+  })
+
+  it('key_pointsもカテゴリもない場合はトピック領域を表示しない', () => {
+    renderHero(heroEpisode({ keyPoints: [], categories: [] }))
+    expect(screen.queryByLabelText('今回の3トピック')).toBeNull()
+  })
+
+  it('通知操作は再生プレーヤーより後に配置される', () => {
+    const { container } = renderHero(heroEpisode())
+    const player = container.querySelector('[data-testid="audio-player"]')
+    const toggle = container.querySelector('[data-testid="push-toggle"]')
+    expect(player).not.toBeNull()
+    expect(toggle).not.toBeNull()
+    const position = player!.compareDocumentPosition(toggle!)
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
