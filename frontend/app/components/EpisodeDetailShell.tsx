@@ -54,7 +54,10 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
   const chapters = useMemo(() => buildChapters(script), [script])
 
   const hasScript = Boolean(script && script.lines.length > 0)
-  const hasArticles = articles.some((a) => a.url) || Boolean(episode.sourceUrl)
+  const hasArticleWithUrl = articles.some((a) => a.url)
+  const hasArticles = hasArticleWithUrl || Boolean(episode.sourceUrl)
+  const isSingleUrlCommentary = episode.isCommentary && Boolean(episode.sourceUrl) && !hasArticleWithUrl
+  const articlesHeading = isSingleUrlCommentary ? '解説の元記事' : '元記事'
   const title = episode.title || `エピソード #${episode.id}`
 
   const openPlaybackReport = useCallback(() => {
@@ -179,7 +182,7 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
                 href="#articles"
                 className="rounded-full border border-slate-200 px-2.5 py-1 text-slate-500 transition hover:border-slate-300 hover:text-slate-800"
               >
-                元記事
+                {articlesHeading}
               </a>
             )}
           </div>
@@ -230,7 +233,7 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
       {/* 元記事 */}
       {hasArticles && (
         <section id="articles" className="scroll-mt-20">
-          <h2 className="mb-2 px-1 text-sm font-semibold text-slate-900">元記事</h2>
+          <h2 className="mb-2 px-1 text-sm font-semibold text-slate-900">{articlesHeading}</h2>
           <ArticleLinks articles={articles} sourceUrl={episode.sourceUrl} onReportArticle={openArticleReport} />
         </section>
       )}
