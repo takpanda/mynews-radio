@@ -47,7 +47,8 @@ interface Props {
 
 export default function EpisodeDetailShell({ episode, script, articles, episodeItems, summary, isAuthenticated = false }: Props) {
   const playerRef = useRef<PlayerHandle>(null)
-  const [currentTime, setCurrentTime] = useState(0)
+  // undefinedは未再生（停止中）、0は再生位置が先頭であることを表す
+  const [currentTime, setCurrentTime] = useState<number | undefined>(undefined)
   const [reportContext, setReportContext] = useState<PlaybackContext | null>(null)
   const [reportOpen, setReportOpen] = useState(false)
 
@@ -61,7 +62,7 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
   const title = episode.title || `エピソード #${episode.id}`
 
   const openPlaybackReport = useCallback(() => {
-    setReportContext(buildPlaybackReportContext(episode, script, episodeItems, currentTime))
+    setReportContext(buildPlaybackReportContext(episode, script, episodeItems, currentTime ?? 0))
     setReportOpen(true)
   }, [script, episodeItems, currentTime, episode.id, episode.audioUrl, episode.generationPhase])
 
