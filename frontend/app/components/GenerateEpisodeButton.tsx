@@ -670,6 +670,8 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   const latestProgress = progress.at(-1)
   const isSuccess = Boolean(progress.some((entry) => entry.phase === 'complete'))
   const isFailure = Boolean(message && !isLoading && !isSuccess && hasError)
+  // 401/403/409などcanRetryがfalseの再試行不可エラーは、生成失敗を示す新バッジの対象外とし従来のエラー表示に留める
+  const isRetryableFailure = isFailure && canRetry
   const currentEstimate = getCurrentEstimate(activeStep, isSuccess, isFailure)
   const isDuplicateError = message === '先に生成中のタスクがあります'
   const phasePresentation = getPhasePresentation(latestProgress, isFailure)
@@ -1126,8 +1128,39 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
                 目安 {currentEstimate}
               </span>
               {(isLoading || message) && (
-                <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${statusTone}`}>
-                  {isLoading ? '生成中' : isSuccess ? '完了' : isDuplicateError ? '重複' : '確認が必要'}
+                <span
+                  role="status"
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${statusTone}`}
+                >
+                  {isLoading ? (
+                    <>
+                      <svg className="h-3 w-3 shrink-0 animate-spin" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.25" />
+                        <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                      生成中・音声を準備しています
+                    </>
+                  ) : isSuccess ? (
+                    <>
+                      <svg className="h-3 w-3 shrink-0" viewBox="0 0 10 8" fill="none" aria-hidden="true">
+                        <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      完了・再生できます
+                    </>
+                  ) : isDuplicateError ? (
+                    '重複'
+                  ) : isRetryableFailure ? (
+                    <>
+                      <svg className="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path d="M8 1.6 1.2 13.8h13.6L8 1.6Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+                        <path d="M8 6.4v3.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                        <circle cx="8" cy="11.6" r="0.9" fill="currentColor" />
+                      </svg>
+                      生成できませんでした。再試行できます
+                    </>
+                  ) : (
+                    '確認が必要'
+                  )}
                 </span>
               )}
             </div>

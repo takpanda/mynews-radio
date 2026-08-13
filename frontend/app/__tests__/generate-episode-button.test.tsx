@@ -21,12 +21,13 @@ jest.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: jest.fn() }),
 }))
 
-jest.mock('react-hot-toast', () => ({
-  toast: {
+jest.mock('react-hot-toast', () => {
+  const toast = Object.assign(jest.fn(), {
     success: jest.fn(),
     error: jest.fn(),
-  },
-}))
+  })
+  return { toast }
+})
 
 const urlInput = () => screen.getByPlaceholderText('https://example.com/article')
 const submitButton = () => screen.getByRole('button', { name: /このURLで解説を生成する/ })
@@ -650,6 +651,7 @@ describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', ()
     expect(await screen.findByText('ログインが必要です。再度ログインしてください。')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'ログインする' })).toHaveAttribute('href', '/admin/login')
     expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument()
+    expect(screen.queryByText('生成できませんでした。再試行できます')).not.toBeInTheDocument()
   })
 
   it('403は権限エラーメッセージを表示し再試行ボタンを出さない', async () => {
@@ -664,6 +666,7 @@ describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', ()
     expect(await screen.findByText('この操作を実行する権限がありません。')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'ログインする' })).not.toBeInTheDocument()
+    expect(screen.queryByText('生成できませんでした。再試行できます')).not.toBeInTheDocument()
   })
 
   it('409（同一キーの入力不一致）は競合メッセージを表示し再試行ボタンを出さない', async () => {
@@ -677,6 +680,7 @@ describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', ()
 
     expect(await screen.findByText('同じ操作が競合しています。入力内容を確認して再試行してください。')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument()
+    expect(screen.queryByText('生成できませんでした。再試行できます')).not.toBeInTheDocument()
   })
 
   it('429はRetry-Afterの待機時間を表示し再試行ボタンを出す', async () => {
@@ -709,5 +713,68 @@ describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', ()
       expect(mockGenerateEpisode.mock.calls.length).toBe(2)
     })
     expect(mockGenerateEpisode.mock.calls[1][9]).toBe(firstKey)
+  })
+})
+
+describe('GenerateEpisodeButton — 生成状態バッジの表示分岐', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    localStorage.clear()
+    mockGenerateEpisode.mockResolvedValue({ episode_id: 100 })
+    mockFetchLlmProviders.mockResolvedValue({ providers: [
+      { provider: 'ollama', models: ['qwen3:8b'], available: true },
+    ] })
+  })
+
+  const radioSubmit = () => screen.getByRole('button', { name: 'この設定で番組を生成する' })
+
+  it('生成中は準備中バッジを表示する', async () => {
+    let resolveGenerate!: (value: unknown) => void
+    mockGenerateEpisode.mockReturnValue(new Promise((resolve) => { resolveGenerate = resolve }))
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.click(radioSubmit())
+
+    expect(await screen.findByRole('status')).toHaveTextContent('生成中・音声を準備しています')
+
+    resolveGenerate({ episode_id: 100 })
+  })
+
+  it('生成完了時は再生可能バッジを表示する', async () => {
+    jest.mocked(fetchEpisode).mockResolvedValue({ id: 100, status: 'completed' } as Awaited<ReturnType<typeof fetchEpisode>>)
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.click(radioSubmit())
+
+    expect(await screen.findByRole('status')).toHaveTextContent('完了・再生できます')
+  })
+
+  it('再試行可能な生成失敗（status: failed）は失敗バッジと再試行ボタンを表示する', async () => {
+    jest.mocked(fetchEpisode).mockResolvedValue({ id: 100, status: 'failed' } as Awaited<ReturnType<typeof fetchEpisode>>)
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.click(radioSubmit())
+
+    expect(await screen.findByRole('status')).toHaveTextContent('生成できませんでした。再試行できます')
+    expect(screen.getByRole('button', { name: '再試行' })).toBeEnabled()
+  })
+
+  it.each([
+    [401, 'ログインが必要です。再度ログインしてください。'],
+    [403, 'この操作を実行する権限がありません。'],
+    [409, '同じ操作が競合しています。入力内容を確認して再試行してください。'],
+  ])('%i（再試行不可）では失敗バッジの文言を出さず従来のエラー表示を維持する', async (status, message) => {
+    mockGenerateEpisode.mockRejectedValue(new GenerationError(message, status))
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.click(radioSubmit())
+
+    await screen.findByText(message)
+    expect(screen.queryByText('生成できませんでした。再試行できます')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('確認が必要')
   })
 })
