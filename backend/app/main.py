@@ -243,6 +243,20 @@ def _apply_db_migrations() -> None:
         except sqlite3.OperationalError:
             pass
 
+        # ボイス設定6項目（BEE-725）。NULL のままなら config.py の既定値を使う。
+        for column, definition in (
+            ("aivispeech_speaker_male", "INTEGER"),
+            ("aivispeech_speaker_female", "INTEGER"),
+            ("voicevox_speaker_male", "INTEGER"),
+            ("voicevox_speaker_female", "INTEGER"),
+            ("fishs2pro_voice_male", "TEXT"),
+            ("fishs2pro_voice_female", "TEXT"),
+        ):
+            try:
+                conn.execute(f"ALTER TABLE user_settings ADD COLUMN {column} {definition}")
+            except sqlite3.OperationalError:
+                pass  # カラムが既に存在する場合は無視
+
         row = conn.execute("SELECT COUNT(*) FROM dictionary_entries").fetchone()
         if row[0] == 0:
             seed_entries = [

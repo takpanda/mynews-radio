@@ -179,6 +179,33 @@ class VoicevoxClient:
 
         return self.synthesize(audio_query, speaker_id, output_path)
 
+    def list_speakers(self) -> list[Dict[str, object]]:
+        """GET /speakers — 話者・スタイル一覧を共通形式で返す。
+
+        AivisSpeech・VOICEVOX ともにこのEngine互換APIを提供するため、
+        base_url を切り替えるだけで両エンジンに使い回せる。
+        保存値（value）にはスタイルIDを使用する（話者IDではない）。
+        """
+        resp = self.client.get("/speakers")
+        resp.raise_for_status()
+        speakers = resp.json()
+        if not isinstance(speakers, list):
+            raise ValueError("invalid speakers response")
+
+        options: list[Dict[str, object]] = []
+        for speaker in speakers:
+            speaker_name = str(speaker.get("name", ""))
+            for style in speaker.get("styles") or []:
+                style_id = style.get("id")
+                if style_id is None:
+                    continue
+                options.append({
+                    "speaker_name": speaker_name,
+                    "style_name": str(style.get("name", "")),
+                    "value": int(style_id),
+                })
+        return options
+
     def health_check(self) -> Dict[str, str]:
         """VOICEVOX Engineの起動状態を確認する"""
         try:

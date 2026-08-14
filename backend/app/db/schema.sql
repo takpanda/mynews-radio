@@ -179,10 +179,18 @@ CREATE INDEX IF NOT EXISTS idx_notification_deliveries_ready
 
 -- MVP settings are local, single-user state.  Keep one row and store the
 -- validated category selections as JSON so the schema can evolve later.
+-- ボイス設定6項目は未設定（NULL）を許容する。NULLの間はconfig.pyの既定値を使う
+-- （管理画面が保存していないエンジンでも標準生成を継続できるようにするため）。
 CREATE TABLE IF NOT EXISTS user_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     priority_themes TEXT NOT NULL DEFAULT '[]',
     excluded_themes TEXT NOT NULL DEFAULT '[]',
     duration_preset TEXT NOT NULL DEFAULT 'normal',
+    aivispeech_speaker_male INTEGER,
+    aivispeech_speaker_female INTEGER,
+    voicevox_speaker_male INTEGER,
+    voicevox_speaker_female INTEGER,
+    fishs2pro_voice_male TEXT,
+    fishs2pro_voice_female TEXT,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

@@ -82,6 +82,20 @@ class FishS2ProClient:
             logger.error("ファイル書き込み失敗 %s: %s", output_path, exc)
             return False
 
+    def list_voices(self) -> list[str]:
+        """GET /health の voices を保存候補一覧として返す。
+
+        Fish S2 Pro には話者・スタイルの区別がなく、エンジンが返す
+        voices（ボイス名の配列）をそのまま保存候補として使う。
+        """
+        response = self.client.get("/health")
+        response.raise_for_status()
+        data = response.json()
+        voices = data.get("voices")
+        if data.get("status") != "ok" or not isinstance(voices, list):
+            raise ValueError("invalid health response")
+        return [str(voice) for voice in voices]
+
     def health_check(self) -> dict:
         """Fish S2 Pro の稼働状態と設定済みボイス（male/female）の提供状態を確認する。"""
         required_voices = set(self._voice_names.values())

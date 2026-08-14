@@ -27,7 +27,7 @@ from app.db.connection import get_db_connection
 from app.services.article_service import ArticleService
 from app.services.episode_service import EpisodeService
 from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_url
-from app.services.settings_service import get_settings_or_default, validate_settings
+from app.services.settings_service import get_settings_or_default, resolve_tts_speakers, validate_settings
 from app.services.generation_control import GenerationControlError, bind_episode, claim_job, finish_job
 from app.services.verified_client_ip import get_verified_client_ip
 from app.services.llm_provider import validate_provider_model
@@ -278,18 +278,12 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         # -- TTS SETUP --
         settings = get_settings()
         tts_engine = _resolve_tts_engine(body.tts_engine, settings.default_tts_engine)
-        if tts_engine == "fishs2pro":
-            tts_base_url = settings.fishs2pro_base_url
-            tts_speaker_male = settings.fishs2pro_voice_male
-            tts_speaker_female = settings.fishs2pro_voice_female
-        elif tts_engine == "aivispeech":
-            tts_base_url = settings.aivispeech_base_url
-            tts_speaker_male = settings.aivispeech_speaker_male
-            tts_speaker_female = settings.aivispeech_speaker_female
-        else:
-            tts_base_url = settings.voicevox_base_url
-            tts_speaker_male = settings.voicevox_speaker_male
-            tts_speaker_female = settings.voicevox_speaker_female
+        tts_base_url = (
+            settings.fishs2pro_base_url if tts_engine == "fishs2pro" else
+            settings.aivispeech_base_url if tts_engine == "aivispeech" else
+            settings.voicevox_base_url
+        )
+        tts_speaker_male, tts_speaker_female = resolve_tts_speakers(tts_engine)
 
         # -- SYNTHESIZE TTS --
         service.update_episode_phase(episode_id, "synthesize", "音声を合成しています…")
@@ -492,19 +486,14 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
     tts_engine = _resolve_tts_engine(body.tts_engine, settings.default_tts_engine)
     if tts_engine == "fishs2pro":
         tts_base_url = settings.fishs2pro_base_url
-        tts_speaker_male = settings.fishs2pro_voice_male
-        tts_speaker_female = settings.fishs2pro_voice_female
         tts_engine_label = "Fish S2 Pro"
     elif tts_engine == "aivispeech":
         tts_base_url = settings.aivispeech_base_url
-        tts_speaker_male = settings.aivispeech_speaker_male
-        tts_speaker_female = settings.aivispeech_speaker_female
         tts_engine_label = "AivisSpeech"
     else:
         tts_base_url = settings.voicevox_base_url
-        tts_speaker_male = settings.voicevox_speaker_male
-        tts_speaker_female = settings.voicevox_speaker_female
         tts_engine_label = "VOICEVOX"
+    tts_speaker_male, tts_speaker_female = resolve_tts_speakers(tts_engine)
 
     service.update_episode_status(episode_id, "generating")
 

@@ -17,7 +17,7 @@ from app.batch.synthesize_voicevox import synthesize_episode
 from app.config import get_settings
 from app.services.episode_service import EpisodeService, override_script_title, build_radio_title
 from app.services.episode_category_service import select_episode_categories
-from app.services.settings_service import ProgramSettings, get_settings_or_default
+from app.services.settings_service import ProgramSettings, get_settings_or_default, resolve_tts_speakers
 from app.services.telegram_notifier import notify_failure, notify_success
 
 
@@ -82,28 +82,21 @@ def _resolve_max_articles(max_articles: int | None, settings_params: dict[str, A
 
 
 def _determine_tts_config(tts_engine: str | None = None) -> dict[str, Any]:
+    """接続先とエンジン別の保存済み話者値（未保存時はconfig.py既定値）を返す。"""
     settings = get_settings()
     tts_engines = {"voicevox", "aivispeech", "fishs2pro"}
     engine = tts_engine if tts_engine and tts_engine in tts_engines else settings.default_tts_engine
-    if engine == "fishs2pro":
-        return {
-            "tts_engine": engine,
-            "base_url": settings.fishs2pro_base_url,
-            "speaker_male": settings.fishs2pro_voice_male,
-            "speaker_female": settings.fishs2pro_voice_female,
-        }
-    if engine == "aivispeech":
-        return {
-            "tts_engine": engine,
-            "base_url": settings.aivispeech_base_url,
-            "speaker_male": settings.aivispeech_speaker_male,
-            "speaker_female": settings.aivispeech_speaker_female,
-        }
+    base_url = (
+        settings.fishs2pro_base_url if engine == "fishs2pro" else
+        settings.aivispeech_base_url if engine == "aivispeech" else
+        settings.voicevox_base_url
+    )
+    speaker_male, speaker_female = resolve_tts_speakers(engine)
     return {
         "tts_engine": engine,
-        "base_url": settings.voicevox_base_url,
-        "speaker_male": settings.voicevox_speaker_male,
-        "speaker_female": settings.voicevox_speaker_female,
+        "base_url": base_url,
+        "speaker_male": speaker_male,
+        "speaker_female": speaker_female,
     }
 
 
