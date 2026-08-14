@@ -193,35 +193,40 @@ def synthesize_episode(
         )
         return 0
 
-    with open(script_path, "r", encoding="utf-8") as f:
-        script = json.load(f)
-
-    lines = script.get("lines", [])
-    if not lines:
-        logger.warning("No lines in script.json")
-        log_service.finalize_phase_log(
-            phase_log_id, result="failure", line_success_count=0, line_total_count=0,
-            failure_reason="tts_no_lines_succeeded",
-        )
-        return 0
-
-    wav_dir = os.path.join(directory, "lines")
-    os.makedirs(wav_dir, exist_ok=True)
-
-    client = FishS2ProClient(
-        effective_base_url,
-        voice_male=effective_speaker_male,
-        voice_female=effective_speaker_female,
-    ) if is_fishs2pro else VoicevoxClient(
-        effective_base_url,
-        speaker_male=effective_speaker_male,
-        speaker_female=effective_speaker_female,
-    )
+    # script.json の読み込み、TTSクライアント初期化を含め、phase log 確定前に
+    # 例外が呼び出し元へ伝播しないよう try/except/finally でまとめて扱う
+    # （壊れたJSON・権限エラー・クライアント初期化失敗も対象）。
+    client = None
     success_count = 0
-    file_counter = 1  # WAV ファイルの通し番号（無音挿入分も含む）
-    prev_section: str | None = None
-
+    lines: list = []
     try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            script = json.load(f)
+
+        lines = script.get("lines", [])
+        if not lines:
+            logger.warning("No lines in script.json")
+            log_service.finalize_phase_log(
+                phase_log_id, result="failure", line_success_count=0, line_total_count=0,
+                failure_reason="tts_no_lines_succeeded",
+            )
+            return 0
+
+        wav_dir = os.path.join(directory, "lines")
+        os.makedirs(wav_dir, exist_ok=True)
+
+        client = FishS2ProClient(
+            effective_base_url,
+            voice_male=effective_speaker_male,
+            voice_female=effective_speaker_female,
+        ) if is_fishs2pro else VoicevoxClient(
+            effective_base_url,
+            speaker_male=effective_speaker_male,
+            speaker_female=effective_speaker_female,
+        )
+        file_counter = 1  # WAV ファイルの通し番号（無音挿入分も含む）
+        prev_section: str | None = None
+
         for idx, line in enumerate(lines, start=1):
             section = line.get("section", "news")
 
@@ -323,7 +328,8 @@ def synthesize_episode(
         )
         raise
     finally:
-        client.close()
+        if client is not None:
+            client.close()
 
     logger.info("Synthesized %d/%d lines -> %s/lines/", success_count, len(lines), directory)
     log_service.finalize_phase_log(

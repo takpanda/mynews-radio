@@ -201,13 +201,18 @@ def build_episode(directory: str, episode_id: int | None = None, generation_job_
             combine_phase_log_id, result="failure", failure_reason="wav_combine_failed",
         )
         return {}
-    log_service.finalize_phase_log(combine_phase_log_id, result="success")
 
-    # Step 1.5: Calculate per-line start_time and write back to script.json
+    # Step 1.5: Calculate per-line start_time and write back to script.json.
+    # 無音時間・開始時刻が実際の結合処理に使用した値と一致して保存されることは
+    # 受入条件そのものであり、計算・保存のどちらが失敗しても生成失敗として扱い、
+    # wav_combine工程ログもfailureで確定する（工程固有の失敗ではないため、
+    # 承認済みの build_exception を失敗理由として使う）。
     try:
         _annotate_start_times(script, wav_dir, wav_files, settings, silence_before=silence_before)
         with open(script_path, "w", encoding="utf-8") as f:
             json.dump(script, f, ensure_ascii=False, indent=2)
+
+        timing_saved = True
         if episode_id is not None:
             synth_phase_log_id = log_service.latest_phase_log_id(episode_id, "synthesize")
             silence_by_wav_file = {
@@ -217,13 +222,22 @@ def build_episode(directory: str, episode_id: int | None = None, generation_job_
             for idx, line in enumerate(script.get("lines", []), start=1):
                 wav_file = line.get("wav_file")
                 if wav_file and "start_time" in line:
-                    log_service.update_line_timing(
+                    saved = log_service.update_line_timing(
                         episode_id, synth_phase_log_id, idx,
                         start_time_sec=line["start_time"],
                         silence_before_sec=silence_by_wav_file.get(wav_file),
                     )
+                    timing_saved = timing_saved and saved
+        if not timing_saved:
+            raise RuntimeError("行タイミングのログ保存に失敗しました")
     except Exception as exc:
-        logger.warning("start_time の計算に失敗しました（スキップ）: %s", exc)
+        logger.error("start_time の計算または保存に失敗しました: %s", exc)
+        log_service.finalize_phase_log(
+            combine_phase_log_id, result="failure", failure_reason="build_exception",
+        )
+        return {}
+
+    log_service.finalize_phase_log(combine_phase_log_id, result="success")
 
     # Step 2: MP3 encode（ジングルがあれば前後に追加）
     opening_jingle, ending_jingle = jingle_paths_for_title(script, settings)

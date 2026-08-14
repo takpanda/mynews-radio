@@ -145,23 +145,35 @@ def update_line_timing(
     *,
     start_time_sec: Optional[float] = None,
     silence_before_sec: Optional[float] = None,
-) -> None:
-    """build工程(wav_combine)で計算したstart_time/無音時間を該当行ログへ反映する。"""
+) -> bool:
+    """build工程(wav_combine)で計算したstart_time/無音時間を該当行ログへ反映する。
+
+    無音時間・開始時刻が実際の結合処理に使用した値と一致して保存されることは
+    受入条件そのものであり、他のログ記録関数と異なり保存失敗を握りつぶさず
+    呼び出し元(build_episode)へ bool で伝える。呼び出し元はFalseの場合、
+    生成そのものを失敗として扱うこと。
+
+    Returns:
+        更新対象が無い(synthesize_phase_log_id が None)、または更新に成功した場合 True。
+        DB更新に失敗した場合 False。
+    """
     if synthesize_phase_log_id is None:
-        return
+        return True
     try:
         with get_db_connection() as conn:
             conn.execute(
                 "UPDATE episode_generation_line_logs "
                 "SET start_time_sec = ?, silence_before_sec = ? "
-                "WHERE phase_log_id = ? AND script_line_index = ?",
-                (start_time_sec, silence_before_sec, synthesize_phase_log_id, script_line_index),
+                "WHERE phase_log_id = ? AND script_line_index = ? AND episode_id = ?",
+                (start_time_sec, silence_before_sec, synthesize_phase_log_id, script_line_index, episode_id),
             )
+            return True
     except Exception:
         logger.exception(
             "line logのタイミング更新に失敗しました episode_id=%s script_line_index=%s",
             episode_id, script_line_index,
         )
+        return False
 
 
 def latest_phase_log_id(episode_id: int, phase: str) -> Optional[int]:

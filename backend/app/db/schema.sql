@@ -204,7 +204,7 @@ CREATE TABLE IF NOT EXISTS episode_generation_phase_logs (
     line_total_count INTEGER,
     failure_reason TEXT CHECK (failure_reason IN (
         'script_missing', 'tts_no_lines_succeeded', 'tts_synthesis_exception',
-        'wav_combine_failed', 'mp3_encode_failed'
+        'wav_combine_failed', 'mp3_encode_failed', 'build_exception'
     )),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE,

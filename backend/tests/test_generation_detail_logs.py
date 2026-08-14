@@ -264,6 +264,46 @@ def test_synthesize_unexpected_exception_finalizes_phase_and_reraises(tmp_path):
     assert phases[0]["failure_reason"] == "tts_synthesis_exception"
 
 
+def test_synthesize_corrupt_script_json_finalizes_phase_and_reraises(tmp_path):
+    """script.json がJSONとして壊れている場合も、phase logをtts_synthesis_exceptionで
+    確定してから例外を呼び出し元へ伝えること（json.load()はphase log開始後・try内で行われる）。"""
+    from app.batch.synthesize_voicevox import synthesize_episode
+
+    episode_id = _create_episode()
+    episode_dir = tmp_path / "episode"
+    episode_dir.mkdir()
+    (episode_dir / "script.json").write_text("{not valid json", encoding="utf-8")
+
+    with patch("app.batch.synthesize_voicevox.get_settings", return_value=_voicevox_settings()):
+        with pytest.raises(ValueError):
+            synthesize_episode(str(episode_dir), tts_engine="voicevox", episode_id=episode_id)
+
+    phases = _phase_logs(episode_id, "synthesize")
+    assert phases[0]["result"] == "failure"
+    assert phases[0]["failure_reason"] == "tts_synthesis_exception"
+
+
+def test_synthesize_client_construction_exception_finalizes_phase_and_reraises(tmp_path):
+    """TTSクライアントの初期化自体が例外を送出した場合も、phase logを
+    tts_synthesis_exceptionで確定してから例外を呼び出し元へ伝えること。"""
+    from app.batch.synthesize_voicevox import synthesize_episode
+
+    episode_id = _create_episode()
+    episode_dir = _make_episode_dir(tmp_path, [{"text": "1行目", "speaker": "male"}])
+
+    def raising_client_factory(*args, **kwargs):
+        raise ConnectionError("client init boom")
+
+    with patch("app.batch.synthesize_voicevox.get_settings", return_value=_voicevox_settings()), \
+         patch("app.batch.synthesize_voicevox.VoicevoxClient", raising_client_factory):
+        with pytest.raises(ConnectionError, match="client init boom"):
+            synthesize_episode(str(episode_dir), tts_engine="voicevox", episode_id=episode_id)
+
+    phases = _phase_logs(episode_id, "synthesize")
+    assert phases[0]["result"] == "failure"
+    assert phases[0]["failure_reason"] == "tts_synthesis_exception"
+
+
 # ---------------------------------------------------------------------------
 # build_episode: 正常系（wav_combine / mp3_encode の記録、行ログへのタイミング反映）
 # ---------------------------------------------------------------------------
@@ -377,6 +417,55 @@ def test_build_episode_mp3_encode_failure_records_failure_reason(tmp_path):
     mp3_phases = _phase_logs(episode_id, "mp3_encode")
     assert mp3_phases[0]["result"] == "failure"
     assert mp3_phases[0]["failure_reason"] == "mp3_encode_failed"
+
+
+def test_build_episode_start_time_calculation_failure_fails_generation(tmp_path):
+    """start_time計算(_annotate_start_times)が失敗した場合、無音時間・開始時刻が
+    実際の結合結果と一致しないまま成功扱いにしてはならない。生成失敗として返し、
+    wav_combine工程ログをbuild_exceptionでfailure確定すること。"""
+    from app.batch.build_episode import build_episode
+
+    episode_id = _create_episode()
+    lines = [{"text": "L1", "speaker": "male", "wav_file": "001.wav"}]
+    episode_dir = _prepare_built_episode_dir(tmp_path, lines)
+
+    with patch("app.batch.build_episode.get_settings", return_value=_build_settings()), \
+         patch("app.batch.build_episode._annotate_start_times", side_effect=RuntimeError("annotate boom")), \
+         patch("app.batch.build_episode.add_jingles_and_encode") as mock_encode:
+        metadata = build_episode(str(episode_dir), episode_id=episode_id)
+
+    assert metadata == {}
+    mock_encode.assert_not_called()
+    combine_phases = _phase_logs(episode_id, "wav_combine")
+    assert combine_phases[0]["result"] == "failure"
+    assert combine_phases[0]["failure_reason"] == "build_exception"
+    assert _phase_logs(episode_id, "mp3_encode") == []
+
+
+def test_build_episode_line_timing_save_failure_fails_generation(tmp_path):
+    """行タイミングのDB保存(update_line_timing)が失敗した場合、start_time計算自体は
+    成功していても成功扱いにしてはならない。生成失敗として返し、wav_combine工程ログを
+    build_exceptionでfailure確定すること。"""
+    from app.batch.build_episode import build_episode
+
+    episode_id = _create_episode()
+    lines = [
+        {"text": "L1", "speaker": "male", "wav_file": "001.wav"},
+        {"text": "L2", "speaker": "female", "wav_file": "002.wav"},
+    ]
+    episode_dir = _prepare_built_episode_dir(tmp_path, lines)
+
+    with patch("app.batch.build_episode.get_settings", return_value=_build_settings()), \
+         patch("app.batch.build_episode.log_service.update_line_timing", return_value=False), \
+         patch("app.batch.build_episode.add_jingles_and_encode") as mock_encode:
+        metadata = build_episode(str(episode_dir), episode_id=episode_id)
+
+    assert metadata == {}
+    mock_encode.assert_not_called()
+    combine_phases = _phase_logs(episode_id, "wav_combine")
+    assert combine_phases[0]["result"] == "failure"
+    assert combine_phases[0]["failure_reason"] == "build_exception"
+    assert _phase_logs(episode_id, "mp3_encode") == []
 
 
 # ---------------------------------------------------------------------------
