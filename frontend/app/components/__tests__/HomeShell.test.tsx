@@ -157,6 +157,22 @@ describe('HomeShell archive card 情報の並び順', () => {
   })
 })
 
+describe('HomeShell アーカイブカードの生成中表示', () => {
+  it('statusが generating のカードにのみ「生成中」バッジを色以外の文言でも表示する', () => {
+    renderArchiveEpisodes([
+      { ...episode(), id: 1, title: '生成中エピソード', status: 'generating' },
+      { ...episode(), id: 2, title: '完了済みエピソード', status: 'completed' },
+    ])
+    expect(screen.getByText('生成中')).not.toBeNull()
+    expect(screen.queryAllByText('生成中')).toHaveLength(1)
+  })
+
+  it('status が completed のカードには「生成中」バッジを表示しない', () => {
+    renderArchiveEpisodes([{ ...episode(), status: 'completed' }])
+    expect(screen.queryByText('生成中')).toBeNull()
+  })
+})
+
 function heroEpisode(overrides: Partial<HeroEpisode> = {}): HeroEpisode {
   return {
     id: 1,
