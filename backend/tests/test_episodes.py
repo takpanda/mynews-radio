@@ -1,5 +1,15 @@
 """Tests for episodes CRUD and API responses with type/source_url columns."""
 
+import os as _os
+
+
+def _write_audio_file(ep_dir: str, episode_id, filename: str) -> None:
+    """公開判定が実ファイルの存在まで確認するため、テストでもaudio_pathに対応する実ファイルを作る。"""
+    d = _os.path.join(ep_dir, str(episode_id))
+    _os.makedirs(d, exist_ok=True)
+    with open(_os.path.join(d, filename), "wb") as f:
+        f.write(b"dummy audio")
+
 
 class TestEpisodeCreateWithTypeSourceUrl:
     """create_episode() に type/source_url を渡すケースのテスト"""
@@ -84,7 +94,9 @@ class TestEpisodeApiTypeSourceUrl:
 
         svc = EpisodeService()
         svc.create_episode(episode_date="2099-12-30", type="radio")
-        svc.create_episode(episode_date="2099-12-31", type="commentary", source_url="https://example.com/latest", audio_path="latest.mp3", status="completed")
+        eid = svc.create_episode(episode_date="2099-12-31", type="commentary", source_url="https://example.com/latest", audio_path="latest.mp3", status="completed")
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        _write_audio_file(ep_dir, eid, "latest.mp3")
 
         resp = client.get("/episodes/latest")
         assert resp.status_code == 200
@@ -311,10 +323,37 @@ class TestEpisodeDetailScriptReviewPublicBoundary:
 
         svc = EpisodeService()
         eid = svc.create_episode(episode_date="2099-11-02", audio_path="test.mp3", status="completed")
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        _write_audio_file(ep_dir, eid, "test.mp3")
 
         with TestClient(app) as public_client:
             resp = public_client.get(f"/episodes/{eid}")
 
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "completed"
+
+    def test_detail_404_for_unauthenticated_when_audio_file_missing(self):
+        """完成済み・DBにaudio_pathがあっても、実ファイルが欠損していれば未認証には404"""
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-11-09", audio_path="missing.mp3", status="completed")
+
+        with TestClient(app) as public_client:
+            resp = public_client.get(f"/episodes/{eid}")
+
+        assert resp.status_code == 404
+
+    def test_detail_200_for_owner_when_audio_file_missing(self, client):
+        """音声ファイルが欠損していても、オーナー認証済みの管理経路では詳細を取得できる"""
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-11-10", audio_path="missing.mp3", status="completed")
+
+        resp = client.get(f"/episodes/{eid}")
         assert resp.status_code == 200
         assert resp.json()["status"] == "completed"
 
@@ -357,12 +396,30 @@ class TestEpisodeDetailScriptReviewPublicBoundary:
         eid = svc.create_episode(episode_date="2099-11-05", audio_path="test.mp3", status="completed")
         ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
         self._create_script_json(ep_dir, eid, title="公開台本")
+        _write_audio_file(ep_dir, eid, "test.mp3")
 
         with TestClient(app) as public_client:
             resp = public_client.get(f"/episodes/{eid}/script")
 
         assert resp.status_code == 200
         assert resp.json()["title"] == "公開台本"
+
+    def test_script_404_for_unauthenticated_when_audio_file_missing(self):
+        """完成済み・DBにaudio_pathがあっても、実ファイルが欠損していれば未認証の台本取得は404"""
+        import os as _os
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-11-11", audio_path="missing.mp3", status="completed")
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        self._create_script_json(ep_dir, eid, title="非公開台本")
+
+        with TestClient(app) as public_client:
+            resp = public_client.get(f"/episodes/{eid}/script")
+
+        assert resp.status_code == 404
 
     def test_script_200_for_owner_when_not_completed(self, client):
         """オーナー認証済みの管理経路では生成中エピソードの台本を取得できる"""
@@ -583,6 +640,8 @@ class TestEpisodeKeyPoints:
         svc = EpisodeService()
         eid = svc.create_episode(episode_date="2099-12-05", audio_path="test.mp3", status="completed")
         svc.update_episode_key_points(eid, ["最新のポイント"])
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        _write_audio_file(ep_dir, eid, "test.mp3")
 
         resp = client.get("/episodes/latest")
         assert resp.status_code == 200
@@ -650,6 +709,8 @@ class TestAudioGenerationId:
                              audio_generation_id=f"ep{eid}-seg1")
         svc.add_episode_item(eid, article_id=None, item_order=2, segment_text="最新セグメント2",
                              audio_generation_id=f"ep{eid}-seg2")
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        _write_audio_file(ep_dir, eid, "test.mp3")
 
         resp = client.get("/episodes/latest")
         assert resp.status_code == 200
@@ -735,8 +796,8 @@ class TestPublicArchiveFiltering:
         svc.update_episode_categories(tech_id, ["テック・IT"])
         svc.update_episode_categories(general_id, ["社会・暮らし"])
         ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
-        _os.makedirs(_os.path.join(ep_dir, str(tech_id)), exist_ok=True)
-        _os.makedirs(_os.path.join(ep_dir, str(general_id)), exist_ok=True)
+        _write_audio_file(ep_dir, tech_id, "tech.mp3")
+        _write_audio_file(ep_dir, general_id, "general.mp3")
 
         resp = client.get("/episodes?category=tech")
 
@@ -748,12 +809,26 @@ class TestPublicArchiveFiltering:
         from app.services.episode_service import EpisodeService
         svc = EpisodeService()
         eid = svc.create_episode(episode_date="2099-12-02", audio_path="test.mp3", status="completed")
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        _write_audio_file(ep_dir, eid, "test.mp3")
 
         resp = client.get("/episodes")
         assert resp.status_code == 200
         data = resp.json()
         ids = [ep["id"] for ep in data]
         assert eid in ids
+
+    def test_excludes_episode_with_audio_path_but_missing_file(self, client):
+        """DBにaudio_pathがあっても実ファイルが欠損していれば公開アーカイブから除外される"""
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-08", audio_path="missing.mp3", status="completed")
+
+        resp = client.get("/episodes")
+        assert resp.status_code == 200
+        data = resp.json()
+        ids = [ep["id"] for ep in data]
+        assert eid not in ids
 
     def test_excludes_episode_with_title_from_script_but_no_audio(self, client):
         """台本だけの生成中回は公開アーカイブに表示しない。"""
@@ -809,6 +884,7 @@ class TestPublicArchiveFiltering:
         failed_ids = []
         for i in range(5):
             eid = svc.create_episode(episode_date=f"2099-12-{20 - i:02d}", audio_path=f"audio{i}.mp3", status="completed")
+            _write_audio_file(ep_dir, eid, f"audio{i}.mp3")
             audio_ids.append(eid)
         for i in range(5):
             eid = svc.create_episode(episode_date=f"2099-12-{15 - i:02d}")
@@ -832,13 +908,16 @@ class TestPublicArchiveFiltering:
         ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
 
         e1 = svc.create_episode(episode_date="2099-12-01", audio_path="e1.mp3", status="completed")
+        _write_audio_file(ep_dir, e1, "e1.mp3")
         e2 = svc.create_episode(episode_date="2099-12-02")
         self._create_script_json(ep_dir, e2, "タイトルのみ")
         e3 = svc.create_episode(episode_date="2099-12-03", audio_path="e3.mp3", status="completed")
         self._create_script_json(ep_dir, e3, "音声＋タイトル")
+        _write_audio_file(ep_dir, e3, "e3.mp3")
         e4 = svc.create_episode(episode_date="2099-12-04")
         e5 = svc.create_episode(episode_date="2099-12-05", audio_path="e5.mp3", status="completed")
         self._create_script_json(ep_dir, e5, "  ")
+        _write_audio_file(ep_dir, e5, "e5.mp3")
 
         resp = client.get("/episodes")
         assert resp.status_code == 200
@@ -907,11 +986,28 @@ class TestPublicArchiveFiltering:
         _os.makedirs(d, exist_ok=True)
         with open(_os.path.join(d, "script.json"), "w", encoding="utf-8") as f:
             _json.dump({"title": None, "subtitle": "", "lines": []}, f)
+        _write_audio_file(ep_dir, eid, "test.mp3")
 
         resp = client.get("/episodes")
         assert resp.status_code == 200
         ids = [ep["id"] for ep in resp.json()]
         assert eid in ids
+
+    def test_latest_skips_episode_with_missing_audio_file(self, client):
+        """DBにaudio_pathがあっても実ファイルが欠損していれば/episodes/latestから除外される"""
+        import os as _os
+        from app.services.episode_service import EpisodeService
+        svc = EpisodeService()
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+
+        eid_missing = svc.create_episode(episode_date="2099-12-10", audio_path="missing.mp3", status="completed")
+        eid_playable = svc.create_episode(episode_date="2099-12-09", audio_path="playable.mp3", status="completed")
+        _write_audio_file(ep_dir, eid_playable, "playable.mp3")
+
+        resp = client.get("/episodes/latest")
+        assert resp.status_code == 200
+        assert resp.json()["id"] == eid_playable
+        assert resp.json()["id"] != eid_missing
 
     def test_latest_skips_failed_episodes(self, client):
         """最新が失敗エピソードの場合、次点の公開可能エピソードが返る"""
@@ -921,6 +1017,7 @@ class TestPublicArchiveFiltering:
         ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
 
         eid_audio = svc.create_episode(episode_date="2099-12-01", audio_path="latest.mp3", status="completed")
+        _write_audio_file(ep_dir, eid_audio, "latest.mp3")
         eid_failed = svc.create_episode(episode_date="2099-12-02")
 
         resp = client.get("/episodes/latest")

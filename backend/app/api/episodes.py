@@ -78,9 +78,22 @@ def _is_failed_episode(entry: dict) -> bool:
     return not has_audio and not has_title
 
 
+def _has_playable_audio(episode: dict) -> bool:
+    """DBのaudio_pathだけでなく、実ファイルが存在し再生可能かまで確認する。
+
+    RSS配信（feed.py の _build_absolute_audio_url）と同じ考え方で、
+    ファイル欠損時は公開判定から除外する。
+    """
+    audio_path = episode.get("audio_path")
+    if not audio_path:
+        return False
+    base_dir = _resolve_episode_directory(episode)
+    return os.path.isfile(os.path.join(base_dir, audio_path))
+
+
 def _is_public_episode(episode: dict) -> bool:
-    """未認証で取得してよいエピソードか判定する。完成済みかつ再生可能な音声を持つ回のみ。"""
-    return episode.get("status") == "completed" and bool(episode.get("audio_path"))
+    """未認証で取得してよいエピソードか判定する。完成済みかつ実際に再生可能な音声ファイルを持つ回のみ。"""
+    return episode.get("status") == "completed" and _has_playable_audio(episode)
 
 
 TECH_CATEGORY_LABELS = {"テック・IT", "AI・先端技術"}
@@ -158,12 +171,9 @@ def list_episodes(
         _enrich_episode(entry)
 
     # 公開アーカイブは完成済みで、再生できる音声を持つ回だけを返す。
-    # 台本生成途中のタイトルや進捗は公開しない。
+    # 台本生成途中のタイトルや進捗、音声ファイルが欠損した回は公開しない。
     if not include_failed:
-        output = [
-            e for e in output
-            if e.get("status") == "completed" and bool(e.get("audio_path"))
-        ]
+        output = [e for e in output if _is_public_episode(e)]
 
     if category is not None:
         output = [e for e in output if _matches_public_category(e, category)]
@@ -250,7 +260,7 @@ def get_latest_episode() -> dict:
 
         _enrich_episode(result)
 
-        if result.get("status") != "completed" or not episode.get("audio_path"):
+        if not _is_public_episode(episode):
             continue
 
         db_items = service.get_episode_items(episode["id"])
