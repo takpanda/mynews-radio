@@ -153,20 +153,33 @@ def update_line_timing(
     呼び出し元(build_episode)へ bool で伝える。呼び出し元はFalseの場合、
     生成そのものを失敗として扱うこと。
 
+    UPDATE文自体は対象行が0件でも例外にならないため、実行例外だけでなく
+    `cursor.rowcount == 1` も確認する。record_line_log()のbest-effort書き込み
+    失敗やattempt/行番号の不整合で対象の行ログが存在しない場合を、更新成功と
+    誤判定しないようにするため。
+
     Returns:
-        更新対象が無い(synthesize_phase_log_id が None)、または更新に成功した場合 True。
-        DB更新に失敗した場合 False。
+        更新対象が無い(synthesize_phase_log_id が None)場合 True。
+        更新が1行に一致した場合 True。
+        DB更新例外、または一致した行が1件以外(0件・複数件)の場合 False。
     """
     if synthesize_phase_log_id is None:
         return True
     try:
         with get_db_connection() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "UPDATE episode_generation_line_logs "
                 "SET start_time_sec = ?, silence_before_sec = ? "
                 "WHERE phase_log_id = ? AND script_line_index = ? AND episode_id = ?",
                 (start_time_sec, silence_before_sec, synthesize_phase_log_id, script_line_index, episode_id),
             )
+            if cursor.rowcount != 1:
+                logger.error(
+                    "line logのタイミング更新が対象行に一致しませんでした "
+                    "(rowcount=%d) episode_id=%s phase_log_id=%s script_line_index=%s",
+                    cursor.rowcount, episode_id, synthesize_phase_log_id, script_line_index,
+                )
+                return False
             return True
     except Exception:
         logger.exception(

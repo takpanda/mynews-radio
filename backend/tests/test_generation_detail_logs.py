@@ -304,6 +304,59 @@ def test_synthesize_client_construction_exception_finalizes_phase_and_reraises(t
     assert phases[0]["failure_reason"] == "tts_synthesis_exception"
 
 
+def test_synthesize_client_close_exception_does_not_block_success_finalization(tmp_path):
+    """正常終了時にclient.close()が例外を送出しても抑止され、synthesize_episode()の
+    戻り値やphase logのsuccess確定に影響しないこと。"""
+    from app.batch.synthesize_voicevox import synthesize_episode
+
+    episode_id = _create_episode()
+    episode_dir = _make_episode_dir(tmp_path, [{"text": "1行目", "speaker": "male"}])
+
+    class CloseRaisingClient(FakeVoicevoxClient):
+        def close(self):
+            raise RuntimeError("close boom")
+
+    def factory(base_url, speaker_male=None, speaker_female=None):
+        return CloseRaisingClient(base_url, speaker_male, speaker_female)
+
+    with patch("app.batch.synthesize_voicevox.get_settings", return_value=_voicevox_settings()), \
+         patch("app.batch.synthesize_voicevox.VoicevoxClient", factory):
+        result = synthesize_episode(str(episode_dir), tts_engine="voicevox", episode_id=episode_id)
+
+    assert result == 1
+    phases = _phase_logs(episode_id, "synthesize")
+    assert phases[0]["result"] == "success"
+
+
+def test_synthesize_client_close_exception_does_not_mask_original_failure(tmp_path):
+    """行合成中の例外に加えてclient.close()も例外を送出した場合、元の例外が
+    抑止されずそのまま伝播し、phase logもtts_synthesis_exceptionで確定していること
+    （close側の例外が工程ログの確定を妨げない）。"""
+    from app.batch.synthesize_voicevox import synthesize_episode
+
+    episode_id = _create_episode()
+    episode_dir = _make_episode_dir(tmp_path, [{"text": "1行目", "speaker": "male"}])
+
+    class RaisingClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def synthesize_line(self, *args, **kwargs):
+            raise RuntimeError("synthesis boom")
+
+        def close(self):
+            raise OSError("close boom")
+
+    with patch("app.batch.synthesize_voicevox.get_settings", return_value=_voicevox_settings()), \
+         patch("app.batch.synthesize_voicevox.VoicevoxClient", RaisingClient):
+        with pytest.raises(RuntimeError, match="synthesis boom"):
+            synthesize_episode(str(episode_dir), tts_engine="voicevox", episode_id=episode_id)
+
+    phases = _phase_logs(episode_id, "synthesize")
+    assert phases[0]["result"] == "failure"
+    assert phases[0]["failure_reason"] == "tts_synthesis_exception"
+
+
 # ---------------------------------------------------------------------------
 # build_episode: 正常系（wav_combine / mp3_encode の記録、行ログへのタイミング反映）
 # ---------------------------------------------------------------------------
@@ -457,6 +510,53 @@ def test_build_episode_line_timing_save_failure_fails_generation(tmp_path):
 
     with patch("app.batch.build_episode.get_settings", return_value=_build_settings()), \
          patch("app.batch.build_episode.log_service.update_line_timing", return_value=False), \
+         patch("app.batch.build_episode.add_jingles_and_encode") as mock_encode:
+        metadata = build_episode(str(episode_dir), episode_id=episode_id)
+
+    assert metadata == {}
+    mock_encode.assert_not_called()
+    combine_phases = _phase_logs(episode_id, "wav_combine")
+    assert combine_phases[0]["result"] == "failure"
+    assert combine_phases[0]["failure_reason"] == "build_exception"
+    assert _phase_logs(episode_id, "mp3_encode") == []
+
+
+def test_update_line_timing_returns_false_when_no_row_matches():
+    """update_line_timing()は、UPDATE文自体は例外にならなくても対象行が0件なら
+    Falseを返すこと（rowcount==1のみ成功と扱う）。"""
+    from app.services import generation_log_service as log_service
+
+    episode_id = _create_episode()
+    phase_id = log_service.start_phase_log(episode_id, "synthesize")
+    # script_line_index=1 のログは記録せず、対象が存在しない状態を作る。
+    log_service.finalize_phase_log(phase_id, result="success", line_success_count=0, line_total_count=0)
+
+    ok = log_service.update_line_timing(
+        episode_id, phase_id, 1, start_time_sec=1.23, silence_before_sec=0.0,
+    )
+
+    assert ok is False
+
+
+def test_build_episode_line_timing_no_matching_row_fails_generation(tmp_path):
+    """行ログの不整合（record_line_log()のbest-effort書き込み失敗やattempt不一致等）で
+    更新対象の行ログが実際に存在しない場合も、update_line_timing()の0件検出により
+    生成失敗として扱われ、wav_combine工程ログがbuild_exceptionで確定すること
+    （update_line_timingをモックせず、実際のUPDATE不一致を再現する）。"""
+    from app.batch.build_episode import build_episode
+    from app.services import generation_log_service as log_service
+
+    episode_id = _create_episode()
+
+    # synthesize phase log は存在するが、行ログを1件も記録しない
+    # （record_line_log失敗や行番号不一致を模した状態）。
+    synth_phase_id = log_service.start_phase_log(episode_id, "synthesize")
+    log_service.finalize_phase_log(synth_phase_id, result="success", line_success_count=1, line_total_count=1)
+
+    lines = [{"text": "L1", "speaker": "male", "wav_file": "001.wav"}]
+    episode_dir = _prepare_built_episode_dir(tmp_path, lines)
+
+    with patch("app.batch.build_episode.get_settings", return_value=_build_settings()), \
          patch("app.batch.build_episode.add_jingles_and_encode") as mock_encode:
         metadata = build_episode(str(episode_dir), episode_id=episode_id)
 

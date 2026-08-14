@@ -328,8 +328,13 @@ def synthesize_episode(
         )
         raise
     finally:
+        # close()自体の例外で、直前のexcept節によるphase log確定（または成功時の
+        # 確定処理）が妨げられないよう、close失敗はここで抑止しログのみ残す。
         if client is not None:
-            client.close()
+            try:
+                client.close()
+            except Exception:
+                logger.exception("TTSクライアントのcloseに失敗しました")
 
     logger.info("Synthesized %d/%d lines -> %s/lines/", success_count, len(lines), directory)
     log_service.finalize_phase_log(
