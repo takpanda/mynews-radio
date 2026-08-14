@@ -204,15 +204,15 @@ const EpisodeAudioPlayer = forwardRef<PlayerHandle, Props>(function EpisodeAudio
               className="h-1.5 w-full cursor-pointer accent-sky-600"
               aria-label="シーク"
             />
-            <div className="mt-1.5 flex items-center justify-between text-xs text-slate-400">
-              <span className="tabular-nums">
+            <div className="mt-1.5 flex flex-wrap items-center justify-between gap-y-1 text-xs text-slate-400">
+              <span className="whitespace-nowrap tabular-nums">
                 {formatTime(currentTime)} / {formatTime(duration)}
               </span>
-              <span className="flex items-center gap-1">
+              <span className="flex items-center gap-0.5 whitespace-nowrap sm:gap-1">
                 <button
                   type="button"
                   onClick={() => skip(-15)}
-                  className="rounded-full px-2 py-1 font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                  className="rounded-full px-1.5 py-1 font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 sm:px-2"
                   aria-label="15秒戻す"
                 >
                   -15s
@@ -220,7 +220,7 @@ const EpisodeAudioPlayer = forwardRef<PlayerHandle, Props>(function EpisodeAudio
                 <button
                   type="button"
                   onClick={() => skip(30)}
-                  className="rounded-full px-2 py-1 font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                  className="rounded-full px-1.5 py-1 font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 sm:px-2"
                   aria-label="30秒進める"
                 >
                   +30s
@@ -228,7 +228,7 @@ const EpisodeAudioPlayer = forwardRef<PlayerHandle, Props>(function EpisodeAudio
                 <button
                   type="button"
                   onClick={cycleSpeed}
-                  className="rounded-full px-2 py-1 font-medium tabular-nums text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                  className="rounded-full px-1.5 py-1 font-medium tabular-nums text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 sm:px-2"
                   aria-label={`再生速度 ${speed}倍`}
                 >
                   {speed}x
@@ -236,7 +236,7 @@ const EpisodeAudioPlayer = forwardRef<PlayerHandle, Props>(function EpisodeAudio
                 <a
                   href={audioUrl}
                   download={downloadFilename}
-                  className="rounded-full p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                  className="rounded-full p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 sm:p-1.5"
                   aria-label="音声をダウンロード"
                   title="音声をダウンロード"
                 >
@@ -261,7 +261,7 @@ const EpisodeAudioPlayer = forwardRef<PlayerHandle, Props>(function EpisodeAudio
                     <button
                       type="button"
                       onClick={() => setMenuOpen((v) => !v)}
-                      className="rounded-full p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                      className="rounded-full p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 sm:p-1.5"
                       aria-label="その他"
                       aria-haspopup="true"
                       aria-expanded={menuOpen}

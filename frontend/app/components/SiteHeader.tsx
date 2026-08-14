@@ -19,12 +19,12 @@ export default function SiteHeader({ isAuthenticated = false }: { isAuthenticate
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/85 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4 sm:px-6">
-          <Link href="/" className="flex items-center gap-2 text-slate-900">
+        <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-3 sm:px-6">
+          <Link href="/" className="flex shrink-0 items-center gap-1.5 text-slate-900 sm:gap-2">
             <svg
               aria-hidden="true"
               viewBox="0 0 24 24"
-              className="h-5 w-5 text-sky-600"
+              className="h-4 w-4 shrink-0 text-sky-600 sm:h-5 sm:w-5"
               fill="none"
               stroke="currentColor"
               strokeWidth="1.8"
@@ -37,12 +37,12 @@ export default function SiteHeader({ isAuthenticated = false }: { isAuthenticate
               <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
               <path d="M4.93 19.07a10 10 0 0 1 0-14.14" />
             </svg>
-            <span className="text-sm font-semibold">MyNews Radio</span>
+            <span className="whitespace-nowrap text-xs font-semibold sm:text-sm">MyNews Radio</span>
           </Link>
-          <nav className="flex items-center gap-1 sm:gap-2">
+          <nav className="flex shrink-0 items-center gap-1 sm:gap-2">
             <Link
               href="/#archive"
-              className="rounded-full px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+              className="whitespace-nowrap rounded-full px-2 py-1.5 text-xs text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 sm:px-3 sm:text-sm"
             >
               アーカイブ
             </Link>
@@ -50,14 +50,14 @@ export default function SiteHeader({ isAuthenticated = false }: { isAuthenticate
               <button
                 type="button"
                 onClick={() => setOpen(true)}
-                className="rounded-full border border-slate-300 bg-white px-3.5 py-1.5 text-sm font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
+                className="whitespace-nowrap rounded-full border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50 sm:px-3.5 sm:text-sm"
               >
                 番組を生成
               </button>
             ) : (
               <Link
                 href="/admin/login"
-                className="rounded-full border border-sky-200 bg-sky-50 px-3.5 py-1.5 text-sm font-medium text-sky-700 transition hover:bg-sky-100"
+                className="whitespace-nowrap rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-700 transition hover:bg-sky-100 sm:px-3.5 sm:text-sm"
               >
                 ログインして生成
               </Link>
