@@ -4,14 +4,21 @@ from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService
 
 
-def _insert_job(episode_id: int, *, operation: str = "generate", status: str = "completed") -> int:
+def _insert_job(
+    episode_id: int,
+    *,
+    operation: str = "generate",
+    status: str = "completed",
+    suffix: str = "default",
+    claimed_at: str = "2026-08-14 10:00:00",
+    finished_at: str = "2026-08-14 10:03:00",
+) -> int:
     with get_db_connection() as conn:
         cursor = conn.execute(
             "INSERT INTO generation_jobs (owner_user_id, operation, idempotency_key, input_hash, "
             "client_ip_hash, episode_id, status, claimed_at, finished_at) "
-            "VALUES (1, ?, ?, 'input-hash-not-exposed', 'ip-hash', ?, ?, "
-            "'2026-08-14 10:00:00', '2026-08-14 10:03:00')",
-            (operation, f"detail-log-{episode_id}-{operation}", episode_id, status),
+            "VALUES (1, ?, ?, 'input-hash-not-exposed', 'ip-hash', ?, ?, ?, ?)",
+            (operation, f"detail-log-{episode_id}-{operation}-{suffix}", episode_id, status, claimed_at, finished_at),
         )
         return cursor.lastrowid
 
@@ -105,6 +112,69 @@ def test_episode_logs_return_empty_collections_when_no_logs(client):
     assert response.json()["generation_jobs"] == []
     assert response.json()["timeline"] == []
     assert response.json()["lines"] == []
+
+
+def test_episode_logs_return_failed_generation_and_do_not_expose_secrets(client):
+    raw_ip = "203.0.113.34"
+    idempotency_key = "idempotency-key-must-not-be-returned"
+    idempotency_key_hash = "idempotency-key-hash-must-not-be-returned"
+    input_hash = "input-hash-must-not-be-returned"
+    script_text = "script-text-must-not-be-returned"
+    source_url = "https://example.invalid/private-source"
+    exception_text = "exception-body-must-not-be-returned"
+    file_path = "/private/audio/output.wav"
+    episode_id = EpisodeService().create_episode(
+        "2026-08-14", script_text=script_text, source_url=source_url, status="failed",
+    )
+    later_job_id = _insert_job(
+        episode_id, status="failed", suffix="later", claimed_at="2026-08-14 11:00:00",
+    )
+    earlier_job_id = _insert_job(
+        episode_id, operation="synthesize", status="failed", suffix="earlier", claimed_at="2026-08-14 09:00:00",
+    )
+    synthesis_phase_id = _insert_phase(episode_id, earlier_job_id, "synthesize", 1, result="failure")
+    _insert_phase(episode_id, later_job_id, "wav_combine", 1, result="failure")
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE generation_jobs SET idempotency_key = ?, input_hash = ?, client_ip_hash = ? WHERE id = ?",
+            (f"{idempotency_key}-{raw_ip}", input_hash, "sha256-ip-hash", earlier_job_id),
+        )
+        conn.execute(
+            "UPDATE episode_generation_phase_logs SET failure_reason = 'wav_combine_failed' "
+            "WHERE episode_id = ? AND phase = 'wav_combine'",
+            (episode_id,),
+        )
+        conn.execute(
+            "INSERT INTO audit_logs (operation, actor_user_id, generation_job_id, idempotency_key_hash, input_hash, "
+            "executed_at, result, accepted, rejection_reason, episode_id) "
+            "VALUES ('synthesize', 1, ?, ?, ?, '2026-08-14 09:01:00', 'failure', 1, ?, ?)",
+            (earlier_job_id, idempotency_key_hash, input_hash, exception_text, episode_id),
+        )
+        conn.execute(
+            "INSERT INTO episode_generation_line_logs "
+            "(phase_log_id, episode_id, script_line_index, synth_result, retry_count, wav_file, failure_reason) "
+            "VALUES (?, ?, 1, 'failure', 2, ?, 'tts_request_failed')",
+            (synthesis_phase_id, episode_id, file_path),
+        )
+
+    response = client.get(f"/admin/episodes/{episode_id}/logs")
+    assert response.status_code == 200
+    body = response.json()
+    assert [job["id"] for job in body["generation_jobs"]] == [earlier_job_id, later_job_id]
+    assert any(event["source"] == "audit" and event["result"] == "failure" for event in body["timeline"])
+    assert any(
+        event["phase"] == "wav_combine" and event["result"] == "failure"
+        and event["reason"] == "wav_combine_failed"
+        for event in body["timeline"]
+    )
+    assert body["lines"][0]["failure_reason"] == "tts_request_failed"
+    assert body["lines"][0]["wav_file"] is None
+    assert all(event["reason"] != exception_text for event in body["timeline"])
+    for forbidden in (
+        raw_ip, idempotency_key, idempotency_key_hash, input_hash, script_text,
+        source_url, exception_text, file_path,
+    ):
+        assert forbidden not in response.text
 
 
 def test_episode_logs_reject_missing_other_episode_and_non_synthesis_phase_ids(client):

@@ -116,7 +116,7 @@ def test_generation_audit_contains_hashes_and_rejection_reason(client):
     assert started["idempotency_key_hash"] == hashlib.sha256(key.encode()).hexdigest()
     assert started["input_hash"] == hash_input({"date": "2099-06-01", "max_articles": None,
                                                  "duration_minutes": None, "news_source": "hatena_bookmark",
-                                                 "tts_engine": "aivispeech", "url": None, "style": "solo",
+                                                 "tts_engine": None, "url": None, "style": "solo",
                                                  "mc_gender": "male", "settings_snapshot": None})
     assert started["started_at"]
     assert rejected["accepted"] == 0

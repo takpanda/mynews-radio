@@ -10,6 +10,17 @@ from app.db.connection import get_db_connection
 
 router = APIRouter(tags=["admin-audit"])
 
+AUDIT_REASON_CODES = {
+    "invalid_idempotency_key",
+    "idempotency_key_input_mismatch",
+    "active_limit",
+    "ip_active_limit",
+    "global_active_limit",
+    "daily_limit",
+    "ip_daily_limit",
+    "global_daily_limit",
+}
+
 
 def _utc_iso(value: str | None) -> str | None:
     """SQLite の UTC 日時を API 契約の ISO 8601 形式へ正規化する。"""
@@ -35,6 +46,18 @@ def _duration_ms(started_at: str | None, ended_at: str | None) -> int | None:
 
 def _timeline_sort_key(event: dict) -> tuple[str, int, int]:
     return (event["occurred_at"] or "", 0 if event["source"] == "audit" else 1, event["source_id"])
+
+
+def _audit_reason(value: str | None) -> str | None:
+    """監査ログの任意文字列を運用用の定型コードだけに限定する。"""
+    return value if value in AUDIT_REASON_CODES else None
+
+
+def _wav_file_name(value: str | None) -> str | None:
+    """応答へサーバー内のファイルパスを含めない。"""
+    if value and "/" not in value and "\\" not in value:
+        return value
+    return None
 
 
 @router.get("/admin/audit-logs", summary="生成監査ログを取得")
@@ -135,7 +158,7 @@ def get_episode_generation_logs(
             "occurred_at": _utc_iso(occurred_at), "started_at": _utc_iso(row["started_at"]),
             "ended_at": _utc_iso(row["ended_at"]),
             "duration_ms": _duration_ms(row["started_at"], row["ended_at"]),
-            "reason": row["rejection_reason"], "tts_engine": None,
+            "reason": _audit_reason(row["rejection_reason"]), "tts_engine": None,
             "line_success_count": None, "line_total_count": None,
         })
     for row in phase_rows:
@@ -162,5 +185,5 @@ def get_episode_generation_logs(
             for row in jobs
         ],
         "timeline": timeline,
-        "lines": [dict(row) for row in line_rows],
+        "lines": [{**dict(row), "wav_file": _wav_file_name(row["wav_file"])} for row in line_rows],
     }
