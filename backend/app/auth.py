@@ -135,3 +135,13 @@ def require_owner_session(
     if user_id is None:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
     return user_id
+
+
+def has_owner_session(admin_session: Optional[str]) -> bool:
+    """例外を投げずにオーナーセッションの有無だけを判定する。
+
+    公開/管理で取得条件を分岐させる箇所（未認証なら公開条件のみ適用）で使う。
+    """
+    if not admin_session:
+        return False
+    return get_admin_user_id_by_session(admin_session) is not None

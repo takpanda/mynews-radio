@@ -10,7 +10,7 @@ from fastapi import APIRouter, Cookie, HTTPException, Query
 from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService
 from app.services.episode_category_service import parse_episode_categories
-from app.auth import require_owner_session
+from app.auth import require_owner_session, has_owner_session
 
 
 def _parse_key_points(episode: dict) -> list[str]:
@@ -76,6 +76,11 @@ def _is_failed_episode(entry: dict) -> bool:
     has_audio = bool(entry.get("audio_path"))
     has_title = bool((entry.get("title") or "").strip())
     return not has_audio and not has_title
+
+
+def _is_public_episode(episode: dict) -> bool:
+    """未認証で取得してよいエピソードか判定する。完成済みかつ再生可能な音声を持つ回のみ。"""
+    return episode.get("status") == "completed" and bool(episode.get("audio_path"))
 
 
 TECH_CATEGORY_LABELS = {"テック・IT", "AI・先端技術"}
@@ -264,9 +269,15 @@ def get_latest_episode() -> dict:
 
 
 @router.get("/episodes/{episode_id}", summary="エピソード詳細を取得")
-def get_episode(episode_id: int) -> dict:
-    """指定されたエピソードの詳細（台本セクション含む）を返す"""
+def get_episode(episode_id: int, admin_session: Optional[str] = Cookie(None)) -> dict:
+    """指定されたエピソードの詳細（台本セクション含む）を返す。
+
+    未認証・非オーナーには、完成済みで再生可能な音声を持つ回だけを返す。
+    生成中・失敗・下書きの詳細はオーナーセッションでのみ取得できる。
+    """
     episode = _require_episode(episode_id)
+    if not has_owner_session(admin_session) and not _is_public_episode(episode):
+        raise HTTPException(status_code=404, detail="Episode not found")
     service = EpisodeService()
     items = service.get_episode_items(episode_id)
 
@@ -298,9 +309,14 @@ def get_episode(episode_id: int) -> dict:
 
 
 @router.get("/episodes/{episode_id}/script", summary="エピソードの台本JSONを取得")
-def get_episode_script(episode_id: int) -> dict:
-    """script.json の内容に DB のエピソード情報を付与して返す"""
+def get_episode_script(episode_id: int, admin_session: Optional[str] = Cookie(None)) -> dict:
+    """script.json の内容に DB のエピソード情報を付与して返す。
+
+    公開条件は詳細取得と同じ（完成済み・再生可能な回のみ未認証で取得可）。
+    """
     episode = _require_episode(episode_id)
+    if not has_owner_session(admin_session) and not _is_public_episode(episode):
+        raise HTTPException(status_code=404, detail="Episode not found")
     base_dir = _resolve_episode_directory(episode)
     script_path = os.path.join(base_dir, "script.json")
 
@@ -322,8 +338,12 @@ def get_episode_script(episode_id: int) -> dict:
 
 
 @router.get("/episodes/{episode_id}/review", summary="エピソードのレビュー結果JSONを取得")
-def get_episode_review(episode_id: int) -> dict:
-    """review.json の内容をそのまま返す"""
+def get_episode_review(episode_id: int, admin_session: Optional[str] = Cookie(None)) -> dict:
+    """review.json の内容をそのまま返す。
+
+    内部レビューを公開する既存の利用箇所がないため、オーナー認証必須の管理経路に限定する。
+    """
+    require_owner_session(admin_session)
     episode = _require_episode(episode_id)
     base_dir = _resolve_episode_directory(episode)
 

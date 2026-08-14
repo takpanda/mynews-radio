@@ -278,6 +278,140 @@ class TestEpisodeReviewEndpoint:
         assert resp.status_code == 404
 
 
+class TestEpisodeDetailScriptReviewPublicBoundary:
+    """GET /episodes/{id}, /script, /review の公開/管理境界のテスト"""
+
+    def _create_script_json(self, ep_dir: str, episode_id: int, title: str = "タイトル"):
+        import json as _json
+        import os as _os
+        d = _os.path.join(ep_dir, str(episode_id))
+        _os.makedirs(d, exist_ok=True)
+        with open(_os.path.join(d, "script.json"), "w", encoding="utf-8") as f:
+            _json.dump({"title": title, "subtitle": "", "lines": []}, f)
+
+    def test_detail_404_for_unauthenticated_when_not_completed(self):
+        """未認証は生成中・失敗・下書きエピソードの詳細を取得できない"""
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-11-01", audio_path="test.mp3")
+
+        with TestClient(app) as public_client:
+            resp = public_client.get(f"/episodes/{eid}")
+
+        assert resp.status_code == 404
+
+    def test_detail_200_for_unauthenticated_when_completed(self):
+        """未認証でも完成済みで再生可能なエピソードの詳細は取得できる"""
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-11-02", audio_path="test.mp3", status="completed")
+
+        with TestClient(app) as public_client:
+            resp = public_client.get(f"/episodes/{eid}")
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "completed"
+
+    def test_detail_200_for_owner_when_not_completed(self, client):
+        """オーナー認証済みの管理経路では生成中エピソードの詳細を取得できる"""
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-11-03")
+
+        resp = client.get(f"/episodes/{eid}")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "pending"
+
+    def test_script_404_for_unauthenticated_when_not_completed(self):
+        """未認証は生成中エピソードの台本を取得できない"""
+        import os as _os
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-11-04")
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        self._create_script_json(ep_dir, eid)
+
+        with TestClient(app) as public_client:
+            resp = public_client.get(f"/episodes/{eid}/script")
+
+        assert resp.status_code == 404
+
+    def test_script_200_for_unauthenticated_when_completed(self):
+        """未認証でも完成済みエピソードの台本は既存のリスナー体験どおり取得できる"""
+        import os as _os
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-11-05", audio_path="test.mp3", status="completed")
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        self._create_script_json(ep_dir, eid, title="公開台本")
+
+        with TestClient(app) as public_client:
+            resp = public_client.get(f"/episodes/{eid}/script")
+
+        assert resp.status_code == 200
+        assert resp.json()["title"] == "公開台本"
+
+    def test_script_200_for_owner_when_not_completed(self, client):
+        """オーナー認証済みの管理経路では生成中エピソードの台本を取得できる"""
+        import os as _os
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-11-06")
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        self._create_script_json(ep_dir, eid, title="管理用台本")
+
+        resp = client.get(f"/episodes/{eid}/script")
+        assert resp.status_code == 200
+        assert resp.json()["title"] == "管理用台本"
+
+    def test_review_401_for_unauthenticated_even_when_completed(self):
+        """内部レビューは公開の利用箇所がないため、完成済みでも未認証には返さない"""
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-11-07", audio_path="test.mp3", status="completed")
+
+        with TestClient(app) as public_client:
+            resp = public_client.get(f"/episodes/{eid}/review")
+
+        assert resp.status_code == 401
+
+    def test_review_200_for_owner_when_not_completed(self, client):
+        """オーナー認証済みの管理経路では生成中エピソードの内部レビューを取得できる"""
+        import json as _json
+        import os as _os
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-11-08")
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        review_dir = _os.path.join(ep_dir, str(eid), "review")
+        _os.makedirs(review_dir, exist_ok=True)
+        review_data = {"reviewer": "owner", "feedback": "ok"}
+        with open(_os.path.join(review_dir, "review.json"), "w", encoding="utf-8") as f:
+            _json.dump(review_data, f)
+
+        resp = client.get(f"/episodes/{eid}/review")
+        assert resp.status_code == 200
+        assert resp.json() == review_data
+
+
 class TestEpisodeListPagination:
     """GET /episodes のページネーションテスト"""
 

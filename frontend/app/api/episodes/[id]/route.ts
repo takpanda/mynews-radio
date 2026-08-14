@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server"
+import { getAdminSessionCookie } from "../../session-cookie"
 
 const API_BASE = process.env.API_BASE ?? "http://api:8010"
 
@@ -9,30 +10,18 @@ export async function GET(
   const { id } = await params
 
   try {
+    const headers: Record<string, string> = {}
+    const cookie = getAdminSessionCookie(request)
+    if (cookie) headers["Cookie"] = cookie
+
+    // 公開/管理の取得条件はバックエンドの GET /episodes/{id} が判定する。
+    // ここでは admin_session だけを転送し、それ以外のCookieは渡さない。
     const upstream = await fetch(`${API_BASE}/episodes/${id}`, {
       cache: "no-store",
+      headers,
     })
 
     const data = await upstream.text()
-
-    // 公開詳細は、完成済みで実際に再生可能な回だけに限定する。
-    // 生成中の進捗・失敗理由を公開経路から漏らさない。
-    if (upstream.ok) {
-      try {
-        const episode = JSON.parse(data) as { status?: string; audio_url?: string | null }
-        if (episode.status !== "completed" || !episode.audio_url) {
-          return new Response(JSON.stringify({ detail: "Episode not found" }), {
-            status: 404,
-            headers: { "Content-Type": "application/json" },
-          })
-        }
-      } catch {
-        return new Response(JSON.stringify({ error: "upstream returned invalid data" }), {
-          status: 502,
-          headers: { "Content-Type": "application/json" },
-        })
-      }
-    }
 
     return new Response(data, {
       status: upstream.status,
