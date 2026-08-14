@@ -43,7 +43,7 @@ const PAGE_SIZE = 20
 
 function categorize(ep: EpisodeListItem): Exclude<CategoryKey, 'all'> {
   if (ep.type === 'commentary') return 'commentary'
-  if ((ep.title || '').includes('テック')) return 'tech'
+  if ((ep.categories ?? []).some((c) => TECH_CATEGORY_LABELS.has(c))) return 'tech'
   return 'general'
 }
 

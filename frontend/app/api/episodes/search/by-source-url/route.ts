@@ -1,8 +1,12 @@
 import { NextRequest } from "next/server"
+import { requireAdminSession } from "../../../admin/auth"
 
 const API_BASE = process.env.API_BASE ?? "http://api:8010"
 
 export async function GET(request: NextRequest) {
+  const unauthorized = await requireAdminSession(request)
+  if (unauthorized) return unauthorized
+
   const { searchParams } = new URL(request.url)
   const sourceUrl = searchParams.get("source_url")
 
@@ -16,7 +20,10 @@ export async function GET(request: NextRequest) {
   try {
     const upstream = await fetch(
       `${API_BASE}/episodes/search/by-source-url?source_url=${encodeURIComponent(sourceUrl)}`,
-      { cache: "no-store" },
+      {
+        cache: "no-store",
+        headers: { Cookie: request.headers.get("cookie") ?? "" },
+      },
     )
 
     const data = await upstream.text()

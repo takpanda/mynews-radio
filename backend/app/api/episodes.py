@@ -5,11 +5,12 @@ import os
 import urllib.parse
 from typing import Optional, Union
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Cookie, HTTPException, Query
 
 from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService
 from app.services.episode_category_service import parse_episode_categories
+from app.auth import require_owner_session, has_owner_session
 
 
 def _parse_key_points(episode: dict) -> list[str]:
@@ -77,14 +78,53 @@ def _is_failed_episode(entry: dict) -> bool:
     return not has_audio and not has_title
 
 
+def _has_playable_audio(episode: dict) -> bool:
+    """DBのaudio_pathだけでなく、実ファイルが存在し再生可能かまで確認する。
+
+    RSS配信（feed.py の _build_absolute_audio_url）と同じ考え方で、
+    ファイル欠損時は公開判定から除外する。
+    """
+    audio_path = episode.get("audio_path")
+    if not audio_path:
+        return False
+    base_dir = _resolve_episode_directory(episode)
+    return os.path.isfile(os.path.join(base_dir, audio_path))
+
+
+def _is_public_episode(episode: dict) -> bool:
+    """未認証で取得してよいエピソードか判定する。完成済みかつ実際に再生可能な音声ファイルを持つ回のみ。"""
+    return episode.get("status") == "completed" and _has_playable_audio(episode)
+
+
+TECH_CATEGORY_LABELS = {"テック・IT", "AI・先端技術"}
+
+
+def _matches_public_category(entry: dict, category: str | None) -> bool:
+    """保存済みカテゴリだけを根拠に公開アーカイブを絞り込む。"""
+    if category is None or category == "all":
+        return True
+    if category == "commentary":
+        return entry.get("type") == "commentary"
+    if entry.get("type") == "commentary":
+        return False
+    categories = set(parse_episode_categories(entry.get("categories")))
+    if category == "tech":
+        return bool(categories & TECH_CATEGORY_LABELS)
+    if category == "general":
+        return not bool(categories & TECH_CATEGORY_LABELS)
+    return False
+
+
 @router.get("/episodes", summary="エピソード一覧を取得")
 def list_episodes(
     limit: Optional[int] = Query(None, ge=1, description="取得件数"),
     offset: int = Query(0, ge=0, description="取得開始位置"),
+    category: Optional[str] = Query(None, pattern="^(all|tech|general|commentary)$"),
     include_failed: bool = Query(
         False,
         description="管理画面用: 失敗エピソードを含めて全件取得",
     ),
+    admin_session: Optional[str] = Cookie(None),
 ) -> Union[list[dict], dict]:
     """登録されているエピソードの一覧を返す。
 
@@ -94,6 +134,11 @@ def list_episodes(
     include_failed=True で管理画面向けの全件取得（従来動作）。
     デフォルトでは音声がなくタイトルも空の失敗エピソードを除外する。
     """
+    if include_failed:
+        # 管理用の全件一覧は、公開アーカイブの同一エンドポイントでも
+        # オーナーセッションなしには取得させない。
+        require_owner_session(admin_session)
+
     service = EpisodeService()
     if include_failed:
         items = service.get_episode_list(limit=limit, offset=offset)
@@ -125,9 +170,13 @@ def list_episodes(
             entry["audio_url"] = audio
         _enrich_episode(entry)
 
-    # 公開アーカイブ: 音声がなくタイトルもないエピソードを除外
+    # 公開アーカイブは完成済みで、再生できる音声を持つ回だけを返す。
+    # 台本生成途中のタイトルや進捗、音声ファイルが欠損した回は公開しない。
     if not include_failed:
-        output = [e for e in output if not _is_failed_episode(e)]
+        output = [e for e in output if _is_public_episode(e)]
+
+    if category is not None:
+        output = [e for e in output if _matches_public_category(e, category)]
 
     for entry in output:
         entry.pop("audio_path", None)
@@ -211,7 +260,7 @@ def get_latest_episode() -> dict:
 
         _enrich_episode(result)
 
-        if _is_failed_episode(result):
+        if not _is_public_episode(episode):
             continue
 
         db_items = service.get_episode_items(episode["id"])
@@ -230,9 +279,15 @@ def get_latest_episode() -> dict:
 
 
 @router.get("/episodes/{episode_id}", summary="エピソード詳細を取得")
-def get_episode(episode_id: int) -> dict:
-    """指定されたエピソードの詳細（台本セクション含む）を返す"""
+def get_episode(episode_id: int, admin_session: Optional[str] = Cookie(None)) -> dict:
+    """指定されたエピソードの詳細（台本セクション含む）を返す。
+
+    未認証・非オーナーには、完成済みで再生可能な音声を持つ回だけを返す。
+    生成中・失敗・下書きの詳細はオーナーセッションでのみ取得できる。
+    """
     episode = _require_episode(episode_id)
+    if not has_owner_session(admin_session) and not _is_public_episode(episode):
+        raise HTTPException(status_code=404, detail="Episode not found")
     service = EpisodeService()
     items = service.get_episode_items(episode_id)
 
@@ -264,9 +319,14 @@ def get_episode(episode_id: int) -> dict:
 
 
 @router.get("/episodes/{episode_id}/script", summary="エピソードの台本JSONを取得")
-def get_episode_script(episode_id: int) -> dict:
-    """script.json の内容に DB のエピソード情報を付与して返す"""
+def get_episode_script(episode_id: int, admin_session: Optional[str] = Cookie(None)) -> dict:
+    """script.json の内容に DB のエピソード情報を付与して返す。
+
+    公開条件は詳細取得と同じ（完成済み・再生可能な回のみ未認証で取得可）。
+    """
     episode = _require_episode(episode_id)
+    if not has_owner_session(admin_session) and not _is_public_episode(episode):
+        raise HTTPException(status_code=404, detail="Episode not found")
     base_dir = _resolve_episode_directory(episode)
     script_path = os.path.join(base_dir, "script.json")
 
@@ -288,8 +348,12 @@ def get_episode_script(episode_id: int) -> dict:
 
 
 @router.get("/episodes/{episode_id}/review", summary="エピソードのレビュー結果JSONを取得")
-def get_episode_review(episode_id: int) -> dict:
-    """review.json の内容をそのまま返す"""
+def get_episode_review(episode_id: int, admin_session: Optional[str] = Cookie(None)) -> dict:
+    """review.json の内容をそのまま返す。
+
+    内部レビューを公開する既存の利用箇所がないため、オーナー認証必須の管理経路に限定する。
+    """
+    require_owner_session(admin_session)
     episode = _require_episode(episode_id)
     base_dir = _resolve_episode_directory(episode)
 
