@@ -84,7 +84,7 @@ class TestEpisodeApiTypeSourceUrl:
 
         svc = EpisodeService()
         svc.create_episode(episode_date="2099-12-30", type="radio")
-        svc.create_episode(episode_date="2099-12-31", type="commentary", source_url="https://example.com/latest", audio_path="latest.mp3")
+        svc.create_episode(episode_date="2099-12-31", type="commentary", source_url="https://example.com/latest", audio_path="latest.mp3", status="completed")
 
         resp = client.get("/episodes/latest")
         assert resp.status_code == 200
@@ -447,7 +447,7 @@ class TestEpisodeKeyPoints:
         from app.services.episode_service import EpisodeService
 
         svc = EpisodeService()
-        eid = svc.create_episode(episode_date="2099-12-05", audio_path="test.mp3")
+        eid = svc.create_episode(episode_date="2099-12-05", audio_path="test.mp3", status="completed")
         svc.update_episode_key_points(eid, ["最新のポイント"])
 
         resp = client.get("/episodes/latest")
@@ -511,7 +511,7 @@ class TestAudioGenerationId:
         from app.services.episode_service import EpisodeService
 
         svc = EpisodeService()
-        eid = svc.create_episode(episode_date="2099-12-03", audio_path="test.mp3")
+        eid = svc.create_episode(episode_date="2099-12-03", audio_path="test.mp3", status="completed")
         svc.add_episode_item(eid, article_id=None, item_order=1, segment_text="最新セグメント1",
                              audio_generation_id=f"ep{eid}-seg1")
         svc.add_episode_item(eid, article_id=None, item_order=2, segment_text="最新セグメント2",
@@ -572,11 +572,48 @@ class TestPublicArchiveFiltering:
         ids = [ep["id"] for ep in data]
         assert eid not in ids
 
+    def test_include_failed_requires_owner_session(self):
+        """管理用の全件一覧は未認証クライアントに公開しない。"""
+        from fastapi.testclient import TestClient
+        from app.main import app
+
+        with TestClient(app) as public_client:
+            resp = public_client.get("/episodes?include_failed=true")
+
+        assert resp.status_code == 401
+
+    def test_category_filter_uses_saved_categories(self, client):
+        """公開カテゴリ検索はタイトルではなく保存済みcategoriesだけで判定する。"""
+        import os as _os
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        tech_id = svc.create_episode(
+            episode_date="2099-12-06",
+            audio_path="tech.mp3",
+            status="completed",
+        )
+        general_id = svc.create_episode(
+            episode_date="2099-12-05",
+            audio_path="general.mp3",
+            status="completed",
+        )
+        svc.update_episode_categories(tech_id, ["テック・IT"])
+        svc.update_episode_categories(general_id, ["社会・暮らし"])
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        _os.makedirs(_os.path.join(ep_dir, str(tech_id)), exist_ok=True)
+        _os.makedirs(_os.path.join(ep_dir, str(general_id)), exist_ok=True)
+
+        resp = client.get("/episodes?category=tech")
+
+        assert resp.status_code == 200
+        assert [episode["id"] for episode in resp.json()] == [tech_id]
+
     def test_includes_episode_with_audio(self, client):
         """音声があるエピソードはタイトルがなくても公開アーカイブに表示される"""
         from app.services.episode_service import EpisodeService
         svc = EpisodeService()
-        eid = svc.create_episode(episode_date="2099-12-02", audio_path="test.mp3")
+        eid = svc.create_episode(episode_date="2099-12-02", audio_path="test.mp3", status="completed")
 
         resp = client.get("/episodes")
         assert resp.status_code == 200
@@ -584,8 +621,8 @@ class TestPublicArchiveFiltering:
         ids = [ep["id"] for ep in data]
         assert eid in ids
 
-    def test_includes_episode_with_title_from_script(self, client):
-        """script.jsonにタイトルがあるエピソードは音声がなくても公開アーカイブに表示される"""
+    def test_excludes_episode_with_title_from_script_but_no_audio(self, client):
+        """台本だけの生成中回は公開アーカイブに表示しない。"""
         import os as _os
         from app.services.episode_service import EpisodeService
         svc = EpisodeService()
@@ -597,7 +634,7 @@ class TestPublicArchiveFiltering:
         assert resp.status_code == 200
         data = resp.json()
         ids = [ep["id"] for ep in data]
-        assert eid in ids
+        assert eid not in ids
 
     def test_excludes_episode_with_blank_title_in_script(self, client):
         """script.jsonのタイトルが空白のみの場合も除外される"""
@@ -637,7 +674,7 @@ class TestPublicArchiveFiltering:
         audio_ids = []
         failed_ids = []
         for i in range(5):
-            eid = svc.create_episode(episode_date=f"2099-12-{20 - i:02d}", audio_path=f"audio{i}.mp3")
+            eid = svc.create_episode(episode_date=f"2099-12-{20 - i:02d}", audio_path=f"audio{i}.mp3", status="completed")
             audio_ids.append(eid)
         for i in range(5):
             eid = svc.create_episode(episode_date=f"2099-12-{15 - i:02d}")
@@ -660,13 +697,13 @@ class TestPublicArchiveFiltering:
         svc = EpisodeService()
         ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
 
-        e1 = svc.create_episode(episode_date="2099-12-01", audio_path="e1.mp3")
+        e1 = svc.create_episode(episode_date="2099-12-01", audio_path="e1.mp3", status="completed")
         e2 = svc.create_episode(episode_date="2099-12-02")
         self._create_script_json(ep_dir, e2, "タイトルのみ")
-        e3 = svc.create_episode(episode_date="2099-12-03", audio_path="e3.mp3")
+        e3 = svc.create_episode(episode_date="2099-12-03", audio_path="e3.mp3", status="completed")
         self._create_script_json(ep_dir, e3, "音声＋タイトル")
         e4 = svc.create_episode(episode_date="2099-12-04")
-        e5 = svc.create_episode(episode_date="2099-12-05", audio_path="e5.mp3")
+        e5 = svc.create_episode(episode_date="2099-12-05", audio_path="e5.mp3", status="completed")
         self._create_script_json(ep_dir, e5, "  ")
 
         resp = client.get("/episodes")
@@ -675,7 +712,7 @@ class TestPublicArchiveFiltering:
         ids = [ep["id"] for ep in data]
 
         assert e1 in ids
-        assert e2 in ids
+        assert e2 not in ids
         assert e3 in ids
         assert e4 not in ids
         assert e5 in ids
@@ -730,7 +767,7 @@ class TestPublicArchiveFiltering:
         import os as _os
         from app.services.episode_service import EpisodeService
         svc = EpisodeService()
-        eid = svc.create_episode(episode_date="2099-12-01", audio_path="test.mp3")
+        eid = svc.create_episode(episode_date="2099-12-01", audio_path="test.mp3", status="completed")
         ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
         d = _os.path.join(ep_dir, str(eid))
         _os.makedirs(d, exist_ok=True)
@@ -749,7 +786,7 @@ class TestPublicArchiveFiltering:
         svc = EpisodeService()
         ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
 
-        eid_audio = svc.create_episode(episode_date="2099-12-01", audio_path="latest.mp3")
+        eid_audio = svc.create_episode(episode_date="2099-12-01", audio_path="latest.mp3", status="completed")
         eid_failed = svc.create_episode(episode_date="2099-12-02")
 
         resp = client.get("/episodes/latest")

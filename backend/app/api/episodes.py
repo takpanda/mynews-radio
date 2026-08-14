@@ -5,11 +5,12 @@ import os
 import urllib.parse
 from typing import Optional, Union
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Cookie, HTTPException, Query
 
 from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService
 from app.services.episode_category_service import parse_episode_categories
+from app.auth import require_owner_session
 
 
 def _parse_key_points(episode: dict) -> list[str]:
@@ -77,14 +78,35 @@ def _is_failed_episode(entry: dict) -> bool:
     return not has_audio and not has_title
 
 
+TECH_CATEGORY_LABELS = {"テック・IT", "AI・先端技術"}
+
+
+def _matches_public_category(entry: dict, category: str | None) -> bool:
+    """保存済みカテゴリだけを根拠に公開アーカイブを絞り込む。"""
+    if category is None or category == "all":
+        return True
+    if category == "commentary":
+        return entry.get("type") == "commentary"
+    if entry.get("type") == "commentary":
+        return False
+    categories = set(parse_episode_categories(entry.get("categories")))
+    if category == "tech":
+        return bool(categories & TECH_CATEGORY_LABELS)
+    if category == "general":
+        return not bool(categories & TECH_CATEGORY_LABELS)
+    return False
+
+
 @router.get("/episodes", summary="エピソード一覧を取得")
 def list_episodes(
     limit: Optional[int] = Query(None, ge=1, description="取得件数"),
     offset: int = Query(0, ge=0, description="取得開始位置"),
+    category: Optional[str] = Query(None, pattern="^(all|tech|general|commentary)$"),
     include_failed: bool = Query(
         False,
         description="管理画面用: 失敗エピソードを含めて全件取得",
     ),
+    admin_session: Optional[str] = Cookie(None),
 ) -> Union[list[dict], dict]:
     """登録されているエピソードの一覧を返す。
 
@@ -94,6 +116,11 @@ def list_episodes(
     include_failed=True で管理画面向けの全件取得（従来動作）。
     デフォルトでは音声がなくタイトルも空の失敗エピソードを除外する。
     """
+    if include_failed:
+        # 管理用の全件一覧は、公開アーカイブの同一エンドポイントでも
+        # オーナーセッションなしには取得させない。
+        require_owner_session(admin_session)
+
     service = EpisodeService()
     if include_failed:
         items = service.get_episode_list(limit=limit, offset=offset)
@@ -125,9 +152,16 @@ def list_episodes(
             entry["audio_url"] = audio
         _enrich_episode(entry)
 
-    # 公開アーカイブ: 音声がなくタイトルもないエピソードを除外
+    # 公開アーカイブは完成済みで、再生できる音声を持つ回だけを返す。
+    # 台本生成途中のタイトルや進捗は公開しない。
     if not include_failed:
-        output = [e for e in output if not _is_failed_episode(e)]
+        output = [
+            e for e in output
+            if e.get("status") == "completed" and bool(e.get("audio_path"))
+        ]
+
+    if category is not None:
+        output = [e for e in output if _matches_public_category(e, category)]
 
     for entry in output:
         entry.pop("audio_path", None)
@@ -211,7 +245,7 @@ def get_latest_episode() -> dict:
 
         _enrich_episode(result)
 
-        if _is_failed_episode(result):
+        if result.get("status") != "completed" or not episode.get("audio_path"):
             continue
 
         db_items = service.get_episode_items(episode["id"])
