@@ -2,6 +2,7 @@ import json
 import os
 import struct
 import sys
+import time
 import wave
 import logging
 from pathlib import Path
@@ -21,6 +22,53 @@ logger = logging.getLogger(__name__)
 _SILENCE_SAMPLE_RATE = 24000
 _SILENCE_CHANNELS = 1
 _SILENCE_SAMPLE_WIDTH = 2  # 16-bit
+
+# Fish S2 Pro はシングルプロセス・同期処理のため、他クライアントとの順番待ちで
+# 一時的に応答が遅れてタイムアウトすることがある（BEE-707）。タイムアウト値
+# （60秒固定・設定化は対象外）を延ばす代わりに、同じ行だけを有限回再試行する。
+# 上限は「初回 + 再試行2回 = 最大3回」とし、既存の60秒タイムアウトと合わせて
+# BEE-707 で検討されたタイムアウト延長案（180秒程度）と同程度の総待ち時間に
+# 収まるようにした。待機はサーバーが混雑を解消するまでの猶予として、指数
+# バックオフではなく固定5秒（既存の `retry_on_busy` の指数バックオフはDBロック
+# 用途向けで今回の一時的な混雑には不要と判断）を採用する。
+_FISHS2PRO_MAX_RETRIES = 2
+_FISHS2PRO_RETRY_WAIT_SECONDS = 5.0
+
+
+def _synthesize_line_with_retry(
+    client: FishS2ProClient,
+    text: str,
+    speaker: str,
+    filepath: str,
+    delivery: str,
+    idx: int,
+    max_retries: int = _FISHS2PRO_MAX_RETRIES,
+    wait_seconds: float = _FISHS2PRO_RETRY_WAIT_SECONDS,
+) -> bool:
+    """Fish S2 Pro で1行を合成する。失敗時は同じ行だけを最大 max_retries 回再試行する。"""
+    total_attempts = max_retries + 1
+    attempt = 1
+    while True:
+        ok = client.synthesize_line(text, speaker, filepath, delivery=delivery)
+        if ok and os.path.isfile(filepath):
+            if attempt > 1:
+                logger.info(
+                    "Line %d synthesis succeeded on retry (attempt=%d/%d)",
+                    idx, attempt, total_attempts,
+                )
+            return True
+        if attempt >= total_attempts:
+            logger.error(
+                "Line %d synthesis failed after %d attempt(s), giving up",
+                idx, attempt,
+            )
+            return False
+        logger.warning(
+            "Line %d synthesis failed (attempt=%d/%d), retrying in %.1fs",
+            idx, attempt, total_attempts, wait_seconds,
+        )
+        time.sleep(wait_seconds)
+        attempt += 1
 
 
 def _create_silence_wav(
@@ -194,7 +242,7 @@ def synthesize_episode(
         )
 
         if is_fishs2pro:
-            ok = client.synthesize_line(spoken_text, speaker, filepath, delivery=delivery)
+            ok = _synthesize_line_with_retry(client, spoken_text, speaker, filepath, delivery, idx)
         else:
             ok = client.synthesize_line(
                 spoken_text, speaker, filepath, delivery=delivery,
