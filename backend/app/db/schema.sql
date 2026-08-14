@@ -186,3 +186,57 @@ CREATE TABLE IF NOT EXISTS user_settings (
     duration_preset TEXT NOT NULL DEFAULT 'normal',
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- BEE-718: エピソード生成の行単位・工程別詳細ログ（設計確認 BEE-721 で承認）。
+-- 台本本文・生IPアドレス・認証情報・冪等性キーは保存しない。
+CREATE TABLE IF NOT EXISTS episode_generation_phase_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    episode_id INTEGER NOT NULL,
+    generation_job_id INTEGER,              -- 日次自動生成(orchestrate.py)はNULL
+    phase TEXT NOT NULL CHECK (phase IN ('synthesize', 'wav_combine', 'mp3_encode')),
+    attempt_no INTEGER NOT NULL,            -- 同一episode_id×phase内の実行順（再合成に対応、1始まり）
+    result TEXT CHECK (result IN ('success', 'failure')),  -- NULL = プロセス異常終了で未確定のまま
+    tts_engine TEXT,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    duration_ms INTEGER,
+    line_success_count INTEGER,
+    line_total_count INTEGER,
+    failure_reason TEXT CHECK (failure_reason IN (
+        'script_missing', 'tts_no_lines_succeeded', 'tts_synthesis_exception',
+        'wav_combine_failed', 'mp3_encode_failed'
+    )),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE,
+    FOREIGN KEY (generation_job_id) REFERENCES generation_jobs(id) ON DELETE SET NULL,
+    UNIQUE(episode_id, phase, attempt_no)
+);
+CREATE INDEX IF NOT EXISTS idx_ep_gen_phase_logs_episode ON episode_generation_phase_logs(episode_id, phase);
+
+-- 行単位: 1レコード = 1回のattempt(phase_log)内での台本1行の合成結果
+CREATE TABLE IF NOT EXISTS episode_generation_line_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phase_log_id INTEGER NOT NULL,          -- どのsynthesize attemptに属するか
+    episode_id INTEGER NOT NULL,            -- 非正規化（episode_id単体での索引・削除用）
+    generation_job_id INTEGER,
+    script_line_index INTEGER NOT NULL,     -- script.json内の行位置(1始まり)。episode_items.item_orderと同一採番
+    speaker TEXT,
+    section TEXT,
+    delivery TEXT,
+    tts_engine TEXT,
+    synth_result TEXT NOT NULL CHECK (synth_result IN ('success', 'failure')),
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    wav_file TEXT,
+    speaking_rate REAL,                     -- 当該行の合成に実際に適用した話速(speedScale)。Fish S2 ProはNULL
+    silence_before_sec REAL,
+    start_time_sec REAL,                    -- wav_combine工程完了時に同一エピソードの最新synthesize attemptへUPDATE
+    processing_duration_ms INTEGER,         -- リトライを含む、行の合成開始から最終結果確定までの経過時間
+    failure_reason TEXT CHECK (failure_reason IN ('tts_request_failed', 'tts_output_missing')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (phase_log_id) REFERENCES episode_generation_phase_logs(id) ON DELETE CASCADE,
+    FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE,
+    FOREIGN KEY (generation_job_id) REFERENCES generation_jobs(id) ON DELETE SET NULL,
+    UNIQUE(phase_log_id, script_line_index)
+);
+CREATE INDEX IF NOT EXISTS idx_ep_gen_line_logs_phase ON episode_generation_line_logs(phase_log_id);
+CREATE INDEX IF NOT EXISTS idx_ep_gen_line_logs_episode ON episode_generation_line_logs(episode_id, script_line_index);

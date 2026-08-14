@@ -124,6 +124,7 @@ def run_radio_pipeline(
     progress_callback: ProgressCallback = None,
     llm_provider: str | None = None,
     llm_model: str | None = None,
+    generation_job_id: int | None = None,
 ) -> dict[str, Any] | PipelineResult | None:
     """Run the full radio generation pipeline for an episode.
 
@@ -297,6 +298,8 @@ def run_radio_pipeline(
                 speaker_male=effective_tts_male,
                 speaker_female=effective_tts_female,
                 tts_engine=tts_config["tts_engine"],
+                episode_id=episode_id,
+                generation_job_id=generation_job_id,
             )
         except Exception as exc:
             logger.exception("tts synthesis failed")
@@ -309,7 +312,7 @@ def run_radio_pipeline(
 
         # -- BUILD MP3 --
         _progress("build", "音声をまとめています…")
-        ep_metadata = build_episode(base_dir)
+        ep_metadata = build_episode(base_dir, episode_id=episode_id, generation_job_id=generation_job_id)
         if not ep_metadata:
             _fail("build", "音声ファイルの統合に失敗しました")
             return None
