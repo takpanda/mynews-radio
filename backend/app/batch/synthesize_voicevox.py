@@ -11,9 +11,10 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.config import get_settings
+from app.services import generation_log_service as log_service
 from app.services.ffmpeg_service import convert_to_wav
 from app.services.fishs2pro_client import FishS2ProClient
-from app.services.voicevox_client import VoicevoxClient
+from app.services.voicevox_client import DELIVERY_PARAMS, VoicevoxClient
 from app.services.replacement_table import apply_replacements
 
 logger = logging.getLogger(__name__)
@@ -44,8 +45,11 @@ def _synthesize_line_with_retry(
     idx: int,
     max_retries: int = _FISHS2PRO_MAX_RETRIES,
     wait_seconds: float = _FISHS2PRO_RETRY_WAIT_SECONDS,
-) -> bool:
-    """Fish S2 Pro で1行を合成する。失敗時は同じ行だけを最大 max_retries 回再試行する。"""
+) -> tuple[bool, int]:
+    """Fish S2 Pro で1行を合成する。失敗時は同じ行だけを最大 max_retries 回再試行する。
+
+    Returns (成否, 実際に行った再試行回数)。
+    """
     total_attempts = max_retries + 1
     attempt = 1
     while True:
@@ -56,13 +60,13 @@ def _synthesize_line_with_retry(
                     "Line %d synthesis succeeded on retry (attempt=%d/%d)",
                     idx, attempt, total_attempts,
                 )
-            return True
+            return True, attempt - 1
         if attempt >= total_attempts:
             logger.error(
                 "Line %d synthesis failed after %d attempt(s), giving up",
                 idx, attempt,
             )
-            return False
+            return False, attempt - 1
         logger.warning(
             "Line %d synthesis failed (attempt=%d/%d), retrying in %.1fs",
             idx, attempt, total_attempts, wait_seconds,
@@ -140,6 +144,8 @@ def synthesize_episode(
     speaker_male: int | str | None = None,
     speaker_female: int | str | None = None,
     tts_engine: str | None = None,
+    episode_id: int | None = None,
+    generation_job_id: int | None = None,
 ) -> int:
     """
     Read script.json from *directory*, generate a WAV for each line,
@@ -148,6 +154,11 @@ def synthesize_episode(
     base_url / speaker_male / speaker_female override the settings values
     (useful for switching between VOICEVOX and AivisSpeech at runtime).
     Fish S2 Pro の場合、speaker_male / speaker_female はボイス名（例: morigawa）。
+
+    episode_id が指定された場合、行単位・工程単位の詳細ログ（BEE-718）を永続化する。
+    episode_id が None の場合はログ記録をスキップし、従来どおりの動作のみ行う
+    （日次自動生成のように generation_job_id を持たない経路にも対応するため
+    episode_id は任意、generation_job_id はさらに任意）。
 
     Returns total number of lines successfully synthesized.
     """
@@ -168,110 +179,170 @@ def synthesize_episode(
         settings.aivispeech_speaker_female if default_engine_is_aivispeech else settings.voicevox_speaker_female
     )
 
+    phase_log_id = log_service.start_phase_log(
+        episode_id, "synthesize", generation_job_id=generation_job_id, tts_engine=engine,
+    ) if episode_id is not None else None
+
     script_path = os.path.join(directory, "script.json")
 
     if not os.path.isfile(script_path):
         logger.error("script.json not found at %s", directory)
+        log_service.finalize_phase_log(
+            phase_log_id, result="failure", line_success_count=0, line_total_count=0,
+            failure_reason="script_missing",
+        )
         return 0
 
-    with open(script_path, "r", encoding="utf-8") as f:
-        script = json.load(f)
-
-    lines = script.get("lines", [])
-    if not lines:
-        logger.warning("No lines in script.json")
-        return 0
-
-    wav_dir = os.path.join(directory, "lines")
-    os.makedirs(wav_dir, exist_ok=True)
-
-    client = FishS2ProClient(
-        effective_base_url,
-        voice_male=effective_speaker_male,
-        voice_female=effective_speaker_female,
-    ) if is_fishs2pro else VoicevoxClient(
-        effective_base_url,
-        speaker_male=effective_speaker_male,
-        speaker_female=effective_speaker_female,
-    )
+    # script.json の読み込み、TTSクライアント初期化を含め、phase log 確定前に
+    # 例外が呼び出し元へ伝播しないよう try/except/finally でまとめて扱う
+    # （壊れたJSON・権限エラー・クライアント初期化失敗も対象）。
+    client = None
     success_count = 0
-    file_counter = 1  # WAV ファイルの通し番号（無音挿入分も含む）
-    prev_section: str | None = None
+    lines: list = []
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            script = json.load(f)
 
-    for idx, line in enumerate(lines, start=1):
-        section = line.get("section", "news")
+        lines = script.get("lines", [])
+        if not lines:
+            logger.warning("No lines in script.json")
+            log_service.finalize_phase_log(
+                phase_log_id, result="failure", line_success_count=0, line_total_count=0,
+                failure_reason="tts_no_lines_succeeded",
+            )
+            return 0
 
-        # transition ブロックの先頭でのみケルト風ジングル（なければ無音）を挿入する。
-        # 記事境界のtransitionは両MCの短い掛け合い（複数行）になりうるため、
-        # ブロック内の2行目以降には挿入せず、境界につき1回に保つ。
-        if section == "transition" and prev_section != "transition":
-            insert_path = os.path.join(wav_dir, f"{file_counter:03d}.wav")
-            transition_wav = settings.jingle_transition_path
-            if transition_wav and os.path.isfile(transition_wav):
-                # 拡張子に関わらず ffmpeg で 24000Hz/mono/s16 に正規化してからコピーする
-                # （shutil.copy2 では元ファイルのサンプリングレートがそのまま使われ、
-                #   VOICEVOX 出力の 24000Hz と不一致になる場合がある）
-                if convert_to_wav(transition_wav, insert_path):
-                    logger.info("ケルトジングルを WAV に変換して挿入: %s", insert_path)
-                    file_counter += 1
+        wav_dir = os.path.join(directory, "lines")
+        os.makedirs(wav_dir, exist_ok=True)
+
+        client = FishS2ProClient(
+            effective_base_url,
+            voice_male=effective_speaker_male,
+            voice_female=effective_speaker_female,
+        ) if is_fishs2pro else VoicevoxClient(
+            effective_base_url,
+            speaker_male=effective_speaker_male,
+            speaker_female=effective_speaker_female,
+        )
+        file_counter = 1  # WAV ファイルの通し番号（無音挿入分も含む）
+        prev_section: str | None = None
+
+        for idx, line in enumerate(lines, start=1):
+            section = line.get("section", "news")
+
+            # transition ブロックの先頭でのみケルト風ジングル（なければ無音）を挿入する。
+            # 記事境界のtransitionは両MCの短い掛け合い（複数行）になりうるため、
+            # ブロック内の2行目以降には挿入せず、境界につき1回に保つ。
+            if section == "transition" and prev_section != "transition":
+                insert_path = os.path.join(wav_dir, f"{file_counter:03d}.wav")
+                transition_wav = settings.jingle_transition_path
+                if transition_wav and os.path.isfile(transition_wav):
+                    # 拡張子に関わらず ffmpeg で 24000Hz/mono/s16 に正規化してからコピーする
+                    # （shutil.copy2 では元ファイルのサンプリングレートがそのまま使われ、
+                    #   VOICEVOX 出力の 24000Hz と不一致になる場合がある）
+                    if convert_to_wav(transition_wav, insert_path):
+                        logger.info("ケルトジングルを WAV に変換して挿入: %s", insert_path)
+                        file_counter += 1
+                    elif _create_silence_wav(insert_path, duration_seconds=1.0):
+                        logger.info("1秒の無音を挿入（ジングル変換失敗）: %s", insert_path)
+                        file_counter += 1
+                    else:
+                        logger.warning("無音挿入スキップ (line %d)", idx)
                 elif _create_silence_wav(insert_path, duration_seconds=1.0):
-                    logger.info("1秒の無音を挿入（ジングル変換失敗）: %s", insert_path)
+                    logger.info("1秒の無音を挿入（ジングル未生成）: %s", insert_path)
                     file_counter += 1
                 else:
                     logger.warning("無音挿入スキップ (line %d)", idx)
-            elif _create_silence_wav(insert_path, duration_seconds=1.0):
-                logger.info("1秒の無音を挿入（ジングル未生成）: %s", insert_path)
-                file_counter += 1
-            else:
-                logger.warning("無音挿入スキップ (line %d)", idx)
 
-        filename = f"{file_counter:03d}.wav"
-        filepath = os.path.join(wav_dir, filename)
+            filename = f"{file_counter:03d}.wav"
+            filepath = os.path.join(wav_dir, filename)
 
-        original_text = line.get("text", "") or ""
-        spoken_text = apply_replacements(original_text)
-        speaker = line.get("speaker", "male")
-        delivery = line.get("delivery", "neutral")
-        # VOICEVOX Engine 使用時は delivery を neutral 固定（安全のため）
-        if not default_engine_is_aivispeech:
-            delivery = "neutral"
+            original_text = line.get("text", "") or ""
+            spoken_text = apply_replacements(original_text)
+            speaker = line.get("speaker", "male")
+            delivery = line.get("delivery", "neutral")
+            # VOICEVOX Engine 使用時は delivery を neutral 固定（安全のため）
+            if not default_engine_is_aivispeech:
+                delivery = "neutral"
 
-        logger.info(
-            "Line %s (speaker=%s, section=%s, delivery=%s): '%s' -> WAV: %s",
-            idx, speaker, section, delivery, original_text[:50], filepath,
-        )
-
-        if is_fishs2pro:
-            ok = _synthesize_line_with_retry(client, spoken_text, speaker, filepath, delivery, idx)
-        else:
-            ok = client.synthesize_line(
-                spoken_text, speaker, filepath, delivery=delivery,
-                kana_text=spoken_text if spoken_text != original_text else None,
+            logger.info(
+                "Line %s (speaker=%s, section=%s, delivery=%s): '%s' -> WAV: %s",
+                idx, speaker, section, delivery, original_text[:50], filepath,
             )
-        if ok and os.path.isfile(filepath):
-            success_count += 1
-            # Store both display and spoken text back into line object
-            line["display_text"] = original_text
-            line["spoken_text"] = spoken_text
-            line["wav_file"] = filename
-        else:
-            logger.error("Failed to synthesize line %d", idx)
 
-        file_counter += 1
-        prev_section = section
+            line_started = time.perf_counter()
+            if is_fishs2pro:
+                ok, retry_count = _synthesize_line_with_retry(client, spoken_text, speaker, filepath, delivery, idx)
+            else:
+                ok = client.synthesize_line(
+                    spoken_text, speaker, filepath, delivery=delivery,
+                    kana_text=spoken_text if spoken_text != original_text else None,
+                )
+                retry_count = 0
+            processing_duration_ms = int((time.perf_counter() - line_started) * 1000)
 
-    # すべての WAV を同一サンプリングレートに正規化（TTS エンジン切替時のレート不一致を解消）
-    _normalize_wavs_to_speech_rate(wav_dir, target_rate=44100 if is_fishs2pro else None)
+            line_succeeded = ok and os.path.isfile(filepath)
+            if line_succeeded:
+                success_count += 1
+                # Store both display and spoken text back into line object
+                line["display_text"] = original_text
+                line["spoken_text"] = spoken_text
+                line["wav_file"] = filename
+                line_failure_reason = None
+            else:
+                logger.error("Failed to synthesize line %d", idx)
+                line_failure_reason = "tts_request_failed" if not ok else "tts_output_missing"
 
-    # Write updated script.json with display/spoken separation
-    script["lines"] = lines
-    # build_episode 側で Fish S2 Pro 限定の無音付与を判定するために使用エンジンを記録する。
-    script["tts_engine"] = engine
-    with open(script_path, "w", encoding="utf-8") as f:
-        json.dump(script, f, ensure_ascii=False, indent=2)
+            speaking_rate = None if is_fishs2pro else (
+                DELIVERY_PARAMS.get(delivery, DELIVERY_PARAMS["neutral"])["speedScale"]
+            )
+            log_service.record_line_log(
+                phase_log_id, episode_id, idx,
+                generation_job_id=generation_job_id,
+                speaker=speaker, section=section, delivery=delivery, tts_engine=engine,
+                synth_result="success" if line_succeeded else "failure",
+                retry_count=retry_count,
+                wav_file=filename if line_succeeded else None,
+                speaking_rate=speaking_rate,
+                processing_duration_ms=processing_duration_ms,
+                failure_reason=line_failure_reason,
+            )
 
-    client.close()
+            file_counter += 1
+            prev_section = section
+
+        # すべての WAV を同一サンプリングレートに正規化（TTS エンジン切替時のレート不一致を解消）
+        _normalize_wavs_to_speech_rate(wav_dir, target_rate=44100 if is_fishs2pro else None)
+
+        # Write updated script.json with display/spoken separation
+        script["lines"] = lines
+        # build_episode 側で Fish S2 Pro 限定の無音付与を判定するために使用エンジンを記録する。
+        script["tts_engine"] = engine
+        with open(script_path, "w", encoding="utf-8") as f:
+            json.dump(script, f, ensure_ascii=False, indent=2)
+    except Exception:
+        log_service.finalize_phase_log(
+            phase_log_id, result="failure",
+            line_success_count=success_count, line_total_count=len(lines),
+            failure_reason="tts_synthesis_exception",
+        )
+        raise
+    finally:
+        # close()自体の例外で、直前のexcept節によるphase log確定（または成功時の
+        # 確定処理）が妨げられないよう、close失敗はここで抑止しログのみ残す。
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                logger.exception("TTSクライアントのcloseに失敗しました")
+
     logger.info("Synthesized %d/%d lines -> %s/lines/", success_count, len(lines), directory)
+    log_service.finalize_phase_log(
+        phase_log_id,
+        result="success" if success_count > 0 else "failure",
+        line_success_count=success_count, line_total_count=len(lines),
+        failure_reason=None if success_count > 0 else "tts_no_lines_succeeded",
+    )
     return success_count
 
 

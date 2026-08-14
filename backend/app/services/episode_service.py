@@ -401,11 +401,14 @@ class EpisodeService:
 
     @retry_on_busy()
     def delete_episode(self, episode_id: int) -> bool:
-        """エピソードと関連するepisode_itemsを削除し、レコードが存在した場合はTrueを返す"""
+        """エピソードと関連するepisode_items・生成詳細ログを削除し、レコードが存在した場合はTrueを返す"""
+        from app.services.generation_log_service import delete_generation_logs_for_episode
+
         with get_db_connection() as conn:
             row = conn.execute("SELECT id FROM episodes WHERE id = ?", (episode_id,)).fetchone()
             if row is None:
                 return False
+            delete_generation_logs_for_episode(conn, episode_id)
             conn.execute("DELETE FROM episode_items WHERE episode_id = ?", (episode_id,))
             conn.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
             return True

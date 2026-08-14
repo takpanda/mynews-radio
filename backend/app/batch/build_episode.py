@@ -11,6 +11,7 @@ from typing import Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.services.ffmpeg_service import combine_wav_files, wav_to_mp3, add_jingles_and_encode
+from app.services import generation_log_service as log_service
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -149,9 +150,14 @@ def _annotate_start_times(
     return opening_offset, opening_path
 
 
-def build_episode(directory: str) -> dict:
+def build_episode(directory: str, episode_id: int | None = None, generation_job_id: int | None = None) -> dict:
     """
     Combine all WAV lines into episode.mp3 and write metadata.json.
+
+    episode_id が指定された場合、WAV結合(wav_combine)とMP3変換(mp3_encode)の
+    工程別詳細ログ（BEE-718）を永続化し、行ごとの開始時刻・無音時間を直近の
+    synthesizeフェーズの行ログへ反映する。episode_id が None の場合はログ記録を
+    スキップし、従来どおりの動作のみ行う。
 
     Returns a dict with metadata (id, title, date, duration_seconds, audio_path, created_at).
     """
@@ -182,37 +188,87 @@ def build_episode(directory: str) -> dict:
     )
 
     # Step 1: Combine all WAVs into one
+    combine_phase_log_id = log_service.start_phase_log(
+        episode_id, "wav_combine", generation_job_id=generation_job_id,
+    ) if episode_id is not None else None
+
     combined_wav = os.path.join(directory, "episode_combined.wav")
     try:
         combine_wav_files(wav_files, combined_wav, silence_before=silence_before)
     except Exception as exc:
         logger.error("WAV combine failed: %s", exc)
+        log_service.finalize_phase_log(
+            combine_phase_log_id, result="failure", failure_reason="wav_combine_failed",
+        )
         return {}
 
-    # Step 1.5: Calculate per-line start_time and write back to script.json
+    # Step 1.5: Calculate per-line start_time and write back to script.json.
+    # 無音時間・開始時刻が実際の結合処理に使用した値と一致して保存されることは
+    # 受入条件そのものであり、計算・保存のどちらが失敗しても生成失敗として扱い、
+    # wav_combine工程ログもfailureで確定する（工程固有の失敗ではないため、
+    # 承認済みの build_exception を失敗理由として使う）。
     try:
         _annotate_start_times(script, wav_dir, wav_files, settings, silence_before=silence_before)
         with open(script_path, "w", encoding="utf-8") as f:
             json.dump(script, f, ensure_ascii=False, indent=2)
+
+        timing_saved = True
+        if episode_id is not None:
+            synth_phase_log_id = log_service.latest_phase_log_id(episode_id, "synthesize")
+            silence_by_wav_file = {
+                os.path.basename(p): silence_before[i]
+                for i, p in enumerate(wav_files)
+            } if silence_before is not None else {}
+            for idx, line in enumerate(script.get("lines", []), start=1):
+                wav_file = line.get("wav_file")
+                if wav_file and "start_time" in line:
+                    saved = log_service.update_line_timing(
+                        episode_id, synth_phase_log_id, idx,
+                        start_time_sec=line["start_time"],
+                        silence_before_sec=silence_by_wav_file.get(wav_file),
+                    )
+                    timing_saved = timing_saved and saved
+        if not timing_saved:
+            raise RuntimeError("行タイミングのログ保存に失敗しました")
     except Exception as exc:
-        logger.warning("start_time の計算に失敗しました（スキップ）: %s", exc)
+        logger.error("start_time の計算または保存に失敗しました: %s", exc)
+        log_service.finalize_phase_log(
+            combine_phase_log_id, result="failure", failure_reason="build_exception",
+        )
+        return {}
+
+    log_service.finalize_phase_log(combine_phase_log_id, result="success")
 
     # Step 2: MP3 encode（ジングルがあれば前後に追加）
     opening_jingle, ending_jingle = jingle_paths_for_title(script, settings)
 
+    mp3_phase_log_id = log_service.start_phase_log(
+        episode_id, "mp3_encode", generation_job_id=generation_job_id,
+    ) if episode_id is not None else None
+
     mp3_path = os.path.join(directory, "episode.mp3")
-    result = add_jingles_and_encode(
-        main_wav_path=combined_wav,
-        output_mp3_path=mp3_path,
-        opening_path=opening_jingle,
-        ending_path=ending_jingle,
-        jingle_duration=settings.jingle_duration,
-        fade_duration=settings.jingle_fade_duration,
-        bitrate="128k",
-    )
+    try:
+        result = add_jingles_and_encode(
+            main_wav_path=combined_wav,
+            output_mp3_path=mp3_path,
+            opening_path=opening_jingle,
+            ending_path=ending_jingle,
+            jingle_duration=settings.jingle_duration,
+            fade_duration=settings.jingle_fade_duration,
+            bitrate="128k",
+        )
+    except Exception:
+        log_service.finalize_phase_log(
+            mp3_phase_log_id, result="failure", failure_reason="mp3_encode_failed",
+        )
+        raise
     if result is None:
         logger.error("wav_to_mp3 returned None for %s", combined_wav)
+        log_service.finalize_phase_log(
+            mp3_phase_log_id, result="failure", failure_reason="mp3_encode_failed",
+        )
         return {}
+    log_service.finalize_phase_log(mp3_phase_log_id, result="success")
 
     duration, _ = result
 

@@ -93,7 +93,7 @@ def test_radio_pipeline_persists_applied_settings(monkeypatch, tmp_path):
     monkeypatch.setattr(
         radio_pipeline,
         "build_episode",
-        lambda _: {"audio_path": "episode.mp3", "duration_seconds": 90.0},
+        lambda *_args, **_kwargs: {"audio_path": "episode.mp3", "duration_seconds": 90.0},
     )
 
     result = radio_pipeline.run_radio_pipeline(

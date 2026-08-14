@@ -44,7 +44,7 @@ def test_run_daily_propagates_configured_provider_to_every_generation_stage(
     monkeypatch.setattr(radio_pipeline, "generate_script", generate_script)
     monkeypatch.setattr(radio_pipeline, "review_script", review_script)
     monkeypatch.setattr(radio_pipeline, "synthesize_episode", lambda *_args, **_kwargs: 1)
-    monkeypatch.setattr(radio_pipeline, "build_episode", lambda _: {"audio_path": "episode.mp3"})
+    monkeypatch.setattr(radio_pipeline, "build_episode", lambda *_args, **_kwargs: {"audio_path": "episode.mp3"})
     monkeypatch.setattr(run_daily, "setup_daily_logging", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(run_daily, "cleanup_episodes", lambda: {})
     monkeypatch.setattr(run_daily.EpisodeService, "create_radio_episode", lambda *_args, **_kwargs: (episode_id, 0))

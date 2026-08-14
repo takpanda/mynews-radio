@@ -159,14 +159,14 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
 
         # Step 5: synthesize_voicevox
         logger.info("=== Step 5/5: synthesize_voicevox ===")
-        wave_count = synthesize_episode(episode_dir)
+        wave_count = synthesize_episode(episode_dir, episode_id=episode_id)
         logger.info("synthesize_voicevox completed: lines=%d", wave_count)
         if wave_count == 0:
             raise RuntimeError("synthesize_voicevox produced no WAV files")
 
         # Step 5: build_episode
         logger.info("=== Step 5/5: build_episode (episode) ===")
-        metadata = build_episode(episode_dir)
+        metadata = build_episode(episode_dir, episode_id=episode_id)
         if not metadata:
             raise RuntimeError("build_episode returned empty metadata")
 

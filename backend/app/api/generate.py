@@ -43,6 +43,25 @@ def _resolve_tts_engine(request_engine: str | None, default_engine: str) -> str:
     return request_engine if request_engine in TTS_ENGINES else default_engine
 
 
+def _active_generation_job_id(episode_id: int) -> int | None:
+    """episode_idに紐づく直近の生成ジョブIDを返す（詳細ログ(BEE-718)のgeneration_job_id用、best-effort）。
+
+    pipeline呼び出し口(_run_pipeline_with_audit等)はテストから2引数の
+    差し替え関数(monkeypatch)で置き換えられるため、job_idをpipelineの
+    シグネチャへ引数として追加せず、ここでDBから引き直す。
+    """
+    try:
+        with get_db_connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM generation_jobs WHERE episode_id = ? ORDER BY id DESC LIMIT 1",
+                (episode_id,),
+            ).fetchone()
+            return row["id"] if row else None
+    except Exception:
+        logger.exception("generation_job_idの取得に失敗しました episode_id=%d", episode_id)
+        return None
+
+
 def _get_generate_rate_limit() -> str:
     return get_settings().generate_rate_limit
 
@@ -175,6 +194,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
         progress_callback=_progress,
         llm_provider=llm.name,
         llm_model=llm.model,
+        generation_job_id=_active_generation_job_id(episode_id),
     )
 
     if result is None:
@@ -294,12 +314,15 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         # -- SYNTHESIZE TTS --
         service.update_episode_phase(episode_id, "synthesize", "音声を合成しています…")
         try:
+            job_id = _active_generation_job_id(episode_id)
             success_count = synthesize_episode(
                 base_dir,
                 base_url=tts_base_url,
                 speaker_male=tts_speaker_male,
                 speaker_female=tts_speaker_female,
                 tts_engine=tts_engine,
+                episode_id=episode_id,
+                generation_job_id=job_id,
             )
         except Exception as exc:
             logger.exception("tts synthesis failed")
@@ -312,7 +335,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
 
         # -- BUILD MP3 --
         service.update_episode_phase(episode_id, "build", "音声をまとめています…")
-        ep_metadata = build_episode(base_dir)
+        ep_metadata = build_episode(base_dir, episode_id=episode_id, generation_job_id=job_id)
         if not ep_metadata:
             service.update_episode_status(episode_id, "failed")
             return
@@ -509,6 +532,7 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
     service.update_episode_status(episode_id, "generating")
 
     yield _format_sse("progress", _build_progress_payload("synthesize", f"音声を合成しています... ({tts_engine_label})", engine=tts_engine))
+    job_id = _active_generation_job_id(episode_id)
     try:
         success_count = synthesize_episode(
             base_dir,
@@ -516,6 +540,8 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
             speaker_male=tts_speaker_male,
             speaker_female=tts_speaker_female,
             tts_engine=tts_engine,
+            episode_id=episode_id,
+            generation_job_id=job_id,
         )
     except Exception as exc:
         logger.exception("tts synthesis failed for episode %d", episode_id)
@@ -535,7 +561,7 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
         return
 
     yield _format_sse("progress", _build_progress_payload("build", "音声ファイルを統合しています..."))
-    ep_metadata = build_episode(base_dir)
+    ep_metadata = build_episode(base_dir, episode_id=episode_id, generation_job_id=job_id)
     if not ep_metadata:
         service.update_episode_status(episode_id, "failed")
         yield _format_sse("error", _build_error_payload("音声の統合に失敗しました", status="build_error"))
