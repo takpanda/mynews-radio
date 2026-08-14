@@ -271,6 +271,7 @@ Irodori-TTS（OpenAI 互換 API）も利用可能です。詳細は `backend/app
 | POST | `/generate` | エピソード生成（SSE で進捗ストリーミング）※管理者セッション認証・利用上限・冪等性対象（下記参照） |
 | POST | `/episodes/:id/synthesize` | エピソード音声合成 ※管理者セッション認証・利用上限・冪等性対象（下記参照） |
 | GET | `/admin/audit-logs` | 生成監査ログ取得 ※管理者セッション必須（直近100件。`limit` で1〜500件指定可） |
+| GET | `/admin/episodes/:id/logs` | エピソードの監査・工程・行詳細ログ取得 ※管理者セッション必須。契約は `docs/admin-episode-logs-api.md` を参照 |
 | GET | `/push/vapid-public-key` | VAPID公開鍵取得。未設定時は503を返す |
 | POST | `/push/subscriptions` | Web Push購読登録。endpoint(p256dh,auth)を受付け、解除専用の不透明な `subscription_id` を返す（冪等、レート制限対象）。バリデーションエラー時は `{"detail": "Invalid push subscription"}` |
 | DELETE | `/push/subscriptions/:subscription_id` | 不透明な `subscription_id` による購読解除（未登録でも冪等に204、レート制限対象） |
