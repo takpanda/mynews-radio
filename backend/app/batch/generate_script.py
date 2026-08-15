@@ -546,7 +546,7 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                 block_start = len(result)
                 while block_start > 0 and result[block_start - 1].get("section") == "transition":
                     block_start -= 1
-                if any(_is_broken_transition_text(l.get("text", "")) for l in result[block_start:]):
+                if any(_is_broken_transition_text(line.get("text", "")) for line in result[block_start:]):
                     removed = result[block_start:]
                     del result[block_start:]
                     for r in removed:

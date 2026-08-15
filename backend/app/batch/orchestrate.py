@@ -10,7 +10,6 @@ Intermediate artifacts are preserved on error.
 If articles.json does not exist, a WARNING is logged and processing stops (status remains unchanged).
 """
 
-import json
 import logging
 import os
 import shutil
@@ -20,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.db.connection import get_db_connection
-from app.batch.import_articles import import_articles, import_articles_by_source
+from app.batch.import_articles import import_articles_by_source
 from app.batch.summarize_articles import summarize_articles
 from app.batch.generate_script import generate_script
 from app.batch.review_script import review_script
@@ -196,7 +195,7 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
         # Exit code 0 is success; fall through to the next step
         raise
 
-    except Exception as exc:
+    except Exception:
         logger.exception("Orchestration failed at an intermediate step — setting status=failed")
         _set_episode_status(episode_id, "failed")
         _notify_failure("batch", "番組生成に失敗しました")

@@ -139,7 +139,6 @@ def sync_user_dictionary(body: DictionarySyncRequest) -> dict:
                 details.append(_detail(row["id"], surface, "skipped", "same_reading"))
                 continue
             if body.dry_run:
-                status = "pending" if existing else "pending"
                 counts["skipped"] += 1
                 details.append(_detail(row["id"], surface, "pending", "remote_exists" if existing else "not_found", reading=reading))
                 continue

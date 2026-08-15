@@ -175,7 +175,7 @@ def run_radio_pipeline(
         try:
             ins, dup = import_articles_by_source(news_source)
             logger.info("RSS import done: inserted=%d duplicated=%d", ins, dup)
-        except Exception as exc:
+        except Exception:
             logger.exception("RSS import failed")
             _fail("import", "ニュース記事の取得に失敗しました")
             return None
@@ -192,7 +192,7 @@ def run_radio_pipeline(
                 summaries_path, llm_provider=llm.name, llm_model=llm.model,
             )
             logger.info("summarize done: count=%d", summarized)
-        except Exception as exc:
+        except Exception:
             logger.exception("summarize failed")
             _fail("summarize", "記事の要約に失敗しました")
             return None
@@ -294,7 +294,7 @@ def run_radio_pipeline(
                 episode_id=episode_id,
                 generation_job_id=generation_job_id,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("tts synthesis failed")
             _fail("synthesize", "音声合成に失敗しました")
             return None
@@ -350,7 +350,7 @@ def run_radio_pipeline(
 
         return ep_metadata
 
-    except Exception as exc:
+    except Exception:
         if service is not None:
             current = service.get_episode(episode_id)
             current_status = current["status"] if current else None

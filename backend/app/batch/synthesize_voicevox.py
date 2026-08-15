@@ -5,7 +5,6 @@ import sys
 import time
 import wave
 import logging
-from pathlib import Path
 
 # Ensure the backend root is on sys.path so `app.config` resolves.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
