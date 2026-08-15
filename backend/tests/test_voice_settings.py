@@ -221,9 +221,10 @@ class TestVoiceSettingsApi:
         assert saved.json() == payload
         assert client.get("/settings/voices").json() == payload
 
-    def test_put_rejects_string_speaker_id(self, client):
+    @pytest.mark.parametrize("invalid_speaker_id", ["1", 1.0, "not-a-number"])
+    def test_put_rejects_non_json_integer_speaker_id(self, client, invalid_speaker_id):
         resp = client.put("/settings/voices", json={
-            "aivispeech_speaker_male": "not-a-number", "aivispeech_speaker_female": 2,
+            "aivispeech_speaker_male": invalid_speaker_id, "aivispeech_speaker_female": 2,
             "voicevox_speaker_male": 11, "voicevox_speaker_female": 22,
             "fishs2pro_voice_male": "male", "fishs2pro_voice_female": "morigawa",
         })
@@ -350,6 +351,42 @@ class TestVoiceOptionsApi:
         assert "secret" not in (data["voicevox"]["error"] or "")
         assert "token" not in (data["voicevox"]["error"] or "")
         assert data["fishs2pro"]["status"] == "ok"
+
+    @pytest.mark.parametrize(
+        ("broken_speakers", "broken_voices", "failed_engine"),
+        [
+            ([None], ["male"], "aivispeech"),
+            ([{"speaker_name": "s", "style_name": "st", "value": 1}], [None], "fishs2pro"),
+        ],
+    )
+    def test_malformed_success_response_only_fails_its_engine(
+        self, client, monkeypatch, broken_speakers, broken_voices, failed_engine
+    ):
+        from app.api import settings as settings_api
+
+        calls = {"count": 0}
+
+        def speakers(self):
+            calls["count"] += 1
+            return broken_speakers if calls["count"] == 1 else [
+                {"speaker_name": "s", "style_name": "st", "value": 1}
+            ]
+
+        monkeypatch.setattr(settings_api.VoicevoxClient, "list_speakers", speakers)
+        monkeypatch.setattr(settings_api.VoicevoxClient, "close", lambda self: None)
+        monkeypatch.setattr(settings_api.FishS2ProClient, "list_voices", lambda self: broken_voices)
+        monkeypatch.setattr(settings_api.FishS2ProClient, "close", lambda self: None)
+
+        response = client.get("/settings/voices/options")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data[failed_engine]["status"] == "error"
+        assert data[failed_engine]["options"] == []
+        assert all(
+            data[engine]["status"] == "ok"
+            for engine in {"aivispeech", "voicevox", "fishs2pro"} - {failed_engine}
+        )
 
     def test_options_requires_authentication(self):
         from app.main import app

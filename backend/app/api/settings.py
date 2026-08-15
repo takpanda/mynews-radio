@@ -109,8 +109,10 @@ class VoiceSettingsPayload(BaseModel):
         mode="before",
     )
     @classmethod
-    def reject_bool_speaker_id(cls, value: object) -> object:
-        if isinstance(value, bool):
+    def require_json_integer_speaker_id(cls, value: object) -> object:
+        # Pydantic の通常の int は文字列数値・float を変換して受理するため、
+        # API 契約どおり JSON の整数値だけを許可する。
+        if type(value) is not int:
             raise ValueError("must be an integer speaker id")
         return value
 
@@ -170,14 +172,7 @@ def _fetch_speaker_style_options(base_url: str) -> EngineVoiceOptions:
     client = VoicevoxClient(base_url)
     try:
         speakers = client.list_speakers()
-    except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
-        logger.warning("話者一覧の取得に失敗しました: %s", type(exc).__name__)
-        return EngineVoiceOptions(status="error", options=[], error=_VOICE_LIST_FAILURE_MESSAGE)
-    finally:
-        client.close()
-    return EngineVoiceOptions(
-        status="ok",
-        options=[
+        options = [
             VoiceOption(
                 display_name=f"{item['speaker_name']} - {item['style_name']}",
                 value=item["value"],
@@ -185,23 +180,26 @@ def _fetch_speaker_style_options(base_url: str) -> EngineVoiceOptions:
                 style_name=item["style_name"],
             )
             for item in speakers
-        ],
-    )
+        ]
+    except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
+        logger.warning("話者一覧の取得に失敗しました: %s", type(exc).__name__)
+        return EngineVoiceOptions(status="error", options=[], error=_VOICE_LIST_FAILURE_MESSAGE)
+    finally:
+        client.close()
+    return EngineVoiceOptions(status="ok", options=options)
 
 
 def _fetch_fishs2pro_options(base_url: str) -> EngineVoiceOptions:
     client = FishS2ProClient(base_url)
     try:
         voices = client.list_voices()
+        options = [VoiceOption(display_name=voice, value=voice) for voice in voices]
     except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
         logger.warning("Fish S2 Pro のボイス一覧取得に失敗しました: %s", type(exc).__name__)
         return EngineVoiceOptions(status="error", options=[], error=_VOICE_LIST_FAILURE_MESSAGE)
     finally:
         client.close()
-    return EngineVoiceOptions(
-        status="ok",
-        options=[VoiceOption(display_name=voice, value=voice) for voice in voices],
-    )
+    return EngineVoiceOptions(status="ok", options=options)
 
 
 @router.get(
