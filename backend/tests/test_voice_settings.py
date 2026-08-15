@@ -109,6 +109,29 @@ class TestVoiceSettingsPersistence:
 
         assert settings_service.get_voice_settings_or_default().to_dict() == _config_defaults()
 
+    def test_get_falls_back_when_stored_value_is_corrupt(self, monkeypatch, tmp_path):
+        """カラムの値が破損（型不正）している場合も、config.py既定値で生成を継続できる。"""
+        db_path = tmp_path / "corrupt.db"
+
+        class FakeSettings:
+            database_url = f"sqlite:///{db_path}"
+
+        from app.db import connection
+        monkeypatch.setattr(connection, "get_settings", lambda: FakeSettings)
+        schema_path = Path(__file__).parents[1] / "app" / "db" / "schema.sql"
+        with connection.get_db_connection() as conn:
+            conn.executescript(schema_path.read_text(encoding="utf-8"))
+            conn.execute(
+                "INSERT INTO user_settings (id, priority_themes, excluded_themes, duration_preset, "
+                "aivispeech_speaker_male, aivispeech_speaker_female, "
+                "voicevox_speaker_male, voicevox_speaker_female, "
+                "fishs2pro_voice_male, fishs2pro_voice_female, updated_at) "
+                "VALUES (1, '[]', '[]', 'normal', 'not-a-number', 2, 11, 22, "
+                "'male', 'morigawa', CURRENT_TIMESTAMP)"
+            )
+
+        assert settings_service.get_voice_settings_or_default().to_dict() == _config_defaults()
+
     def test_save_and_get_round_trip(self, monkeypatch, tmp_path):
         db_path = tmp_path / "voices.db"
 
