@@ -5,6 +5,7 @@ from app.db.connection import get_db_connection
 
 
 def _login(client):
+    client.cookies.clear()
     with get_db_connection() as conn:
         conn.execute(
             "INSERT INTO admin_users (username, password_hash) VALUES (?, ?)",
@@ -146,6 +147,7 @@ def test_commentary_generation_records_success_and_failure_audit(client, monkeyp
     monkeypatch.setattr(generate_api, "_run_commentary_generation", fake_success)
     success = client.post("/generate", json={"date": "2099-01-05", "url": "https://example.com/success"})
     assert success.status_code == 200
+    _wait_for_audit_count("commentary", 2)
 
     def fake_failure(episode_id, _body):
         EpisodeService().update_episode_status(episode_id, "failed")
