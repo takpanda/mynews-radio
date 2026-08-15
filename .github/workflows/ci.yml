@@ -15,6 +15,12 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    env:
+      # 既定の OLLAMA_BASE_URL は開発者宅内 LAN 上の実機 (192.168.1.102) を指しており、
+      # GitHub Actions ランナーからは到達不能で接続が黒穴化し ETIMEDOUT まで数分ブロックする。
+      # 未モック経路がこのURLへ到達した場合でも、CI では即座に ECONNREFUSED で失敗する
+      # ループバックアドレスに差し替え、アプリ側の非致命扱いフォールバックで安全に継続させる。
+      OLLAMA_BASE_URL: http://127.0.0.1:11434
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -22,12 +22,17 @@ class TestConfigDefaults:
         settings = Settings()
         assert settings.dgx_host == "192.168.1.102"
 
-    def test_ollama_base_url_default_is_192_168_1_102(self):
+    def test_ollama_base_url_default_is_192_168_1_102(self, monkeypatch):
+        # CI は実LAN上のOllamaへ到達できずタイムアウトするため OLLAMA_BASE_URL を
+        # ループバックへ上書きしている。既定値そのものの検証はその上書きの影響を受けない
+        # よう、この環境変数を明示的に取り除いてから Settings() を評価する。
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
         from app.config import Settings
         settings = Settings()
         assert settings.ollama_base_url == "http://192.168.1.102:11434"
 
-    def test_ollama_base_url_matches_dgx_host(self):
+    def test_ollama_base_url_matches_dgx_host(self, monkeypatch):
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
         from app.config import Settings
         settings = Settings()
         expected = f"http://{settings.dgx_host}:11434"
@@ -477,10 +482,13 @@ class TestCronMinimalEnvironment:
 class TestManualExecutionPreserved:
     """明示的な環境変数を指定した実行（cron以外の手動実行）が影響を受けないこと"""
 
-    def test_explicit_env_still_works(self):
+    def test_explicit_env_still_works(self, monkeypatch):
         from app.config import get_settings
         from app.config import Settings
 
+        # CI が設定する OLLAMA_BASE_URL のループバック上書き（本ファイル冒頭の説明を参照）の
+        # 影響を受けないよう、既定値の確認前に一旦取り除く。
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
         settings = Settings()
         assert settings.ollama_base_url == "http://192.168.1.102:11434"
 
