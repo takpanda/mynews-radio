@@ -39,7 +39,10 @@ def test_radio_completion_enqueues_one_outbox_event_in_same_transaction():
     assert episode["status"] == "completed"
     assert len(outbox) == 1
     assert outbox[0]["event_type"] == "daily_radio_completed"
-    assert json.loads(outbox[0]["payload"]) == {"url": f"/episodes/{episode_id}"}
+    assert json.loads(outbox[0]["payload"]) == {
+        "url": f"/episodes/{episode_id}",
+        "body": "番組の生成が完了しました",
+    }
     assert len(deliveries) == 1
 
 
@@ -118,7 +121,10 @@ def test_delivery_success_and_payload_does_not_include_article_title(monkeypatch
         stats = deliver_notifications.run_once()
 
     send.assert_called_once()
-    assert send.call_args.args[0].payload == {"url": f"/episodes/{episode_id}"}
+    assert send.call_args.args[0].payload == {
+        "url": f"/episodes/{episode_id}",
+        "body": "番組の生成が完了しました",
+    }
     assert stats["success"] == 1
     with get_db_connection() as conn:
         assert conn.execute("SELECT status FROM notification_deliveries").fetchone()["status"] == "sent"
