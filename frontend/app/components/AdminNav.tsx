@@ -15,6 +15,7 @@ export default function AdminNav() {
       <span className="font-semibold">管理</span>
       <Link href="/admin/dictionary">辞書管理</Link>
       <Link href="/admin/misreading-reports">読み間違い報告</Link>
+      <Link href="/admin/settings/voice">ボイス設定</Link>
       <Link className="ml-auto" href="/">公開サイトへ</Link>
       <button type="button" onClick={logout}>ログアウト</button>
     </nav>
