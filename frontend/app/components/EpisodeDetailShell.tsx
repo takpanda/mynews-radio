@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState, useMemo, useCallback } from 'react'
+import Link from 'next/link'
 import type { Script, ScriptLine, Article, EpisodeItem } from '../lib/api'
 import { buildChapters } from '../lib/chapters'
 import {
@@ -85,7 +86,17 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
     <div className="space-y-6">
       {/* エピソード概要 */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <p className="text-xs text-slate-400">エピソード ・ {episode.dateLabel}{episode.generatedAtLabel ? ` ・ 生成 ${episode.generatedAtLabel}` : ''}</p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <p className="text-xs text-slate-400">エピソード ・ {episode.dateLabel}{episode.generatedAtLabel ? ` ・ 生成 ${episode.generatedAtLabel}` : ''}</p>
+          {isAuthenticated && (
+            <Link
+              href={`/admin/episodes/${episode.id}/logs`}
+              className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-500 transition hover:border-slate-300 hover:text-slate-800"
+            >
+              生成詳細ログ
+            </Link>
+          )}
+        </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
           <h1 className="text-lg font-semibold leading-snug text-slate-900 sm:text-xl">
             {title}

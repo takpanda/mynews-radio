@@ -279,3 +279,47 @@ describe('EpisodeDetailShell sourceUrl 全文表示防止', () => {
     expect(screen.queryByText(sourceUrl)).not.toBeInTheDocument()
   })
 })
+
+describe('EpisodeDetailShell 生成詳細ログへの導線', () => {
+  it('isAuthenticatedがtrueの場合、対象エピソードの管理ログページへのリンクを表示する', () => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ id: 42 })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+        isAuthenticated
+      />
+    )
+    const link = screen.getByRole('link', { name: '生成詳細ログ' })
+    expect(link).toHaveAttribute('href', '/admin/episodes/42/logs')
+  })
+
+  it('isAuthenticatedがfalseの場合、リンクを表示しない', () => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode()}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+        isAuthenticated={false}
+      />
+    )
+    expect(screen.queryByRole('link', { name: '生成詳細ログ' })).not.toBeInTheDocument()
+  })
+
+  it('isAuthenticatedを省略した場合(デフォルトfalse)、リンクを表示しない', () => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode()}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.queryByRole('link', { name: '生成詳細ログ' })).not.toBeInTheDocument()
+  })
+})
