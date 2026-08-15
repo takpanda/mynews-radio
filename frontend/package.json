@@ -10,7 +10,8 @@
     "dev": "next dev -H 0.0.0.0 -p 3010",
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 3010",
-    "test": "jest"
+    "test": "jest",
+    "lint": "next lint"
   },
   "dependencies": {
     "next": "14.2.14",
@@ -28,6 +29,8 @@
     "@types/react": "19.2.15",
     "@types/react-dom": "^19.2.3",
     "autoprefixer": "^10",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.14",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
     "postcss": "^8",
