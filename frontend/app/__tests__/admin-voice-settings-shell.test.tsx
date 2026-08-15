@@ -128,7 +128,7 @@ describe('AdminVoiceSettingsShell', () => {
     render(<AdminVoiceSettingsShell initialSettings={sampleSettings} initialOptions={partial} />)
 
     expect(screen.getByText('話者一覧を取得できませんでした')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'VOICEVOXの一覧を再試行' })).toBeInTheDocument()
 
     const aivisSelect = screen.getByDisplayValue('阿井田 茂 - ノーマル') as HTMLSelectElement
     expect(aivisSelect).not.toBeDisabled()
@@ -143,6 +143,22 @@ describe('AdminVoiceSettingsShell', () => {
     expect(voicevoxSelect).toBeDisabled()
   })
 
+  it('一覧取得の一部失敗：保存ボタンが無効化され、保存APIは呼ばれない', async () => {
+    const partial = clone(sampleOptions)
+    partial.voicevox = { status: 'error', options: [], error: '話者一覧を取得できませんでした' }
+    const user = userEvent.setup()
+    render(<AdminVoiceSettingsShell initialSettings={sampleSettings} initialOptions={partial} />)
+
+    const saveButton = screen.getByRole('button', { name: '保存' })
+    expect(saveButton).toBeDisabled()
+    expect(
+      screen.getByText('一覧が未取得、または現在の値が最新の一覧にないエンジンがあるため保存できません。各エンジンの表示を確認してください。'),
+    ).toBeInTheDocument()
+
+    await user.click(saveButton)
+    expect(mockSave).not.toHaveBeenCalled()
+  })
+
   it('再試行成功：一覧が再取得されエラー表示が消える', async () => {
     const partial = clone(sampleOptions)
     partial.voicevox = { status: 'error', options: [], error: '話者一覧を取得できませんでした' }
@@ -150,7 +166,7 @@ describe('AdminVoiceSettingsShell', () => {
     const user = userEvent.setup()
     render(<AdminVoiceSettingsShell initialSettings={sampleSettings} initialOptions={partial} />)
 
-    await user.click(screen.getByRole('button', { name: '再試行' }))
+    await user.click(screen.getByRole('button', { name: 'VOICEVOXの一覧を再試行' }))
 
     await waitFor(() => {
       expect(screen.queryByText('話者一覧を取得できませんでした')).not.toBeInTheDocument()
@@ -165,5 +181,17 @@ describe('AdminVoiceSettingsShell', () => {
     const select = screen.getByDisplayValue('999（一覧にありません）') as HTMLSelectElement
     expect(select.value).toBe('999')
     expect(screen.getByText('現在の値は最新の一覧にありません')).toBeInTheDocument()
+  })
+
+  it('現在値欠落：保存ボタンが無効化され、保存APIは呼ばれない', async () => {
+    const settingsWithStale: VoiceSettings = { ...sampleSettings, voicevox_speaker_male: 999 }
+    const user = userEvent.setup()
+    render(<AdminVoiceSettingsShell initialSettings={settingsWithStale} initialOptions={sampleOptions} />)
+
+    const saveButton = screen.getByRole('button', { name: '保存' })
+    expect(saveButton).toBeDisabled()
+
+    await user.click(saveButton)
+    expect(mockSave).not.toHaveBeenCalled()
   })
 })

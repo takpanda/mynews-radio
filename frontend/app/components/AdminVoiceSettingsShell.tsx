@@ -26,6 +26,30 @@ function findOption(engineOptions: EngineVoiceOptions, value: number | string): 
   return engineOptions.options.find((opt) => String(opt.value) === String(value))
 }
 
+function isValueIncomplete(value: number | string): boolean {
+  return (
+    value === null ||
+    value === undefined ||
+    value === '' ||
+    (typeof value === 'number' && Number.isNaN(value))
+  )
+}
+
+/** 一覧取得が失敗中、または現在値が空／最新一覧に存在しないエンジンは保存対象にできない */
+function engineHasUnsavableValue(
+  engineKey: VoiceEngineKey,
+  settings: VoiceSettings,
+  options: VoiceOptionsResponse,
+): boolean {
+  const engineOptions = options[engineKey]
+  if (engineOptions.status === 'error') return true
+  return GENDERS.some((gender) => {
+    const value = settings[VOICE_FIELD_MAP[engineKey][gender]]
+    if (isValueIncomplete(value)) return true
+    return !findOption(engineOptions, value)
+  })
+}
+
 export default function AdminVoiceSettingsShell({ initialSettings, initialOptions }: Props) {
   const [settings, setSettings] = useState<VoiceSettings>(initialSettings)
   const [options, setOptions] = useState<VoiceOptionsResponse>(initialOptions)
@@ -58,8 +82,12 @@ export default function AdminVoiceSettingsShell({ initialSettings, initialOption
     }
   }
 
+  const hasUnsavableValues = VOICE_ENGINES.some((engine) =>
+    engineHasUnsavableValue(engine.key, settings, options),
+  )
+
   const handleSave = async () => {
-    if (saving) return
+    if (saving || hasUnsavableValues) return
     setSaving(true)
     setSaveError(null)
     setSaveSuccess(false)
@@ -74,25 +102,15 @@ export default function AdminVoiceSettingsShell({ initialSettings, initialOption
     }
   }
 
-  const hasIncompleteValues = VOICE_ENGINES.some((engine) =>
-    GENDERS.some((gender) => {
-      const value = settings[VOICE_FIELD_MAP[engine.key][gender]]
-      return (
-        value === null ||
-        value === undefined ||
-        value === '' ||
-        (typeof value === 'number' && Number.isNaN(value))
-      )
-    }),
-  )
-
   const statusMessage = saving
     ? '保存中…'
     : saveError
       ? saveError
       : saveSuccess
         ? '保存しました。保存後に開始する生成から反映されます。'
-        : '保存後に開始する生成から反映されます。'
+        : hasUnsavableValues
+          ? '一覧が未取得、または現在の値が最新の一覧にないエンジンがあるため保存できません。各エンジンの表示を確認してください。'
+          : '保存後に開始する生成から反映されます。'
 
   return (
     <div className="space-y-5">
@@ -117,6 +135,7 @@ export default function AdminVoiceSettingsShell({ initialSettings, initialOption
                     type="button"
                     onClick={() => handleRetry(engine.key)}
                     disabled={isRetrying}
+                    aria-label={isRetrying ? `${engine.label}の一覧を再試行中` : `${engine.label}の一覧を再試行`}
                     className="shrink-0 rounded-md border border-rose-200 bg-white px-2 py-1 text-xs text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {isRetrying ? '再試行中…' : '再試行'}
@@ -124,7 +143,7 @@ export default function AdminVoiceSettingsShell({ initialSettings, initialOption
                 )}
               </div>
               {isError && (
-                <p className="mt-1 text-xs text-rose-600">
+                <p id={`voice-${engine.key}-error`} role="alert" className="mt-1 text-xs text-rose-600">
                   {engineOptions.error ?? '話者一覧を取得できませんでした'}
                 </p>
               )}
@@ -135,6 +154,11 @@ export default function AdminVoiceSettingsShell({ initialSettings, initialOption
                   const matched = !isError ? findOption(engineOptions, currentValue) : undefined
                   const missing = !isError && !matched
                   const selectId = `voice-${engine.key}-${gender}`
+                  const missingId = `${selectId}-missing`
+                  const describedBy =
+                    [isError ? `voice-${engine.key}-error` : null, missing ? missingId : null]
+                      .filter(Boolean)
+                      .join(' ') || undefined
                   return (
                     <div key={selectId}>
                       <label htmlFor={selectId} className="block text-xs font-medium text-slate-700">
@@ -145,6 +169,8 @@ export default function AdminVoiceSettingsShell({ initialSettings, initialOption
                         value={String(currentValue)}
                         disabled={isError || saving}
                         onChange={(e) => handleChange(engine.key, gender, e.target.value)}
+                        aria-label={`${engine.label} ${GENDER_LABEL[gender]}`}
+                        aria-describedby={describedBy}
                         className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                       >
                         {(missing || isError) && (
@@ -161,7 +187,7 @@ export default function AdminVoiceSettingsShell({ initialSettings, initialOption
                           ))}
                       </select>
                       {missing && (
-                        <p className="mt-1 text-xs text-amber-600">現在の値は最新の一覧にありません</p>
+                        <p id={missingId} className="mt-1 text-xs text-amber-600">現在の値は最新の一覧にありません</p>
                       )}
                     </div>
                   )
@@ -177,7 +203,7 @@ export default function AdminVoiceSettingsShell({ initialSettings, initialOption
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving || hasIncompleteValues}
+            disabled={saving || hasUnsavableValues}
             className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? '保存中…' : '保存'}
