@@ -134,6 +134,30 @@ describe('AdminEpisodeLogsShell 行単位の詳細', () => {
     expect(screen.getByText(/失敗理由: tts_request_failed/)).toBeInTheDocument()
   })
 
+  it('wav_fileがAPI応答に含まれていても画面に表示しない', () => {
+    const leakedPath = '/private/audio/output-001.wav'
+    const data = baseData({
+      timeline: [{
+        source: 'phase', source_id: 10, generation_job_id: 1, operation: null,
+        phase: 'synthesize', attempt_no: 1, result: 'success',
+        occurred_at: '2026-08-14T10:00:00+00:00', started_at: '2026-08-14T10:00:00+00:00',
+        ended_at: '2026-08-14T10:00:05+00:00', duration_ms: 5000, reason: null,
+        tts_engine: 'voicevox', line_success_count: 1, line_total_count: 1,
+      }],
+      lines: [{
+        phase_log_id: 10, attempt_no: 1, script_line_index: 1, article_id: null,
+        speaker: 'male', section: 'intro', delivery: 'neutral', tts_engine: 'voicevox',
+        speaking_rate: 1.0, processing_duration_ms: 850, synth_result: 'success',
+        retry_count: 0, wav_file: leakedPath, silence_before_sec: 0, start_time_sec: 1.2,
+        failure_reason: null,
+      }],
+    })
+    render(<AdminEpisodeLogsShell episodeId={7} initialData={data} />)
+    expect(screen.getByText('行 1')).toBeInTheDocument()
+    expect(screen.queryByText(leakedPath)).not.toBeInTheDocument()
+    expect(screen.queryByText('音声ファイル')).not.toBeInTheDocument()
+  })
+
   it('過去の試行を選択すると該当行を再取得して表示する', async () => {
     const user = userEvent.setup()
     const data = baseData({

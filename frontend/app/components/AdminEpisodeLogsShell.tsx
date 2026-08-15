@@ -257,7 +257,6 @@ export default function AdminEpisodeLogsShell({ episodeId, initialData }: Props)
                   <Field label="無音時間" value={formatSeconds(line.silence_before_sec)} />
                   <Field label="開始位置" value={formatSeconds(line.start_time_sec)} />
                   <Field label="リトライ回数" value={String(line.retry_count)} />
-                  <Field label="音声ファイル" value={line.wav_file ?? '—'} />
                 </dl>
                 {line.failure_reason && (
                   <p className="mt-2 flex items-start gap-1.5 text-xs text-rose-700">
