@@ -9,12 +9,17 @@ jest.mock('next/navigation', () => ({
 jest.mock('../lib/admin-dictionary', () => ({ fetchDictionaryEntries: jest.fn() }))
 jest.mock('../lib/admin-misreading-reports', () => ({ fetchAdminMisreadingReports: jest.fn() }))
 jest.mock('../lib/admin-episode-logs', () => ({ fetchAdminEpisodeLogs: jest.fn() }))
+jest.mock('../lib/admin-voice-settings', () => ({
+  fetchVoiceSettings: jest.fn(),
+  fetchVoiceOptions: jest.fn(),
+}))
 
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import AdminDictionaryPage from '../admin/dictionary/page'
 import AdminMisreadingReportsPage from '../admin/misreading-reports/page'
 import AdminEpisodeLogsPage from '../admin/episodes/[id]/logs/page'
+import AdminVoiceSettingsPage from '../admin/settings/voice/page'
 
 describe('管理画面SSRの認証境界', () => {
   beforeEach(() => jest.clearAllMocks())
@@ -65,5 +70,23 @@ describe('管理画面SSRの認証境界', () => {
     await expect(AdminEpisodeLogsPage({ params: { id: '1' } })).rejects.toThrow('NEXT_REDIRECT')
     expect(redirect).toHaveBeenCalledWith('/admin/login')
     expect(fetchAdminEpisodeLogs).not.toHaveBeenCalled()
+  })
+
+  it('ボイス設定ページはCookieなしでログインへリダイレクトし、設定取得を行わない', async () => {
+    const { fetchVoiceSettings } = jest.requireMock('../lib/admin-voice-settings')
+    await expect(AdminVoiceSettingsPage()).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirect).toHaveBeenCalledWith('/admin/login')
+    expect(fetchVoiceSettings).not.toHaveBeenCalled()
+  })
+
+  it('ボイス設定ページは無効Cookieを/admin/meで検証しログインへリダイレクトする', async () => {
+    ;(cookies as jest.Mock).mockReturnValue({ get: () => ({ value: 'invalid-token' }) })
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401 })
+    await expect(AdminVoiceSettingsPage()).rejects.toThrow('NEXT_REDIRECT')
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/admin/me'),
+      expect.objectContaining({ headers: { Cookie: 'admin_session=invalid-token' } }),
+    )
+    expect(redirect).toHaveBeenCalledWith('/admin/login')
   })
 })
