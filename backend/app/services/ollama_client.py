@@ -93,6 +93,7 @@ class OllamaClient:
                 # response フィールドが文字列でない場合（Ollamaが直接dictを返す場合など）は変換
                 if not isinstance(raw, str):
                     raw = ""
+                content_is_empty = not raw
 
                 # Qwen3.6+ reasoning models may put actual output in 'thinking' field
                 # with <|channel|>thought / <|channel|>output tags
@@ -131,7 +132,7 @@ class OllamaClient:
                     )
                     parsed = None
                     # アーティファクト検出後は thinking フィールドを優先、なければ強制 JSON でリトライ
-                    if thinking_raw:
+                    if thinking_raw and (not is_qwen3_model or content_is_empty):
                         extracted = self._extract_output_from_reasoning(thinking_raw)
                         if extracted:
                             parsed = self._parse_json(extracted)
@@ -152,7 +153,7 @@ class OllamaClient:
                         continue
 
                 # response が思考アーティファクトだった場合、thinking フィールドから抽出を試みる
-                if parsed is None and thinking_raw and (not is_qwen3_model or not raw):
+                if parsed is None and thinking_raw and (not is_qwen3_model or content_is_empty):
                     extracted = self._extract_output_from_reasoning(thinking_raw)
                     if extracted:
                         parsed = self._parse_json(extracted)
