@@ -194,7 +194,11 @@ def _voice_settings_from_row(row: sqlite3.Row) -> VoiceSettings:
     for column in _VOICE_COLUMNS:
         value = row[column]
         values[column] = value if value not in (None, "") else getattr(defaults, column)
-    return VoiceSettings(**values)
+    try:
+        return validate_voice_settings(**values)
+    except ValueError:
+        # Corrupt legacy data must never break standard generation.
+        return defaults
 
 
 def get_voice_settings_or_default() -> VoiceSettings:
