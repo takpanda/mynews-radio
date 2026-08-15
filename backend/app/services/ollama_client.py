@@ -40,14 +40,26 @@ class OllamaClient:
         # ornith 系モデルは format:json 指定時に response が空になり、
         # thinking フィールドにのみ出力が入る不具合があるためスキップする。
         # Qwen 系など他のモデルでは従来どおり format:json を送信する。
+        is_qwen3_model = self._model.lower().startswith("qwen3")
         use_json_format = "ornith" not in self._model
-        payload = {
-            "model": self._model,
-            "prompt": prompt,
-            "stream": False,
-        }
-        if use_json_format:
-            payload["format"] = "json"
+        if is_qwen3_model:
+            endpoint = "/api/chat"
+            payload = {
+                "model": self._model,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "think": True,
+                "format": "json",
+            }
+        else:
+            endpoint = "/api/generate"
+            payload = {
+                "model": self._model,
+                "prompt": prompt,
+                "stream": False,
+            }
+            if use_json_format:
+                payload["format"] = "json"
 
         options = payload.get("options", {})
         options["num_ctx"] = 65536
@@ -55,11 +67,18 @@ class OllamaClient:
 
         for attempt in range(1, self._max_retries + 2):
             try:
-                resp = self.client.post("/api/generate", json=payload)
+                resp = self.client.post(endpoint, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
-                raw = data.get("response", "")
-                thinking_raw = data.get("thinking", "")
+                if is_qwen3_model:
+                    message = data.get("message", {})
+                    if not isinstance(message, dict):
+                        message = {}
+                    raw = message.get("content", "")
+                    thinking_raw = message.get("thinking", data.get("thinking", ""))
+                else:
+                    raw = data.get("response", "")
+                    thinking_raw = data.get("thinking", "")
 
                 logger.info(
                     "Ollama raw response (attempt=%d): response_len=%d, thinking_len=%d, "
@@ -87,10 +106,14 @@ class OllamaClient:
                     if not raw:
                         # Retry once with a more explicit JSON prompt when response is empty
                         if attempt <= self._max_retries:
-                            payload["prompt"] = (
+                            forced_json_prompt = (
                                 "Answer with ONLY valid JSON (no markdown, no backticks, no extra text):\n"
                                 + prompt
                             )
+                            if is_qwen3_model:
+                                payload["messages"][0]["content"] = forced_json_prompt
+                            else:
+                                payload["prompt"] = forced_json_prompt
                             logger.warning(
                                 "Empty 'response' field detected, retrying with forced-json prompt (attempt=%d)",
                                 attempt,
@@ -115,10 +138,14 @@ class OllamaClient:
                             if parsed is not None:
                                 return parsed
                     if attempt <= self._max_retries:
-                        payload["prompt"] = (
+                        forced_json_prompt = (
                             "Answer with ONLY valid JSON (no markdown, no backticks, no extra text):\n"
                             + prompt
                         )
+                        if is_qwen3_model:
+                            payload["messages"][0]["content"] = forced_json_prompt
+                        else:
+                            payload["prompt"] = forced_json_prompt
                         logger.warning(
                             "Retrying after thinking artifact (attempt=%d)", attempt
                         )
