@@ -79,8 +79,10 @@ class TestGenerateJsonNumCtx:
 
 
 class TestGenerateJsonQwen3Generate:
-    def test_qwen3_uses_generate_with_thinking_disabled_and_json_format(self):
-        client = _make_client(model="qwen3.8:latest")
+    @pytest.mark.parametrize("model", ["qwen3.8:latest", "qwen2.5:7b"])
+    def test_models_use_generate_with_top_level_thinking_disabled_and_json_format(self, model):
+        """Qwen3 と非Qwen3で endpoint と必須payloadを統一する。"""
+        client = _make_client(model=model)
         response = _mock_post_response()
 
         with patch("app.services.ollama_client.httpx.Client.post", return_value=response) as mock_post:
@@ -91,8 +93,9 @@ class TestGenerateJsonQwen3Generate:
         assert payload["prompt"] == "hello"
         assert "messages" not in payload
         assert payload["format"] == "json"
+        assert payload["think"] is False
         assert payload["options"]["num_ctx"] == 65536
-        assert payload["options"]["think"] is False
+        assert "think" not in payload["options"]
 
     def test_qwen3_falls_back_to_thinking_when_content_is_empty(self):
         client = _make_client(model="qwen3.8:latest")
@@ -151,7 +154,8 @@ class TestGenerateJsonQwen3Generate:
         payload = mock_post.call_args.kwargs["json"]
         assert payload["prompt"] == "hello"
         assert "messages" not in payload
-        assert payload["options"]["think"] is False
+        assert payload["think"] is False
+        assert "think" not in payload["options"]
 
     def test_qwen3_retries_with_forced_json_prompt_after_empty_response(self):
         client = _make_client(model="qwen3.8:latest")

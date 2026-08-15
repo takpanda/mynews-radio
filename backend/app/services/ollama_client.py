@@ -47,13 +47,14 @@ class OllamaClient:
             "model": self._model,
             "prompt": prompt,
             "stream": False,
+            # Ollama's native API reads think from the request body, not options.
+            "think": False,
         }
         if use_json_format:
             payload["format"] = "json"
 
         options = payload.get("options", {})
         options["num_ctx"] = 65536
-        options["think"] = False
         payload["options"] = options
 
         for attempt in range(1, self._max_retries + 2):
