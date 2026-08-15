@@ -84,7 +84,7 @@ _DISCUSSION_TRANSITIONS = [
     "ここで{topic}についてもう少し掘り下げてみましょう。",
     "{topic}、少し深堀りして話し合ってみましょう。",
     "ちょっとここで{topic}について、ふたりで語ってみたいと思います。",
-    "せっかくなので{topic}、じっくり話してみましょうか。",
+    "ここでは{topic}を、じっくり話してみましょうか。",
 
     "{topic}、私も気になっているんですよ。どう思います？",
     "ここで一旦立ち止まって{topic}を議論しましょうか。",
@@ -104,6 +104,32 @@ _TRANSITION_REACTION_PHRASES = [
     "続けてお願いします。",
     "興味深いですね。",
 ]
+
+# 災害・重大事故のニュースでは、記事境界の定型的な短い受けであっても
+# 期待や祝意を表す表現は不適切になる。カテゴリは提供元ごとに揺れるため、
+# title / summary / category のいずれにも現れうる明示的な語で判定する。
+_SENSITIVE_NEWS_KEYWORDS = (
+    "災害", "地震", "津波", "台風", "豪雨", "大雨", "洪水", "土砂",
+    "避難", "警報", "警戒", "被災", "火災", "噴火", "行方不明", "死亡", "負傷",
+)
+_SENSITIVE_TRANSITION_REACTION_PHRASES = [
+    "状況を確認しましょう。",
+    "詳しくお伝えします。",
+    "落ち着いて見ていきましょう。",
+]
+_SENSITIVE_INAPPROPRIATE_TRANSITION_MARKERS = (
+    "楽しみ", "わくわく", "待ち遠し", "嬉しい", "お祝い", "めでたい", "せっかくなので",
+)
+
+
+def _is_sensitive_news(summary: dict) -> bool:
+    """災害・重大事故を扱う記事かを、生成に渡される記事情報から判定する。"""
+    text = " ".join(str(summary.get(key, "") or "") for key in ("category", "title", "summary"))
+    return any(keyword in text for keyword in _SENSITIVE_NEWS_KEYWORDS)
+
+
+def _has_inappropriate_sensitive_transition_text(text: str) -> bool:
+    return any(marker in (text or "") for marker in _SENSITIVE_INAPPROPRIATE_TRANSITION_MARKERS)
 
 
 def _pick_phrase(phrases: list, used_indices: dict):
@@ -473,9 +499,12 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                 bridge_map.setdefault(from_id, {})[to_id] = bridge_text
 
     topic_map: dict = {}
+    sensitive_article_ids: set = set()
     for art in summaries:
         art_id = art.get("id")
         if art_id is not None:
+            if _is_sensitive_news(art):
+                sensitive_article_ids.add(art_id)
             raw_summary = art.get("summary", "") or ""
             raw_title = art.get("title") or art.get("url", "") or ""
             candidate = ""
@@ -531,6 +560,25 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                     # （直前の実装は無条件で False に落としており、article_id
                     # 不一致行の下に隠れた壊れたtransitionを見逃していた。BEE-672）
                     prev_is_transition = bool(result) and result[-1].get("section") == "transition"
+
+            # LLM が記事境界を出力済みの場合も、次の記事が災害・重大事故なら
+            # 肯定的な相槌や軽い導入を中立表現へ置換する。これによりテンプレート
+            # だけでなく、LLM が生成した「楽しみですね。」も残さない。
+            if prev_is_transition and article_id in sensitive_article_ids:
+                for index in range(len(result) - 1, -1, -1):
+                    transition_line = result[index]
+                    if transition_line.get("section") != "transition":
+                        break
+                    if _has_inappropriate_sensitive_transition_text(transition_line.get("text", "")):
+                        replacement = dict(transition_line)
+                        replacement["text"] = _pick_phrase(
+                            _SENSITIVE_TRANSITION_REACTION_PHRASES, reaction_phrase_used
+                        )
+                        result[index] = replacement
+                        logger.info(
+                            "災害・重大事故ニュース直前の不適切なtransitionを置換: article_id=%s",
+                            article_id,
+                        )
 
             # article_id は次の記事と一致していても、前の記事の締め文と次の記事の
             # 告知が1行に混在した壊れたtransitionは記事境界（news）でのみ検知して
@@ -605,7 +653,12 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                 # discussion直前のtransitionは従来どおり1行のまま維持する。
                 if section == "news":
                     reaction_speaker = "female" if speaker == "male" else "male"
-                    reaction_text = _pick_phrase(_TRANSITION_REACTION_PHRASES, reaction_phrase_used)
+                    reaction_phrases = (
+                        _SENSITIVE_TRANSITION_REACTION_PHRASES
+                        if article_id in sensitive_article_ids
+                        else _TRANSITION_REACTION_PHRASES
+                    )
+                    reaction_text = _pick_phrase(reaction_phrases, reaction_phrase_used)
                     result.append({
                         "speaker": reaction_speaker,
                         "text": reaction_text,

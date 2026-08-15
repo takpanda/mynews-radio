@@ -1,5 +1,6 @@
 """Tests for _ensure_transitions: topic extraction and transition insertion."""
 import pytest
+from unittest.mock import patch
 
 
 class TestTransitionPhrases:
@@ -14,9 +15,67 @@ class TestTransitionPhrases:
         # すべて「{topic}について」+動詞 の形であり、文法的に自然なためOK
         for phrase in _DISCUSSION_TRANSITIONS:
             assert "{topic}" in phrase
+        assert all("せっかくなので" not in phrase for phrase in _DISCUSSION_TRANSITIONS)
 
 
 class TestEnsureTransitionsTopicExtraction:
+    def test_disaster_alert_uses_neutral_transition_reaction(self):
+        """第384回相当: 災害警報の直前に期待表現を自動挿入しない。"""
+        from app.batch.generate_script import _ensure_transitions
+
+        summaries = [
+            {"id": 1, "title": "通常のニュース", "summary": "通常の話題です。"},
+            {"id": 2, "title": "大雨警報を発表", "summary": "各地で避難を呼びかけています。"},
+        ]
+        lines = [
+            {"section": "intro"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "最初のニュースです。"},
+            {"section": "news", "article_id": 2, "speaker": "female", "text": "警報の内容です。"},
+        ]
+
+        for _ in range(20):
+            result = _ensure_transitions(lines, summaries)
+            alert_transition = [
+                line["text"] for line in result
+                if line.get("section") == "transition" and line.get("article_id") == 2
+            ]
+            assert any(text in {"状況を確認しましょう。", "詳しくお伝えします。", "落ち着いて見ていきましょう。"} for text in alert_transition)
+            assert all("楽しみ" not in text for text in alert_transition)
+
+    def test_llm_positive_reaction_before_disaster_is_replaced(self):
+        from app.batch.generate_script import _ensure_transitions
+
+        summaries = [
+            {"id": 1, "title": "通常のニュース", "summary": "通常の話題です。"},
+            {"id": 2, "title": "災害警報", "summary": "避難を呼びかけています。"},
+        ]
+        lines = [
+            {"section": "intro"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "最初のニュースです。"},
+            {"section": "transition", "article_id": 2, "speaker": "female", "text": "楽しみですね。"},
+            {"section": "news", "article_id": 2, "speaker": "male", "text": "警報の内容です。"},
+        ]
+
+        result = _ensure_transitions(lines, summaries)
+        alert_transition = [
+            line["text"] for line in result
+            if line.get("section") == "transition" and line.get("article_id") == 2
+        ]
+        assert "楽しみですね。" not in alert_transition
+        assert any(text in {"状況を確認しましょう。", "詳しくお伝えします。", "落ち着いて見ていきましょう。"} for text in alert_transition)
+
+    def test_entertainment_keeps_positive_transition_reactions_available(self):
+        from app.batch.generate_script import _TRANSITION_REACTION_PHRASES, _ensure_transitions
+
+        summaries = [{"id": 1, "title": "新作映画の公開", "summary": "出演者が発表されました。", "category": "entertainment"}]
+        lines = [{"section": "intro"}, {"section": "news", "article_id": 1, "speaker": "male", "text": "映画のニュースです。"}]
+
+        with patch("app.batch.generate_script.random.choice", return_value=2):
+            result = _ensure_transitions(lines, summaries)
+        transition_texts = [line["text"] for line in result if line.get("section") == "transition"]
+        assert _TRANSITION_REACTION_PHRASES[2] == "楽しみですね。"
+        assert "楽しみですね。" in transition_texts
+
     def test_uses_summary_first_sentence(self):
         from app.batch.generate_script import _ensure_transitions
 
