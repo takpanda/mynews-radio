@@ -362,6 +362,7 @@ class TestDictionaryAuth:
             cfg_mod.get_settings.cache_clear()
 
         client.headers.pop("Authorization", None)
+        client.cookies.clear()
         resp = client.get("/admin/dictionary")
         assert resp.status_code == 401
         assert resp.json()["detail"] == "Not authenticated"
@@ -397,6 +398,7 @@ class TestDictionaryAuth:
             cfg_mod.get_settings.cache_clear()
 
         client.headers.pop("Authorization", None)
+        client.cookies.clear()
         resp = client.get("/admin/dictionary")
         assert resp.status_code == 401
 

@@ -535,6 +535,7 @@ class TestAdminMisreadingReportList:
         self._set_api_key(monkeypatch)
 
         client.headers.pop("Authorization", None)
+        client.cookies.clear()
         resp = client.get("/admin/reports/misreading")
         assert resp.status_code == 401
         assert resp.json()["detail"] == "Not authenticated"
@@ -558,6 +559,7 @@ class TestAdminMisreadingReportList:
             cfg_mod.get_settings.cache_clear()
 
         client.headers.pop("Authorization", None)
+        client.cookies.clear()
         resp = client.get("/admin/reports/misreading")
         assert resp.status_code == 401
         assert resp.json()["detail"] == "Not authenticated"
@@ -721,6 +723,7 @@ class TestAdminApproveMisreadingReport:
         report_id = report["id"]
 
         client.headers.pop("Authorization", None)
+        client.cookies.clear()
         resp = client.post(f"/admin/reports/misreading/{report_id}/approve")
         assert resp.status_code == 401
 

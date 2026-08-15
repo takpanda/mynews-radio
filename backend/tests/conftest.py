@@ -92,8 +92,15 @@ def test_env(tmp_path, monkeypatch):
     from app import config as cfg_mod
     if hasattr(cfg_mod.get_settings, "cache_clear"):
         cfg_mod.get_settings.cache_clear()
+    from app.api.generate import limiter
+    limiter.reset()
 
     yield
+
+    # 非同期のテスト処理が参照した設定値・レートリミット状態を次のテストへ持ち越さない。
+    limiter.reset()
+    if hasattr(cfg_mod.get_settings, "cache_clear"):
+        cfg_mod.get_settings.cache_clear()
 
 
 @pytest.fixture(autouse=True)

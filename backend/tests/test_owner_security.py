@@ -5,6 +5,7 @@ from app.db.connection import get_db_connection
 
 
 def _login(client):
+    client.cookies.clear()
     with get_db_connection() as conn:
         conn.execute(
             "INSERT INTO admin_users (username, password_hash) VALUES (?, ?)",
@@ -65,7 +66,12 @@ def test_authenticated_owner_can_read_settings_and_audit_generation(client):
     assert generated.status_code == 200
     with get_db_connection() as conn:
         row = conn.execute(
-            "SELECT operation, owner_user_id, result, episode_id FROM audit_logs ORDER BY id DESC LIMIT 1"
+            """
+            SELECT operation, owner_user_id, result, episode_id
+            FROM audit_logs
+            WHERE operation = 'generate' AND result = 'started'
+            ORDER BY id DESC LIMIT 1
+            """
         ).fetchone()
     assert row["operation"] == "generate"
     assert row["owner_user_id"] is not None
@@ -141,6 +147,7 @@ def test_commentary_generation_records_success_and_failure_audit(client, monkeyp
     monkeypatch.setattr(generate_api, "_run_commentary_generation", fake_success)
     success = client.post("/generate", json={"date": "2099-01-05", "url": "https://example.com/success"})
     assert success.status_code == 200
+    _wait_for_audit_count("commentary", 2)
 
     def fake_failure(episode_id, _body):
         EpisodeService().update_episode_status(episode_id, "failed")
