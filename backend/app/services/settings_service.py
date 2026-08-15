@@ -7,6 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
+from app.config import get_settings
 from app.db.connection import get_db_connection
 
 THEMES = frozenset({"technology", "business", "society", "sports", "entertainment", "general"})
@@ -112,3 +113,140 @@ def reset_settings() -> ProgramSettings:
     with get_db_connection() as conn:
         conn.execute("DELETE FROM user_settings WHERE id = 1")
     return default_settings()
+
+
+# ---------------------------------------------------------------------------
+# 音声（ボイス）設定 — AivisSpeech / VOICEVOX / Fish S2 Pro の男声・女声6項目。
+# 未保存の項目は config.py の現在値をそのまま使う（DB到達不能時も同様）。
+# ---------------------------------------------------------------------------
+
+_VOICE_COLUMNS = (
+    "aivispeech_speaker_male",
+    "aivispeech_speaker_female",
+    "voicevox_speaker_male",
+    "voicevox_speaker_female",
+    "fishs2pro_voice_male",
+    "fishs2pro_voice_female",
+)
+
+
+@dataclass(frozen=True)
+class VoiceSettings:
+    aivispeech_speaker_male: int
+    aivispeech_speaker_female: int
+    voicevox_speaker_male: int
+    voicevox_speaker_female: int
+    fishs2pro_voice_male: str
+    fishs2pro_voice_female: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {column: getattr(self, column) for column in _VOICE_COLUMNS}
+
+
+def default_voice_settings() -> VoiceSettings:
+    """config.py の現在値をそのまま返す（未保存時・DB到達不能時の既定値）。"""
+    cfg = get_settings()
+    return VoiceSettings(
+        aivispeech_speaker_male=cfg.aivispeech_speaker_male,
+        aivispeech_speaker_female=cfg.aivispeech_speaker_female,
+        voicevox_speaker_male=cfg.voicevox_speaker_male,
+        voicevox_speaker_female=cfg.voicevox_speaker_female,
+        fishs2pro_voice_male=cfg.fishs2pro_voice_male,
+        fishs2pro_voice_female=cfg.fishs2pro_voice_female,
+    )
+
+
+def validate_voice_settings(
+    aivispeech_speaker_male: Any,
+    aivispeech_speaker_female: Any,
+    voicevox_speaker_male: Any,
+    voicevox_speaker_female: Any,
+    fishs2pro_voice_male: Any,
+    fishs2pro_voice_female: Any,
+) -> VoiceSettings:
+    for name, value in (
+        ("aivispeech_speaker_male", aivispeech_speaker_male),
+        ("aivispeech_speaker_female", aivispeech_speaker_female),
+        ("voicevox_speaker_male", voicevox_speaker_male),
+        ("voicevox_speaker_female", voicevox_speaker_female),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"{name} must be an integer speaker id")
+    for name, value in (
+        ("fishs2pro_voice_male", fishs2pro_voice_male),
+        ("fishs2pro_voice_female", fishs2pro_voice_female),
+    ):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{name} must be a non-empty voice name")
+    return VoiceSettings(
+        aivispeech_speaker_male=aivispeech_speaker_male,
+        aivispeech_speaker_female=aivispeech_speaker_female,
+        voicevox_speaker_male=voicevox_speaker_male,
+        voicevox_speaker_female=voicevox_speaker_female,
+        fishs2pro_voice_male=fishs2pro_voice_male,
+        fishs2pro_voice_female=fishs2pro_voice_female,
+    )
+
+
+def _voice_settings_from_row(row: sqlite3.Row) -> VoiceSettings:
+    defaults = default_voice_settings()
+    values: dict[str, Any] = {}
+    for column in _VOICE_COLUMNS:
+        value = row[column]
+        values[column] = value if value not in (None, "") else getattr(defaults, column)
+    return VoiceSettings(**values)
+
+
+def get_voice_settings_or_default() -> VoiceSettings:
+    """音声設定取得に失敗しても標準生成可能な既定値を返す。
+
+    設定行・追加カラム・DB自体のいずれが読み取れなくても、項目ごとに
+    config.py の既定値へフォールバックし、生成処理を止めない。
+    """
+    try:
+        with get_db_connection() as conn:
+            row = conn.execute(
+                f"SELECT {', '.join(_VOICE_COLUMNS)} FROM user_settings WHERE id = 1"
+            ).fetchone()
+            return _voice_settings_from_row(row) if row else default_voice_settings()
+    except (sqlite3.Error, OSError):
+        return default_voice_settings()
+
+
+def save_voice_settings(settings: VoiceSettings) -> VoiceSettings:
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO user_settings "
+            "(id, aivispeech_speaker_male, aivispeech_speaker_female, "
+            " voicevox_speaker_male, voicevox_speaker_female, "
+            " fishs2pro_voice_male, fishs2pro_voice_female, updated_at) "
+            "VALUES (1, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
+            "ON CONFLICT(id) DO UPDATE SET "
+            "aivispeech_speaker_male=excluded.aivispeech_speaker_male, "
+            "aivispeech_speaker_female=excluded.aivispeech_speaker_female, "
+            "voicevox_speaker_male=excluded.voicevox_speaker_male, "
+            "voicevox_speaker_female=excluded.voicevox_speaker_female, "
+            "fishs2pro_voice_male=excluded.fishs2pro_voice_male, "
+            "fishs2pro_voice_female=excluded.fishs2pro_voice_female, "
+            "updated_at=CURRENT_TIMESTAMP",
+            tuple(getattr(settings, column) for column in _VOICE_COLUMNS),
+        )
+    return settings
+
+
+def resolve_tts_speakers(
+    engine: str, voice_settings: VoiceSettings | None = None
+) -> tuple[int, int] | tuple[str, str]:
+    """生成処理向けに、指定TTSエンジンの保存済み話者値を返す。
+
+    voice_settings 省略時は保存値（未保存項目はconfig.py既定値）を取得する。
+    下位処理（synthesize_episode）へ明示的に話者値が渡された場合は、
+    この関数の戻り値ではなく明示値が優先される既存契約は維持する
+    （呼び出し側がこの関数の結果を明示引数として渡すのはその契約の範囲内）。
+    """
+    vs = voice_settings if voice_settings is not None else get_voice_settings_or_default()
+    if engine == "fishs2pro":
+        return vs.fishs2pro_voice_male, vs.fishs2pro_voice_female
+    if engine == "voicevox":
+        return vs.voicevox_speaker_male, vs.voicevox_speaker_female
+    return vs.aivispeech_speaker_male, vs.aivispeech_speaker_female
