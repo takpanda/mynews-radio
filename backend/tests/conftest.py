@@ -104,7 +104,7 @@ def test_env(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def no_daemon_thread_leaks():
+def no_daemon_thread_leaks(test_env):
     """Make all threads non-daemon so background threads from API tests
     can be tracked and joined before fixture cleanup, preventing orphaned
     threads from writing to cleaned-up temp dirs (//app errors)."""
