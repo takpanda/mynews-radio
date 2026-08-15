@@ -9,29 +9,12 @@ logger = logging.getLogger(__name__)
 
 
 class OllamaClient:
-    def __init__(
-        self,
-        base_url: str,
-        model: str,
-        max_retries: int = 2,
-        timeout: float | httpx.Timeout | None = None,
-    ):
+    def __init__(self, base_url: str, model: str, max_retries: int = 2, timeout: float = 600.0):
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._max_retries = max_retries
-        self._timeout = self._configured_timeout() if timeout is None else timeout
+        self._timeout = timeout
         self._client: Optional[httpx.Client] = None
-
-    @staticmethod
-    def _configured_timeout() -> httpx.Timeout:
-        """Use the configured finite LLM connect/read timeout for every request."""
-        from app.config import get_settings
-
-        settings = get_settings()
-        return httpx.Timeout(
-            settings.llm_response_timeout,
-            connect=settings.llm_connect_timeout,
-        )
 
     @property
     def client(self) -> httpx.Client:
@@ -59,27 +42,18 @@ class OllamaClient:
         # Qwen 系など他のモデルでは従来どおり format:json を送信する。
         is_qwen3_model = self._model.lower().startswith("qwen3")
         use_json_format = "ornith" not in self._model
-        if is_qwen3_model:
-            endpoint = "/api/chat"
-            payload = {
-                "model": self._model,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-                "think": True,
-                "format": "json",
-            }
-        else:
-            endpoint = "/api/generate"
-            payload = {
-                "model": self._model,
-                "prompt": prompt,
-                "stream": False,
-            }
-            if use_json_format:
-                payload["format"] = "json"
+        endpoint = "/api/generate"
+        payload = {
+            "model": self._model,
+            "prompt": prompt,
+            "stream": False,
+        }
+        if use_json_format:
+            payload["format"] = "json"
 
         options = payload.get("options", {})
         options["num_ctx"] = 65536
+        options["think"] = False
         payload["options"] = options
 
         for attempt in range(1, self._max_retries + 2):
@@ -87,15 +61,8 @@ class OllamaClient:
                 resp = self.client.post(endpoint, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
-                if is_qwen3_model:
-                    message = data.get("message", {})
-                    if not isinstance(message, dict):
-                        message = {}
-                    raw = message.get("content", "")
-                    thinking_raw = message.get("thinking", data.get("thinking", ""))
-                else:
-                    raw = data.get("response", "")
-                    thinking_raw = data.get("thinking", "")
+                raw = data.get("response", "")
+                thinking_raw = data.get("thinking", "")
 
                 logger.info(
                     "Ollama raw response (attempt=%d): response_len=%d, thinking_len=%d, "
@@ -128,10 +95,7 @@ class OllamaClient:
                                 "Answer with ONLY valid JSON (no markdown, no backticks, no extra text):\n"
                                 + prompt
                             )
-                            if is_qwen3_model:
-                                payload["messages"][0]["content"] = forced_json_prompt
-                            else:
-                                payload["prompt"] = forced_json_prompt
+                            payload["prompt"] = forced_json_prompt
                             logger.warning(
                                 "Empty 'response' field detected, retrying with forced-json prompt (attempt=%d)",
                                 attempt,
@@ -160,10 +124,7 @@ class OllamaClient:
                             "Answer with ONLY valid JSON (no markdown, no backticks, no extra text):\n"
                             + prompt
                         )
-                        if is_qwen3_model:
-                            payload["messages"][0]["content"] = forced_json_prompt
-                        else:
-                            payload["prompt"] = forced_json_prompt
+                        payload["prompt"] = forced_json_prompt
                         logger.warning(
                             "Retrying after thinking artifact (attempt=%d)", attempt
                         )

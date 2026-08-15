@@ -1,6 +1,5 @@
 """Tests for OllamaClient.generate_json()."""
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -79,25 +78,26 @@ class TestGenerateJsonNumCtx:
         assert payload["options"]["num_ctx"] == 65536
 
 
-class TestGenerateJsonQwen3Chat:
-    def test_qwen3_uses_chat_with_thinking_and_json_format(self):
+class TestGenerateJsonQwen3Generate:
+    def test_qwen3_uses_generate_with_thinking_disabled_and_json_format(self):
         client = _make_client(model="qwen3.8:latest")
-        response = _mock_post_response_with({"message": {"content": '{"ok": true}'}})
+        response = _mock_post_response()
 
         with patch("app.services.ollama_client.httpx.Client.post", return_value=response) as mock_post:
             assert client.generate_json("hello") == {"ok": True}
 
-        assert mock_post.call_args.args[0] == "/api/chat"
+        assert mock_post.call_args.args[0] == "/api/generate"
         payload = mock_post.call_args.kwargs["json"]
-        assert payload["messages"] == [{"role": "user", "content": "hello"}]
-        assert payload["think"] is True
+        assert payload["prompt"] == "hello"
+        assert "messages" not in payload
         assert payload["format"] == "json"
         assert payload["options"]["num_ctx"] == 65536
+        assert payload["options"]["think"] is False
 
     def test_qwen3_falls_back_to_thinking_when_content_is_empty(self):
         client = _make_client(model="qwen3.8:latest")
         response = _mock_post_response_with(
-            {"message": {"content": "", "thinking": '<|channel|>output{"ok": true}<|channel|>'}}
+            {"response": "", "thinking": '<|channel|>output{"ok": true}<|channel|>'}
         )
 
         with patch("app.services.ollama_client.httpx.Client.post", return_value=response) as mock_post:
@@ -113,10 +113,8 @@ class TestGenerateJsonQwen3Chat:
         )
         response = _mock_post_response_with(
             {
-                "message": {
-                    "content": "not valid json",
-                    "thinking": '<|channel|>output{"ok": true}<|channel|>',
-                }
+                "response": "not valid json",
+                "thinking": '<|channel|>output{"ok": true}<|channel|>',
             }
         )
 
@@ -133,10 +131,8 @@ class TestGenerateJsonQwen3Chat:
         )
         response = _mock_post_response_with(
             {
-                "message": {
-                    "content": '{"thought": "reasoning"}',
-                    "thinking": '<|channel|>output{"ok": true}<|channel|>',
-                }
+                "response": '{"thought": "reasoning"}',
+                "thinking": '<|channel|>output{"ok": true}<|channel|>',
             }
         )
 
@@ -155,11 +151,12 @@ class TestGenerateJsonQwen3Chat:
         payload = mock_post.call_args.kwargs["json"]
         assert payload["prompt"] == "hello"
         assert "messages" not in payload
+        assert payload["options"]["think"] is False
 
     def test_qwen3_retries_with_forced_json_prompt_after_empty_response(self):
         client = _make_client(model="qwen3.8:latest")
-        empty_response = _mock_post_response_with({"message": {"content": "", "thinking": ""}})
-        valid_response = _mock_post_response_with({"message": {"content": '{"ok": true}'}})
+        empty_response = _mock_post_response_with({"response": "", "thinking": ""})
+        valid_response = _mock_post_response()
 
         with patch(
             "app.services.ollama_client.httpx.Client.post",
@@ -169,7 +166,7 @@ class TestGenerateJsonQwen3Chat:
 
         assert mock_post.call_count == 2
         retry_payload = mock_post.call_args_list[1].kwargs["json"]
-        assert retry_payload["messages"][0]["content"].startswith("Answer with ONLY valid JSON")
+        assert retry_payload["prompt"].startswith("Answer with ONLY valid JSON")
 
     def test_qwen3_read_timeout_returns_failure_after_bounded_retries(self):
         client = OllamaClient(
@@ -188,14 +185,7 @@ class TestGenerateJsonQwen3Chat:
 
         assert mock_post.call_count == 2
 
-    def test_default_timeout_uses_llm_timeout_settings(self):
-        configured = SimpleNamespace(llm_response_timeout=5.0, llm_connect_timeout=2.0)
+    def test_default_timeout_keeps_legacy_600_seconds(self):
+        client = OllamaClient(base_url="http://localhost:11434", model="qwen3.8:latest")
 
-        with patch("app.config.get_settings", return_value=configured):
-            client = OllamaClient(base_url="http://localhost:11434", model="qwen3.8:latest")
-
-        assert isinstance(client._timeout, httpx.Timeout)
-        assert client._timeout.connect == 2.0
-        assert client._timeout.read == 5.0
-        assert client._timeout.write == 5.0
-        assert client._timeout.pool == 5.0
+        assert client._timeout == 600.0
