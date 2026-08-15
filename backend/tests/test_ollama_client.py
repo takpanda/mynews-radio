@@ -103,6 +103,26 @@ class TestGenerateJsonQwen3Chat:
 
         assert mock_post.call_count == 1
 
+    def test_qwen3_does_not_fall_back_to_thinking_when_content_is_invalid_json(self):
+        client = OllamaClient(
+            base_url="http://localhost:11434",
+            model="qwen3.8:latest",
+            max_retries=0,
+        )
+        response = _mock_post_response_with(
+            {
+                "message": {
+                    "content": "not valid json",
+                    "thinking": '<|channel|>output{"ok": true}<|channel|>',
+                }
+            }
+        )
+
+        with patch("app.services.ollama_client.httpx.Client.post", return_value=response) as mock_post:
+            assert client.generate_json("hello") is None
+
+        assert mock_post.call_count == 1
+
     def test_non_qwen3_model_keeps_generate_endpoint(self):
         client = _make_client(model="qwen2.5:7b")
 

@@ -152,7 +152,7 @@ class OllamaClient:
                         continue
 
                 # response が思考アーティファクトだった場合、thinking フィールドから抽出を試みる
-                if parsed is None and thinking_raw:
+                if parsed is None and thinking_raw and (not is_qwen3_model or not raw):
                     extracted = self._extract_output_from_reasoning(thinking_raw)
                     if extracted:
                         parsed = self._parse_json(extracted)
