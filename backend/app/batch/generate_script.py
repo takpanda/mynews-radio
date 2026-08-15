@@ -110,7 +110,7 @@ _TRANSITION_REACTION_PHRASES = [
 # title / summary / category のいずれにも現れうる明示的な語で判定する。
 _SENSITIVE_NEWS_KEYWORDS = (
     "災害", "地震", "津波", "台風", "豪雨", "大雨", "洪水", "土砂",
-    "避難", "警報", "警戒", "被災", "火災", "噴火", "行方不明", "死亡", "負傷",
+    "避難", "警報", "警戒", "被災", "火災", "噴火", "事故", "行方不明", "死亡", "負傷",
 )
 _SENSITIVE_TRANSITION_REACTION_PHRASES = [
     "状況を確認しましょう。",
@@ -119,6 +119,7 @@ _SENSITIVE_TRANSITION_REACTION_PHRASES = [
 ]
 _SENSITIVE_INAPPROPRIATE_TRANSITION_MARKERS = (
     "楽しみ", "わくわく", "待ち遠し", "嬉しい", "お祝い", "めでたい", "せっかくなので",
+    "期待が高ま", "期待しています", "期待してい", "喜ばしい", "朗報", "祝福", "おめでとう",
 )
 
 

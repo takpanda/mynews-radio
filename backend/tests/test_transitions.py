@@ -1,6 +1,7 @@
 """Tests for _ensure_transitions: topic extraction and transition insertion."""
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 
 class TestTransitionPhrases:
@@ -63,6 +64,55 @@ class TestEnsureTransitionsTopicExtraction:
         ]
         assert "楽しみですね。" not in alert_transition
         assert any(text in {"状況を確認しましょう。", "詳しくお伝えします。", "落ち着いて見ていきましょう。"} for text in alert_transition)
+
+    def test_major_accident_uses_neutral_auto_inserted_reaction(self):
+        """重大事故も災害と同じく、補完reactionの肯定表現を使わない。"""
+        from app.batch.generate_script import (
+            _SENSITIVE_TRANSITION_REACTION_PHRASES,
+            _TRANSITION_REACTION_PHRASES,
+            _ensure_transitions,
+            _is_sensitive_news,
+        )
+
+        accident = {"id": 2, "title": "高速道路で重大事故", "summary": "複数人がけがをしました。"}
+        assert _is_sensitive_news(accident) is True
+        lines = [
+            {"section": "intro"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "最初のニュースです。"},
+            {"section": "news", "article_id": 2, "speaker": "female", "text": "事故の内容です。"},
+        ]
+        result = _ensure_transitions(lines, [{"id": 1, "title": "通常のニュース"}, accident])
+        transition_texts = [
+            line["text"] for line in result
+            if line.get("section") == "transition" and line.get("article_id") == 2
+        ]
+        assert set(transition_texts) & set(_SENSITIVE_TRANSITION_REACTION_PHRASES)
+        assert not (set(transition_texts) & set(_TRANSITION_REACTION_PHRASES))
+
+    def test_llm_multiline_positive_transitions_before_major_accident_are_replaced(self):
+        """既存の複数行transition内の期待・祝意表現をすべて置換する。"""
+        from app.batch.generate_script import _SENSITIVE_TRANSITION_REACTION_PHRASES, _ensure_transitions
+
+        summaries = [
+            {"id": 1, "title": "通常のニュース", "summary": "通常の話題です。"},
+            {"id": 2, "title": "高速道路で重大事故", "summary": "複数人がけがをしました。"},
+        ]
+        lines = [
+            {"section": "intro"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "最初のニュースです。"},
+            {"section": "transition", "article_id": 2, "speaker": "female", "text": "期待が高まります。"},
+            {"section": "transition", "article_id": 2, "speaker": "male", "text": "喜ばしい知らせです。"},
+            {"section": "news", "article_id": 2, "speaker": "female", "text": "事故の内容です。"},
+        ]
+
+        result = _ensure_transitions(lines, summaries)
+        transition_texts = [
+            line["text"] for line in result
+            if line.get("section") == "transition" and line.get("article_id") == 2
+        ]
+        assert len(transition_texts) == 2
+        assert set(transition_texts) <= set(_SENSITIVE_TRANSITION_REACTION_PHRASES)
+        assert not any("期待" in text or "喜ばしい" in text for text in transition_texts)
 
     def test_entertainment_keeps_positive_transition_reactions_available(self):
         from app.batch.generate_script import _TRANSITION_REACTION_PHRASES, _ensure_transitions
