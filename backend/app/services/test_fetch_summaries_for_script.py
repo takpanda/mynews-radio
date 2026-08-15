@@ -27,7 +27,7 @@ class TestFetchSummariesForScriptSourceFilter:
 
             call_args = conn_instance.execute.call_args[0]
             query = str(call_args[0]) if isinstance(call_args, tuple) else str(call_args.sql)
-            assert f"AND source LIKE '%?%'" in str(query).replace("'", "") or "source = ?" in str(query)
+            assert "AND source LIKE '%?%'" in str(query).replace("'", "") or "source = ?" in str(query)
 
     def test_no_source_filter_when_none(self, article_service):
         with patch(
@@ -120,7 +120,6 @@ class TestFetchSummariesForScriptIntegration:
     def test_fetch_with_lookback(self, article_service, setup_db):
         from datetime import timezone as tz
         import os
-        from datetime import datetime, timedelta
         
         jst = tz(timedelta(hours=9))
         today = datetime.now(jst).date()
@@ -175,7 +174,6 @@ class TestFetchSummariesForScriptIntegration:
     def test_fetch_with_importance_score_threshold(self, article_service, setup_db):
         from datetime import timezone as tz
         import os
-        from datetime import datetime, timedelta
         
         jst = tz(timedelta(hours=9))
         today = datetime.now(jst).date()
@@ -227,12 +225,9 @@ class TestFetchSummariesForScriptIntegration:
     def test_fetch_with_invalid_lookback_days(self, article_service, setup_db):
         from datetime import timezone as tz
         import os
-        from datetime import datetime, timedelta
         
         jst = tz(timedelta(hours=9))
         today = datetime.now(jst).date()
-        expected_since = (today - timedelta(days=3)).isoformat()
-
         # Prep data: 1 article exactly 3 days ago
         articles = [{
             "title": "Boundary", "source": "src1", "url": "u1", "text": "t1", 

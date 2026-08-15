@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import shutil
-import sqlite3
 from pathlib import Path
 from typing import Any, Generator
 
@@ -318,7 +317,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
                 episode_id=episode_id,
                 generation_job_id=job_id,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("tts synthesis failed")
             service.update_episode_status(episode_id, "failed")
             return
@@ -361,7 +360,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         service.update_episode_phase(episode_id, "complete", "解説の生成が完了しました")
         logger.info("[%d] commentary completed successfully", episode_id)
 
-    except Exception as exc:
+    except Exception:
         if service is not None:
             current = service.get_episode(episode_id)
             current_status = current["status"] if current else None
@@ -532,7 +531,7 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
             episode_id=episode_id,
             generation_job_id=job_id,
         )
-    except Exception as exc:
+    except Exception:
         logger.exception("tts synthesis failed for episode %d", episode_id)
         service.update_episode_status(episode_id, "failed")
         yield _format_sse("error", _build_error_payload(

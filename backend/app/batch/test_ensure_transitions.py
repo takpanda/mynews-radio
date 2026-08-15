@@ -138,7 +138,6 @@ class TestPickSpeaker:
         import random as _random
         _random.seed(42)
         phrases = ["a", "b", "c"]
-        used = {"last": None}
         got = [_random.choice(phrases) for _ in range(3)]
         _random.seed(42)
         expected = [_random.choice(phrases) for _ in range(3)]
@@ -1187,4 +1186,3 @@ class TestEnsureTransitionsEpisode362Regression:
         ]
         assert len(art2_transitions) == 2
         assert art2_transitions[0]["speaker"] != art2_transitions[1]["speaker"]
-

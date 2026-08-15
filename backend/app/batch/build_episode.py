@@ -5,12 +5,11 @@ import sys
 import logging
 import wave
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from app.services.ffmpeg_service import combine_wav_files, wav_to_mp3, add_jingles_and_encode
+from app.services.ffmpeg_service import combine_wav_files, add_jingles_and_encode
 from app.services import generation_log_service as log_service
 from app.config import get_settings
 

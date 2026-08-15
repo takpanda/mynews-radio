@@ -1,0 +1,14 @@
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# logging.basicConfig must run before application imports configure loggers.
+"app/main.py" = ["E402"]
+# These are executable regression tests kept alongside the batch implementation.
+"app/batch/test_*.py" = ["E741"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
