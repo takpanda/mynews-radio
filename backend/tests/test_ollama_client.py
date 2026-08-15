@@ -1,7 +1,9 @@
 """Tests for OllamaClient.generate_json()."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from app.services.ollama_client import OllamaClient
@@ -168,3 +170,32 @@ class TestGenerateJsonQwen3Chat:
         assert mock_post.call_count == 2
         retry_payload = mock_post.call_args_list[1].kwargs["json"]
         assert retry_payload["messages"][0]["content"].startswith("Answer with ONLY valid JSON")
+
+    def test_qwen3_read_timeout_returns_failure_after_bounded_retries(self):
+        client = OllamaClient(
+            base_url="http://localhost:11434",
+            model="qwen3.8:latest",
+            max_retries=1,
+            timeout=httpx.Timeout(0.01),
+        )
+        timeout_error = httpx.ReadTimeout("timed out")
+
+        with patch(
+            "app.services.ollama_client.httpx.Client.post",
+            side_effect=timeout_error,
+        ) as mock_post:
+            assert client.generate_json("hello") is None
+
+        assert mock_post.call_count == 2
+
+    def test_default_timeout_uses_llm_timeout_settings(self):
+        configured = SimpleNamespace(llm_response_timeout=5.0, llm_connect_timeout=2.0)
+
+        with patch("app.config.get_settings", return_value=configured):
+            client = OllamaClient(base_url="http://localhost:11434", model="qwen3.8:latest")
+
+        assert isinstance(client._timeout, httpx.Timeout)
+        assert client._timeout.connect == 2.0
+        assert client._timeout.read == 5.0
+        assert client._timeout.write == 5.0
+        assert client._timeout.pool == 5.0

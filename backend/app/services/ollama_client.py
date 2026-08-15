@@ -9,12 +9,29 @@ logger = logging.getLogger(__name__)
 
 
 class OllamaClient:
-    def __init__(self, base_url: str, model: str, max_retries: int = 2, timeout: float = 600.0):
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        max_retries: int = 2,
+        timeout: float | httpx.Timeout | None = None,
+    ):
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._max_retries = max_retries
-        self._timeout = timeout
+        self._timeout = self._configured_timeout() if timeout is None else timeout
         self._client: Optional[httpx.Client] = None
+
+    @staticmethod
+    def _configured_timeout() -> httpx.Timeout:
+        """Use the configured finite LLM connect/read timeout for every request."""
+        from app.config import get_settings
+
+        settings = get_settings()
+        return httpx.Timeout(
+            settings.llm_response_timeout,
+            connect=settings.llm_connect_timeout,
+        )
 
     @property
     def client(self) -> httpx.Client:
