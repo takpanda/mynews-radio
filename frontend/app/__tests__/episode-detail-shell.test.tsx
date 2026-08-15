@@ -5,10 +5,14 @@ import { render, screen } from '@testing-library/react'
 import EpisodeDetailShell from '../components/EpisodeDetailShell'
 import type { DetailEpisode } from '../components/EpisodeDetailShell'
 
-jest.mock('../components/EpisodeAudioPlayer', () => ({
-  __esModule: true,
-  default: React.forwardRef(() => <div data-testid="mock-audio-player" />),
-}))
+jest.mock('../components/EpisodeAudioPlayer', () => {
+  const MockEpisodeAudioPlayer = React.forwardRef(() => <div data-testid="mock-audio-player" />)
+  MockEpisodeAudioPlayer.displayName = 'MockEpisodeAudioPlayer'
+  return {
+    __esModule: true,
+    default: MockEpisodeAudioPlayer,
+  }
+})
 
 jest.mock('../components/ScriptViewer', () => ({
   __esModule: true,
