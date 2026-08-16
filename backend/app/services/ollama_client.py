@@ -40,26 +40,17 @@ class OllamaClient:
         # ornith 系モデルは format:json 指定時に response が空になり、
         # thinking フィールドにのみ出力が入る不具合があるためスキップする。
         # Qwen 系など他のモデルでは従来どおり format:json を送信する。
-        is_qwen3_model = self._model.lower().startswith("qwen3")
         use_json_format = "ornith" not in self._model
-        if is_qwen3_model:
-            endpoint = "/api/chat"
-            payload = {
-                "model": self._model,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-                "think": True,
-                "format": "json",
-            }
-        else:
-            endpoint = "/api/generate"
-            payload = {
-                "model": self._model,
-                "prompt": prompt,
-                "stream": False,
-            }
-            if use_json_format:
-                payload["format"] = "json"
+        endpoint = "/api/generate"
+        payload = {
+            "model": self._model,
+            "prompt": prompt,
+            "stream": False,
+            # Ollama's native API reads think from the request body, not options.
+            "think": False,
+        }
+        if use_json_format:
+            payload["format"] = "json"
 
         options = payload.get("options", {})
         options["num_ctx"] = 65536
@@ -70,15 +61,8 @@ class OllamaClient:
                 resp = self.client.post(endpoint, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
-                if is_qwen3_model:
-                    message = data.get("message", {})
-                    if not isinstance(message, dict):
-                        message = {}
-                    raw = message.get("content", "")
-                    thinking_raw = message.get("thinking", data.get("thinking", ""))
-                else:
-                    raw = data.get("response", "")
-                    thinking_raw = data.get("thinking", "")
+                raw = data.get("response", "")
+                thinking_raw = data.get("thinking", "")
 
                 logger.info(
                     "Ollama raw response (attempt=%d): response_len=%d, thinking_len=%d, "
@@ -111,10 +95,7 @@ class OllamaClient:
                                 "Answer with ONLY valid JSON (no markdown, no backticks, no extra text):\n"
                                 + prompt
                             )
-                            if is_qwen3_model:
-                                payload["messages"][0]["content"] = forced_json_prompt
-                            else:
-                                payload["prompt"] = forced_json_prompt
+                            payload["prompt"] = forced_json_prompt
                             logger.warning(
                                 "Empty 'response' field detected, retrying with forced-json prompt (attempt=%d)",
                                 attempt,
@@ -132,7 +113,7 @@ class OllamaClient:
                     )
                     parsed = None
                     # アーティファクト検出後は thinking フィールドを優先、なければ強制 JSON でリトライ
-                    if thinking_raw and (not is_qwen3_model or content_is_empty):
+                    if thinking_raw and content_is_empty:
                         extracted = self._extract_output_from_reasoning(thinking_raw)
                         if extracted:
                             parsed = self._parse_json(extracted)
@@ -143,17 +124,14 @@ class OllamaClient:
                             "Answer with ONLY valid JSON (no markdown, no backticks, no extra text):\n"
                             + prompt
                         )
-                        if is_qwen3_model:
-                            payload["messages"][0]["content"] = forced_json_prompt
-                        else:
-                            payload["prompt"] = forced_json_prompt
+                        payload["prompt"] = forced_json_prompt
                         logger.warning(
                             "Retrying after thinking artifact (attempt=%d)", attempt
                         )
                         continue
 
                 # response が思考アーティファクトだった場合、thinking フィールドから抽出を試みる
-                if parsed is None and thinking_raw and (not is_qwen3_model or content_is_empty):
+                if parsed is None and thinking_raw and content_is_empty:
                     extracted = self._extract_output_from_reasoning(thinking_raw)
                     if extracted:
                         parsed = self._parse_json(extracted)
