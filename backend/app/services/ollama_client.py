@@ -40,7 +40,6 @@ class OllamaClient:
         # ornith 系モデルは format:json 指定時に response が空になり、
         # thinking フィールドにのみ出力が入る不具合があるためスキップする。
         # Qwen 系など他のモデルでは従来どおり format:json を送信する。
-        is_qwen3_model = self._model.lower().startswith("qwen3")
         use_json_format = "ornith" not in self._model
         endpoint = "/api/generate"
         payload = {
@@ -114,7 +113,7 @@ class OllamaClient:
                     )
                     parsed = None
                     # アーティファクト検出後は thinking フィールドを優先、なければ強制 JSON でリトライ
-                    if thinking_raw and (not is_qwen3_model or content_is_empty):
+                    if thinking_raw and content_is_empty:
                         extracted = self._extract_output_from_reasoning(thinking_raw)
                         if extracted:
                             parsed = self._parse_json(extracted)
@@ -132,7 +131,7 @@ class OllamaClient:
                         continue
 
                 # response が思考アーティファクトだった場合、thinking フィールドから抽出を試みる
-                if parsed is None and thinking_raw and (not is_qwen3_model or content_is_empty):
+                if parsed is None and thinking_raw and content_is_empty:
                     extracted = self._extract_output_from_reasoning(thinking_raw)
                     if extracted:
                         parsed = self._parse_json(extracted)

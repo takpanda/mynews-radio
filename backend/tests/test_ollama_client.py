@@ -78,7 +78,7 @@ class TestGenerateJsonNumCtx:
         assert payload["options"]["num_ctx"] == 65536
 
 
-class TestGenerateJsonQwen3Generate:
+class TestGenerateJson:
     @pytest.mark.parametrize("model", ["qwen3.8:latest", "qwen2.5:7b"])
     def test_models_use_generate_with_top_level_thinking_disabled_and_json_format(self, model):
         """Qwen3 と非Qwen3で endpoint と必須payloadを統一する。"""
@@ -97,8 +97,9 @@ class TestGenerateJsonQwen3Generate:
         assert payload["options"]["num_ctx"] == 65536
         assert "think" not in payload["options"]
 
-    def test_qwen3_falls_back_to_thinking_when_content_is_empty(self):
-        client = _make_client(model="qwen3.8:latest")
+    @pytest.mark.parametrize("model", ["qwen3.8:latest", "qwen2.5:7b"])
+    def test_models_fall_back_to_thinking_when_response_is_empty(self, model):
+        client = _make_client(model=model)
         response = _mock_post_response_with(
             {"response": "", "thinking": '<|channel|>output{"ok": true}<|channel|>'}
         )
@@ -108,28 +109,30 @@ class TestGenerateJsonQwen3Generate:
 
         assert mock_post.call_count == 1
 
-    def test_qwen3_does_not_fall_back_to_thinking_when_content_is_invalid_json(self):
+    @pytest.mark.parametrize("model", ["qwen3.8:latest", "qwen2.5:7b"])
+    def test_models_return_failure_for_invalid_json_after_bounded_retries(self, model):
         client = OllamaClient(
             base_url="http://localhost:11434",
-            model="qwen3.8:latest",
-            max_retries=0,
+            model=model,
+            max_retries=1,
         )
         response = _mock_post_response_with(
             {
                 "response": "not valid json",
-                "thinking": '<|channel|>output{"ok": true}<|channel|>',
+                "thinking": "",
             }
         )
 
         with patch("app.services.ollama_client.httpx.Client.post", return_value=response) as mock_post:
             assert client.generate_json("hello") is None
 
-        assert mock_post.call_count == 1
+        assert mock_post.call_count == 2
 
-    def test_qwen3_does_not_fall_back_when_content_is_thinking_artifact(self):
+    @pytest.mark.parametrize("model", ["qwen3.8:latest", "qwen2.5:7b"])
+    def test_models_do_not_fall_back_when_response_is_thinking_artifact(self, model):
         client = OllamaClient(
             base_url="http://localhost:11434",
-            model="qwen3.8:latest",
+            model=model,
             max_retries=0,
         )
         response = _mock_post_response_with(
@@ -144,21 +147,9 @@ class TestGenerateJsonQwen3Generate:
 
         assert mock_post.call_count == 1
 
-    def test_non_qwen3_model_keeps_generate_endpoint(self):
-        client = _make_client(model="qwen2.5:7b")
-
-        with patch("app.services.ollama_client.httpx.Client.post", return_value=_mock_post_response()) as mock_post:
-            assert client.generate_json("hello") == {"ok": True}
-
-        assert mock_post.call_args.args[0] == "/api/generate"
-        payload = mock_post.call_args.kwargs["json"]
-        assert payload["prompt"] == "hello"
-        assert "messages" not in payload
-        assert payload["think"] is False
-        assert "think" not in payload["options"]
-
-    def test_qwen3_retries_with_forced_json_prompt_after_empty_response(self):
-        client = _make_client(model="qwen3.8:latest")
+    @pytest.mark.parametrize("model", ["qwen3.8:latest", "qwen2.5:7b"])
+    def test_models_retry_with_forced_json_prompt_after_empty_response(self, model):
+        client = _make_client(model=model)
         empty_response = _mock_post_response_with({"response": "", "thinking": ""})
         valid_response = _mock_post_response()
 
@@ -172,10 +163,11 @@ class TestGenerateJsonQwen3Generate:
         retry_payload = mock_post.call_args_list[1].kwargs["json"]
         assert retry_payload["prompt"].startswith("Answer with ONLY valid JSON")
 
-    def test_qwen3_read_timeout_returns_failure_after_bounded_retries(self):
+    @pytest.mark.parametrize("model", ["qwen3.8:latest", "qwen2.5:7b"])
+    def test_models_return_failure_after_bounded_timeout_retries(self, model):
         client = OllamaClient(
             base_url="http://localhost:11434",
-            model="qwen3.8:latest",
+            model=model,
             max_retries=1,
             timeout=httpx.Timeout(0.01),
         )
