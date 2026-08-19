@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ボイス選定カタログ｜MyNews Radio / リクエストランキング</title>
+<style>
+  :root{
+    --bg:#0f1420; --card:#171e2e; --card2:#1c2540; --line:#2a3554;
+    --txt:#e8ecf5; --muted:#9aa7c3; --accent:#6ea8ff; --accent2:#ffb86b;
+    --ok:#3ddc97; --ng:#ff6b6b; --warn:#ffd166; --info:#74c0fc;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(160deg,#0f1420,#182238);color:var(--txt);
+    font-family:"Hiragino Sans","Yu Gothic UI","Helvetica Neue",Arial,sans-serif;
+    line-height:1.7;padding:32px 20px}
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:1.7rem;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:.95rem;margin-bottom:28px}
+  h2{font-size:1.2rem;margin:40px 0 14px;padding-left:12px;border-left:4px solid var(--accent)}
+  h2 .n{color:var(--accent);font-weight:800;margin-right:6px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;margin-bottom:16px}
+  .card h3{margin:0 0 4px;font-size:1.05rem}
+  .status{display:inline-block;font-size:.75rem;font-weight:700;padding:2px 10px;border-radius:999px;vertical-align:middle;margin-left:8px}
+  .s-live{background:rgba(61,220,151,.15);color:var(--ok);border:1px solid var(--ok)}
+  .s-cand{background:rgba(116,192,252,.12);color:var(--info);border:1px solid var(--info)}
+  .s-ng{background:rgba(255,107,107,.13);color:var(--ng);border:1px solid var(--ng)}
+  .s-hist{background:rgba(255,177,107,.12);color:var(--accent2);border:1px solid var(--accent2)}
+  .role{color:var(--muted);font-size:.85rem;margin-bottom:12px}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:.88rem}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--card2);color:var(--muted);font-weight:700;white-space:nowrap}
+  td .src{color:var(--accent);font-weight:600}
+  .ok{color:var(--ok);font-weight:700}.ng{color:var(--ng);font-weight:700}.warn{color:var(--warn)}
+  .tag{display:inline-block;background:var(--card2);border:1px solid var(--line);border-radius:6px;
+    padding:1px 8px;font-size:.75rem;color:var(--muted);margin:2px 3px 2px 0}
+  code{background:#0b0f1a;border:1px solid var(--line);padding:1px 5px;border-radius:5px;font-size:.82em}
+  .muted{color:var(--muted)}
+  footer{margin-top:40px;color:var(--muted);font-size:.8rem;text-align:center}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:.82rem;margin-bottom:6px}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+  .d-live{background:var(--ok)}.d-cand{background:var(--info)}.d-ng{background:var(--ng)}.d-hist{background:var(--accent2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🗂 ボイス選定カタログ</h1>
+  <div class="sub">MyNews Radio / リクエストランキング番組向け 音声合成ボイス検討履歴（Fish S2 Pro / mlx-speech / VoiceVox）</div>
+
+  <div class="legend">
+    <span><i class="dot d-live"></i>本番運用中</span>
+    <span><i class="dot d-cand"></i>候補・検討中</span>
+    <span><i class="dot d-hist"></i>過去採用（差し替え済み）</span>
+    <span><i class="dot d-ng"></i>不採用</span>
+  </div>
+
+  <h2><span class="n">1.</span>現行運用ボイス</h2>
+
+  <div class="card">
+    <h3>male <span class="status s-live">本番運用中</span></h3>
+    <div class="role">男性MC・ベースライン</div>
+    <table>
+      <tr><th>参照元の音声</th><td class="src">阿井田茂（AIVISpeech 話者ID 1310138976・ノーマル）を <code>mlx-speech</code> でクローン</td></tr>
+      <tr><th>参照ファイル</th><td><code>ref_male.wav</code></td></tr>
+      <tr><th>指標</th><td>出力 RMS 0.1563 / Peak 0.790（音量基準）</td></tr>
+      <tr><th>評価</th><td>✅ 男女MC音量合わせの基準値。雑音・こもり・反響の問題なし（男性行には音量正規化が適用されない）</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>female <span class="status s-live">本番運用中</span></h3>
+    <div class="role">女性MC（複数回差し替えを経て現行は「井上清華 b4」参照）</div>
+    <table>
+      <tr><th>参照元の音声</th><td class="src">井上清華（フジテレビアナウンサー・31歳）— 本人のスタジオ収録動画 <em>IN THE BAG</em> の b4 区間（SNR 42.9dB・低域0.4% の最クリーン部分）</td></tr>
+      <tr><th>参照ファイル</th><td><code>ref_female_inoue_b4.wav</code></td></tr>
+      <tr><th>指標</th><td>SNR 42.9dB / 低域 0.4%（超クリーン）・出力 RMS 0.1584（男性MCとほぼ一致）</td></tr>
+      <tr><th>評価</th><td>✅ 「声は最高」と承認済み。音量バランスも男女ほぼ一致。<span class="warn">△ うっすら反響（こだま）が気になる</span>という指摘あり → 「現状のまま確定して運用開始」で確定。出力段に100Hzハイパス＋ラウドネス正規化適用中</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>morigawa <span class="status s-live">本番運用中</span></h3>
+    <div class="role">女性ニュースMC（アナウンサー声）</div>
+    <table>
+      <tr><th>参照元の音声</th><td class="src">森川夕貴（フジテレビアナウンサー）クローン</td></tr>
+      <tr><th>参照ファイル</th><td><code>ref_morigawa.wav</code></td></tr>
+      <tr><th>指標</th><td>—</td></tr>
+      <tr><th>評価</th><td>✅ ユーザー好みの「自然なアナウンサー声」。アニメ寄りの声優声（悠木碧）を不採用として採用。ラジオMC音量バランスの基準はこの男性MC音量＋女声を小さくしない方針で調整</td></tr>
+    </table>
+  </div>
+
+  <h2><span class="n">2.</span>女性MC 過去採用・差し替え履歴</h2>
+
+  <div class="card">
+    <h3>This is me（井上清華・毎日メイク）<span class="status s-hist">過去採用 → 差し替え</span></h3>
+    <table>
+      <tr><th>参照元の音声</th><td class="src">井上清華「This is me.」毎日メイク動画（自宅・部屋収録）</td></tr>
+      <tr><th>指標</th><td>SNR 74.2dB / 低域 46%（数値上はクリーンに見える）</td></tr>
+      <tr><th>評価</th><td><span class="ng">△「声は最高」と承認されたが「ちょっと反響（部屋のこだま）」と指摘。</span>EQ加工候補（軽め35% / 強め21%）を作成するも、残響は低域EQでは取り切れず。de-reverbが本筋と判断。→ b区間（IN THE BAG）参照へ差し替え</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>watanabe_rumi（渡辺瑠美）<span class="status s-hist">過去採用 → 差し替え推奨</span></h3>
+    <table>
+      <tr><th>参照元の音声</th><td class="src">渡辺瑠美（女性アナウンサー系）音声 — <code>ref_female_watanabe_rumi_v2_s108.wav</code></td></tr>
+      <tr><th>指標</th><td>参照 SNR 33dB / 低域 <b>1264%</b> → クローン出力 低域 <b>3267%</b>（増幅）・SNR 30.1dB</td></tr>
+      <tr><th>評価</th><td><span class="ng">✗ 女性声としては異様に多い低域成分を参照に持ち、クローンが約2.6倍に増幅 →「ブーン／こもり」の雑音。</span>実際に本番運用されていたが（<code>FISHS2PRO_VOICE_FEMALE=watanabe_rumi</code>）、真の原因が参照音声と判明し差し替え対象に</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>五戸美樹（cand3）<span class="status s-ng">不採用</span></h3>
+    <table>
+      <tr><th>参照元の音声</th><td class="src">五戸美樹（女性）候補3参照（cand3）</td></tr>
+      <tr><th>指標</th><td>出力 RMS 0.1583 / Peak 0.789（音量は男性と一致）</td></tr>
+      <tr><th>評価</th><td><span class="ng">✗ 音量バランスは完璧（rms 0.158 vs 0.156）だったが、「音声がおばさんっぽくなった」とユーザー指摘で不採用。</span>井上清華参照の差し替えとして一時デプロイされたが、声質が好みに合わず撤回</td></tr>
+    </table>
+  </div>
+
+  <h2><span class="n">3.</span>女性MC 参照候補 検討過程（採否判定）</h2>
+  <table>
+    <tr><th>候補</th><th>参照元の音声</th><th>指標（SNR / 低域%）</th><th>採否</th><th>備考</th></tr>
+    <tr>
+      <td><b>NFT収録ブース</b><br><code>a20 (20-29s)</code></td>
+      <td class="src">井上清華「アナウンサーNFT ボイス収録密着」</td>
+      <td>21.9dB / 4.6%</td>
+      <td class="ng">✗ 不採用</td>
+      <td>試聴で「<b>雑音だらけ</b>」判定（ドキュメンタリーBGM＋ディレクター声混入）</td>
+    </tr>
+    <tr>
+      <td><b>アナぽけっと h1/h2</b></td>
+      <td class="src">井上清華「本性を暴いてみた」（対談）</td>
+      <td>h1 低域2.4% / h2 低域3.2%</td>
+      <td class="ng">✗ 不採用</td>
+      <td>超クリーンだが6〜9秒の短い断片で、対談形式のため相槌リスク</td>
+    </tr>
+    <tr>
+      <td><b>森川夕貴ナレーションブース</b></td>
+      <td class="src">森川夕貴 ナレーションブース収録動画</td>
+      <td>15.4dB / <b>2669%</b></td>
+      <td class="ng">✗ 不採用</td>
+      <td>編集BGMが重なり低域異常。ナレーションブース系は編集BGMが入りがち</td>
+    </tr>
+    <tr>
+      <td><b>This is me EQ加工</b><br>候補1 / 候補2</td>
+      <td class="src">現行This is me参照にEQ適用</td>
+      <td>候補1: 82.8dB/35%<br>候補2: 83.9dB/<b>21%</b></td>
+      <td class="warn">△ 見送り</td>
+      <td>低域のこもりは軽減できるが残響はEQでは取り切れず。de-reverbが本筋と判断</td>
+    </tr>
+    <tr>
+      <td><b>IN THE BAG b1/b2/b3</b></td>
+      <td class="src">井上清華 スタジオ収録（かばん紹介）</td>
+      <td>b1_open 17.7dB/5.6%（音声帯域92.3%）<br>b2 18.3dB/12.7% / b3 40.2dB/21.4%</td>
+      <td><span class="ok">● b1採用</span> b2/b3 <span class="ng">不採用</span></td>
+      <td>b1は自然終止・低域5.6%で最有力。b2/b3は低域高め／声の帯域が痩せる</td>
+    </tr>
+    <tr>
+      <td><b>IN THE BAG b4_close</b></td>
+      <td class="src">井上清華 スタジオ収録 最クリーン区間</td>
+      <td><b>42.9dB / 0.4%</b></td>
+      <td><span class="ok">● 採用（現行）</span></td>
+      <td>超クリーン。若干の反響指摘はあるが現状維持で確定</td>
+    </tr>
+  </table>
+
+  <h2><span class="n">4.</span>音声合成エンジン比較</h2>
+  <table>
+    <tr><th>エンジン</th><th>日本語クローン</th><th>判定・備考</th></tr>
+    <tr><td><b>Fish S2 Pro</b>（mlx-speech）</td><td><span class="ok">◎ 良好</span></td><td class="src">本採用。最も自然な韻律・低遅延・コスト$0。ユーザーの第一選択</td></tr>
+    <tr><td><b>Qwen3-TTS</b></td><td><span class="ok">○ 可</span></td><td>日本語クローン可だがFishより単調になりがち（ユーザーはFishを好む）</td></tr>
+    <tr><td><b>CosyVoice 3</b>（0.5B）</td><td><span class="ng">✗ 不可（Mac）</span></td><td>日本語正規化 ttsfrd がLinux専用、wetextはModelscope 403 → 誤音素化で崩壊（BEE-645）</td></tr>
+    <tr><td><b>IndexTTS-2</b></td><td><span class="ng">✗ 不可</span></td><td>日本語用g2p未搭載（英語/中国語のみ）→ 自前FT必須</td></tr>
+    <tr><td><b>VoiceVox</b>（春日部つむぎ+玄野武宏）</td><td><span class="ok">◎ 採用</span></td><td class="src">毎日ランキング番組の2人MCに採用。音量2.5倍・プレーン読み</td></tr>
+  </table>
+
+  <h2><span class="n">5.</span>VoiceVox 2人MC（毎日リクエストランキング番組）</h2>
+  <div class="card">
+    <h3>春日部つむぎ (id=8) ＋ 玄野武宏 ノーマル (id=11) <span class="status s-live">本番運用中</span></h3>
+    <table>
+      <tr><th>参照元</th><td>VoiceVox 標準話者（合成音声）。参照クローンなし</td></tr>
+      <tr><th>設定</th><td>2人MC・音量2.5倍（+8dB）。毎日20:40に「今日のリクエストランキング」カウントダウン番組（J-POP3曲）をリビングのGoogle Homeで再生</td></tr>
+      <tr><th>評価</th><td>✅ 2人MCの掛け合いをユーザーが気に入っている。アニメ声（つむぎ）＋太い男性声（玄野）の対比。台本はプレーン読み（感情タグ不要）</td></tr>
+    </table>
+  </div>
+
+  <footer>ボイス選定カタログ v1.0 ｜ 2026-08-12 作成 ｜ 網羅: 現行運用3ボイス＋女性MC差し替え3系統＋候補判定6件＋エンジン5種</footer>
+</div>
+</body>
+</html>
