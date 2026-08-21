@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.batch.generate_script import _is_broken_transition_text
+from app.batch.structure_scan import scan_script_structure
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
 
@@ -331,6 +332,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
             "lines_count": 0,
             "dialogue_balance_issues": [],
             "transition_integrity_issues": [],
+            "structure_scan_warnings": [],
         }
 
     script_json_str = json.dumps(source, ensure_ascii=False, indent=2)
@@ -461,6 +463,10 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
             )
             revised = False
 
+    structure_scan_warnings = scan_script_structure(transition_check_lines)
+    for warning in structure_scan_warnings:
+        logger.warning("review_script: 台本構造スキャン: %s", warning)
+
     # --- Save review.json ---
     _write_review_json(
         output_dir=output_dir,
@@ -470,6 +476,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
         revised=revised,
         dialogue_balance_issues=dialogue_balance_issues,
         transition_integrity_issues=transition_integrity_issues,
+        structure_scan_warnings=structure_scan_warnings,
     )
 
     return {
@@ -479,6 +486,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
         "lines_count": lines_count,
         "dialogue_balance_issues": dialogue_balance_issues,
         "transition_integrity_issues": transition_integrity_issues,
+        "structure_scan_warnings": structure_scan_warnings,
     }
 
 
@@ -545,6 +553,7 @@ def _write_review_json(
     revised: bool,
     dialogue_balance_issues: list[str] | None = None,
     transition_integrity_issues: list[str] | None = None,
+    structure_scan_warnings: list[str] | None = None,
 ) -> None:
     review_data = {
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
@@ -554,6 +563,7 @@ def _write_review_json(
         "revised": revised,
         "dialogue_balance_issues": dialogue_balance_issues or [],
         "transition_integrity_issues": transition_integrity_issues or [],
+        "structure_scan_warnings": structure_scan_warnings or [],
     }
     review_path = os.path.join(output_dir, "review.json")
     try:

@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.services.article_service import ArticleService
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.settings_service import ProgramSettings, get_settings_or_default
+from app.batch.structure_scan import scan_script_structure
 
 logger = logging.getLogger(__name__)
 
@@ -1189,6 +1190,15 @@ def generate_script(
 
     # LLM が transition を省略した場合に備えてプログラム側で補完する
     script["lines"] = _ensure_transitions(script["lines"], ordered_summaries, arc=arc)
+
+    # 台本全体の前後関係は警告として記録し、既存の生成を止めない。
+    structure_warnings = scan_script_structure(
+        script["lines"],
+        ordered_summaries,
+        expected_discussion_article_id=arc.get("discussion_article_id") if arc else None,
+    )
+    for warning in structure_warnings:
+        logger.warning("台本構造スキャン: %s", warning)
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     Path(output_path).write_text(
