@@ -152,6 +152,49 @@ class TestReviewScriptTransitionIntegrityIntegration:
 
         return result, output_dir
 
+    def test_structure_scan_review_stage_loads_summaries(self, tmp_path):
+        from app.batch.review_script import review_script
+
+        source_script = {
+            "date": "2026-08-09",
+            "title": "ニュースのとなり",
+            "subtitle": "",
+            "discussion_article_id": 2,
+            "lines": [_make_line("intro", "「ニュースのとなり」の時間です。")],
+        }
+        synth_lines = [
+            _make_line("news", "記事1", article_id=1),
+            _make_line("transition", "次の記事です", article_id=2),
+            _make_line("news", "記事2", article_id=2),
+            _make_line("discussion", "討論", article_id=2),
+        ]
+        script_path = os.path.join(tmp_path, "script.json")
+        Path(script_path).write_text(json.dumps(source_script, ensure_ascii=False), encoding="utf-8")
+        Path(tmp_path, "summaries.json").write_text(json.dumps([
+            {"article_id": 1, "title": "AIモデル発表", "summary": "AIの新機能", "category": "technology"},
+            {"article_id": 2, "title": "AIサービス更新", "summary": "AIの更新", "category": "technology"},
+        ], ensure_ascii=False), encoding="utf-8")
+        output_dir = os.path.join(tmp_path, "output")
+        os.makedirs(output_dir, exist_ok=True)
+        call_count = {"n": 0}
+
+        def side_effect(_prompt_text, **_kw):
+            call_count["n"] += 1
+            if call_count["n"] <= 5:
+                return {"overall_score": 7, "issues": [], "general_feedback": ""}
+            return {"lines": synth_lines, "revision_summary": "修正しました"}
+
+        mock_client = MagicMock()
+        mock_client.generate_json.side_effect = side_effect
+        mock_cls = MagicMock()
+        mock_cls.__enter__.return_value = mock_client
+        with patch("app.batch.review_script.OllamaClient", return_value=mock_cls):
+            result = review_script(script_path, output_dir)
+
+        assert any("STRUCTURE_ADJACENT_NEWS_SIMILAR" in warning for warning in result["structure_scan_warnings"])
+        review_json = json.loads(Path(output_dir, "review.json").read_text(encoding="utf-8"))
+        assert review_json["structure_scan_warnings"] == result["structure_scan_warnings"]
+
     def test_revised_script_with_broken_transition_reports_issue(self, tmp_path):
         source_script = {
             "date": "2026-08-09",

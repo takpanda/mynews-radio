@@ -115,7 +115,13 @@ def scan_script_structure(
     if discussion_indices and news_indices:
         discussion_ids = {lines[i].get("article_id") for i in discussion_indices}
         preceding_id = lines[news_indices[-1]].get("article_id")
-        if len(discussion_ids) == 1:
+        if len(discussion_ids) != 1:
+            warnings.append(
+                f"[STRUCTURE_DISCUSSION_TARGET_MISMATCH] discussion内のarticle_idが複数混在しています: "
+                f"{sorted(str(article_id) for article_id in discussion_ids)} "
+                "（討論対象を1記事に統一してください）"
+            )
+        else:
             discussion_id = next(iter(discussion_ids))
             if discussion_id != preceding_id:
                 warnings.append(

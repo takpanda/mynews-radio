@@ -1164,6 +1164,8 @@ def generate_script(
         "subtitle": str(response.get("subtitle", "")),
         "lines": [],
     }
+    if arc and arc.get("discussion_article_id") is not None:
+        script["discussion_article_id"] = arc["discussion_article_id"]
 
     for line in response["lines"]:
         if not isinstance(line, dict):

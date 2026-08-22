@@ -44,3 +44,20 @@ def test_unrelated_adjacent_news_and_discussion_are_clean():
          {"id": 2, "title": "料理レシピ", "summary": "野菜", "category": "lifestyle"}],
     )
     assert warnings == []
+
+
+def test_expected_discussion_article_id_mismatch_reports_expected_id():
+    warnings = scan_script_structure(
+        [line("news", "ニュース", 1), line("discussion", "討論", 1)],
+        expected_discussion_article_id=2,
+    )
+    assert any("Narrative Arc選定 article_id=2" in warning for warning in warnings)
+
+
+def test_multiple_discussion_article_ids_report_target_mismatch():
+    warnings = scan_script_structure([
+        line("news", "ニュース", 1),
+        line("discussion", "討論A", 1),
+        line("discussion", "討論B", 2),
+    ])
+    assert any("STRUCTURE_DISCUSSION_TARGET_MISMATCH" in warning for warning in warnings)

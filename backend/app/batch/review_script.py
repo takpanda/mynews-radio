@@ -43,6 +43,19 @@ _PROMPT_FILES: dict[str, str] = {
 _PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
 
 
+def _load_structure_scan_inputs(source_script_path: str, source: dict) -> tuple[list[dict], object]:
+    """レビュー後スキャン用の要約とArc選定記事IDを読み込む。"""
+    summaries_path = Path(source_script_path).with_name("summaries.json")
+    summaries: list[dict] = []
+    try:
+        loaded = json.loads(summaries_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, list):
+            summaries = [item for item in loaded if isinstance(item, dict)]
+    except (FileNotFoundError, json.JSONDecodeError, OSError) as exc:
+        logger.info("review_script: summaries.json unavailable for structure scan: %s", exc)
+    return summaries, source.get("discussion_article_id")
+
+
 def _load_prompt(filename: str) -> str:
     return (_PROMPTS_DIR / filename).read_text(encoding="utf-8")
 
@@ -463,9 +476,20 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
             )
             revised = False
 
-    structure_scan_warnings = scan_script_structure(transition_check_lines)
-    for warning in structure_scan_warnings:
-        logger.warning("review_script: 台本構造スキャン: %s", warning)
+    structure_summaries, expected_discussion_article_id = _load_structure_scan_inputs(
+        source_script_path, source
+    )
+    structure_scan_warnings = scan_script_structure(
+        transition_check_lines,
+        structure_summaries,
+        expected_discussion_article_id=expected_discussion_article_id,
+    )
+    if structure_scan_warnings:
+        logger.warning(
+            "review_script: 台本構造スキャンで%d件の警告:\n%s",
+            len(structure_scan_warnings),
+            "\n".join(f"  - {warning}" for warning in structure_scan_warnings),
+        )
 
     # --- Save review.json ---
     _write_review_json(
@@ -517,6 +541,8 @@ def _build_revised_script(source: dict, response: dict) -> dict:
         script["style"] = style
     if mc_gender:
         script["mc_gender"] = mc_gender
+    if source.get("discussion_article_id") is not None:
+        script["discussion_article_id"] = source["discussion_article_id"]
 
     valid_sections = {"intro", "news", "transition", "discussion", "outro"}
 
