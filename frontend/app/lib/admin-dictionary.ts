@@ -38,7 +38,7 @@ function toQueryString(params: Record<string, string | number | undefined>): str
 async function serverHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   const { cookies } = await import('next/headers')
-  const cookie = cookies().get('admin_session')?.value
+  const cookie = (await cookies()).get('admin_session')?.value
   if (cookie) headers['Cookie'] = `admin_session=${cookie}`
   return headers
 }

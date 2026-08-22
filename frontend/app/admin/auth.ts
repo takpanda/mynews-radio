@@ -5,7 +5,7 @@ const API_BASE = process.env.API_BASE ?? 'http://api:8010'
 
 /** 公開ページのオーナー操作UI用に、Cookieではなくバックエンドでセッションを検証する。 */
 export async function hasValidAdminSession(): Promise<boolean> {
-  const token = cookies().get('admin_session')?.value
+  const token = (await cookies()).get('admin_session')?.value
   if (!token) return false
   try {
     const response = await fetch(`${API_BASE}/admin/me`, {
@@ -20,7 +20,7 @@ export async function hasValidAdminSession(): Promise<boolean> {
 
 /** SSR管理ページはCookieの存在ではなく、バックエンドでセッションを検証する。 */
 export async function requireAdminSessionForPage(): Promise<void> {
-  const token = cookies().get('admin_session')?.value
+  const token = (await cookies()).get('admin_session')?.value
   if (!token) redirect('/admin/login')
 
   try {

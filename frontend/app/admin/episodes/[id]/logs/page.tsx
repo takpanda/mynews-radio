@@ -5,10 +5,11 @@ import AdminNav from '../../../../components/AdminNav'
 import { requireAdminSessionForPage } from '../../../auth'
 
 interface Props {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }
 
-export default async function AdminEpisodeLogsPage({ params }: Props) {
+export default async function AdminEpisodeLogsPage(props: Props) {
+  const params = await props.params;
   await requireAdminSessionForPage()
 
   const episodeId = parseInt(params.id, 10)
