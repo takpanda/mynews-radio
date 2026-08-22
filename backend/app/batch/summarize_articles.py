@@ -13,6 +13,12 @@ from app.services.ollama_client import OllamaClient, create_llm_client
 logger = logging.getLogger(__name__)
 
 
+def _truncate_article_text(article_text: str, max_chars: int) -> str:
+    if max_chars < 1:
+        raise ValueError("max_chars must be greater than zero")
+    return article_text[:max_chars]
+
+
 def _load_prompt_template() -> str:
     prompt_path = Path(__file__).resolve().parents[1] / "prompts" / "summarize_article.md"
     return prompt_path.read_text(encoding="utf-8")
@@ -50,7 +56,7 @@ def summarize_articles(output_path: str, *, llm_provider: str | None = None, llm
                 source=article.get("source", ""),
                 url=article.get("url", ""),
                 published_at=article.get("published_at", ""),
-                text=article_text,
+                text=_truncate_article_text(article_text, settings.summary_article_max_chars),
             )
             response = client.generate_json(prompt)
             if response is None:

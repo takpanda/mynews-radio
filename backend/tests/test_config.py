@@ -38,6 +38,15 @@ class TestConfigDefaults:
         expected = f"http://{settings.dgx_host}:11434"
         assert settings.ollama_base_url == expected
 
+    def test_summary_article_max_chars_default_and_override(self, monkeypatch):
+        from app.config import Settings
+
+        monkeypatch.delenv("SUMMARY_ARTICLE_MAX_CHARS", raising=False)
+        assert Settings().summary_article_max_chars == 4000
+
+        monkeypatch.setenv("SUMMARY_ARTICLE_MAX_CHARS", "3500")
+        assert Settings().summary_article_max_chars == 3500
+
     def test_voicevox_base_url_unchanged(self):
         from app.config import Settings
         settings = Settings()
@@ -133,6 +142,7 @@ for _var in OLLAMA_BASE_URL OLLAMA_MODEL DGX_HOST \
     AIVISPEECH_BASE_URL AIVISPEECH_SPEAKER_MALE AIVISPEECH_SPEAKER_FEMALE \
     FISHS2PRO_BASE_URL FISHS2PRO_VOICE_MALE FISHS2PRO_VOICE_FEMALE \
     BATCH_DEFAULT_TTS_ENGINE \
+    SUMMARY_ARTICLE_MAX_CHARS \
     API_KEY CORS_ORIGINS VAPID_PRIVATE_KEY VAPID_CLAIMS_EMAIL; do
   _val="${!_var:-}"
   if [ -n "$_val" ]; then
@@ -189,7 +199,7 @@ class TestCronEnvInjectionViaSubprocess:
         "VOICEVOX_BASE_URL", "VOICEVOX_SPEAKER_MALE", "VOICEVOX_SPEAKER_FEMALE",
         "AIVISPEECH_BASE_URL", "AIVISPEECH_SPEAKER_MALE", "AIVISPEECH_SPEAKER_FEMALE",
         "FISHS2PRO_BASE_URL", "FISHS2PRO_VOICE_MALE", "FISHS2PRO_VOICE_FEMALE",
-        "BATCH_DEFAULT_TTS_ENGINE",
+        "BATCH_DEFAULT_TTS_ENGINE", "SUMMARY_ARTICLE_MAX_CHARS",
         "API_KEY", "CORS_ORIGINS",
     ]
 
@@ -208,6 +218,7 @@ class TestCronEnvInjectionViaSubprocess:
             "FISHS2PRO_VOICE_MALE": "male",
             "FISHS2PRO_VOICE_FEMALE": "morigawa",
             "BATCH_DEFAULT_TTS_ENGINE": "fishs2pro",
+            "SUMMARY_ARTICLE_MAX_CHARS": "3500",
             "API_KEY": "test-key-123",
             "LM_STUDIO_API_KEY": "lm-secret",
             "VLLM_API_KEY": "vllm-secret",
