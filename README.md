@@ -45,6 +45,7 @@
 |---|---|---|
 | `OLLAMA_BASE_URL` | Ollama API のエンドポイント | `http://192.168.1.103:11434` |
 | `OLLAMA_MODEL` | 使用する LLM モデル | `qwen3.6:35b` |
+| `SUMMARY_ARTICLE_MAX_CHARS` | 要約プロンプトへ渡す記事本文の最大文字数 | `4000` |
 | `VOICEVOX_BASE_URL` | VOICEVOX API のエンドポイント | `http://192.168.1.102:50021` |
 | `VOICEVOX_SPEAKER_MALE` | 男性話者 ID | `11` |
 | `VOICEVOX_SPEAKER_FEMALE` | 女性話者 ID | `2` |

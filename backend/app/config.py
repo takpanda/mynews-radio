@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -12,6 +13,7 @@ class Settings(BaseSettings):
     dgx_host: str = "192.168.1.102"
     ollama_base_url: str = "http://192.168.1.102:11434"
     ollama_model: str = "qwen3.6:35b"
+    summary_article_max_chars: int = Field(default=4000, ge=1)
     lm_studio_base_url: str = "http://127.0.0.1:1234"
     lm_studio_model: str = ""
     lm_studio_api_key: str = ""
