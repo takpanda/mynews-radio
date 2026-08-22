@@ -61,6 +61,90 @@ def test_fishs2pro_episode_uses_male_and_female_and_44100hz(tmp_path):
         assert wav.getframerate() == 44100
 
 
+def test_fishs2pro_episode_uses_saved_voices_when_speakers_are_omitted(tmp_path):
+    """直接呼び出しでも user_settings のFish S2 Pro音声をクライアントへ渡す。"""
+    from app.batch.synthesize_voicevox import synthesize_episode
+    from app.services import settings_service
+
+    episode_dir = tmp_path / "episode"
+    episode_dir.mkdir()
+    (episode_dir / "script.json").write_text(
+        json.dumps({"lines": [{"text": "本文", "speaker": "female"}]}),
+        encoding="utf-8",
+    )
+    settings_service.save_voice_settings(settings_service.validate_voice_settings(
+        aivispeech_speaker_male=1,
+        aivispeech_speaker_female=2,
+        voicevox_speaker_male=11,
+        voicevox_speaker_female=22,
+        fishs2pro_voice_male="saved-male",
+        fishs2pro_voice_female="saved-female",
+    ))
+    client_voices = {}
+
+    class FakeFishClient:
+        def __init__(self, base_url, voice_male=None, voice_female=None):
+            client_voices.update(male=voice_male, female=voice_female)
+
+        def synthesize_line(self, text, speaker, output_path, delivery="neutral"):
+            with wave.open(output_path, "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(44100)
+                wav.writeframes(b"\0\0" * 10)
+            return True
+
+        def close(self):
+            pass
+
+    with patch("app.batch.synthesize_voicevox.get_settings", return_value=_settings()), \
+         patch("app.batch.synthesize_voicevox.FishS2ProClient", FakeFishClient):
+        assert synthesize_episode(str(episode_dir), tts_engine="fishs2pro") == 1
+
+    assert client_voices == {"male": "saved-male", "female": "saved-female"}
+
+
+def test_fishs2pro_episode_keeps_explicit_speakers_over_saved_voices(tmp_path):
+    """明示された話者は保存値より優先し、既存の呼び出し契約を維持する。"""
+    from app.batch.synthesize_voicevox import synthesize_episode
+
+    episode_dir = tmp_path / "episode"
+    episode_dir.mkdir()
+    (episode_dir / "script.json").write_text(
+        json.dumps({"lines": [{"text": "本文", "speaker": "male"}]}),
+        encoding="utf-8",
+    )
+    client_voices = {}
+
+    class FakeFishClient:
+        def __init__(self, base_url, voice_male=None, voice_female=None):
+            client_voices.update(male=voice_male, female=voice_female)
+
+        def synthesize_line(self, text, speaker, output_path, delivery="neutral"):
+            with wave.open(output_path, "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(44100)
+                wav.writeframes(b"\0\0" * 10)
+            return True
+
+        def close(self):
+            pass
+
+    with patch("app.batch.synthesize_voicevox.get_settings", return_value=_settings()), \
+         patch("app.batch.synthesize_voicevox.resolve_tts_speakers",
+               side_effect=AssertionError("explicit speakers must not read saved settings")), \
+         patch("app.batch.synthesize_voicevox.FishS2ProClient", FakeFishClient):
+        assert synthesize_episode(
+            str(episode_dir),
+            tts_engine="fishs2pro",
+            speaker_male="explicit-male",
+            speaker_female="explicit-female",
+        ) == 1
+
+    assert client_voices == {"male": "explicit-male", "female": "explicit-female"}
+
+
 def test_fishs2pro_female_audio_is_not_volume_normalized(tmp_path):
     """Fish S2 Pro の女性MC音声には専用の平均音量正規化を適用しない（BEE-687回帰テスト）。"""
     from app.batch.synthesize_voicevox import synthesize_episode

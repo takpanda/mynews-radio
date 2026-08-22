@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.services import generation_log_service as log_service
 from app.services.ffmpeg_service import convert_to_wav
 from app.services.fishs2pro_client import FishS2ProClient
+from app.services.settings_service import resolve_tts_speakers
 from app.services.voicevox_client import DELIVERY_PARAMS, VoicevoxClient
 from app.services.replacement_table import apply_replacements
 
@@ -165,16 +166,26 @@ def synthesize_episode(
     engine = tts_engine or settings.default_tts_engine
     default_engine_is_aivispeech = engine == "aivispeech"
     is_fishs2pro = engine == "fishs2pro"
+    saved_fishs2pro_speakers = None
+    if is_fishs2pro and (speaker_male is None or speaker_female is None):
+        # 直接呼び出し（日次バッチ等）では話者が引数に渡されないため、
+        # user_settings を参照する。読取失敗・不正値時はサービス側でconfigへ
+        # フォールバックするので、音声生成自体は継続できる。
+        saved_fishs2pro_speakers = resolve_tts_speakers("fishs2pro")
+    fishs2pro_speaker_male = settings.fishs2pro_voice_male
+    fishs2pro_speaker_female = settings.fishs2pro_voice_female
+    if saved_fishs2pro_speakers is not None:
+        fishs2pro_speaker_male, fishs2pro_speaker_female = saved_fishs2pro_speakers
     effective_base_url = base_url if base_url is not None else (
         settings.fishs2pro_base_url if is_fishs2pro else
         settings.aivispeech_base_url if default_engine_is_aivispeech else settings.voicevox_base_url
     )
     effective_speaker_male = speaker_male if speaker_male is not None else (
-        settings.fishs2pro_voice_male if is_fishs2pro else
+        fishs2pro_speaker_male if is_fishs2pro else
         settings.aivispeech_speaker_male if default_engine_is_aivispeech else settings.voicevox_speaker_male
     )
     effective_speaker_female = speaker_female if speaker_female is not None else (
-        settings.fishs2pro_voice_female if is_fishs2pro else
+        fishs2pro_speaker_female if is_fishs2pro else
         settings.aivispeech_speaker_female if default_engine_is_aivispeech else settings.voicevox_speaker_female
     )
 
