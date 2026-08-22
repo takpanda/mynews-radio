@@ -5,10 +5,8 @@ import { addTrustedClientIp } from "../../../proxy-client-ip"
 const API_BASE = process.env.API_BASE ?? "http://api:8010"
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS) || 360_000
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { id: string } },
-) {
+export async function POST(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await request.json()
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)

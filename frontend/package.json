@@ -14,7 +14,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "14.2.14",
+    "next": "15.5.23",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-hot-toast": "^2.6.0"
@@ -30,11 +30,18 @@
     "@types/react-dom": "^19.2.3",
     "autoprefixer": "^10",
     "eslint": "^8.57.1",
-    "eslint-config-next": "^14.2.14",
+    "eslint-config-next": "15.5.23",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
-    "postcss": "^8",
+    "postcss": "^8.5.26",
     "tailwindcss": "^3",
     "typescript": "6.0.3"
+  },
+  "overrides": {
+    "sharp": "^0.35.3",
+    "nanoid": "^3.3.18",
+    "next": {
+      "postcss": "^8.5.26"
+    }
   }
 }

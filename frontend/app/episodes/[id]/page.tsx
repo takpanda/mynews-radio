@@ -19,10 +19,11 @@ import EpisodeDetailShell, {
 } from '../../components/EpisodeDetailShell'
 
 interface Props {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata(props: Props): Promise<Metadata> {
+  const params = await props.params;
   const episodeId = parseInt(params.id, 10)
   if (isNaN(episodeId)) return {}
 
@@ -30,7 +31,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     const episode = await fetchEpisode(episodeId)
     if (!episode) return {}
 
-    const headersList = headers()
+    const headersList = await headers()
     const host = headersList.get('x-forwarded-host') || headersList.get('host') || 'localhost:3010'
     const proto = headersList.get('x-forwarded-proto') || 'http'
     const origin = `${proto}://${host}`
@@ -66,7 +67,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 function normalizeSummaryText(text: string): string {
   const compact = text.replace(/\s+/g, ' ').trim()
   if (!compact) return ''
-  return /[。.!！?？]$/.test(compact) ? compact : `${compact}。`
+  return /[。.!！?？]$/.test(compact) ? compact : `${compact}。`;
 }
 
 function splitSummaryIntoTopics(summary: string): string[] {
@@ -144,7 +145,8 @@ function toDetailEpisode(episode: Episode): DetailEpisode {
   }
 }
 
-export default async function EpisodePage({ params }: Props) {
+export default async function EpisodePage(props: Props) {
+  const params = await props.params;
   const episodeId = parseInt(params.id, 10)
   if (isNaN(episodeId)) notFound()
 
