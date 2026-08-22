@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.batch.generate_script import _is_broken_transition_text
+from app.batch.structure_scan import scan_script_structure
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
 
@@ -40,6 +41,19 @@ _PROMPT_FILES: dict[str, str] = {
 }
 
 _PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
+
+
+def _load_structure_scan_inputs(source_script_path: str, source: dict) -> tuple[list[dict], object]:
+    """レビュー後スキャン用の要約とArc選定記事IDを読み込む。"""
+    summaries_path = Path(source_script_path).with_name("summaries.json")
+    summaries: list[dict] = []
+    try:
+        loaded = json.loads(summaries_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, list):
+            summaries = [item for item in loaded if isinstance(item, dict)]
+    except (FileNotFoundError, json.JSONDecodeError, OSError) as exc:
+        logger.info("review_script: summaries.json unavailable for structure scan: %s", exc)
+    return summaries, source.get("discussion_article_id")
 
 
 def _load_prompt(filename: str) -> str:
@@ -331,6 +345,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
             "lines_count": 0,
             "dialogue_balance_issues": [],
             "transition_integrity_issues": [],
+            "structure_scan_warnings": [],
         }
 
     script_json_str = json.dumps(source, ensure_ascii=False, indent=2)
@@ -461,6 +476,21 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
             )
             revised = False
 
+    structure_summaries, expected_discussion_article_id = _load_structure_scan_inputs(
+        source_script_path, source
+    )
+    structure_scan_warnings = scan_script_structure(
+        transition_check_lines,
+        structure_summaries,
+        expected_discussion_article_id=expected_discussion_article_id,
+    )
+    if structure_scan_warnings:
+        logger.warning(
+            "review_script: 台本構造スキャンで%d件の警告:\n%s",
+            len(structure_scan_warnings),
+            "\n".join(f"  - {warning}" for warning in structure_scan_warnings),
+        )
+
     # --- Save review.json ---
     _write_review_json(
         output_dir=output_dir,
@@ -470,6 +500,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
         revised=revised,
         dialogue_balance_issues=dialogue_balance_issues,
         transition_integrity_issues=transition_integrity_issues,
+        structure_scan_warnings=structure_scan_warnings,
     )
 
     return {
@@ -479,6 +510,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
         "lines_count": lines_count,
         "dialogue_balance_issues": dialogue_balance_issues,
         "transition_integrity_issues": transition_integrity_issues,
+        "structure_scan_warnings": structure_scan_warnings,
     }
 
 
@@ -509,6 +541,8 @@ def _build_revised_script(source: dict, response: dict) -> dict:
         script["style"] = style
     if mc_gender:
         script["mc_gender"] = mc_gender
+    if source.get("discussion_article_id") is not None:
+        script["discussion_article_id"] = source["discussion_article_id"]
 
     valid_sections = {"intro", "news", "transition", "discussion", "outro"}
 
@@ -545,6 +579,7 @@ def _write_review_json(
     revised: bool,
     dialogue_balance_issues: list[str] | None = None,
     transition_integrity_issues: list[str] | None = None,
+    structure_scan_warnings: list[str] | None = None,
 ) -> None:
     review_data = {
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
@@ -554,6 +589,7 @@ def _write_review_json(
         "revised": revised,
         "dialogue_balance_issues": dialogue_balance_issues or [],
         "transition_integrity_issues": transition_integrity_issues or [],
+        "structure_scan_warnings": structure_scan_warnings or [],
     }
     review_path = os.path.join(output_dir, "review.json")
     try:
