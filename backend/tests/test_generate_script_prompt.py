@@ -1,4 +1,7 @@
+import json
+
 from app.batch.generate_script import _load_prompt_template
+from app.batch.generate_script import lint_script
 
 
 def test_radio_script_prompt_guides_female_mc_toward_natural_partner_talk():
@@ -16,3 +19,44 @@ def test_radio_script_prompt_guides_female_mc_toward_natural_partner_talk():
 
     for marker in expected_markers:
         assert marker in prompt
+
+
+def test_representative_dialogue_output_can_be_checked_without_external_llm():
+    """外部LLMなしで受入条件を確認するための代表出力例。"""
+    script = {
+        "title": "ニュースのとなり",
+        "subtitle": "暮らしと技術の身近な変化",
+        "lines": [
+            {"speaker": "male", "text": "「ニュースのとなり」の時間です。今日も身近な話題をお届けします。", "article_id": None, "section": "intro", "delivery": "neutral"},
+            {"speaker": "female", "text": "今日のラインナップは、暮らしと技術の2つです。", "article_id": None, "section": "intro", "delivery": "neutral"},
+            {"speaker": "male", "text": "まずは、食品価格の動きから見ていきます。", "article_id": 1, "section": "news", "delivery": "neutral"},
+            {"speaker": "female", "text": "これ、毎日の買い物にはどう響くんですか？", "article_id": 1, "section": "news", "delivery": "questioning"},
+            {"speaker": "male", "text": "店頭価格への反映には時間差があるようです。", "article_id": 1, "section": "news", "delivery": "neutral"},
+            {"speaker": "female", "text": "家計を預かる側としては、変化の時期を知りたいところです。", "article_id": 1, "section": "news", "delivery": "thoughtful"},
+            {"speaker": "female", "text": "暮らしの変化に続いて、次は技術の話題です。", "article_id": 2, "section": "transition", "delivery": "neutral"},
+            {"speaker": "male", "text": "こちらも聞いてみましょう。", "article_id": 2, "section": "transition", "delivery": "neutral"},
+            {"speaker": "male", "text": "新しい認証機能が発表されました。", "article_id": 2, "section": "news", "delivery": "neutral"},
+            {"speaker": "female", "text": "便利そうですが、設定は難しくないですか？", "article_id": 2, "section": "news", "delivery": "questioning"},
+            {"speaker": "male", "text": "登録した端末を使って本人確認を行う仕組みです。", "article_id": 2, "section": "news", "delivery": "neutral"},
+            {"speaker": "female", "text": "使う人が迷わない案内も、同じくらい大切ですね。", "article_id": 2, "section": "news", "delivery": "thoughtful"},
+            {"speaker": "male", "text": "今日は暮らしと技術の話題をお届けしました。", "article_id": None, "section": "outro", "delivery": "warm"},
+            {"speaker": "female", "text": "みなさんの身近な変化も、ぜひ聞かせてください。", "article_id": None, "section": "outro", "delivery": "warm"},
+        ],
+    }
+
+    # script.json と同じ JSON 往復ができることを確認する。
+    loaded = json.loads(json.dumps(script, ensure_ascii=False))
+    assert all({"speaker", "text", "article_id", "section", "delivery"} <= set(line) for line in loaded["lines"])
+
+    errors = lint_script(loaded["lines"])
+    assert errors == []
+
+    female_news = [
+        line["text"]
+        for line in loaded["lines"]
+        if line["speaker"] == "female" and line["section"] == "news"
+    ]
+    assert any(text.endswith("？") for text in female_news)
+    assert any(not text.endswith("？") for text in female_news)
+    assert "状況が気になる限りあります" not in "".join(female_news)
+    assert all(a[-1:] != b[-1:] for a, b in zip(female_news, female_news[1:]))
