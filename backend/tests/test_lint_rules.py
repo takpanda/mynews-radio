@@ -405,6 +405,18 @@ class TestExistingLintRulesRegression:
         phrase_errors = [e for e in errors if "禁止フレーズ" in e]
         assert len(phrase_errors) == 1
 
+    def test_known_ungrammatical_female_phrase_is_detected(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。"),
+            _make_line("news", "状況が気になる限りあります", speaker="female"),
+        ]
+        errors = lint_script(lines)
+        phrase_errors = [e for e in errors if "禁止フレーズ" in e]
+        assert len(phrase_errors) == 1
+        assert "状況が気になる限りあります" in phrase_errors[0]
+
     def test_requires_digits_detected(self):
         from app.batch.generate_script import lint_script
 
