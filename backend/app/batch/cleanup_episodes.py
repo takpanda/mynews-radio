@@ -17,6 +17,7 @@ from app.config import get_settings
 from app.services.episode_service import EpisodeService
 from app.audit import cleanup_audit_logs
 from app.services.generation_log_service import cleanup_generation_logs
+from app.services.llm_call_log_service import cleanup_llm_call_logs
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,8 @@ def cleanup_episodes() -> dict:
 
     generation_log_deleted = cleanup_generation_logs()
     logger.info("Deleted %d generation phase logs (and their line logs) older than 90 days", generation_log_deleted)
+    llm_call_log_deleted = cleanup_llm_call_logs()
+    logger.info("Deleted %d LLM call logs (DB rows; JSONL also cleaned) older than 90 days", llm_call_log_deleted)
 
     ep_service = EpisodeService()
 
@@ -82,6 +85,7 @@ def cleanup_episodes() -> dict:
         return {
             "deleted_count": 0, "files_deleted": 0, "audit_deleted_count": audit_deleted,
             "generation_log_deleted_count": generation_log_deleted,
+            "llm_call_log_deleted_count": llm_call_log_deleted,
         }
 
     total_files_deleted = 0
@@ -112,6 +116,7 @@ def cleanup_episodes() -> dict:
         "files_deleted": total_files_deleted,
         "audit_deleted_count": audit_deleted,
         "generation_log_deleted_count": generation_log_deleted,
+        "llm_call_log_deleted_count": llm_call_log_deleted,
     }
 
     logger.info("Episode cleanup completed: %s", json.dumps(result))

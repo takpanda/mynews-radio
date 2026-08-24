@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from app.config import get_settings
 from app.services.article_service import ArticleService
 from app.services.ollama_client import OllamaClient, create_llm_client
+from app.services.llm_call_log_service import infer_episode_id, set_llm_context
 from app.services.settings_service import ProgramSettings, get_settings_or_default
 
 logger = logging.getLogger(__name__)
@@ -1104,6 +1105,7 @@ def generate_script(
 
         # --- Step 1: Architect — Narrative Arc 生成 ---
         logger.info("=== Script Step 1/2: Narrative Arc (Architect) ===")
+        set_llm_context(client, phase="arc", episode_id=infer_episode_id(output_path))
         arc = _generate_arc(client, summaries)
 
         # Arc に基づいて記事の順序を確定
@@ -1128,6 +1130,11 @@ def generate_script(
         current_prompt = base_prompt
 
         for lint_attempt in range(1, _MAX_LINT_RETRIES + 1):
+            set_llm_context(
+                client,
+                phase="script" if lint_attempt == 1 else "correction",
+                episode_id=infer_episode_id(output_path),
+            )
             response = client.generate_json(current_prompt)
             if response is None or not isinstance(response.get("lines"), list):
                 logger.error("Invalid script JSON generated (attempt=%d). Raw response: %s", lint_attempt, response)

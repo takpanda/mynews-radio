@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
+from app.services.llm_call_log_service import infer_episode_id, set_llm_context
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +166,7 @@ def generate_commentary_script(
 
     client_factory = (lambda: create_llm_client(llm_provider, llm_model)) if (llm_provider or llm_model) else (lambda: OllamaClient(settings.ollama_base_url, settings.ollama_model))
     with client_factory() as client:
+        set_llm_context(client, phase="script", episode_id=infer_episode_id(output_path))
         response = client.generate_json(prompt)
 
     if response is None or not isinstance(response.get("lines"), list):

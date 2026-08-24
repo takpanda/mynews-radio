@@ -3,10 +3,14 @@
 from datetime import datetime
 from typing import Annotated
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 
 from app.auth import require_owner_session
 from app.db.connection import get_db_connection
+from app.services.llm_call_log_service import get_llm_call, list_llm_call_metadata, llm_jsonl_path
 
 router = APIRouter(tags=["admin-audit"])
 
@@ -112,6 +116,7 @@ def get_episode_generation_logs(
             "FROM episode_generation_phase_logs WHERE episode_id = ?",
             (episode_id,),
         ).fetchall()
+        llm_rows = list_llm_call_metadata(conn, episode_id)
 
         selected_phase_id: int | None
         if phase_log_id is not None:
@@ -173,6 +178,16 @@ def get_episode_generation_logs(
             "reason": row["failure_reason"], "tts_engine": row["tts_engine"],
             "line_success_count": row["line_success_count"], "line_total_count": row["line_total_count"],
         })
+    for row in llm_rows:
+        timeline.append({
+            "source": "llm", "source_id": row["id"], "call_id": row["call_id"],
+            "generation_job_id": None, "operation": None, "phase": row["phase"],
+            "attempt_no": row["attempt"], "result": row["status"],
+            "occurred_at": _utc_iso(row["created_at"]), "started_at": _utc_iso(row["created_at"]),
+            "ended_at": None, "duration_ms": row["latency_ms"], "reason": None,
+            "tts_engine": None, "line_success_count": None, "line_total_count": None,
+            "model": row["model"], "provider": row["provider"],
+        })
     timeline.sort(key=_timeline_sort_key)
 
     return {
@@ -185,5 +200,75 @@ def get_episode_generation_logs(
             for row in jobs
         ],
         "timeline": timeline,
+        # 本文は含めず、必要な1件だけ詳細APIで取得する。
+        "llm_calls": llm_rows,
         "lines": [{**dict(row), "wav_file": _wav_file_name(row["wav_file"])} for row in line_rows],
     }
+
+
+@router.get("/admin/episodes/{episode_id}/llm-calls", summary="LLM呼び出し一覧を取得")
+def list_episode_llm_calls(
+    episode_id: int,
+    _: Annotated[int, Depends(require_owner_session)],
+    limit: int = Query(500, ge=1, le=2000),
+) -> dict:
+    """LLM本文を含めないメタ情報一覧。"""
+    with get_db_connection() as conn:
+        episode = conn.execute("SELECT id FROM episodes WHERE id = ?", (episode_id,)).fetchone()
+        if episode is None:
+            raise HTTPException(status_code=404, detail="Episode not found")
+        calls = list_llm_call_metadata(conn, episode_id, limit)
+    return {"episode_id": episode_id, "calls": calls, "total": len(calls)}
+
+
+def _llm_jsonl_response(episode_id: int) -> Response:
+    with get_db_connection() as conn:
+        episode = conn.execute("SELECT id FROM episodes WHERE id = ?", (episode_id,)).fetchone()
+        if episode is None:
+            raise HTTPException(status_code=404, detail="Episode not found")
+        rows = conn.execute(
+            "SELECT call_id, episode_id, phase, provider, model, base_url, attempt, status, "
+            "latency_ms, prompt_text, response_text, thinking_text, created_at "
+            "FROM llm_call_logs WHERE episode_id = ? ORDER BY created_at ASC, id ASC",
+            (episode_id,),
+        ).fetchall()
+    jsonl_path = llm_jsonl_path(episode_id)
+    if jsonl_path.is_file():
+        # DB障害時もbest-effortで残ったエピソード別ファイルを取得できる。
+        body = jsonl_path.read_text(encoding="utf-8")
+    else:
+        body = "".join(json.dumps(dict(row), ensure_ascii=False) + "\n" for row in rows)
+    return Response(
+        content=body,
+        media_type="application/x-ndjson",
+        headers={"Content-Disposition": f'attachment; filename="episode-{episode_id}-llm-calls.jsonl"'},
+    )
+
+
+@router.get("/admin/episodes/{episode_id}/llm-calls/download", summary="LLM呼び出しJSONLをダウンロード")
+def download_episode_llm_calls(
+    episode_id: int,
+    _: Annotated[int, Depends(require_owner_session)],
+) -> Response:
+    return _llm_jsonl_response(episode_id)
+
+
+@router.get("/admin/episodes/{episode_id}/llm-calls.jsonl", summary="LLM呼び出しJSONLをダウンロード")
+def download_episode_llm_calls_legacy(
+    episode_id: int,
+    _: Annotated[int, Depends(require_owner_session)],
+) -> Response:
+    return _llm_jsonl_response(episode_id)
+
+
+@router.get("/admin/episodes/{episode_id}/llm-calls/{call_id}", summary="LLM呼び出し本文を取得")
+def get_episode_llm_call(
+    episode_id: int,
+    call_id: str,
+    _: Annotated[int, Depends(require_owner_session)],
+) -> dict:
+    with get_db_connection() as conn:
+        item = get_llm_call(conn, episode_id, call_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="LLM call not found")
+    return item

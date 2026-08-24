@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from app.batch.generate_script import _is_broken_transition_text
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
+from app.services.llm_call_log_service import infer_episode_id, set_llm_context
 
 logger = logging.getLogger(__name__)
 
@@ -350,6 +351,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
 
         for key in _DIRECTOR_KEYS:
             try:
+                set_llm_context(client, phase="review", episode_id=infer_episode_id(source_script_path))
                 template = _load_prompt(_PROMPT_FILES[key])
                 if key == "radio":
                     style_guidance = _build_radio_director_style_guidance(style)
@@ -393,6 +395,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
                 positive_review=json.dumps(reviews.get("positive", {}), ensure_ascii=False, indent=2),
                 radio_review=json.dumps(reviews.get("radio", {}), ensure_ascii=False, indent=2),
             )
+            set_llm_context(client, phase="correction", episode_id=infer_episode_id(source_script_path))
             synth_response = client.generate_json(synth_prompt)
 
             if synth_response and isinstance(synth_response.get("lines"), list) and synth_response["lines"]:
