@@ -105,6 +105,28 @@ def test_episode_logs_return_integrated_timeline_and_latest_synthesis_lines(clie
     assert past_response.json()["lines"] == []
 
 
+def test_episode_logs_normalize_llm_call_created_at_to_utc_iso(client):
+    episode_id = EpisodeService().create_episode("2026-08-14")
+    with get_db_connection() as conn:
+        conn.executemany(
+            "INSERT INTO llm_call_logs "
+            "(call_id, episode_id, phase, provider, model, base_url, attempt, status, created_at) "
+            "VALUES (?, ?, 'script', 'ollama', 'model', 'http://ollama.local', 1, 'success', ?)",
+            [
+                ("naive-created-at", episode_id, "2026-08-14 10:00:00"),
+                ("utc-created-at", episode_id, "2026-08-14T10:01:00+00:00"),
+            ],
+        )
+
+    response = client.get(f"/admin/episodes/{episode_id}/logs")
+
+    assert response.status_code == 200
+    assert [call["created_at"] for call in response.json()["llm_calls"]] == [
+        "2026-08-14T10:00:00+00:00",
+        "2026-08-14T10:01:00+00:00",
+    ]
+
+
 def test_episode_logs_return_empty_collections_when_no_logs(client):
     episode_id = EpisodeService().create_episode("2026-08-14")
     response = client.get(f"/admin/episodes/{episode_id}/logs")

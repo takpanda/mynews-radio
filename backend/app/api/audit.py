@@ -116,7 +116,10 @@ def get_episode_generation_logs(
             "FROM episode_generation_phase_logs WHERE episode_id = ?",
             (episode_id,),
         ).fetchall()
-        llm_rows = list_llm_call_metadata(conn, episode_id)
+        llm_rows = [
+            {**row, "created_at": _utc_iso(row["created_at"])}
+            for row in list_llm_call_metadata(conn, episode_id)
+        ]
 
         selected_phase_id: int | None
         if phase_log_id is not None:
