@@ -26,7 +26,7 @@ describe('/api/admin/episodes/[id]/llm-calls/[callId] Route Handler', () => {
   it('Cookieなしは401で上流へ到達しない', async () => {
     const response = await getCall(
       request('http://localhost/api/admin/episodes/7/llm-calls/call-1'),
-      { params: { id: '7', callId: 'call-1' } },
+      { params: Promise.resolve({ id: '7', callId: 'call-1' }) },
     )
     expect(response.status).toBe(401)
     expect(global.fetch).not.toHaveBeenCalled()
@@ -39,7 +39,7 @@ describe('/api/admin/episodes/[id]/llm-calls/[callId] Route Handler', () => {
 
     const response = await getCall(
       request('http://localhost/api/admin/episodes/7/llm-calls/call-1', 'admin_session=valid-token'),
-      { params: { id: '7', callId: 'call-1' } },
+      { params: Promise.resolve({ id: '7', callId: 'call-1' }) },
     )
 
     expect(response.status).toBe(200)
@@ -58,7 +58,7 @@ describe('/api/admin/episodes/[id]/llm-calls/[callId] Route Handler', () => {
 
     const response = await getCall(
       request('http://localhost/api/admin/episodes/7/llm-calls/missing', 'admin_session=valid-token'),
-      { params: { id: '7', callId: 'missing' } },
+      { params: Promise.resolve({ id: '7', callId: 'missing' }) },
     )
     expect(response.status).toBe(404)
   })
@@ -70,7 +70,7 @@ describe('/api/admin/episodes/[id]/llm-calls/[callId] Route Handler', () => {
 
     const response = await getCall(
       request('http://localhost/api/admin/episodes/7/llm-calls/call-1', 'admin_session=valid-token'),
-      { params: { id: '7', callId: 'call-1' } },
+      { params: Promise.resolve({ id: '7', callId: 'call-1' }) },
     )
     expect(response.status).toBe(504)
   })
@@ -80,7 +80,7 @@ describe('/api/admin/episodes/[id]/llm-calls/download Route Handler', () => {
   it('Cookieなしは401で上流へ到達しない', async () => {
     const response = await getDownload(
       request('http://localhost/api/admin/episodes/7/llm-calls/download'),
-      { params: { id: '7' } },
+      { params: Promise.resolve({ id: '7' }) },
     )
     expect(response.status).toBe(401)
     expect(global.fetch).not.toHaveBeenCalled()
@@ -98,7 +98,7 @@ describe('/api/admin/episodes/[id]/llm-calls/download Route Handler', () => {
 
     const response = await getDownload(
       request('http://localhost/api/admin/episodes/7/llm-calls/download', 'admin_session=valid-token'),
-      { params: { id: '7' } },
+      { params: Promise.resolve({ id: '7' }) },
     )
 
     expect(response.status).toBe(200)
@@ -114,7 +114,7 @@ describe('/api/admin/episodes/[id]/llm-calls/download Route Handler', () => {
 
     const response = await getDownload(
       request('http://localhost/api/admin/episodes/7/llm-calls/download', 'admin_session=valid-token'),
-      { params: { id: '7' } },
+      { params: Promise.resolve({ id: '7' }) },
     )
     expect(response.status).toBe(504)
   })

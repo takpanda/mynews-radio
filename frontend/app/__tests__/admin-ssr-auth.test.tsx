@@ -58,7 +58,7 @@ describe('管理画面SSRの認証境界', () => {
 
   it('エピソード詳細ログページはCookieなしでログインへリダイレクトし、ログ取得を行わない', async () => {
     const { fetchAdminEpisodeLogs } = jest.requireMock('../lib/admin-episode-logs')
-    await expect(AdminEpisodeLogsPage({ params: { id: '1' } })).rejects.toThrow('NEXT_REDIRECT')
+    await expect(AdminEpisodeLogsPage({ params: Promise.resolve({ id: '1' }) })).rejects.toThrow('NEXT_REDIRECT')
     expect(redirect).toHaveBeenCalledWith('/admin/login')
     expect(fetchAdminEpisodeLogs).not.toHaveBeenCalled()
   })
@@ -67,7 +67,7 @@ describe('管理画面SSRの認証境界', () => {
     const { fetchAdminEpisodeLogs } = jest.requireMock('../lib/admin-episode-logs')
     ;(cookies as jest.Mock).mockReturnValue({ get: () => ({ value: 'invalid-token' }) })
     global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401 })
-    await expect(AdminEpisodeLogsPage({ params: { id: '1' } })).rejects.toThrow('NEXT_REDIRECT')
+    await expect(AdminEpisodeLogsPage({ params: Promise.resolve({ id: '1' }) })).rejects.toThrow('NEXT_REDIRECT')
     expect(redirect).toHaveBeenCalledWith('/admin/login')
     expect(fetchAdminEpisodeLogs).not.toHaveBeenCalled()
   })

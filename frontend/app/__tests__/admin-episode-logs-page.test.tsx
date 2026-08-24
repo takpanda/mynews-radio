@@ -38,25 +38,25 @@ describe('AdminEpisodeLogsPage', () => {
 
   it('取得したログデータでシェルを描画する', async () => {
     ;(fetchAdminEpisodeLogs as jest.Mock).mockResolvedValue(VALID_DATA)
-    const element = await AdminEpisodeLogsPage({ params: { id: '7' } })
+    const element = await AdminEpisodeLogsPage({ params: Promise.resolve({ id: '7' }) })
     expect(fetchAdminEpisodeLogs).toHaveBeenCalledWith(7)
     expect(renderToStaticMarkup(element)).toContain('エピソード概要')
   })
 
   it('エピソードが存在しない場合はnotFoundを呼ぶ', async () => {
     ;(fetchAdminEpisodeLogs as jest.Mock).mockResolvedValue(null)
-    await expect(AdminEpisodeLogsPage({ params: { id: '999' } })).rejects.toThrow('NEXT_NOT_FOUND')
+    await expect(AdminEpisodeLogsPage({ params: Promise.resolve({ id: '999' }) })).rejects.toThrow('NEXT_NOT_FOUND')
     expect(notFound).toHaveBeenCalled()
   })
 
   it('IDが数値でない場合はnotFoundを呼ぶ', async () => {
-    await expect(AdminEpisodeLogsPage({ params: { id: 'abc' } })).rejects.toThrow('NEXT_NOT_FOUND')
+    await expect(AdminEpisodeLogsPage({ params: Promise.resolve({ id: 'abc' }) })).rejects.toThrow('NEXT_NOT_FOUND')
     expect(fetchAdminEpisodeLogs).not.toHaveBeenCalled()
   })
 
   it('API取得に失敗した場合はエラーメッセージを表示する', async () => {
     ;(fetchAdminEpisodeLogs as jest.Mock).mockRejectedValue(new Error('boom'))
-    const element = await AdminEpisodeLogsPage({ params: { id: '7' } })
+    const element = await AdminEpisodeLogsPage({ params: Promise.resolve({ id: '7' }) })
     expect(renderToStaticMarkup(element)).toContain('エラーが発生しました')
   })
 })
