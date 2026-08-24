@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from app.services.ollama_client import OpenAICompatibleClient, create_llm_client
@@ -35,6 +36,29 @@ def test_structured_content_list_is_normalized():
         "content": [{"type": "text", "text": '{"ok": '}, {"text": "true}"}],
     })):
         assert client.generate_json("prompt") == {"ok": True}
+
+
+@pytest.mark.parametrize("provider", ["lm_studio", "vllm"])
+def test_invalid_generated_json_is_recorded_as_json_parse_failed(provider):
+    client = OpenAICompatibleClient("http://llm.internal", "local-model", provider=provider)
+    with patch("app.services.ollama_client.httpx.Client.post", return_value=_response({
+        "content": "not valid json",
+    })), patch("app.services.ollama_client._record_llm_call") as record:
+        assert client.generate_json("prompt") is None
+
+    assert record.call_args.kwargs["status"] == "json_parse_failed"
+
+
+@pytest.mark.parametrize("provider", ["lm_studio", "vllm"])
+def test_http_error_is_recorded_as_error(provider):
+    client = OpenAICompatibleClient("http://llm.internal", "local-model", provider=provider)
+    with patch(
+        "app.services.ollama_client.httpx.Client.post",
+        side_effect=httpx.ConnectError("connection refused"),
+    ), patch("app.services.ollama_client._record_llm_call") as record:
+        assert client.generate_json("prompt") is None
+
+    assert record.call_args.kwargs["status"] == "error"
 
 
 @pytest.mark.parametrize("provider", ["lm_studio", "vllm"])
