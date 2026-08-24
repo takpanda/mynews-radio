@@ -4,9 +4,12 @@ import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
+import httpx
+import pytest
+
 from app.db.connection import get_db_connection
 from app.services.llm_call_log_service import cleanup_llm_call_logs, record_llm_call, set_llm_context
-from app.services.ollama_client import OllamaClient
+from app.services.ollama_client import OllamaClient, OpenAICompatibleClient
 
 
 def _episode() -> int:
@@ -100,6 +103,56 @@ def test_generate_json_records_retry_and_success(tmp_path, monkeypatch):
         ).fetchall()
     assert [(row["status"], row["attempt"]) for row in rows] == [("retry", 1), ("success", 2)]
     assert rows[0]["prompt_text"] == "prompt"
+
+
+@pytest.mark.parametrize("provider", ["lm_studio", "vllm"])
+def test_openai_compatible_parse_failure_is_persisted_to_db_and_jsonl(tmp_path, monkeypatch, provider):
+    episode_id = _episode()
+    monkeypatch.setenv("EPISODES_DIR", str(tmp_path / "episodes"))
+    client = OpenAICompatibleClient("http://llm.internal", "local-model", provider=provider)
+    set_llm_context(client, phase="script", episode_id=episode_id)
+
+    with patch(
+        "app.services.ollama_client.httpx.Client.post",
+        return_value=_response({"choices": [{"message": {"content": "not valid json"}}]}),
+    ):
+        assert client.generate_json("prompt") is None
+
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT provider, status FROM llm_call_logs WHERE episode_id = ?",
+            (episode_id,),
+        ).fetchone()
+    assert (row["provider"], row["status"]) == (provider, "json_parse_failed")
+
+    jsonl = tmp_path / "episodes" / str(episode_id) / "llm_calls.jsonl"
+    item = json.loads(jsonl.read_text(encoding="utf-8"))
+    assert (item["provider"], item["status"]) == (provider, "json_parse_failed")
+
+
+@pytest.mark.parametrize("provider", ["lm_studio", "vllm"])
+def test_openai_compatible_http_failure_is_persisted_as_error(tmp_path, monkeypatch, provider):
+    episode_id = _episode()
+    monkeypatch.setenv("EPISODES_DIR", str(tmp_path / "episodes"))
+    client = OpenAICompatibleClient("http://llm.internal", "local-model", provider=provider)
+    set_llm_context(client, phase="script", episode_id=episode_id)
+
+    with patch(
+        "app.services.ollama_client.httpx.Client.post",
+        side_effect=httpx.ConnectError("connection refused"),
+    ):
+        assert client.generate_json("prompt") is None
+
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT provider, status FROM llm_call_logs WHERE episode_id = ?",
+            (episode_id,),
+        ).fetchone()
+    assert (row["provider"], row["status"]) == (provider, "error")
+
+    jsonl = tmp_path / "episodes" / str(episode_id) / "llm_calls.jsonl"
+    item = json.loads(jsonl.read_text(encoding="utf-8"))
+    assert (item["provider"], item["status"]) == (provider, "error")
 
 
 def test_log_write_failure_does_not_fail_generation():

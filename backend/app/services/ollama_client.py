@@ -440,8 +440,19 @@ class OpenAICompatibleClient:
                     latency_ms=int((time.monotonic() - started) * 1000),
                 )
                 return None
-            extracted = OllamaClient._extract_output_from_reasoning(OllamaClient, content)
-            parsed = json.loads(extracted)
+
+            # 通信/API応答の失敗とは別に、モデルが返したJSONの抽出・パース失敗を記録する。
+            try:
+                extracted = OllamaClient._extract_output_from_reasoning(OllamaClient, content)
+                parsed = json.loads(extracted)
+            except (TypeError, ValueError):
+                _record_llm_call(
+                    self, attempt=1, status="json_parse_failed", prompt_text=prompt,
+                    response_text=content, thinking_text=thinking,
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                )
+                return None
+
             _record_llm_call(
                 self, attempt=1, status="success", prompt_text=prompt,
                 response_text=content, thinking_text=thinking,
