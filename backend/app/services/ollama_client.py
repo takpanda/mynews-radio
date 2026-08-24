@@ -23,6 +23,7 @@ class OllamaClient:
     def __init__(self, base_url: str, model: str, max_retries: int = 2, timeout: float = 600.0):
         self._base_url = base_url.rstrip("/")
         self._model = model
+        self._provider = "ollama"
         self._max_retries = max_retries
         self._timeout = timeout
         self._client: Optional[httpx.Client] = None
@@ -381,8 +382,16 @@ class OllamaClient:
 
 class OpenAICompatibleClient:
     """LM Studio/vLLM の OpenAI互換APIアダプター。"""
-    def __init__(self, base_url: str, model: str, api_key: str = "", timeout: float = 600.0):
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        api_key: str = "",
+        timeout: float = 600.0,
+        provider: str = "unknown",
+    ):
         self._base_url, self._model, self._api_key, self._timeout = base_url.rstrip("/"), model, api_key, timeout
+        self._provider = provider
         self._client: Optional[httpx.Client] = None
 
     @property
@@ -451,4 +460,8 @@ class OpenAICompatibleClient:
 def create_llm_client(provider: str | None = None, model: str | None = None):
     from app.services.llm_provider import validate_provider_model
     config = validate_provider_model(provider, model)
-    return OllamaClient(config.base_url, config.model) if config.native else OpenAICompatibleClient(config.base_url, config.model, config.api_key)
+    return (
+        OllamaClient(config.base_url, config.model)
+        if config.native
+        else OpenAICompatibleClient(config.base_url, config.model, config.api_key, provider=config.name)
+    )

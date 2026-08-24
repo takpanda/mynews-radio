@@ -65,6 +65,27 @@ class TestEpisodeCategories:
 
         assert select_episode_categories(str(script), str(summaries), client_factory=FailingClient) == []
 
+    def test_category_phase_is_recorded(self, tmp_path):
+        from app.services.episode_category_service import select_episode_categories
+
+        script = tmp_path / "episodes" / "42" / "script.json"
+        summaries = tmp_path / "episodes" / "42" / "summaries.json"
+        script.parent.mkdir(parents=True)
+        script.write_text(json.dumps({"lines": [{"text": "AIのニュース"}]}), encoding="utf-8")
+        summaries.write_text("[]", encoding="utf-8")
+
+        clients = []
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs): clients.append(self)
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def generate_json(self, prompt): return {"categories": ["AI・先端技術"]}
+
+        with patch.dict("os.environ", {"EPISODES_DIR": str(tmp_path / "episodes")}):
+            assert select_episode_categories(str(script), str(summaries), client_factory=FakeClient) == ["AI・先端技術"]
+        assert clients[0]._generation_context["phase"] == "category"
+
     def test_pipeline_continues_when_category_selection_fails(self, client, tmp_path):
         from app.batch import radio_pipeline
         from app.services.episode_service import EpisodeService

@@ -60,7 +60,14 @@ def infer_episode_id(path: str | os.PathLike[str] | None) -> int | None:
     """
     if not path:
         return None
-    parts = Path(path).parts
+    path_obj = Path(path)
+    # 現行の生成成果物は必ず {episodes_dir}/{episode_id}/... に置かれる。
+    # EPISODES_DIR がカスタム値でも、親ディレクトリ名から推定できる。
+    parent_name = path_obj.parent.name
+    if parent_name.isdigit():
+        return int(parent_name)
+
+    parts = path_obj.parts
     for index, part in enumerate(parts):
         if part == "episodes" and index + 1 < len(parts):
             candidate = parts[index + 1]
@@ -89,7 +96,9 @@ def _safe_context(client: Any) -> dict[str, Any]:
     return {
         "episode_id": context.get("episode_id"),
         "phase": context.get("phase") or "unknown",
-        "provider": context.get("provider") or ("ollama" if client.__class__.__name__ == "OllamaClient" else "unknown"),
+        "provider": context.get("provider") or getattr(
+            client, "_provider", "ollama" if client.__class__.__name__ == "OllamaClient" else "unknown"
+        ),
         "model": context.get("model") or getattr(client, "_model", ""),
         "base_url": context.get("base_url") or getattr(client, "_base_url", ""),
     }

@@ -54,6 +54,34 @@ def test_record_llm_call_writes_db_and_episode_jsonl_without_secret(tmp_path, mo
     assert item["response_text"] == '{"ok": true}'
 
 
+def test_standalone_call_keeps_episode_null_and_does_not_create_jsonl(tmp_path, monkeypatch):
+    monkeypatch.setenv("EPISODES_DIR", str(tmp_path / "custom-episodes"))
+    client = OllamaClient("http://ollama.local", "model")
+    set_llm_context(client, phase="summarize", episode_id=None)
+
+    call_id = record_llm_call(client, attempt=1, status="success", prompt_text="standalone")
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT episode_id FROM llm_call_logs WHERE call_id = ?", (call_id,)).fetchone()
+    assert row["episode_id"] is None
+    assert not (tmp_path / "custom-episodes" / "llm_calls.jsonl").exists()
+
+
+def test_custom_episodes_dir_path_still_infers_episode_id(tmp_path, monkeypatch):
+    episode_id = 42
+    episodes_dir = tmp_path / "custom-episodes"
+    monkeypatch.setenv("EPISODES_DIR", str(episodes_dir))
+    script_path = episodes_dir / str(episode_id) / "script.json"
+    from app.services.llm_call_log_service import infer_episode_id
+    client = OllamaClient("http://ollama.local", "model")
+    set_llm_context(client, phase="script", episode_id=infer_episode_id(script_path))
+    # 呼び出し元と同じ推定方式で、カスタムEPISODES_DIR配下を紐付ける。
+    assert infer_episode_id(script_path) == episode_id
+    call_id = record_llm_call(client, attempt=1, status="success", prompt_text="script")
+    jsonl = episodes_dir / str(episode_id) / "llm_calls.jsonl"
+    assert jsonl.is_file()
+    assert call_id in jsonl.read_text(encoding="utf-8")
+
+
 def test_generate_json_records_retry_and_success(tmp_path, monkeypatch):
     episode_id = _episode()
     monkeypatch.setenv("EPISODES_DIR", str(tmp_path / "episodes"))
