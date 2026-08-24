@@ -87,7 +87,7 @@ describe('オーナー操作プロキシの認証情報転送', () => {
 
     const response = await synthesizeRoute.POST(
       request('http://localhost/api/episodes/1/synthesize'),
-      { params: { id: '1' } },
+      { params: Promise.resolve({ id: '1' }) },
     )
 
     expect(response.headers.get('Retry-After')).toBe('120')
@@ -101,14 +101,14 @@ describe('オーナー操作プロキシの認証情報転送', () => {
   })
 
   it('設定更新はCookieを転送し共有API_KEYを付与しない', async () => {
-    await settingsRoute.PUT(request('http://localhost/api/settings'), '[]')
+    await settingsRoute.PUT(request('http://localhost/api/settings'))
     expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/settings'), expect.objectContaining({
       headers: { 'Content-Type': 'application/json', Cookie: 'admin_session=session-token' },
     }))
   })
 
   it('再合成はCookieを転送し共有API_KEYを付与しない', async () => {
-    await synthesizeRoute.POST(request('http://localhost/api/episodes/1/synthesize'), { params: { id: '1' } })
+    await synthesizeRoute.POST(request('http://localhost/api/episodes/1/synthesize'), { params: Promise.resolve({ id: '1' }) })
     expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/episodes/1/synthesize'), expect.objectContaining({
       headers: expect.objectContaining({ 'Content-Type': 'application/json', Accept: 'text/event-stream', Cookie: 'admin_session=session-token', 'Idempotency-Key': expect.any(String) }),
     }))
@@ -123,7 +123,7 @@ describe('オーナー操作プロキシの認証情報転送', () => {
     if (path === '/generate') {
       await generateRoute.POST(relayRequest)
     } else {
-      await synthesizeRoute.POST(relayRequest, { params: { id: '1' } })
+      await synthesizeRoute.POST(relayRequest, { params: Promise.resolve({ id: '1' }) })
     }
     const upstreamHeaders = (global.fetch as jest.Mock).mock.calls[0][1].headers
     expect(upstreamHeaders).not.toHaveProperty('X-Proxy-Client-IP')
@@ -140,7 +140,7 @@ describe('オーナー操作プロキシの認証情報転送', () => {
     if (path === '/generate') {
       await generateRoute.POST(directRequest)
     } else {
-      await synthesizeRoute.POST(directRequest, { params: { id: '1' } })
+      await synthesizeRoute.POST(directRequest, { params: Promise.resolve({ id: '1' }) })
     }
     const upstreamHeaders = (global.fetch as jest.Mock).mock.calls[0][1].headers
     expect(upstreamHeaders).not.toHaveProperty('X-Verified-Client-IP')
@@ -150,8 +150,8 @@ describe('オーナー操作プロキシの認証情報転送', () => {
 
   it.each([
     ['生成', () => generateRoute.POST(request('http://localhost/api/generate', '{}', 'tracking=t; admin_session=session-token; csrf=c'))],
-    ['設定', () => settingsRoute.PUT(request('http://localhost/api/settings', '{}', 'tracking=t; admin_session=session-token; csrf=c'), '{}')],
-    ['再合成', () => synthesizeRoute.POST(request('http://localhost/api/episodes/1/synthesize', '{}', 'tracking=t; admin_session=session-token; csrf=c'), { params: { id: '1' } })],
+    ['設定', () => settingsRoute.PUT(request('http://localhost/api/settings', '{}', 'tracking=t; admin_session=session-token; csrf=c'))],
+    ['再合成', () => synthesizeRoute.POST(request('http://localhost/api/episodes/1/synthesize', '{}', 'tracking=t; admin_session=session-token; csrf=c'), { params: Promise.resolve({ id: '1' }) })],
   ])('%sはadmin_sessionだけを転送する', async (_name, invoke) => {
     await invoke()
     expect((global.fetch as jest.Mock).mock.calls[0][1].headers.Cookie).toBe('admin_session=session-token')
@@ -159,8 +159,8 @@ describe('オーナー操作プロキシの認証情報転送', () => {
 
   it.each([
     ['生成', () => generateRoute.POST(request('http://localhost/api/generate', '{}', 'tracking=t'))],
-    ['設定', () => settingsRoute.PUT(request('http://localhost/api/settings', '{}', 'tracking=t'), '{}')],
-    ['再合成', () => synthesizeRoute.POST(request('http://localhost/api/episodes/1/synthesize', '{}', 'tracking=t'), { params: { id: '1' } })],
+    ['設定', () => settingsRoute.PUT(request('http://localhost/api/settings', '{}', 'tracking=t'))],
+    ['再合成', () => synthesizeRoute.POST(request('http://localhost/api/episodes/1/synthesize', '{}', 'tracking=t'), { params: Promise.resolve({ id: '1' }) })],
   ])('%sはCookieなしで上流へCookieを送らない', async (_name, invoke) => {
     await invoke()
     expect((global.fetch as jest.Mock).mock.calls[0][1].headers).not.toHaveProperty('Cookie')

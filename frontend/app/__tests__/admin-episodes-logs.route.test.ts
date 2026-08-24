@@ -17,7 +17,7 @@ beforeEach(() => {
 
 describe('/api/admin/episodes/[id]/logs Route Handler', () => {
   it('Cookieなしは401で上流へ到達しない', async () => {
-    const response = await GET(request('http://localhost/api/admin/episodes/7/logs'), { params: { id: '7' } })
+    const response = await GET(request('http://localhost/api/admin/episodes/7/logs'), { params: Promise.resolve({ id: '7' }) })
     expect(response.status).toBe(401)
     expect(global.fetch).not.toHaveBeenCalled()
   })
@@ -29,7 +29,7 @@ describe('/api/admin/episodes/[id]/logs Route Handler', () => {
 
     const response = await GET(
       request('http://localhost/api/admin/episodes/7/logs', 'admin_session=valid-token'),
-      { params: { id: '7' } },
+      { params: Promise.resolve({ id: '7' }) },
     )
 
     expect(response.status).toBe(200)
@@ -53,7 +53,7 @@ describe('/api/admin/episodes/[id]/logs Route Handler', () => {
 
     await GET(
       request('http://localhost/api/admin/episodes/7/logs?phase_log_id=3', 'admin_session=valid-token'),
-      { params: { id: '7' } },
+      { params: Promise.resolve({ id: '7' }) },
     )
 
     expect(global.fetch).toHaveBeenNthCalledWith(
@@ -70,7 +70,7 @@ describe('/api/admin/episodes/[id]/logs Route Handler', () => {
 
     const response = await GET(
       request('http://localhost/api/admin/episodes/999/logs', 'admin_session=valid-token'),
-      { params: { id: '999' } },
+      { params: Promise.resolve({ id: '999' }) },
     )
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ detail: 'Episode not found' })
@@ -83,7 +83,7 @@ describe('/api/admin/episodes/[id]/logs Route Handler', () => {
 
     const response = await GET(
       request('http://localhost/api/admin/episodes/7/logs', 'admin_session=valid-token'),
-      { params: { id: '7' } },
+      { params: Promise.resolve({ id: '7' }) },
     )
     expect(response.status).toBe(504)
   })
