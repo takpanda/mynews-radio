@@ -136,6 +136,29 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_audit_logs_executed_at ON audit_logs(executed_at);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_operation ON audit_logs(operation);
 
+-- LLMの試行単位ログ。本文を含むため管理者API経由でのみ参照する。
+CREATE TABLE IF NOT EXISTS llm_call_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    call_id TEXT NOT NULL UNIQUE,
+    episode_id INTEGER,
+    phase TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    base_url TEXT NOT NULL DEFAULT '',
+    attempt INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('success', 'retry', 'json_parse_failed', 'error')),
+    latency_ms INTEGER,
+    prompt_text TEXT NOT NULL DEFAULT '',
+    response_text TEXT NOT NULL DEFAULT '',
+    thinking_text TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_llm_call_logs_episode_created
+    ON llm_call_logs(episode_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_llm_call_logs_created_at
+    ON llm_call_logs(created_at);
+
 CREATE TABLE IF NOT EXISTS push_subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     subscription_id_hash TEXT NOT NULL UNIQUE,

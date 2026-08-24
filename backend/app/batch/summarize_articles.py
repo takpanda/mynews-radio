@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from app.config import get_settings
 from app.services.article_service import ArticleService
 from app.services.ollama_client import OllamaClient, create_llm_client
+from app.services.llm_call_log_service import infer_episode_id, set_llm_context
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ def summarize_articles(output_path: str, *, llm_provider: str | None = None, llm
 
     client_factory = (lambda: create_llm_client(llm_provider, llm_model)) if (llm_provider or llm_model) else (lambda: OllamaClient(settings.ollama_base_url, settings.ollama_model))
     with client_factory() as client:
+        set_llm_context(client, phase="summarize", episode_id=infer_episode_id(output_path))
         for article in articles:
             # Skip articles with too short text (not enough content to summarize)
             article_text = article.get("text", "") or ""

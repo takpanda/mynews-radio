@@ -1,6 +1,31 @@
 import sqlite3
 
 
+def migrate_llm_call_logs(conn: sqlite3.Connection) -> bool:
+    """既存DBへLLM呼び出しログの保存先を追加する。"""
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS llm_call_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, call_id TEXT NOT NULL UNIQUE, "
+        "episode_id INTEGER, phase TEXT NOT NULL, provider TEXT NOT NULL, "
+        "model TEXT NOT NULL DEFAULT '', base_url TEXT NOT NULL DEFAULT '', "
+        "attempt INTEGER NOT NULL, "
+        "status TEXT NOT NULL CHECK (status IN ('success', 'retry', 'json_parse_failed', 'error')), "
+        "latency_ms INTEGER, prompt_text TEXT NOT NULL DEFAULT '', "
+        "response_text TEXT NOT NULL DEFAULT '', thinking_text TEXT NOT NULL DEFAULT '', "
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_call_logs_episode_created "
+        "ON llm_call_logs(episode_id, created_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_call_logs_created_at "
+        "ON llm_call_logs(created_at)"
+    )
+    return True
+
+
 def migrate_audit_logs(conn: sqlite3.Connection) -> bool:
     """旧監査ログ（rejected 非対応）を拡張スキーマへ移行する。"""
     row = conn.execute(

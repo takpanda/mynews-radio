@@ -2,7 +2,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services.ollama_client import OpenAICompatibleClient
+from app.services.ollama_client import OpenAICompatibleClient, create_llm_client
+from app.services.llm_provider import ProviderConfig
 
 
 def _response(message):
@@ -34,3 +35,20 @@ def test_structured_content_list_is_normalized():
         "content": [{"type": "text", "text": '{"ok": '}, {"text": "true}"}],
     })):
         assert client.generate_json("prompt") == {"ok": True}
+
+
+@pytest.mark.parametrize("provider", ["lm_studio", "vllm"])
+def test_provider_name_is_preserved_for_persistent_logs(provider):
+    client = OpenAICompatibleClient("http://llm.internal", "local-model", provider=provider)
+    with patch("app.services.ollama_client.httpx.Client.post", return_value=_response({"content": '{"ok": true}'})), \
+         patch("app.services.ollama_client._record_llm_call") as record:
+        assert client.generate_json("prompt") == {"ok": True}
+    assert record.call_args.args[0]._provider == provider
+
+
+@pytest.mark.parametrize("provider", ["lm_studio", "vllm"])
+def test_create_llm_client_passes_real_provider_name(provider):
+    config = ProviderConfig(provider, "http://llm.internal", "local-model", False, "")
+    with patch("app.services.llm_provider.validate_provider_model", return_value=config):
+        client = create_llm_client(provider, "local-model")
+    assert client._provider == provider

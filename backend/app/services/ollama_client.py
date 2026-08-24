@@ -1,17 +1,29 @@
 import json
 import logging
 import re
+import time
 from typing import Any, Optional
 
 import httpx
 
+from app.services.llm_call_log_service import record_llm_call
+
 logger = logging.getLogger(__name__)
+
+
+def _record_llm_call(*args, **kwargs) -> None:
+    """ログ保存障害を生成処理へ伝播させない。"""
+    try:
+        record_llm_call(*args, **kwargs)
+    except Exception:
+        logger.warning("LLM call log write failed (ignored)", exc_info=True)
 
 
 class OllamaClient:
     def __init__(self, base_url: str, model: str, max_retries: int = 2, timeout: float = 600.0):
         self._base_url = base_url.rstrip("/")
         self._model = model
+        self._provider = "ollama"
         self._max_retries = max_retries
         self._timeout = timeout
         self._client: Optional[httpx.Client] = None
@@ -57,6 +69,8 @@ class OllamaClient:
         payload["options"] = options
 
         for attempt in range(1, self._max_retries + 2):
+            request_prompt = payload["prompt"]
+            started = time.monotonic()
             try:
                 resp = self.client.post(endpoint, json=payload)
                 resp.raise_for_status()
@@ -73,6 +87,10 @@ class OllamaClient:
                     (raw[:120] if isinstance(raw, str) else repr(raw))[:120],
                     (thinking_raw[:120] if isinstance(thinking_raw, str) else repr(thinking_raw))[:120],
                 )
+
+                # 保存対象はJSON変換前のHTTP responseフィールド。ログはbest-effort。
+                raw_for_log = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False, default=str)
+                thinking_for_log = thinking_raw if isinstance(thinking_raw, str) else json.dumps(thinking_raw, ensure_ascii=False, default=str)
 
                 # response フィールドが文字列でない場合（Ollamaが直接dictを返す場合など）は変換
                 if not isinstance(raw, str):
@@ -91,6 +109,11 @@ class OllamaClient:
                     if not raw:
                         # Retry once with a more explicit JSON prompt when response is empty
                         if attempt <= self._max_retries:
+                            _record_llm_call(
+                                self, attempt=attempt, status="retry", prompt_text=request_prompt,
+                                response_text=raw_for_log, thinking_text=thinking_for_log,
+                                latency_ms=int((time.monotonic() - started) * 1000),
+                            )
                             forced_json_prompt = (
                                 "Answer with ONLY valid JSON (no markdown, no backticks, no extra text):\n"
                                 + prompt
@@ -118,8 +141,18 @@ class OllamaClient:
                         if extracted:
                             parsed = self._parse_json(extracted)
                             if parsed is not None:
+                                _record_llm_call(
+                                    self, attempt=attempt, status="success", prompt_text=request_prompt,
+                                    response_text=raw_for_log, thinking_text=thinking_for_log,
+                                    latency_ms=int((time.monotonic() - started) * 1000),
+                                )
                                 return parsed
                     if attempt <= self._max_retries:
+                        _record_llm_call(
+                            self, attempt=attempt, status="retry", prompt_text=request_prompt,
+                            response_text=raw_for_log, thinking_text=thinking_for_log,
+                            latency_ms=int((time.monotonic() - started) * 1000),
+                        )
                         forced_json_prompt = (
                             "Answer with ONLY valid JSON (no markdown, no backticks, no extra text):\n"
                             + prompt
@@ -136,9 +169,19 @@ class OllamaClient:
                     if extracted:
                         parsed = self._parse_json(extracted)
                         if parsed is not None:
+                            _record_llm_call(
+                                self, attempt=attempt, status="success", prompt_text=request_prompt,
+                                response_text=raw_for_log, thinking_text=thinking_for_log,
+                                latency_ms=int((time.monotonic() - started) * 1000),
+                            )
                             return parsed
 
                 if parsed is not None:
+                    _record_llm_call(
+                        self, attempt=attempt, status="success", prompt_text=request_prompt,
+                        response_text=raw_for_log, thinking_text=thinking_for_log,
+                        latency_ms=int((time.monotonic() - started) * 1000),
+                    )
                     return parsed
 
                 # response フィールドに thinking タグが混入している場合も抽出を試みる
@@ -147,6 +190,11 @@ class OllamaClient:
                     if extracted and extracted != raw:
                         parsed = self._parse_json(extracted)
                         if parsed is not None:
+                            _record_llm_call(
+                                self, attempt=attempt, status="success", prompt_text=request_prompt,
+                                response_text=raw_for_log, thinking_text=thinking_for_log,
+                                latency_ms=int((time.monotonic() - started) * 1000),
+                            )
                             return parsed
 
                 logger.error(
@@ -155,8 +203,26 @@ class OllamaClient:
                     len(raw),
                     raw[:200] if raw else "(empty)",
                 )
+                _record_llm_call(
+                    self,
+                    attempt=attempt,
+                    status="retry" if attempt <= self._max_retries else "json_parse_failed",
+                    prompt_text=request_prompt,
+                    response_text=raw_for_log,
+                    thinking_text=thinking_for_log,
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                )
             except Exception as exc:
                 logger.error("Ollama request failed (attempt=%d): %s", attempt, exc)
+                _record_llm_call(
+                    self,
+                    attempt=attempt,
+                    status="retry" if attempt <= self._max_retries else "error",
+                    prompt_text=request_prompt,
+                    response_text="",
+                    thinking_text="",
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                )
 
         return None
 
@@ -316,8 +382,16 @@ class OllamaClient:
 
 class OpenAICompatibleClient:
     """LM Studio/vLLM の OpenAI互換APIアダプター。"""
-    def __init__(self, base_url: str, model: str, api_key: str = "", timeout: float = 600.0):
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        api_key: str = "",
+        timeout: float = 600.0,
+        provider: str = "unknown",
+    ):
         self._base_url, self._model, self._api_key, self._timeout = base_url.rstrip("/"), model, api_key, timeout
+        self._provider = provider
         self._client: Optional[httpx.Client] = None
 
     @property
@@ -336,6 +410,7 @@ class OpenAICompatibleClient:
     def __exit__(self, *_args): self.close()
 
     def generate_json(self, prompt: str) -> Optional[dict[str, Any]]:
+        started = time.monotonic()
         try:
             response = self.client.post("/v1/chat/completions", json={"model": self._model,
                 "messages": [{"role": "user", "content": prompt}], "temperature": 0,
@@ -343,9 +418,15 @@ class OpenAICompatibleClient:
             response.raise_for_status()
             message = response.json()["choices"][0]["message"]
             content = message.get("content")
+            thinking = message.get("reasoning_content") or message.get("reasoning") or message.get("thinking") or ""
             if not content:
-                content = message.get("reasoning_content") or message.get("reasoning") or message.get("thinking")
+                content = thinking
             if isinstance(content, dict):
+                _record_llm_call(
+                    self, attempt=1, status="success", prompt_text=prompt,
+                    response_text=content, thinking_text=thinking,
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                )
                 return content
             if isinstance(content, list):
                 content = "".join(
@@ -353,15 +434,34 @@ class OpenAICompatibleClient:
                     for part in content
                 )
             if not isinstance(content, str):
+                _record_llm_call(
+                    self, attempt=1, status="json_parse_failed", prompt_text=prompt,
+                    response_text=content, thinking_text=thinking,
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                )
                 return None
             extracted = OllamaClient._extract_output_from_reasoning(OllamaClient, content)
-            return json.loads(extracted)
+            parsed = json.loads(extracted)
+            _record_llm_call(
+                self, attempt=1, status="success", prompt_text=prompt,
+                response_text=content, thinking_text=thinking,
+                latency_ms=int((time.monotonic() - started) * 1000),
+            )
+            return parsed
         except Exception as exc:
             logger.error("OpenAI-compatible LLM request failed: %s", exc)
+            _record_llm_call(
+                self, attempt=1, status="error", prompt_text=prompt,
+                latency_ms=int((time.monotonic() - started) * 1000),
+            )
             return None
 
 
 def create_llm_client(provider: str | None = None, model: str | None = None):
     from app.services.llm_provider import validate_provider_model
     config = validate_provider_model(provider, model)
-    return OllamaClient(config.base_url, config.model) if config.native else OpenAICompatibleClient(config.base_url, config.model, config.api_key)
+    return (
+        OllamaClient(config.base_url, config.model)
+        if config.native
+        else OpenAICompatibleClient(config.base_url, config.model, config.api_key, provider=config.name)
+    )
