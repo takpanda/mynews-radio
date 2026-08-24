@@ -18,15 +18,16 @@ export interface AdminEpisodeLogsJob {
   finished_at: string | null
 }
 
-export type AdminEpisodeLogsTimelineSource = 'audit' | 'phase'
+export type AdminEpisodeLogsTimelineSource = 'audit' | 'phase' | 'llm'
 export type AdminEpisodeLogsPhase = 'synthesize' | 'wav_combine' | 'mp3_encode'
 
 export interface AdminEpisodeLogsTimelineEvent {
   source: AdminEpisodeLogsTimelineSource
   source_id: number
+  call_id?: string
   generation_job_id: number | null
   operation: string | null
-  phase: AdminEpisodeLogsPhase | null
+  phase: string | null
   attempt_no: number | null
   result: string | null
   occurred_at: string | null
@@ -37,6 +38,30 @@ export interface AdminEpisodeLogsTimelineEvent {
   tts_engine: string | null
   line_success_count: number | null
   line_total_count: number | null
+  model?: string | null
+  provider?: string | null
+}
+
+export type AdminEpisodeLogsLlmCallStatus = 'success' | 'retry' | 'json_parse_failed' | 'error'
+
+export interface AdminEpisodeLogsLlmCallMeta {
+  id: number
+  call_id: string
+  episode_id: number | null
+  phase: string
+  provider: string
+  model: string
+  base_url: string
+  attempt: number
+  status: AdminEpisodeLogsLlmCallStatus
+  latency_ms: number | null
+  created_at: string
+}
+
+export interface AdminEpisodeLogsLlmCallDetail extends AdminEpisodeLogsLlmCallMeta {
+  prompt_text: string
+  response_text: string
+  thinking_text: string
 }
 
 export interface AdminEpisodeLogsLine {
@@ -62,6 +87,7 @@ export interface AdminEpisodeLogs {
   episode: AdminEpisodeLogsEpisode
   generation_jobs: AdminEpisodeLogsJob[]
   timeline: AdminEpisodeLogsTimelineEvent[]
+  llm_calls: AdminEpisodeLogsLlmCallMeta[]
   lines: AdminEpisodeLogsLine[]
 }
 
@@ -109,10 +135,36 @@ export async function fetchAdminEpisodeLogsClient(
   return res.json() as Promise<AdminEpisodeLogs>
 }
 
+/** クライアントサイド専用：1件のLLM呼び出し本文（prompt/response/thinking）を取得する */
+export async function fetchAdminEpisodeLlmCallClient(
+  episodeId: number,
+  callId: string,
+): Promise<AdminEpisodeLogsLlmCallDetail> {
+  const res = await fetch(`/api/admin/episodes/${episodeId}/llm-calls/${encodeURIComponent(callId)}`, {
+    headers: { 'Content-Type': 'application/json' },
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(body || `Failed to fetch llm call: ${res.status}`)
+  }
+  return res.json() as Promise<AdminEpisodeLogsLlmCallDetail>
+}
+
+/** エピソード別JSONLのダウンロードURL（中継APIを経由） */
+export function llmCallsDownloadUrl(episodeId: number): string {
+  return `/api/admin/episodes/${episodeId}/llm-calls/download`
+}
+
+/** タイムゾーンなしのSQLite形式（"YYYY-MM-DD HH:MM:SS"）をUTCとして解釈できるよう補う */
+function normalizeTimestamp(value: string): string {
+  const withT = value.includes('T') ? value : value.replace(' ', 'T')
+  return /(Z|[+-]\d{2}:?\d{2})$/.test(withT) ? withT : `${withT}Z`
+}
+
 /** 「2026/08/14 10:00:05」形式。未確定はダッシュで表す */
 export function formatEventDateTime(value: string | null): string {
   if (!value) return '—'
-  const d = new Date(value)
+  const d = new Date(normalizeTimestamp(value))
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString('ja-JP', {
     timeZone: 'Asia/Tokyo',
@@ -147,8 +199,24 @@ const PHASE_LABELS: Record<AdminEpisodeLogsPhase, string> = {
   mp3_encode: 'MP3エンコード',
 }
 
-export function phaseLabel(phase: AdminEpisodeLogsPhase | null): string {
-  return phase ? PHASE_LABELS[phase] : '操作'
+export function phaseLabel(phase: string | null): string {
+  if (phase && phase in PHASE_LABELS) return PHASE_LABELS[phase as AdminEpisodeLogsPhase]
+  return phase ?? '操作'
+}
+
+const LLM_PHASE_LABELS: Record<string, string> = {
+  summarize: '要約',
+  script: '台本生成',
+  arc: '構成（Narrative Arc）',
+  review: 'レビュー',
+  correction: '修正',
+  category: 'カテゴリ選定',
+  unknown: '不明',
+}
+
+export function llmPhaseLabel(phase: string | null): string {
+  if (!phase) return '不明'
+  return LLM_PHASE_LABELS[phase] ?? phase
 }
 
 export interface ResultLabel {
@@ -163,6 +231,9 @@ const RESULT_LABELS: Record<string, ResultLabel> = {
   rejected: { text: '却下', icon: '⚠', tone: 'warning' },
   started: { text: '受付・処理中', icon: '…', tone: 'pending' },
   incomplete: { text: '未確定', icon: '…', tone: 'pending' },
+  retry: { text: '再試行', icon: '↻', tone: 'warning' },
+  json_parse_failed: { text: 'JSON解析失敗', icon: '✕', tone: 'failure' },
+  error: { text: 'エラー', icon: '✕', tone: 'failure' },
 }
 
 export function resultLabel(result: string | null): ResultLabel {
