@@ -26,6 +26,7 @@ const VALID_DATA: AdminEpisodeLogs = {
   },
   generation_jobs: [],
   timeline: [],
+  llm_calls: [],
   lines: [],
 }
 

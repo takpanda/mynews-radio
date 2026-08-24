@@ -5,11 +5,13 @@ import AdminEpisodeLogsShell from '../components/AdminEpisodeLogsShell'
 import type { AdminEpisodeLogs } from '../lib/admin-episode-logs'
 
 const mockFetchClient = jest.fn()
+const mockFetchLlmCallClient = jest.fn()
 jest.mock('../lib/admin-episode-logs', () => {
   const actual = jest.requireActual('../lib/admin-episode-logs')
   return {
     ...actual,
     fetchAdminEpisodeLogsClient: (...args: unknown[]) => mockFetchClient(...args),
+    fetchAdminEpisodeLlmCallClient: (...args: unknown[]) => mockFetchLlmCallClient(...args),
   }
 })
 
@@ -21,6 +23,7 @@ function baseData(overrides: Partial<AdminEpisodeLogs> = {}): AdminEpisodeLogs {
     },
     generation_jobs: [],
     timeline: [],
+    llm_calls: [],
     lines: [],
     ...overrides,
   }
@@ -243,6 +246,81 @@ describe('AdminEpisodeLogsShell 行単位の詳細', () => {
 
     await waitFor(() => {
       expect(screen.getByText('過去の試行の取得に失敗しました。もう一度お試しください。')).toBeInTheDocument()
+    })
+  })
+})
+
+describe('AdminEpisodeLogsShell LLM呼び出し', () => {
+  it('記録がない場合は専用メッセージを表示する', () => {
+    render(<AdminEpisodeLogsShell episodeId={7} initialData={baseData()} />)
+    expect(screen.getByText('LLM呼び出しの記録はありません。')).toBeInTheDocument()
+  })
+
+  it('JSONLダウンロードリンクがエピソードのダウンロードAPIを指す', () => {
+    render(<AdminEpisodeLogsShell episodeId={7} initialData={baseData()} />)
+    expect(screen.getByRole('link', { name: 'JSONLをダウンロード' })).toHaveAttribute(
+      'href',
+      '/api/admin/episodes/7/llm-calls/download',
+    )
+  })
+
+  it('一覧は本文を含まずメタ情報のみ表示する', () => {
+    const data = baseData({
+      llm_calls: [{
+        id: 1, call_id: 'call-1', episode_id: 7, phase: 'summarize', provider: 'ollama',
+        model: 'qwen3', base_url: 'http://ollama.local', attempt: 1, status: 'success',
+        latency_ms: 1200, created_at: '2026-08-14T10:00:00+00:00',
+      }],
+    })
+    render(<AdminEpisodeLogsShell episodeId={7} initialData={data} />)
+    expect(screen.getByText('要約（試行1）')).toBeInTheDocument()
+    expect(screen.getByText('qwen3')).toBeInTheDocument()
+    expect(mockFetchLlmCallClient).not.toHaveBeenCalled()
+  })
+
+  it('1件をクリックすると詳細APIを呼び出しprompt/response/thinkingを表示する', async () => {
+    const user = userEvent.setup()
+    const data = baseData({
+      llm_calls: [{
+        id: 1, call_id: 'call-1', episode_id: 7, phase: 'review', provider: 'ollama',
+        model: 'qwen3', base_url: 'http://ollama.local', attempt: 2, status: 'success',
+        latency_ms: 800, created_at: '2026-08-14T10:00:00+00:00',
+      }],
+    })
+    mockFetchLlmCallClient.mockResolvedValueOnce({
+      id: 1, call_id: 'call-1', episode_id: 7, phase: 'review', provider: 'ollama',
+      model: 'qwen3', base_url: 'http://ollama.local', attempt: 2, status: 'success',
+      latency_ms: 800, created_at: '2026-08-14T10:00:00+00:00',
+      prompt_text: 'full prompt text', response_text: 'full response text', thinking_text: 'full thinking text',
+    })
+
+    render(<AdminEpisodeLogsShell episodeId={7} initialData={data} />)
+    await user.click(screen.getByRole('button', { name: /レビュー/ }))
+
+    expect(mockFetchLlmCallClient).toHaveBeenCalledWith(7, 'call-1')
+    await waitFor(() => {
+      expect(screen.getByText('full prompt text')).toBeInTheDocument()
+    })
+    expect(screen.getByText('full response text')).toBeInTheDocument()
+    expect(screen.getByText('full thinking text')).toBeInTheDocument()
+  })
+
+  it('詳細取得に失敗した場合はエラーメッセージと再試行ボタンを表示する', async () => {
+    const user = userEvent.setup()
+    const data = baseData({
+      llm_calls: [{
+        id: 1, call_id: 'call-1', episode_id: 7, phase: 'script', provider: 'ollama',
+        model: 'qwen3', base_url: 'http://ollama.local', attempt: 1, status: 'error',
+        latency_ms: null, created_at: '2026-08-14T10:00:00+00:00',
+      }],
+    })
+    mockFetchLlmCallClient.mockRejectedValueOnce(new Error('network error'))
+
+    render(<AdminEpisodeLogsShell episodeId={7} initialData={data} />)
+    await user.click(screen.getByRole('button', { name: /台本生成/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('本文の取得に失敗しました。')).toBeInTheDocument()
     })
   })
 })

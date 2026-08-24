@@ -1,16 +1,20 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import type {
   AdminEpisodeLogs,
+  AdminEpisodeLogsLlmCallDetail,
   AdminEpisodeLogsTimelineEvent,
 } from '../lib/admin-episode-logs'
 import {
+  fetchAdminEpisodeLlmCallClient,
   fetchAdminEpisodeLogsClient,
   formatDurationMs,
   formatEventDateTime,
   formatSeconds,
+  llmCallsDownloadUrl,
+  llmPhaseLabel,
   phaseLabel,
   resultLabel,
   resultToneClassName,
@@ -69,6 +73,29 @@ function Field({ label, value }: { label: string; value: string }) {
   )
 }
 
+function timelineTitle(event: AdminEpisodeLogsTimelineEvent): string {
+  const attemptSuffix = event.attempt_no ? `（試行${event.attempt_no}）` : ''
+  if (event.source === 'phase') return `${phaseLabel(event.phase)}${attemptSuffix}`
+  if (event.source === 'llm') return `LLM呼び出し: ${llmPhaseLabel(event.phase)}${attemptSuffix}`
+  return `操作: ${event.operation ?? '不明'}`
+}
+
+type LlmCallDetailState =
+  | { status: 'loading' }
+  | { status: 'loaded'; detail: AdminEpisodeLogsLlmCallDetail }
+  | { status: 'error' }
+
+function LlmCallTextBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[11px] text-slate-400">{label}</p>
+      <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 text-xs text-slate-700">
+        {value || '（空）'}
+      </pre>
+    </div>
+  )
+}
+
 export default function AdminEpisodeLogsShell({ episodeId, initialData }: Props) {
   const [data, setData] = useState<AdminEpisodeLogs>(initialData)
   const initialAttempts = useMemo(() => synthAttemptsFromTimeline(initialData.timeline), [initialData])
@@ -78,8 +105,45 @@ export default function AdminEpisodeLogsShell({ episodeId, initialData }: Props)
   const [switching, setSwitching] = useState(false)
   const [switchError, setSwitchError] = useState<string | null>(null)
 
+  const [expandedCallIds, setExpandedCallIds] = useState<Set<string>>(new Set())
+  const [callDetails, setCallDetails] = useState<Record<string, LlmCallDetailState>>({})
+  const requestedCallIdsRef = useRef<Set<string>>(new Set())
+
   const attempts = useMemo(() => synthAttemptsFromTimeline(data.timeline), [data])
   const timeline = useMemo(() => sortedTimeline(data.timeline), [data])
+
+  const loadLlmCallDetail = useCallback(
+    async (callId: string) => {
+      setCallDetails((prev) => ({ ...prev, [callId]: { status: 'loading' } }))
+      try {
+        const detail = await fetchAdminEpisodeLlmCallClient(episodeId, callId)
+        setCallDetails((prev) => ({ ...prev, [callId]: { status: 'loaded', detail } }))
+      } catch {
+        requestedCallIdsRef.current.delete(callId)
+        setCallDetails((prev) => ({ ...prev, [callId]: { status: 'error' } }))
+      }
+    },
+    [episodeId],
+  )
+
+  const handleToggleLlmCall = useCallback(
+    (callId: string) => {
+      setExpandedCallIds((prev) => {
+        const next = new Set(prev)
+        if (next.has(callId)) {
+          next.delete(callId)
+        } else {
+          next.add(callId)
+        }
+        return next
+      })
+      if (!requestedCallIdsRef.current.has(callId)) {
+        requestedCallIdsRef.current.add(callId)
+        loadLlmCallDetail(callId)
+      }
+    },
+    [loadLlmCallDetail],
+  )
 
   const handleSelectAttempt = useCallback(
     async (phaseLogId: number) => {
@@ -165,11 +229,7 @@ export default function AdminEpisodeLogsShell({ episodeId, initialData }: Props)
             {timeline.map((event) => (
               <li key={`${event.source}-${event.source_id}`} className="rounded-xl border border-slate-100 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-slate-900">
-                    {event.source === 'phase'
-                      ? `${phaseLabel(event.phase)}${event.attempt_no ? `（試行${event.attempt_no}）` : ''}`
-                      : `操作: ${event.operation ?? '不明'}`}
-                  </span>
+                  <span className="text-sm font-medium text-slate-900">{timelineTitle(event)}</span>
                   <ResultBadge result={event.result} />
                 </div>
                 <dl className="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
@@ -177,6 +237,8 @@ export default function AdminEpisodeLogsShell({ episodeId, initialData }: Props)
                   <Field label="終了時刻" value={formatEventDateTime(event.ended_at)} />
                   <Field label="所要時間" value={formatDurationMs(event.duration_ms)} />
                   {event.tts_engine && <Field label="TTSエンジン" value={event.tts_engine} />}
+                  {event.source === 'llm' && event.model && <Field label="モデル" value={event.model} />}
+                  {event.source === 'llm' && event.provider && <Field label="プロバイダ" value={event.provider} />}
                   {event.line_total_count !== null && event.line_total_count !== undefined && (
                     <Field
                       label="行の成功数"
@@ -193,6 +255,80 @@ export default function AdminEpisodeLogsShell({ episodeId, initialData }: Props)
               </li>
             ))}
           </ol>
+        )}
+      </section>
+
+      {/* LLM呼び出し */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-slate-900">LLM呼び出し</h2>
+          <a
+            href={llmCallsDownloadUrl(episodeId)}
+            className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300"
+          >
+            JSONLをダウンロード
+          </a>
+        </div>
+        {data.llm_calls.length === 0 ? (
+          <p className="mt-3 text-sm text-slate-400">LLM呼び出しの記録はありません。</p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {data.llm_calls.map((call) => {
+              const isExpanded = expandedCallIds.has(call.call_id)
+              const detailState = callDetails[call.call_id]
+              return (
+                <li key={call.call_id} className="rounded-xl border border-slate-100 p-3">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleLlmCall(call.call_id)}
+                    aria-expanded={isExpanded}
+                    className="flex w-full flex-wrap items-center justify-between gap-2 text-left"
+                  >
+                    <span className="text-sm font-medium text-slate-900">
+                      {llmPhaseLabel(call.phase)}
+                      {call.attempt ? `（試行${call.attempt}）` : ''}
+                    </span>
+                    <ResultBadge result={call.status} />
+                  </button>
+                  <dl className="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-4">
+                    <Field label="モデル" value={call.model || '—'} />
+                    <Field label="プロバイダ" value={call.provider || '—'} />
+                    <Field label="所要時間" value={formatDurationMs(call.latency_ms)} />
+                    <Field label="日時" value={formatEventDateTime(call.created_at)} />
+                  </dl>
+
+                  {isExpanded && (
+                    <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
+                      {detailState?.status === 'loading' && (
+                        <p className="text-xs text-slate-400">読み込み中...</p>
+                      )}
+                      {detailState?.status === 'error' && (
+                        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                          本文の取得に失敗しました。
+                          <button
+                            type="button"
+                            onClick={() => loadLlmCallDetail(call.call_id)}
+                            className="ml-2 font-semibold underline"
+                          >
+                            再試行
+                          </button>
+                        </div>
+                      )}
+                      {detailState?.status === 'loaded' && (
+                        <>
+                          <LlmCallTextBlock label="プロンプト" value={detailState.detail.prompt_text} />
+                          <LlmCallTextBlock label="レスポンス（生データ）" value={detailState.detail.response_text} />
+                          {detailState.detail.thinking_text && (
+                            <LlmCallTextBlock label="Thinking" value={detailState.detail.thinking_text} />
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
         )}
       </section>
 
