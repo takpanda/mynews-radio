@@ -91,6 +91,29 @@ class TestEnsureTransitionsDiscussionInsertion:
         sections = [r["section"] for r in result]
         assert "transition" in sections, "no transition inserted"
 
+    def test_discussion_transition_missing_or_invalid_speaker_is_coerced(self):
+        for invalid_speaker in (None, "unknown"):
+            transition = {
+                "section": "transition",
+                "article_id": 1,
+                "text": "ここで少し掘り下げます。",
+            }
+            if invalid_speaker is not None:
+                transition["speaker"] = invalid_speaker
+            lines = [
+                {"section": "intro", "speaker": "male", "text": "番組です。"},
+                {"section": "news", "article_id": 1, "speaker": "male", "text": "記事です。"},
+                transition,
+                {"section": "discussion", "article_id": 1, "speaker": "female", "text": "詳しく話します。"},
+            ]
+
+            result = _ensure_transitions(lines, [{"id": 1, "title": "記事1"}])
+            discussion_transitions = [
+                line for line in result
+                if line.get("section") == "transition" and line.get("article_id") == 1
+            ]
+            assert discussion_transitions[-1]["speaker"] == "male"
+
     def test_no_extra_transition_when_already_present(self):
         lines = [
             {"section": "intro", "speaker": "male"},

@@ -517,6 +517,27 @@ def _is_valid_news_transition_block(
     return speakers[0] != speakers[1]
 
 
+def _coerce_discussion_transition_speakers(result: list[dict]) -> None:
+    """discussion直前のtransitionに安全なspeaker値を設定する。
+
+    discussion直前は既存契約上1行transitionを許容するため、記事境界(news)
+    用の2行ブロック検証は適用しない。一方、speaker欠落・不正値は音声合成へ
+    渡せないため、従来の既定値と同じ ``male`` に補正する。
+    """
+    index = len(result) - 1
+    while index >= 0 and result[index].get("section") == "transition":
+        line = result[index]
+        if line.get("speaker") not in {"male", "female"}:
+            replacement = dict(line)
+            replacement["speaker"] = "male"
+            result[index] = replacement
+            logger.debug(
+                "discussion直前のtransition話者を安全値へ補正: article_id=%s",
+                line.get("article_id"),
+            )
+        index -= 1
+
+
 def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -> list:
     """LLM が生成した lines を後処理し、article_id 切り替わり境界に
     transition 行を確実に挿入して返す。LLM が既に挿入した transition は保持する。
@@ -586,6 +607,7 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
             # article_id不一致処理だけを適用する。記事境界(news)は下でブロック全体を
             # 検証し、不正時だけ安全な2行へ置き換える。
             if prev_is_transition and section != "news":
+                _coerce_discussion_transition_speakers(result)
                 llm_trans_aid = result[-1].get("article_id")
                 if llm_trans_aid is not None and llm_trans_aid != article_id:
                     removed = result.pop()
