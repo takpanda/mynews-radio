@@ -32,6 +32,54 @@ class TestPickPhraseNoConsecutiveDuplicate:
 
 
 class TestEnsureTransitionsDiscussionInsertion:
+    @staticmethod
+    def _transition_lines(transition_lines):
+        return [
+            {"section": "intro", "speaker": "male", "text": "番組です。"},
+            {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1です。"},
+            *transition_lines,
+            {"section": "news", "article_id": 2, "speaker": "female", "text": "記事2です。"},
+        ]
+
+    def test_valid_llm_transition_block_is_preserved(self):
+        bridge = "前の話題を踏まえて、次は暮らしの変化を見ていきます。"
+        reaction = "こちらも聞いてみましょう。"
+        result = _ensure_transitions(
+            self._transition_lines([
+                {"section": "transition", "article_id": 2, "speaker": "female", "text": bridge},
+                {"section": "transition", "article_id": 2, "speaker": "male", "text": reaction},
+            ]),
+            [{"id": 1, "title": "記事1"}, {"id": 2, "title": "記事2"}],
+        )
+        transition_texts = [line["text"] for line in result if line["section"] == "transition"]
+        assert bridge in transition_texts
+        assert reaction in transition_texts
+
+    def test_empty_transition_is_replaced_with_two_line_fallback(self):
+        result = _ensure_transitions(
+            self._transition_lines([
+                {"section": "transition", "article_id": 2, "speaker": "female", "text": ""},
+                {"section": "transition", "article_id": 2, "speaker": "male", "text": "受けです。"},
+            ]),
+            [{"id": 1, "title": "記事1"}, {"id": 2, "title": "記事2"}],
+        )
+        transitions = [line for line in result if line["section"] == "transition" and line.get("article_id") == 2]
+        assert len(transitions) == 2
+        assert all(line["text"] for line in transitions)
+        assert transitions[0]["speaker"] != transitions[1]["speaker"]
+
+    def test_missing_speaker_transition_is_replaced_with_two_line_fallback(self):
+        result = _ensure_transitions(
+            self._transition_lines([
+                {"section": "transition", "article_id": 2, "text": "橋渡しです。"},
+                {"section": "transition", "article_id": 2, "speaker": "female", "text": "受けです。"},
+            ]),
+            [{"id": 1, "title": "記事1"}, {"id": 2, "title": "記事2"}],
+        )
+        transitions = [line for line in result if line["section"] == "transition" and line.get("article_id") == 2]
+        assert len(transitions) == 2
+        assert transitions[0]["speaker"] != transitions[1]["speaker"]
+
     def test_transition_inserted_before_discussion(self):
         lines = [
             {"section": "intro", "speaker": "male"},
@@ -43,20 +91,42 @@ class TestEnsureTransitionsDiscussionInsertion:
         sections = [r["section"] for r in result]
         assert "transition" in sections, "no transition inserted"
 
+    def test_discussion_transition_missing_or_invalid_speaker_is_coerced(self):
+        for invalid_speaker in (None, "unknown"):
+            transition = {
+                "section": "transition",
+                "article_id": 1,
+                "text": "ここで少し掘り下げます。",
+            }
+            if invalid_speaker is not None:
+                transition["speaker"] = invalid_speaker
+            lines = [
+                {"section": "intro", "speaker": "male", "text": "番組です。"},
+                {"section": "news", "article_id": 1, "speaker": "male", "text": "記事です。"},
+                transition,
+                {"section": "discussion", "article_id": 1, "speaker": "female", "text": "詳しく話します。"},
+            ]
+
+            result = _ensure_transitions(lines, [{"id": 1, "title": "記事1"}])
+            discussion_transitions = [
+                line for line in result
+                if line.get("section") == "transition" and line.get("article_id") == 1
+            ]
+            assert discussion_transitions[-1]["speaker"] == "male"
+
     def test_no_extra_transition_when_already_present(self):
         lines = [
             {"section": "intro", "speaker": "male"},
             {"section": "news", "article_id": 1},
-            {"section": "transition", "article_id": 2, "speaker": "female"},
+            {"section": "transition", "article_id": 2, "speaker": "female", "text": "次の話題へ移ります。"},
             {"section": "news", "article_id": 2},
         ]
         summaries = [{"id": 1, "title": "T1"}, {"id": 2, "title": "T2"}]
         result = _ensure_transitions(lines, summaries)
-        # art1 boundary has no LLM transition, so it's auto-inserted as a 2-line
-        # exchange (bridge + short reaction, BEE-630); the input transition at
-        # art2 is preserved as-is (1 line) and no extra one is inserted before news(art2)
+        # art2のLLM transitionは1行のため不正と判定され、安全な2行へ置き換わる。
+        # 正常生成を受け取った場合だけ、その内容を保持する。
         trans_count = sum(1 for r in result if r["section"] == "transition")
-        assert trans_count == 3, f"unexpected transition count: {trans_count}"
+        assert trans_count == 4, f"unexpected transition count: {trans_count}"
 
 
 class TestEnsureTransitionsArticleBoundary:
@@ -606,6 +676,7 @@ class TestEnsureTransitionsBrokenLLMTransitionReplacement:
         lines = [
             {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
             {"section": "transition", "article_id": 1, "speaker": "female", "text": two_sentence_text},
+            {"section": "transition", "article_id": 1, "speaker": "male", "text": "お願いします。"},
             {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
         ]
         summaries = [{"id": 1, "title": "記事1タイトル", "summary": "記事1の要約です。"}]
@@ -623,6 +694,7 @@ class TestEnsureTransitionsBrokenLLMTransitionReplacement:
             {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
             {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
             {"section": "transition", "article_id": 2, "speaker": "female", "text": normal_text},
+            {"section": "transition", "article_id": 2, "speaker": "male", "text": "詳しく聞きたいです。"},
             {"section": "news", "article_id": 2, "speaker": "male", "text": "記事2の内容です。"},
         ]
         summaries = [
@@ -634,11 +706,11 @@ class TestEnsureTransitionsBrokenLLMTransitionReplacement:
 
         transition_texts = [l["text"] for l in result if l["section"] == "transition"]
         assert normal_text in transition_texts
-        # 置換されていないので記事2境界のtransitionは1行のまま
+        # 置換されていないので記事2境界のtransitionは2行のまま
         art2_transitions = [
             l for l in result if l["section"] == "transition" and l.get("article_id") == 2
         ]
-        assert len(art2_transitions) == 1
+        assert len(art2_transitions) == 2
 
     def test_natural_contextual_bridge_transition_is_preserved(self):
         # レビュー観点で推奨される、前の話題に一言触れてから移る自然な
@@ -648,6 +720,7 @@ class TestEnsureTransitionsBrokenLLMTransitionReplacement:
             {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
             {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
             {"section": "transition", "article_id": 2, "speaker": "female", "text": bridge_text},
+            {"section": "transition", "article_id": 2, "speaker": "male", "text": "興味深いですね。"},
             {"section": "news", "article_id": 2, "speaker": "male", "text": "記事2の内容です。"},
         ]
         summaries = [

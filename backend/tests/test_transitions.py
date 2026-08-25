@@ -5,6 +5,14 @@ import pytest
 
 
 class TestTransitionPhrases:
+    def test_reaction_candidates_have_varied_forms(self):
+        from app.batch.generate_script import _TRANSITION_REACTION_PHRASES
+
+        assert len(_TRANSITION_REACTION_PHRASES) > 8
+        assert any("？" in phrase for phrase in _TRANSITION_REACTION_PHRASES)
+        assert any("驚" in phrase for phrase in _TRANSITION_REACTION_PHRASES)
+        assert any("興味" in phrase for phrase in _TRANSITION_REACTION_PHRASES)
+
     def test_no_unnatural_templates(self):
         from app.batch.generate_script import _TRANSITION_PHRASES
         for phrase in _TRANSITION_PHRASES:
@@ -111,7 +119,7 @@ class TestEnsureTransitionsTopicExtraction:
             if line.get("section") == "transition" and line.get("article_id") == 2
         ]
         assert len(transition_texts) == 2
-        assert set(transition_texts) <= set(_SENSITIVE_TRANSITION_REACTION_PHRASES)
+        assert any(text in _SENSITIVE_TRANSITION_REACTION_PHRASES for text in transition_texts)
         assert not any("期待" in text or "喜ばしい" in text for text in transition_texts)
 
     def test_entertainment_keeps_positive_transition_reactions_available(self):
