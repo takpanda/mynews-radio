@@ -15,6 +15,10 @@ def test_radio_script_prompt_guides_female_mc_toward_natural_partner_talk():
         "同じ文末表現を連続させず",
         "文法が成立しない日本語",
         "状況が気になる限りあります",
+        "生成結果の扱い",
+        "正常なtransitionを上書きしてはならない",
+        "既存検証で不正となる場合だけ",
+        "質問・驚き・興味・確認",
     )
 
     for marker in expected_markers:

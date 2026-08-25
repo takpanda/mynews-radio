@@ -104,6 +104,10 @@ _TRANSITION_REACTION_PHRASES = [
     "そちらも気になっていました。",
     "続けてお願いします。",
     "興味深いですね。",
+    "どう見ていきましょうか？",
+    "これは驚きました。",
+    "背景も知りたいですね。",
+    "ここは確認したいです。",
 ]
 
 # 災害・重大事故のニュースでは、記事境界の定型的な短い受けであっても
@@ -483,6 +487,36 @@ def _is_usable_bridge_text(bridge_text: str) -> bool:
     return True
 
 
+def _is_valid_news_transition_block(
+    block: list[dict], article_id, *, check_broken_text: bool, sensitive: bool
+) -> bool:
+    """記事境界のLLM transitionが既存の検証契約を満たすか判定する。
+
+    LLMが生成した内容は、2行・異なる話者・空でない発話であれば保持する。
+    テンプレートへ置き換えるのは、既存の ``TRANSITION_SOLO`` 相当の不備か、
+    記事境界で既存検証が壊れた文と判定した場合だけに限定する。
+    """
+    if len(block) != 2:
+        return False
+
+    speakers: list[str] = []
+    for line in block:
+        if "speaker" not in line or line.get("speaker") not in {"male", "female"}:
+            return False
+        if not str(line.get("text", "") or "").strip():
+            return False
+        line_article_id = line.get("article_id")
+        if line_article_id is not None and line_article_id != article_id:
+            return False
+        if check_broken_text and _is_broken_transition_text(line.get("text", "")):
+            return False
+        if sensitive and _has_inappropriate_sensitive_transition_text(line.get("text", "")):
+            return False
+        speakers.append(line["speaker"])
+
+    return speakers[0] != speakers[1]
+
+
 def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -> list:
     """LLM が生成した lines を後処理し、article_id 切り替わり境界に
     transition 行を確実に挿入して返す。LLM が既に挿入した transition は保持する。
@@ -548,10 +582,10 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
         if section in ("news", "discussion"):
             prev_is_transition = bool(result) and result[-1].get("section") == "transition"
 
-            # LLM が transition を出力していても、その article_id が現在の記事と
-            # 一致しない場合は誤った帰属とみなし、LLM の transition を削除して
-            # プログラム側の transition で置き換える
-            if prev_is_transition:
+            # discussion直前は従来どおり1行transitionを許容するため、既存の
+            # article_id不一致処理だけを適用する。記事境界(news)は下でブロック全体を
+            # 検証し、不正時だけ安全な2行へ置き換える。
+            if prev_is_transition and section != "news":
                 llm_trans_aid = result[-1].get("article_id")
                 if llm_trans_aid is not None and llm_trans_aid != article_id:
                     removed = result.pop()
@@ -563,25 +597,6 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                     # 不一致行の下に隠れた壊れたtransitionを見逃していた。BEE-672）
                     prev_is_transition = bool(result) and result[-1].get("section") == "transition"
 
-            # LLM が記事境界を出力済みの場合も、次の記事が災害・重大事故なら
-            # 肯定的な相槌や軽い導入を中立表現へ置換する。これによりテンプレート
-            # だけでなく、LLM が生成した「楽しみですね。」も残さない。
-            if prev_is_transition and article_id in sensitive_article_ids:
-                for index in range(len(result) - 1, -1, -1):
-                    transition_line = result[index]
-                    if transition_line.get("section") != "transition":
-                        break
-                    if _has_inappropriate_sensitive_transition_text(transition_line.get("text", "")):
-                        replacement = dict(transition_line)
-                        replacement["text"] = _pick_phrase(
-                            _SENSITIVE_TRANSITION_REACTION_PHRASES, reaction_phrase_used
-                        )
-                        result[index] = replacement
-                        logger.info(
-                            "災害・重大事故ニュース直前の不適切なtransitionを置換: article_id=%s",
-                            article_id,
-                        )
-
             # article_id は次の記事と一致していても、前の記事の締め文と次の記事の
             # 告知が1行に混在した壊れたtransitionは記事境界（news）でのみ検知して
             # 破棄する（BEE-661/BEE-662）。discussion直前のtransitionはテンプレート
@@ -592,15 +607,25 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
             # 属するブロック）全体を検査する。壊れた遷移文の直後に正常な短い
             # 反応行が続く場合、直前1行のみの検査ではその反応行に隠れて壊れた
             # 遷移文を見逃すため（BEE-672）。
-            if prev_is_transition and section == "news" and last_content_aid is not None:
+            if prev_is_transition and section == "news":
                 block_start = len(result)
                 while block_start > 0 and result[block_start - 1].get("section") == "transition":
                     block_start -= 1
-                if any(_is_broken_transition_text(line.get("text", "")) for line in result[block_start:]):
+                transition_block = result[block_start:]
+                if not _is_valid_news_transition_block(
+                    transition_block,
+                    article_id,
+                    check_broken_text=last_content_aid is not None,
+                    sensitive=article_id in sensitive_article_ids,
+                ):
                     removed = result[block_start:]
                     del result[block_start:]
                     for r in removed:
-                        logger.debug("LLM transition 削除(複文混在): article_id=%s text=%s", r.get("article_id"), r.get("text", "")[:60])
+                        logger.debug(
+                            "LLM transition 削除(検証不合格): article_id=%s text=%s",
+                            r.get("article_id"),
+                            r.get("text", "")[:60],
+                        )
                     prev_is_transition = False
 
             # article_id が変わった（または intro→news）かつ直前が transition でない場合に挿入
@@ -1175,12 +1200,15 @@ def generate_script(
     for line in response["lines"]:
         if not isinstance(line, dict):
             continue
-        speaker = str(line.get("speaker", "male"))
-        if speaker not in {"male", "female"}:
-            speaker = "male"
         section = str(line.get("section", "news"))
         if section not in {"intro", "news", "transition", "discussion", "outro"}:
             section = "news"
+
+        # transitionの話者欠落は _ensure_transitions() の検証で不正生成として
+        # 扱う。その他のセクションは従来どおり male を既定値にする。
+        speaker = str(line.get("speaker", "" if section == "transition" else "male"))
+        if speaker not in {"male", "female"} and section != "transition":
+            speaker = "male"
         
         text = str(line.get("text", "")).strip()
         text = _re.sub(r"〔[^〕]*〕", "", text).strip()
