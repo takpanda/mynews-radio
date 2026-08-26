@@ -25,6 +25,28 @@ def test_radio_script_prompt_guides_female_mc_toward_natural_partner_talk():
         assert marker in prompt
 
 
+def test_radio_script_prompt_explains_events_before_terms_and_defines_model_terms():
+    prompt = _load_prompt_template()
+
+    required_rules = (
+        "登場人物、発覚のきっかけ、実際に起きたこと、対応または影響の順",
+        "出来事→仕組み→影響・対応",
+        "専門用語・略語は初出の行で、必ず「これは〜」形式の平易な一言定義",
+        "解説文は口語にし、一文60字以内",
+    )
+    model_sentences = (
+        "AliExpressのアプリが端末を追跡しました。これは「聞こえない音」を使う方法です。",
+        "CVSS、これは脆弱性の危険度を点数で表す基準です。",
+        "Denuvo、これはゲームの不正コピーを防ぐ仕組みです。",
+    )
+
+    for rule in required_rules:
+        assert rule in prompt
+    for sentence in model_sentences:
+        assert sentence in prompt
+        assert all(len(part) <= 60 for part in sentence.split("。") if part)
+
+
 def test_representative_dialogue_output_can_be_checked_without_external_llm():
     """外部LLMなしで受入条件を確認するための代表出力例。"""
     script = {
