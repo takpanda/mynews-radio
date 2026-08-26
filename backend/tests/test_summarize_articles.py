@@ -9,6 +9,30 @@ import app.batch.summarize_articles as summarize_module
 MAX_CHARS = 4000
 
 
+def test_summary_prompt_prioritizes_event_definition_and_impact():
+    prompt = summarize_module._load_prompt_template()
+
+    required_rules = (
+        "1. 出来事（登場人物、発覚のきっかけ、実際に起きたこと）",
+        "2. 仕組み・初出用語の平易な一言定義",
+        "専門用語・略語は、初めて出すときに「これは〜」など日常語で説明する",
+        "3. 影響・対応（生活への影響、または取られた・必要な対応）",
+        "summary は200文字以内です",
+        "技術名や制度名の列挙よりも、出来事と初出用語の定義を優先",
+        "技術名から書き始めず、何が起きたかを先に書いてください",
+    )
+    for rule in required_rules:
+        assert rule in prompt
+
+    example = "通販アプリが端末を追跡しました。これはAliExpressの「聞こえない音」を使う方法です。利用者は追跡設定を確認したいところです。"
+    assert example in prompt
+    sentences = [part for part in example.split("。") if part]
+    assert len(sentences) == 3
+    assert not sentences[0].startswith("AliExpress")
+    assert "これは" in sentences[1]
+    assert "利用者は追跡設定を確認したいところです" in sentences[2]
+
+
 class _FakeClient:
     def __init__(self, prompts):
         self.prompts = prompts
