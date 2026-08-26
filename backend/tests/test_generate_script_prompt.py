@@ -25,6 +25,53 @@ def test_radio_script_prompt_guides_female_mc_toward_natural_partner_talk():
         assert marker in prompt
 
 
+def test_radio_script_prompt_explains_events_before_terms_and_defines_model_terms():
+    prompt = _load_prompt_template()
+
+    required_rules = (
+        "説明の順序と粒度は、次の3段階に統一すること",
+        "①出来事（登場人物・発覚のきっかけ・実際に起きたこと）→②仕組み・用語定義",
+        "専門用語・略語の初出は必ず「これは〜」形式で平易に定義",
+        "③影響・対応（生活への影響、または取られた・必要な対応）",
+        "①出来事より前に技術名・制度名を出さず",
+        "解説文は口語にし、一文60字以内",
+    )
+    model_examples = (
+        (
+            "AliExpress",
+            "通販アプリが端末を追跡しました",
+            "利用者は追跡設定を確認したいところです",
+            "通販アプリが端末を追跡しました。これはAliExpressの「聞こえない音」を使う方法です。利用者は追跡設定を確認したいところです。",
+        ),
+        (
+            "CVSS",
+            "ソフトの弱点の危険度を評価しました",
+            "点数をもとに対応の優先度を決めます",
+            "ソフトの弱点の危険度を評価しました。これはCVSSという点数で深刻さを表す基準です。点数をもとに対応の優先度を決めます。",
+        ),
+        (
+            "Denuvo",
+            "ゲームの不正コピーが問題になりました",
+            "開発元は正規利用を守る対応を取ります",
+            "ゲームの不正コピーが問題になりました。これはDenuvoという不正利用を防ぐ仕組みです。開発元は正規利用を守る対応を取ります。",
+        ),
+    )
+
+    for rule in required_rules:
+        assert rule in prompt
+    assert "田村（male）が担当する説明文のモデル" in prompt
+    assert "山口（female）の疑問・生活影響の発言は別に続ける" in prompt
+    for technical_name, event, impact_or_response, example in model_examples:
+        assert example in prompt
+        sentences = [part for part in example.split("。") if part]
+        assert len(sentences) == 3
+        assert event in sentences[0]
+        assert not sentences[0].startswith(technical_name)
+        assert "これは" in sentences[1]
+        assert impact_or_response in sentences[2]
+        assert all(len(sentence) <= 60 for sentence in sentences)
+
+
 def test_representative_dialogue_output_can_be_checked_without_external_llm():
     """外部LLMなしで受入条件を確認するための代表出力例。"""
     script = {
