@@ -14,6 +14,16 @@ JST = timezone(timedelta(hours=9))
 # タイトルだけを対象にすることで、別イベントの誤除外を避ける。
 _TITLE_SIMILARITY_THRESHOLD = 0.92
 _CROSS_LANGUAGE_TOKEN_THRESHOLD = 0.68
+_MIN_SEMANTIC_TOKEN_COVERAGE = 0.5
+
+# 社名と一緒に頻出する定型語は、アンカー以外の意味的な一致とはみなさない。
+# 日本語カタカナ語はローマ字形も登録し、security／セキュリティ等を同じ扱いにする。
+_GENERIC_TITLE_TERMS = {
+    "announce", "announced", "announces", "announcement", "announcements",
+    "model", "models", "news", "product", "products", "review", "reviews",
+    "security", "response", "responses", "update", "updates",
+    "対応", "公開", "発表", "sekyuriti", "moderu", "nyusu", "purodaku", "rebyu",
+}
 
 # カタカナを標準ライブラリだけで比較用のローマ字へ変換するための表。
 # 翻訳ではなく音の近さを見る目的なので、未収録の文字はそのまま残す。
@@ -152,16 +162,42 @@ def _cross_language_similarity(left: tuple[str, str], right: tuple[str, str]) ->
         return 0.0
     kana_token = left_token if left_script == "kana" else right_token
     latin_token = left_token if left_script == "latin" else right_token
-    if kana_token[:1] == "ノ":
-        # 「AのB」のように、Bがカタカナ語だと先頭の助詞がBへ付着する。
-        kana_token = kana_token[1:]
-    if kana_token[-1:] in {"ガ", "ハ", "ニ", "ヘ", "ヲ", "ノ", "ト", "デ", "モ", "ヤ"}:
-        # 日本語の助詞がカタカナ語に連結した場合も、語幹同士を比較する。
-        kana_token = kana_token[:-1]
+    kana_token = _strip_kana_particles(kana_token)
     romanized = _romanize_katakana(kana_token)
     if len(romanized) < 5 or len(latin_token) < 5:
         return 0.0
     return SequenceMatcher(None, romanized, latin_token, autojunk=False).ratio()
+
+
+def _strip_kana_particles(token: str) -> str:
+    """カタカナ語に付着した「の／を」等を比較用に取り除く。"""
+    if token[:1] == "ノ":
+        # 「AのB」のように、Bがカタカナ語だと先頭の助詞がBへ付着する。
+        token = token[1:]
+    if token[-1:] in {"ガ", "ハ", "ニ", "ヘ", "ヲ", "ノ", "ト", "デ", "モ", "ヤ"}:
+        # 日本語の助詞がカタカナ語に連結した場合も、語幹同士を比較する。
+        token = token[:-1]
+    return token
+
+
+def _meaningful_title_tokens(
+    tokens: list[tuple[str, str]], excluded: set[str]
+) -> list[tuple[str, str]]:
+    meaningful: list[tuple[str, str]] = []
+    for token, script in tokens:
+        comparison_token = _strip_kana_particles(token) if script == "kana" else token
+        minimum_length = 2 if script == "cjk" else 4
+        generic_key = (
+            _romanize_katakana(comparison_token)
+            if script == "kana" else comparison_token
+        )
+        if (
+            len(comparison_token) >= minimum_length
+            and comparison_token not in excluded
+            and generic_key not in _GENERIC_TITLE_TERMS
+        ):
+            meaningful.append((comparison_token, script))
+    return meaningful
 
 
 def titles_are_similar(left: str | None, right: str | None) -> bool:
@@ -181,26 +217,46 @@ def titles_are_similar(left: str | None, right: str | None) -> bool:
 
     left_tokens = _title_tokens(left)
     right_tokens = _title_tokens(right)
-    cross_matches = [
-        similarity
-        for left_token in left_tokens
-        for right_token in right_tokens
-        if (similarity := _cross_language_similarity(left_token, right_token))
-        >= _CROSS_LANGUAGE_TOKEN_THRESHOLD
-    ]
-    if not cross_matches:
-        return False
-
-    # 「ハラペーニョ」と「Jalapeño」のような翻字は、単語単体なら採用する。
-    # 長いタイトルでは同一言及のアンカー語も要求し、偶然似た音の除外を抑える。
     exact_anchors = {
         token for token, _ in left_tokens if len(token) >= 4
     } & {
         token for token, _ in right_tokens if len(token) >= 4
     }
-    meaningful_left = [token for token, _ in left_tokens if len(token) >= 4]
-    meaningful_right = [token for token, _ in right_tokens if len(token) >= 4]
-    return bool(exact_anchors) or (len(meaningful_left) <= 2 and len(meaningful_right) <= 2)
+    meaningful_left = _meaningful_title_tokens(left_tokens, exact_anchors)
+    meaningful_right = _meaningful_title_tokens(right_tokens, exact_anchors)
+    if not meaningful_left or not meaningful_right:
+        return False
+
+    # アンカー語（社名など）は補助情報に留め、アンカーを除いた意味語を
+    # 一対一で照合する。片側だけの一般語の偶然一致を防ぐため、両側で
+    # 少なくとも半数の意味語が一致または翻字類似する場合だけ採用する。
+    candidates = sorted(
+        (
+            similarity,
+            left_index,
+            right_index,
+        )
+        for left_index, left_token in enumerate(meaningful_left)
+        for right_index, right_token in enumerate(meaningful_right)
+        if (
+            (similarity := (
+                1.0
+                if left_token == right_token
+                else _cross_language_similarity(left_token, right_token)
+            ))
+            >= _CROSS_LANGUAGE_TOKEN_THRESHOLD
+        )
+    )
+    matched_left: set[int] = set()
+    matched_right: set[int] = set()
+    for _, left_index, right_index in reversed(candidates):
+        if left_index not in matched_left and right_index not in matched_right:
+            matched_left.add(left_index)
+            matched_right.add(right_index)
+    return (
+        len(matched_left) / len(meaningful_left) >= _MIN_SEMANTIC_TOKEN_COVERAGE
+        and len(matched_right) / len(meaningful_right) >= _MIN_SEMANTIC_TOKEN_COVERAGE
+    )
 
 
 def _filter_similar_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
