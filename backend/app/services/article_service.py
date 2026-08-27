@@ -12,7 +12,7 @@ JST = timezone(timedelta(hours=9))
 
 # タイトルの表記揺れだけを吸収する閾値。本文やURLを使わず、かなり似た
 # タイトルだけを対象にすることで、別イベントの誤除外を避ける。
-_TITLE_SIMILARITY_THRESHOLD = 0.88
+_TITLE_SIMILARITY_THRESHOLD = 0.92
 _CROSS_LANGUAGE_TOKEN_THRESHOLD = 0.68
 
 # カタカナを標準ライブラリだけで比較用のローマ字へ変換するための表。
@@ -152,6 +152,9 @@ def _cross_language_similarity(left: tuple[str, str], right: tuple[str, str]) ->
         return 0.0
     kana_token = left_token if left_script == "kana" else right_token
     latin_token = left_token if left_script == "latin" else right_token
+    if kana_token[:1] == "ノ":
+        # 「AのB」のように、Bがカタカナ語だと先頭の助詞がBへ付着する。
+        kana_token = kana_token[1:]
     if kana_token[-1:] in {"ガ", "ハ", "ニ", "ヘ", "ヲ", "ノ", "ト", "デ", "モ", "ヤ"}:
         # 日本語の助詞がカタカナ語に連結した場合も、語幹同士を比較する。
         kana_token = kana_token[:-1]

@@ -32,7 +32,9 @@ def test_normalize_title_handles_width_accents_and_punctuation():
 
 def test_transliterated_titles_are_similar_but_distinct_events_are_not():
     assert titles_are_similar("OpenAI、ハラペーニョを発表", "OpenAI announces Jalapeño")
+    assert titles_are_similar("OpenAIのハラペーニョを発表", "OpenAI announces Jalapeño")
     assert not titles_are_similar("OpenAI、Jalapeñoを発表", "OpenAI、Jalapeñoの料理レシピ")
+    assert not titles_are_similar("OpenAI、新機能を発表", "OpenAI、別機能を発表")
 
 
 def test_fetch_summaries_removes_later_transliterated_duplicate_and_keeps_order():
