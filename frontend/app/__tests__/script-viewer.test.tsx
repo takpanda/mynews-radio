@@ -99,6 +99,65 @@ describe('ScriptViewer', () => {
     })
   })
 
+  describe('話題単位の出典表示', () => {
+    const sourceLines: ScriptLine[] = [
+      { speaker: 'male', text: '記事Aの一行目', article_id: 100, section: 'news' },
+      { speaker: 'female', text: '記事Aの二行目', article_id: 100, section: 'news' },
+      { speaker: 'male', text: '記事Bの行', article_id: 200, section: 'news' },
+      { speaker: 'female', text: '番組からの解説', article_id: null, section: 'news' },
+    ]
+
+    it('同じ記事が連続する話題では出典を先頭行にだけ表示する', () => {
+      render(
+        <ScriptViewer
+          lines={sourceLines}
+          sourceArticles={[
+            { id: 100, title: '記事Aタイトル', source: '媒体A', url: 'https://example.com/a', published_at: '2026-09-01T10:00:00Z' },
+            { id: 200, title: '記事Bタイトル', source: '媒体B', url: 'https://example.com/b', published_at: '2026-09-01' },
+          ]}
+          topics={[{ source_article_ids: [100] }, { source_article_ids: [200] }]}
+        />
+      )
+
+      expect(screen.getAllByRole('complementary')).toHaveLength(2)
+      expect(screen.getByRole('complementary', { name: '出典: 記事Aタイトル' })).toBeInTheDocument()
+      expect(screen.getByRole('complementary', { name: '出典: 記事Bタイトル' })).toBeInTheDocument()
+      expect(screen.getAllByText('出典')).toHaveLength(2)
+      expect(screen.getByText('公開 2026/09/01 19:00')).toBeInTheDocument()
+      expect(screen.getByText('公開 2026/09/01')).toBeInTheDocument()
+    })
+
+    it('公開日時なし・リンクなしを誤認させない文言で表示する', () => {
+      render(
+        <ScriptViewer
+          lines={[sourceLines[0]]}
+          sourceArticles={[{ id: 100, title: '記事Aタイトル', source: null, url: null, published_at: null }]}
+          topics={[{ source_article_ids: [100] }]}
+        />
+      )
+
+      expect(screen.getByText('公開日時は確認できません')).toBeInTheDocument()
+      expect(screen.getByText('元記事を確認できません')).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: '元記事を開く' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('320px幅でも出典・本文・操作ボタンが表示される', () => {
+    setMobileViewport(320, 667)
+    render(
+      <ScriptViewer
+        lines={[{ ...lines[0], article_id: 100 }]}
+        sourceArticles={[{ id: 100, title: '狭幅記事', source: '媒体', url: 'https://example.com', published_at: null }]}
+        topics={[{ source_article_ids: [100] }]}
+        onMisreadingReport={jest.fn()}
+      />
+    )
+    expect(window.innerWidth).toBe(320)
+    expect(screen.getByRole('complementary', { name: '出典: 狭幅記事' })).toBeInTheDocument()
+    expect(screen.getByText('最初の行です')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /この行を報告/ })).toBeVisible()
+  })
+
   describe('既存動作の回帰', () => {
     it('台本がない場合は「台本がありません」を表示する', () => {
       render(<ScriptViewer lines={[]} />)

@@ -44,6 +44,29 @@ export interface Episode {
   llm_provider?: string | null
   /** 保存順のエピソードカテゴリ。未設定の既存データでは省略／空配列。 */
   categories?: string[]
+  source_articles?: SourceArticle[]
+  topics?: EpisodeTopic[]
+  corrections?: EpisodeCorrection[]
+}
+
+export interface SourceArticle {
+  id: number
+  title: string
+  source: string | null
+  url: string | null
+  published_at: string | null
+}
+
+export interface EpisodeTopic {
+  source_article_ids: number[]
+}
+
+export interface EpisodeCorrection {
+  id: number
+  corrected_at: string | null
+  reason: string
+  affected_article_ids: number[]
+  affected_topic: string | null
 }
 
 export interface EpisodeItem {
@@ -75,6 +98,7 @@ export interface Article {
   source: string | null
   url: string | null
   summary?: string | null
+  published_at?: string | null
 }
 
 export type ProgramTheme = 'technology' | 'business' | 'society' | 'sports' | 'entertainment' | 'general'
@@ -182,6 +206,23 @@ export function formatGeneratedAt(dateStr: string): string {
   })
 }
 
+/** 原記事の日時を画面表示用に整形する。日付だけの値は時刻を付与しない。 */
+export function formatPublishedAt(dateStr: string): string {
+  const d = new Date(dateStr)
+  if (Number.isNaN(d.getTime())) return dateStr
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }
+  if (/T\d{2}:\d{2}/.test(dateStr)) {
+    options.hour = '2-digit'
+    options.minute = '2-digit'
+  }
+  return d.toLocaleString('ja-JP', options)
+}
+
 export async function fetchLatestEpisode(): Promise<Episode | null> {
   const res = await fetch(`${getApiBase()}/episodes/latest`, { cache: 'no-store' })
   if (res.status === 404) return null
@@ -219,13 +260,6 @@ export async function fetchEpisodeScript(id: number): Promise<Script | null> {
   if (res.status === 404) return null
   if (!res.ok) throw new Error(`Failed to fetch script: ${res.status}`)
   return res.json() as Promise<Script>
-}
-
-export async function fetchArticle(id: number): Promise<Article | null> {
-  const res = await fetch(`${getApiBase()}/articles/${id}`, { cache: 'no-store' })
-  if (res.status === 404) return null
-  if (!res.ok) return null
-  return res.json() as Promise<Article>
 }
 
 export interface GenerateResponse {

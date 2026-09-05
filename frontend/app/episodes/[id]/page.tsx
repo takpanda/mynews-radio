@@ -6,7 +6,6 @@ import { hasValidAdminSession } from '../../admin/auth'
 import {
   fetchEpisode,
   fetchEpisodeScript,
-  fetchArticle,
   buildAudioUrl,
   formatDateWithWeekday,
   formatGeneratedAt,
@@ -142,6 +141,9 @@ function toDetailEpisode(episode: Episode): DetailEpisode {
     generatedAtLabel: episode.generated_at ? formatGeneratedAt(episode.generated_at) : undefined,
     keyPoints: episode.key_points,
     llmModel: episode.llm_model,
+    sourceArticles: episode.source_articles ?? [],
+    topics: episode.topics ?? [],
+    corrections: episode.corrections ?? [],
   }
 }
 
@@ -163,17 +165,7 @@ export default async function EpisodePage(props: Props) {
 
     if (!episode) notFound()
 
-    if (script && script.lines.length > 0) {
-      const articleIds = [
-        ...new Set(
-          script.lines
-            .map((l) => l.article_id)
-            .filter((id): id is number => id !== null),
-        ),
-      ]
-      const results = await Promise.all(articleIds.map((id) => fetchArticle(id)))
-      articles = results.filter((a): a is Article => a !== null)
-    }
+    if (episode) articles = episode.source_articles ?? []
   } catch {
     error = 'エラーが発生しました。しばらく後でもう一度お試しください。'
   }

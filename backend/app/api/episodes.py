@@ -26,6 +26,88 @@ def _parse_key_points(episode: dict) -> list[str]:
         pass
     return []
 
+
+def _parse_json_list(value: object) -> list:
+    if isinstance(value, list):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return []
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def _build_public_sources(episode_id: int, items: list[dict], lines: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    """エピソードに実際に紐づく記事だけを出典DTOへ変換する。"""
+    ordered_ids: list[int] = []
+    for row in items:
+        article_id = row.get("article_id")
+        if isinstance(article_id, int) and article_id not in ordered_ids:
+            ordered_ids.append(article_id)
+    if not ordered_ids and lines:
+        for line in lines:
+            article_id = line.get("article_id")
+            if isinstance(article_id, int) and article_id not in ordered_ids:
+                ordered_ids.append(article_id)
+    if not ordered_ids:
+        return [], []
+
+    placeholders = ",".join("?" for _ in ordered_ids)
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            f"SELECT id, title, source, url, published_at FROM articles WHERE id IN ({placeholders})",
+            ordered_ids,
+        ).fetchall()
+    by_id = {row["id"]: dict(row) for row in rows}
+    sources = [
+        {
+            "id": article_id,
+            "title": by_id[article_id]["title"],
+            "source": by_id[article_id]["source"],
+            "url": by_id[article_id]["url"],
+            "published_at": by_id[article_id]["published_at"],
+        }
+        for article_id in ordered_ids
+        if article_id in by_id
+    ]
+
+    sequence = [row.get("article_id") for row in items]
+    if not sequence and lines:
+        sequence = [line.get("article_id") for line in lines]
+    topics: list[dict] = []
+    previous_article_id: int | None = None
+    for article_id in sequence:
+        if not isinstance(article_id, int) or article_id not in by_id:
+            previous_article_id = None
+            continue
+        if article_id != previous_article_id:
+            topics.append({"source_article_ids": [article_id]})
+        previous_article_id = article_id
+    return sources, topics
+
+
+def _public_corrections(episode_id: int) -> list[dict]:
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, corrected_at, published_at, reason, content, "
+            "affected_article_ids, affected_topic FROM episode_corrections "
+            "WHERE episode_id = ? AND status = 'published' ORDER BY COALESCE(corrected_at, published_at, created_at) DESC",
+            (episode_id,),
+        ).fetchall()
+    result = []
+    for row in rows:
+        data = dict(row)
+        result.append({
+            "id": data["id"],
+            "corrected_at": data["corrected_at"] or data["published_at"],
+            "reason": (data["reason"] or data["content"] or "")[:200],
+            "affected_article_ids": [int(v) for v in _parse_json_list(data["affected_article_ids"]) if str(v).isdigit()],
+            "affected_topic": data["affected_topic"],
+        })
+    return result
+
 router = APIRouter()
 
 def _episodes_base_dir() -> str:
@@ -290,6 +372,16 @@ def get_episode(episode_id: int, admin_session: Optional[str] = Cookie(None)) ->
         raise HTTPException(status_code=404, detail="Episode not found")
     service = EpisodeService()
     items = service.get_episode_items(episode_id)
+    script_lines: list[dict] = []
+    base_dir = _resolve_episode_directory(episode)
+    script_path = os.path.join(base_dir, "script.json")
+    if os.path.isfile(script_path):
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                script_lines = json.load(f).get("lines", [])
+        except (OSError, json.JSONDecodeError, AttributeError):
+            script_lines = []
+    source_articles, topics = _build_public_sources(episode_id, items, script_lines)
 
     result: dict = {
         "id": episode["id"],
@@ -309,6 +401,9 @@ def get_episode(episode_id: int, admin_session: Optional[str] = Cookie(None)) ->
         "articles": items,
         "key_points": _parse_key_points(episode),
         "categories": parse_episode_categories(episode.get("categories")),
+        "source_articles": source_articles,
+        "topics": topics,
+        "corrections": _public_corrections(episode_id),
     }
 
     if episode.get("audio_path"):
@@ -403,13 +498,17 @@ def _enrich_episode(episode: dict) -> None:
         episode["llm_model"] = data.get("llm_model")
 
 
-@router.get("/articles/{article_id}", summary="記事詳細を取得")
-def get_article(article_id: int) -> dict:
-    """指定された記事のタイトル・URL・ソース・要約を返す"""
+@router.get("/articles/{article_id}", summary="エピソード所属記事の詳細を取得")
+def get_article(article_id: int, episode_id: Optional[int] = Query(None)) -> dict:
+    """指定エピソードに紐づく記事だけを返す（記事ID単独の公開参照は禁止）。"""
     with get_db_connection() as conn:
+        if episode_id is None:
+            raise HTTPException(status_code=404, detail="Article not found")
         row = conn.execute(
-            "SELECT id, title, source, url, summary FROM articles WHERE id = ?",
-            (article_id,),
+            "SELECT a.id, a.title, a.source, a.url, a.summary, a.published_at "
+            "FROM articles a JOIN episode_items i ON i.article_id = a.id "
+            "WHERE a.id = ? AND i.episode_id = ? LIMIT 1",
+            (article_id, episode_id),
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Article not found")
