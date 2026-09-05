@@ -46,6 +46,24 @@ CREATE INDEX IF NOT EXISTS idx_episode_items_order ON episode_items(item_order);
 CREATE INDEX IF NOT EXISTS idx_articles_status ON articles(status);
 CREATE INDEX IF NOT EXISTS idx_articles_importance_score ON articles(importance_score);
 
+-- 公開する訂正は status='published' のものだけ。その他の状態は管理用に保持する。
+CREATE TABLE IF NOT EXISTS episode_corrections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    episode_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    corrected_at TEXT,
+    published_at TEXT,
+    reason TEXT,
+    content TEXT,
+    affected_article_ids TEXT NOT NULL DEFAULT '[]',
+    affected_topic TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_episode_corrections_episode_status
+    ON episode_corrections(episode_id, status);
+
 CREATE TABLE IF NOT EXISTS dictionary_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     surface TEXT NOT NULL,

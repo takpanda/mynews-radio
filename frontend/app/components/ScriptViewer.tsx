@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import type { ScriptLine } from '../lib/api'
+import { formatPublishedAt, type ScriptLine, type SourceArticle, type EpisodeTopic } from '../lib/api'
 import { SECTION_LABEL } from '../lib/chapters'
 
 interface Props {
@@ -9,6 +9,8 @@ interface Props {
   currentTime?: number
   onSeek?: (time: number) => void
   onMisreadingReport?: (line: ScriptLine) => void
+  sourceArticles?: SourceArticle[]
+  topics?: EpisodeTopic[]
 }
 
 interface SectionGroup {
@@ -70,7 +72,7 @@ function findActiveIndex(lines: ScriptLine[], currentTime: number): number {
   return active
 }
 
-export default function ScriptViewer({ lines, currentTime, onSeek, onMisreadingReport }: Props) {
+export default function ScriptViewer({ lines, currentTime, onSeek, onMisreadingReport, sourceArticles = [], topics = [] }: Props) {
   const lineRefs = useRef<(HTMLDivElement | null)[]>([])
 
   // currentTime=0は「先頭行を再生中」を表す有効な値。停止中（未再生）を表す場合は
@@ -90,6 +92,15 @@ export default function ScriptViewer({ lines, currentTime, onSeek, onMisreadingR
   }
 
   const sections = groupBySection(lines)
+  const topicStarts = new Map<number, EpisodeTopic>()
+  let searchFrom = 0
+  for (const topic of topics) {
+    const start = lines.findIndex((line, index) => index >= searchFrom && topic.source_article_ids.includes(line.article_id ?? -1))
+    if (start >= 0) {
+      topicStarts.set(start, topic)
+      searchFrom = start + 1
+    }
+  }
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
@@ -107,6 +118,14 @@ export default function ScriptViewer({ lines, currentTime, onSeek, onMisreadingR
               const isActive = globalIndex === activeIndex
               const canSeek = line.start_time !== undefined && onSeek !== undefined
               const speakerMeta = SPEAKER_META[line.speaker]
+              const previousArticleId = globalIndex > 0 ? lines[globalIndex - 1].article_id : null
+              const topic = topicStarts.get(globalIndex)
+              const topicArticleIds = topic?.source_article_ids ?? (
+                line.article_id !== null && line.article_id !== previousArticleId ? [line.article_id] : []
+              )
+              const sources = topicArticleIds
+                .map((id) => sourceArticles.find((article) => article.id === id))
+                .filter((article): article is SourceArticle => Boolean(article))
               const timeLabel = formatTimeLabel(line.start_time)
               const seekAriaLabel = canSeek
                 ? `${speakerMeta.label}${timeLabel ? ` ${timeLabel}` : ''}${isActive ? '（再生中）' : ''}: ${line.text} の位置に移動`
@@ -119,8 +138,22 @@ export default function ScriptViewer({ lines, currentTime, onSeek, onMisreadingR
                 }
               }
               return (
+                <div key={globalIndex}>
+                {sources.length > 0 && (
+                  <aside className="mb-2 ml-2 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-xs text-slate-700" aria-label={`出典: ${sources.map((source) => source.title).join('、')}`}>
+                    <p className="font-semibold text-sky-900">出典</p>
+                    {sources.map((source) => (
+                      <div key={source.id} className="mt-1">
+                        <p className="break-words">{source.source || '媒体名不明'} ・ {source.title}</p>
+                        <p className="mt-0.5 text-slate-500">{source.published_at ? `公開 ${formatPublishedAt(source.published_at)}` : '公開日時は確認できません'}</p>
+                        {source.url ? (
+                          <a href={source.url} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block font-medium text-sky-700 underline">元記事を開く</a>
+                        ) : <p className="mt-1 text-slate-500">元記事を確認できません</p>}
+                      </div>
+                    ))}
+                  </aside>
+                )}
                 <div
-                  key={globalIndex}
                   ref={(el) => { lineRefs.current[globalIndex] = el }}
                   className={`flex items-start gap-1.5 group ${speakerMeta.align === 'justify-end' ? 'flex-row-reverse' : ''}`}
                 >
@@ -186,7 +219,7 @@ export default function ScriptViewer({ lines, currentTime, onSeek, onMisreadingR
                       </svg>
                     </button>
                   )}
-                </div>
+                </div></div>
               )
             })}
           </div>

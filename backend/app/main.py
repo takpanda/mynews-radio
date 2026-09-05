@@ -81,6 +81,20 @@ def _apply_db_migrations() -> None:
     """既存DBへのスキーマ追加マイグレーションを安全に実行する。"""
     from app.db.connection import get_db_connection
     with get_db_connection() as conn:
+        # schema.sql適用前の既存DBにも公開訂正テーブルを追加する。
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS episode_corrections ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, episode_id INTEGER NOT NULL, "
+            "status TEXT NOT NULL DEFAULT 'draft', corrected_at TEXT, published_at TEXT, "
+            "reason TEXT, content TEXT, affected_article_ids TEXT NOT NULL DEFAULT '[]', "
+            "affected_topic TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+            "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+            "FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_episode_corrections_episode_status "
+            "ON episode_corrections(episode_id, status)"
+        )
         try:
             conn.execute("ALTER TABLE articles ADD COLUMN difficulty INTEGER")
         except sqlite3.OperationalError:

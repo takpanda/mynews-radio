@@ -120,6 +120,64 @@ class TestEpisodeGeneratedAt:
         data = resp.json()
         assert "generated_at" in data
 
+
+class TestEpisodeSourcesAndCorrections:
+    def test_detail_returns_only_episode_sources_and_groups_consecutive_topics(self, client):
+        from app.db.connection import get_db_connection
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode("2099-12-22", audio_path="source.mp3", status="completed")
+        _write_audio_file(_os.environ["EPISODES_DIR"], eid, "source.mp3")
+        with get_db_connection() as conn:
+            conn.execute("INSERT INTO articles (title, source, url, published_at, status) VALUES (?, ?, ?, ?, 'summarized')", ("記事A", "媒体A", "https://a.example", "2026-09-01T10:00:00Z"))
+            first_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            conn.execute("INSERT INTO articles (title, source, url, status) VALUES (?, ?, ?, 'summarized')", ("記事B", "媒体B", "https://b.example"))
+            second_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        svc.add_episode_item(eid, first_id, 1, "A")
+        svc.add_episode_item(eid, first_id, 2, "A 続き")
+        svc.add_episode_item(eid, second_id, 3, "B")
+        svc.add_episode_item(eid, None, 4, "解説")
+        svc.add_episode_item(eid, first_id, 5, "A 再登場")
+
+        data = client.get(f"/episodes/{eid}").json()
+        assert [article["id"] for article in data["source_articles"]] == [first_id, second_id]
+        assert data["source_articles"][0]["published_at"] == "2026-09-01T10:00:00Z"
+        assert data["source_articles"][1]["published_at"] is None
+        assert data["topics"] == [
+            {"source_article_ids": [first_id]},
+            {"source_article_ids": [second_id]},
+            {"source_article_ids": [first_id]},
+        ]
+
+    def test_only_published_corrections_are_public(self, client):
+        from app.db.connection import get_db_connection
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode("2099-12-23")
+        with get_db_connection() as conn:
+            conn.execute("INSERT INTO episode_corrections (episode_id, status, corrected_at, reason) VALUES (?, 'draft', ?, ?)", (eid, "2026-09-01T01:00:00Z", "下書き"))
+            conn.execute("INSERT INTO episode_corrections (episode_id, status, corrected_at, reason, affected_topic) VALUES (?, 'published', ?, ?, ?)", (eid, "2026-09-02T01:00:00Z", "訂正理由", "記事A"))
+            conn.execute("INSERT INTO episode_corrections (episode_id, status, corrected_at, reason) VALUES (?, 'withdrawn', ?, ?)", (eid, "2026-09-03T01:00:00Z", "撤回"))
+
+        corrections = client.get(f"/episodes/{eid}").json()["corrections"]
+        assert len(corrections) == 1
+        assert corrections[0]["reason"] == "訂正理由"
+        assert corrections[0]["affected_topic"] == "記事A"
+
+    def test_article_requires_episode_membership(self, client):
+        from app.db.connection import get_db_connection
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode("2099-12-24")
+        with get_db_connection() as conn:
+            conn.execute("INSERT INTO articles (title, status) VALUES (?, 'summarized')", ("非所属記事",))
+            article_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        assert client.get(f"/articles/{article_id}").status_code == 404
+        assert client.get(f"/articles/{article_id}?episode_id={eid}").status_code == 404
+
     def test_generated_at_matches_updated_at(self, client):
         from app.services.episode_service import EpisodeService
         svc = EpisodeService()

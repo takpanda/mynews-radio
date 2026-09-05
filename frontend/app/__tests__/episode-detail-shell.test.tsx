@@ -327,3 +327,69 @@ describe('EpisodeDetailShell 生成詳細ログへの導線', () => {
     expect(screen.queryByRole('link', { name: '生成詳細ログ' })).not.toBeInTheDocument()
   })
 })
+
+describe('EpisodeDetailShell 出典・訂正表示', () => {
+  it('この回の情報カードに生成日時と利用元記事数を表示する', () => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({
+          generatedAtLabel: '2026/09/01 19:00',
+          sourceArticles: [
+            { id: 1, title: '記事A', source: '媒体A', url: 'https://example.com/a', published_at: null },
+            { id: 2, title: '記事B', source: '媒体B', url: null, published_at: null },
+          ],
+        })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+
+    expect(screen.getByRole('heading', { name: 'この回の情報' })).toBeInTheDocument()
+    expect(screen.getByText(/番組作成日時 2026\/09\/01 19:00/)).toBeInTheDocument()
+    expect(screen.getByText(/利用元記事 2件/)).toBeInTheDocument()
+    expect(screen.getByText(/AIによる要約・構成/)).toBeInTheDocument()
+  })
+
+  it('訂正がない場合は訂正カードを表示しない', () => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ corrections: [] })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.queryByRole('heading', { name: '訂正済み' })).not.toBeInTheDocument()
+  })
+
+  it('公開済み訂正と記事タイトルによる影響トピックを表示する', () => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({
+          sourceArticles: [
+            { id: 10, title: '影響を受ける記事', source: '媒体', url: null, published_at: null },
+          ],
+          corrections: [{
+            id: 3,
+            corrected_at: '2026-09-02T01:00:00Z',
+            reason: '内容を訂正しました',
+            affected_article_ids: [10],
+            affected_topic: null,
+          }],
+        })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+
+    expect(screen.getByRole('heading', { name: '訂正済み' })).toBeInTheDocument()
+    expect(screen.getByText('内容を訂正しました')).toBeInTheDocument()
+    expect(screen.getByText(/影響トピック: 影響を受ける記事/)).toBeInTheDocument()
+    expect(screen.queryByText(/記事10/)).not.toBeInTheDocument()
+  })
+})

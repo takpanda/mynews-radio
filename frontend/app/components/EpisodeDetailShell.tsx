@@ -2,7 +2,7 @@
 
 import { useRef, useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
-import type { Script, ScriptLine, Article, EpisodeItem } from '../lib/api'
+import { formatPublishedAt, type Script, type ScriptLine, type Article, type EpisodeItem, type EpisodeCorrection, type SourceArticle, type EpisodeTopic } from '../lib/api'
 import { buildChapters } from '../lib/chapters'
 import {
   buildPlaybackReportContext,
@@ -30,6 +30,9 @@ export interface DetailEpisode {
   generatedAtLabel?: string
   keyPoints?: string[]
   llmModel?: string | null
+  sourceArticles?: SourceArticle[]
+  topics?: EpisodeTopic[]
+  corrections?: EpisodeCorrection[]
 }
 
 export interface EpisodeSummary {
@@ -61,6 +64,17 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
   const isSingleUrlCommentary = episode.isCommentary && Boolean(episode.sourceUrl) && !hasArticleWithUrl
   const articlesHeading = isSingleUrlCommentary ? '解説の元記事' : '元記事'
   const title = episode.title || `エピソード #${episode.id}`
+  const sourceArticles = episode.sourceArticles ?? []
+  const topics = episode.topics ?? []
+  const corrections = episode.corrections ?? []
+  const formatCorrectionDate = (value: string | null) => value ? formatPublishedAt(value) : '日時不明'
+
+  const correctionTopicLabels = (correction: EpisodeCorrection): string[] => {
+    if (correction.affected_topic?.trim()) return [correction.affected_topic.trim()]
+    return correction.affected_article_ids
+      .map((id) => sourceArticles.find((article) => article.id === id)?.title)
+      .filter((label): label is string => Boolean(label?.trim()))
+  }
 
   const openPlaybackReport = useCallback(() => {
     setReportContext(buildPlaybackReportContext(episode, script, episodeItems, currentTime ?? 0))
@@ -118,6 +132,28 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
         </div>
         {episode.subtitle && (
           <p className="mt-1 text-sm leading-6 text-slate-500">{episode.subtitle}</p>
+        )}
+
+        <section className="mt-4 border-t border-slate-100 pt-4" aria-labelledby="episode-info-heading">
+          <h2 id="episode-info-heading" className="text-sm font-semibold text-slate-900">この回の情報</h2>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            {episode.generatedAtLabel ? `番組作成日時 ${episode.generatedAtLabel} ・ ` : ''}利用元記事 {sourceArticles.length}件 ・ AIによる要約・構成
+          </p>
+        </section>
+
+        {corrections.length > 0 && (
+          <section className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3" aria-labelledby="correction-heading">
+            <h2 id="correction-heading" className="text-sm font-semibold text-amber-900">訂正済み</h2>
+            {corrections.map((correction) => (
+              <div key={correction.id} className="mt-2 text-sm leading-6 text-amber-950">
+                <p className="text-xs text-amber-800">最終訂正 {formatCorrectionDate(correction.corrected_at)}</p>
+                <p>{correction.reason || '番組内容を訂正しました。'}</p>
+                {correctionTopicLabels(correction).length > 0 && (
+                  <p className="text-xs text-amber-800">影響トピック: {correctionTopicLabels(correction).join('、')}</p>
+                )}
+              </div>
+            ))}
+          </section>
         )}
 
         {episode.keyPoints && episode.keyPoints.length > 0 && (
@@ -212,6 +248,8 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
           <h2 className="mb-2 px-1 text-sm font-semibold text-slate-900">台本</h2>
           <ScriptViewer
             lines={script!.lines}
+            sourceArticles={sourceArticles}
+            topics={topics}
             currentTime={currentTime}
             onSeek={episode.audioUrl ? (time) => playerRef.current?.seekTo(time) : undefined}
             onMisreadingReport={openScriptLineReport}
