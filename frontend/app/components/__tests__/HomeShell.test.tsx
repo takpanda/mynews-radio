@@ -1,3 +1,5 @@
+import '@testing-library/jest-dom'
+
 import { render, screen } from '@testing-library/react'
 import HomeShell, { type HeroEpisode } from '../HomeShell'
 import type { EpisodeListItem } from '../../lib/api'
@@ -223,5 +225,28 @@ describe('HomeShell ヒーローのトピック表示', () => {
     expect(toggle).not.toBeNull()
     const position = player!.compareDocumentPosition(toggle!)
     expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+describe('HomeShell ヒーローのコンセプト説明と主CTA', () => {
+  it('対象者・毎朝更新・扱う話題の範囲を初回表示時に確認できる', () => {
+    renderHero(heroEpisode())
+    expect(screen.getByText(/忙しくてもニュースを聴いて把握したい方へ/)).toBeInTheDocument()
+    expect(screen.getByText(/毎朝/)).toBeInTheDocument()
+    expect(screen.getByText(/テック・一般・解説/)).toBeInTheDocument()
+  })
+
+  it('最新回がある場合、主CTAは最新回の詳細・再生への導線になる', () => {
+    renderHero(heroEpisode({ id: 42 }))
+    const cta = screen.getByRole('link', { name: /最新回を聴く/ })
+    expect(cta).toHaveAttribute('href', '/episodes/42')
+  })
+
+  it('最新回がない場合、生成導線ではなく公開アーカイブへのCTAを表示する', () => {
+    renderHero(null)
+    expect(screen.queryByRole('link', { name: /最新回を聴く/ })).toBeNull()
+    const cta = screen.getByRole('link', { name: '公開アーカイブを聴く' })
+    expect(cta).toHaveAttribute('href', '/#archive')
+    expect(screen.queryByText(/番組を生成/)).toBeNull()
   })
 })

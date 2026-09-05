@@ -59,7 +59,7 @@ export default function SiteHeader({ isAuthenticated = false }: { isAuthenticate
                 href="/admin/login"
                 className="whitespace-nowrap rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-700 transition hover:bg-sky-100 sm:px-3.5 sm:text-sm"
               >
-                ログインして生成
+                運営者ログイン
               </Link>
             )}
           </nav>

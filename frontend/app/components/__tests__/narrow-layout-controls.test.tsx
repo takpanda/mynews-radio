@@ -21,7 +21,7 @@ describe('狭幅表示の回帰防止', () => {
 
     expect(screen.getByText('MyNews Radio')).toHaveClass('whitespace-nowrap')
     expect(screen.getByRole('link', { name: 'アーカイブ' })).toHaveClass('whitespace-nowrap')
-    expect(screen.getByRole('link', { name: 'ログインして生成' })).toHaveClass('whitespace-nowrap')
+    expect(screen.getByRole('link', { name: '運営者ログイン' })).toHaveClass('whitespace-nowrap')
   })
 
   it('プレーヤーの時間と操作列を折り返さず、操作を実行できる', () => {
