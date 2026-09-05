@@ -693,12 +693,15 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
     }
   }
 
+  // SiteHeader は未認証時に本パネルを開かず /admin/login へ直接遷移するため、通常操作では
+  // このブランチに到達しない。パネルを開いたまま運営者セッションが失効した場合のフォールバック
+  // 表示として意図的に残しているため、削除しないこと。
   if (!isAuthenticated) {
     return (
       <section className="rounded-2xl border border-sky-200 bg-sky-50 p-6 text-center">
-        <p className="text-base font-semibold text-slate-900">番組生成はログイン後に利用できます</p>
+        <p className="text-base font-semibold text-slate-900">番組生成は運営者向けです</p>
         <p className="mt-2 text-sm leading-6 text-slate-600">公開アーカイブの閲覧と音声再生は、ログインなしで利用できます。</p>
-        <a href="/admin/login" className="mt-5 inline-flex rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-700">ログインする</a>
+        <a href="/admin/login" className="mt-5 inline-flex rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-700">運営者ログイン</a>
       </section>
     )
   }

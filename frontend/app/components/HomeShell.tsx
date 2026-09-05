@@ -204,9 +204,12 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
     <div className="space-y-6">
       {/* 最新エピソード（ヒーロープレーヤー） */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <p className="text-sm leading-6 text-slate-600">
+          忙しくてもニュースを聴いて把握したい方へ。毎朝、テック・一般・解説の主要な話題をお届けします。
+        </p>
         {latest ? (
           <>
-            <p className="text-xs text-slate-400">最新エピソード ・ {latest.dateLabel}</p>
+            <p className="mt-4 text-xs text-slate-400">最新エピソード ・ {latest.dateLabel}</p>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               <Link
                 href={`/episodes/${latest.id}`}
@@ -255,6 +258,16 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
               </div>
             )}
 
+            <div className="mt-5">
+              <Link
+                href={`/episodes/${latest.id}`}
+                className="inline-flex w-full items-center justify-center rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-700 sm:w-auto"
+                aria-label={`最新回を聴く: ${latest.title || `エピソード #${latest.id}`}`}
+              >
+                最新回を聴く
+              </Link>
+            </div>
+
             <div className="mt-4">
               <PushSubscriptionToggle />
             </div>
@@ -263,8 +276,15 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
           <div className="py-10 text-center">
             <p className="text-lg font-semibold text-slate-900">まだエピソードがありません</p>
             <p className="mt-2 text-sm leading-7 text-slate-500">
-              右上の「番組を生成」から今日の番組を作成すると、ここに最新エピソードが表示されます。
+              公開済みのエピソードが増え次第、ここに最新回が表示されます。
             </p>
+            <Link
+              href="/#archive"
+              className="mt-5 inline-flex items-center justify-center rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-700"
+              aria-label="公開アーカイブを聴く（ログイン不要）"
+            >
+              公開アーカイブを聴く
+            </Link>
           </div>
         )}
       </section>
