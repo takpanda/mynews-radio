@@ -693,6 +693,9 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
     }
   }
 
+  // SiteHeader は未認証時に本パネルを開かず /admin/login へ直接遷移するため、通常操作では
+  // このブランチに到達しない。パネルを開いたまま運営者セッションが失効した場合のフォールバック
+  // 表示として意図的に残しているため、削除しないこと。
   if (!isAuthenticated) {
     return (
       <section className="rounded-2xl border border-sky-200 bg-sky-50 p-6 text-center">
