@@ -1,6 +1,36 @@
 import sqlite3
 
 
+FEMALE_MC_SAMPLE_TEXT = "こんにちは、ニュースの時間です。今日の主な話題をお伝えします。"
+
+
+def migrate_female_mc_candidates(conn: sqlite3.Connection) -> bool:
+    """女性MC候補マスタを追加し、既存の固定候補を初期投入する。"""
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS female_mc_candidates ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "voice_name TEXT NOT NULL UNIQUE, "
+        "display_name TEXT NOT NULL, "
+        "sample_text TEXT NOT NULL, "
+        "is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)), "
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_female_mc_candidates_active "
+        "ON female_mc_candidates(is_active, voice_name)"
+    )
+    conn.executemany(
+        "INSERT OR IGNORE INTO female_mc_candidates "
+        "(voice_name, display_name, sample_text) VALUES (?, ?, ?)",
+        (
+            ("female", "female", FEMALE_MC_SAMPLE_TEXT),
+            ("morigawa", "morigawa", FEMALE_MC_SAMPLE_TEXT),
+        ),
+    )
+    return True
+
+
 def migrate_llm_call_logs(conn: sqlite3.Connection) -> bool:
     """既存DBへLLM呼び出しログの保存先を追加する。"""
     conn.execute(

@@ -14,8 +14,12 @@ from app.config import get_settings
 from app.services.fishs2pro_client import FishS2ProClient
 from app.services.settings_service import (
     DURATION_PRESETS,
-    FEMALE_MC_VOICE_ALLOWLIST,
+    FEMALE_MC_SAMPLE_TEXT,
+    create_female_mc_candidate,
     female_mc_voice_catalog,
+    get_effective_female_mc_default_voice,
+    get_female_mc_candidate,
+    get_female_mc_candidates,
     get_category_female_voices_or_default,
     THEMES,
     ProgramSettings,
@@ -26,6 +30,7 @@ from app.services.settings_service import (
     save_settings,
     save_voice_settings,
     save_category_female_voices,
+    update_female_mc_candidate,
     validate_settings,
     validate_voice_settings,
 )
@@ -184,6 +189,31 @@ class FemaleMcOption(BaseModel):
     sample: FemaleMcSample
 
 
+class FemaleMcCandidatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    voice_name: str = Field(..., min_length=1, max_length=100)
+    display_name: str = Field(..., min_length=1, max_length=100)
+    sample_text: str = Field(default=FEMALE_MC_SAMPLE_TEXT, max_length=2000)
+
+
+class FemaleMcCandidateUpdatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str | None = Field(default=None, max_length=100)
+    sample_text: str | None = Field(default=None, max_length=2000)
+    is_active: bool | None = None
+
+
+class FemaleMcCandidateResponse(BaseModel):
+    id: int
+    voice_name: str
+    display_name: str
+    sample_text: str
+    is_active: bool
+    sample: FemaleMcSample
+
+
 class CategoryFemaleMcResponse(BaseModel):
     categories: list[str]
     category_female_voices: dict[str, str | None]
@@ -275,14 +305,101 @@ def get_voice_options() -> dict:
 def _female_mc_sample_path(voice_name: str) -> Path:
     cfg = get_settings()
     sample_dir = getattr(cfg, "fishs2pro_voice_sample_dir", "/app/data/voice-samples")
-    # voice_name は許可リスト照合済みで、ファイル名を外部入力から組み立てない。
+    # voice_name は候補マスタ照合済みで、ファイル名を未検証の外部入力から組み立てない。
     return Path(sample_dir) / f"{voice_name}.wav"
+
+
+def _candidate_response(candidate: dict) -> dict:
+    voice_name = candidate["voice_name"]
+    return {
+        **candidate,
+        "sample": {
+            "url": f"/settings/voices/categories/samples/{voice_name}",
+            "text": candidate["sample_text"],
+            "media_type": "audio/wav",
+            "available": candidate["is_active"] and _female_mc_sample_path(voice_name).is_file(),
+        },
+    }
+
+
+@router.get(
+    "/voices/female-mc-candidates",
+    response_model=list[FemaleMcCandidateResponse],
+    dependencies=[Depends(require_owner_session)],
+)
+def list_female_mc_candidates() -> list[dict]:
+    """女性MC候補マスタを管理用に返す（無効候補も含む）。"""
+    return [_candidate_response(item) for item in get_female_mc_candidates()]
+
+
+@router.post(
+    "/voices/female-mc-candidates",
+    response_model=FemaleMcCandidateResponse,
+    status_code=201,
+    dependencies=[Depends(require_owner_session)],
+)
+def add_female_mc_candidate(payload: FemaleMcCandidatePayload) -> dict:
+    """女性MC候補を追加する。Fish S2 Proのボイス名は候補登録時に保存する。"""
+    try:
+        return _candidate_response(create_female_mc_candidate(**payload.model_dump()))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="voice_name already exists") from exc
+    except (sqlite3.Error, OSError) as exc:
+        raise HTTPException(status_code=503, detail="女性MC候補を保存できませんでした") from exc
+
+
+def _update_female_mc_candidate(
+    voice_name: str, payload: FemaleMcCandidateUpdatePayload
+) -> dict:
+    try:
+        return _candidate_response(
+            update_female_mc_candidate(voice_name, payload.model_dump(exclude_unset=True))
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Female MC candidate not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (sqlite3.Error, OSError) as exc:
+        raise HTTPException(status_code=503, detail="女性MC候補を保存できませんでした") from exc
+
+
+@router.put(
+    "/voices/female-mc-candidates/{voice_name}",
+    response_model=FemaleMcCandidateResponse,
+    dependencies=[Depends(require_owner_session)],
+)
+def put_female_mc_candidate(voice_name: str, payload: FemaleMcCandidateUpdatePayload) -> dict:
+    return _update_female_mc_candidate(voice_name, payload)
+
+
+@router.patch(
+    "/voices/female-mc-candidates/{voice_name}",
+    response_model=FemaleMcCandidateResponse,
+    dependencies=[Depends(require_owner_session)],
+)
+def patch_female_mc_candidate(voice_name: str, payload: FemaleMcCandidateUpdatePayload) -> dict:
+    return _update_female_mc_candidate(voice_name, payload)
+
+
+@router.delete(
+    "/voices/female-mc-candidates/{voice_name}",
+    response_model=FemaleMcCandidateResponse,
+    dependencies=[Depends(require_owner_session)],
+)
+def disable_female_mc_candidate(voice_name: str) -> dict:
+    """候補は削除せず無効化し、既存カテゴリ設定の履歴を保持する。"""
+    return _update_female_mc_candidate(
+        voice_name, FemaleMcCandidateUpdatePayload(is_active=False)
+    )
 
 
 def _category_female_mc_response() -> dict:
     assignments = get_category_female_voices_or_default()
     defaults = get_voice_settings_or_default()
-    default_voice = defaults.fishs2pro_voice_female
+    default_voice = get_effective_female_mc_default_voice(defaults.fishs2pro_voice_female)
+    active_candidates = {item["voice_name"] for item in get_female_mc_candidates(active_only=True)}
     voices = []
     for voice in female_mc_voice_catalog():
         voice_name = voice["value"]
@@ -299,7 +416,7 @@ def _category_female_mc_response() -> dict:
     return {
         "categories": list(EPISODE_CATEGORIES),
         "category_female_voices": {
-            category: assignments.get(category)
+            category: assignments.get(category) if assignments.get(category) in active_candidates else None
             for category in EPISODE_CATEGORIES
         },
         "default_voice": default_voice,
@@ -338,8 +455,8 @@ def update_category_female_mc_settings(payload: CategoryFemaleMcPayload) -> dict
     dependencies=[Depends(require_owner_session)],
 )
 def get_category_female_mc_sample(voice_name: str) -> FileResponse:
-    """許可済み女性MCの事前生成済み固定サンプルだけを認証付きで配信する。"""
-    if voice_name not in FEMALE_MC_VOICE_ALLOWLIST:
+    """有効な女性MC候補の事前生成済み固定サンプルだけを配信する。"""
+    if get_female_mc_candidate(voice_name, active_only=True) is None:
         raise HTTPException(status_code=404, detail="Voice sample not found")
     sample_path = _female_mc_sample_path(voice_name)
     if not sample_path.is_file():

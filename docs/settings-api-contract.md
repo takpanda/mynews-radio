@@ -85,17 +85,27 @@ AivisSpeech・VOICEVOX・Fish S2 Pro の男声・女声、計6項目を `user_se
 
 ## カテゴリ別女性MC設定・試聴（BEE-903）
 
-カテゴリ別設定で選択できる女性MCはアプリ側の固定許可リスト（`female`, `morigawa`）で管理する。Fish S2 Pro の `/health` 応答には依存しないため、音声サーバー停止中でも候補と現在設定を取得できる。設定は `user_settings.fishs2pro_category_female_voices` に JSON として保存し、入力に含まれないカテゴリは未設定として扱う。
+カテゴリ別設定で選択できる女性MCは `female_mc_candidates` 候補マスタで管理する。初期データとして既存の `female`, `morigawa` を投入し、Fish S2 Pro の `/health` 応答には依存しない。設定は `user_settings.fishs2pro_category_female_voices` に JSON として保存し、入力に含まれないカテゴリは未設定として扱う。候補追加時に既存Fish S2 Pro音声名へ限定するか、管理者が入力した音声名を許可するかは人間の最終判断事項として未確定であり、本契約では独断で確定しない。
 
 | Method | Path | 動作 |
 |---|---|---|
 | GET | `/settings/voices/categories` | 15固定カテゴリの割当、候補女性MC、固定サンプル文・認証付きサンプルURLを返す |
 | PUT | `/settings/voices/categories` | `{ "category_female_voices": { "テック・IT": "morigawa" } }` を検証・保存。候補外ボイス・カテゴリは422、保存失敗は503 |
-| GET | `/settings/voices/categories/samples/{voice_name}` | 許可済みボイスの事前生成済みWAVを管理セッション認証付きで配信。内部音声サーバーURLは返さない |
+| GET | `/settings/voices/categories/samples/{voice_name}` | 有効候補の事前生成済みWAVを管理セッション認証付きで配信。内部音声サーバーURLは返さない |
+| GET | `/settings/voices/female-mc-candidates` | 候補マスタを返す（無効候補を含む）。管理セッション認証必須 |
+| POST | `/settings/voices/female-mc-candidates` | 候補を追加する。重複は409、入力不正は422 |
+| PUT/PATCH | `/settings/voices/female-mc-candidates/{voice_name}` | 表示名・試聴文・有効状態を更新する |
+| DELETE | `/settings/voices/female-mc-candidates/{voice_name}` | 削除せず無効化する。管理セッション認証必須 |
 
 サンプルファイルは `FISHS2PRO_VOICE_SAMPLE_DIR`（既定 `/app/data/voice-samples`）配下の `{voice_name}.wav` に配置する。候補レスポンスにはファイルの有無（`sample.available`）も含める。
 
-新規ラジオ生成でエンジンが Fish S2 Pro の場合のみ、台本から保存されたカテゴリを順に確認し、現在の `/health` が提供するボイスだけを採用する。複数カテゴリに異なる割当がある場合は、エピソードの `categories` 配列で先に現れるカテゴリ（LLMが返した主カテゴリ）を優先する。未設定、未提供、ヘルスチェック失敗時は全体の `fishs2pro_voice_female` へフォールバックする。呼び出し元がTTS話者値を3項目（接続先・男性・女性）すべて明示した場合は、既存契約どおりカテゴリ解決より明示値を優先する。AivisSpeech・VOICEVOX、男性MC、既存エピソードの再合成にはカテゴリ割当を適用しない。
+新規ラジオ生成でエンジンが Fish S2 Pro の場合のみ、台本から保存されたカテゴリを順に確認し、候補マスタで有効かつ現在の `/health` が提供するボイスだけを採用する。複数カテゴリに異なる割当がある場合は、エピソードの `categories` 配列で先に現れるカテゴリ（LLMが返した主カテゴリ）を優先する。未設定、無効化済み、未提供、ヘルスチェック失敗時は全体の `fishs2pro_voice_female` へフォールバックする。無効化時に既存のカテゴリJSONは削除せず、取得時・生成時に実効値から除外するため、再有効化すれば設定を復元できる。呼び出し元がTTS話者値を3項目（接続先・男性・女性）すべて明示した場合は、既存契約どおりカテゴリ解決より明示値を優先する。AivisSpeech・VOICEVOX、男性MC、既存エピソードの再合成にはカテゴリ割当を適用しない。
+
+無効化された候補を参照する既存設定はDB上に保持するが、取得時は該当カテゴリだけを `null` として返し、他カテゴリの有効な割当は保持する。候補を再有効化（`PUT/PATCH` で `is_active: true`）すると、保持されていたカテゴリ割当が再び実効値になる。全体の `fishs2pro_voice_female` が無効候補になった場合は、有効候補の先頭をAPIの `default_voice` と生成時のフォールバックの両方に使用する。
+
+### マイグレーションと初期データ
+
+新規DBは `backend/app/db/schema.sql` の `female_mc_candidates` 定義と `INSERT OR IGNORE` 初期データで作成する。既存DBはアプリ起動時に `migrate_female_mc_candidates` が同じテーブル・インデックスを追加し、未登録の `female` / `morigawa` だけを投入する。既存の候補行や無効化状態は上書きしない。
 
 ### 生成処理への反映
 

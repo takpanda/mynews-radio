@@ -284,6 +284,10 @@ def _apply_db_migrations() -> None:
         except sqlite3.OperationalError:
             pass  # カラムが既に存在する場合は無視
 
+        # 女性MC候補マスタ（BEE-908）。旧DBにも既存固定候補を初期投入する。
+        from app.db.migration import migrate_female_mc_candidates
+        migrate_female_mc_candidates(conn)
+
         row = conn.execute("SELECT COUNT(*) FROM dictionary_entries").fetchone()
         if row[0] == 0:
             seed_entries = [

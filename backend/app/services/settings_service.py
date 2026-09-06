@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from dataclasses import dataclass
 from typing import Any
@@ -21,16 +22,9 @@ DURATION_LIMITS: dict[str, dict[str, int]] = {
     "long": {"max_articles": 14, "min_importance_score": 2},
 }
 
-# カテゴリ別設定で選択できる女性MCは、音声サーバーの応答ではなく
-# アプリケーションの許可リストで固定する。これにより、サーバー停止中も
-# 管理画面の候補表示と入力検証を安定して行える。
-FEMALE_MC_VOICE_ALLOWLIST = ("female", "morigawa")
 CATEGORY_FEMALE_VOICE_COLUMN = "fishs2pro_category_female_voices"
 FEMALE_MC_SAMPLE_TEXT = "こんにちは、ニュースの時間です。今日の主な話題をお伝えします。"
-_CATEGORY_FEMALE_VOICE_CATALOG = (
-    {"value": "female", "display_name": "female"},
-    {"value": "morigawa", "display_name": "morigawa"},
-)
+_FEMALE_MC_VOICE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 
 
 @dataclass(frozen=True)
@@ -267,22 +261,124 @@ def resolve_tts_speakers(
     return vs.aivispeech_speaker_male, vs.aivispeech_speaker_female
 
 
+def _candidate_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "voice_name": row["voice_name"],
+        "display_name": row["display_name"],
+        "sample_text": row["sample_text"],
+        "is_active": bool(row["is_active"]),
+    }
+
+
+def get_female_mc_candidates(*, active_only: bool = False) -> list[dict[str, Any]]:
+    """候補マスタを取得する。候補の有効性はDBの値だけを正とする。"""
+    query = (
+        "SELECT id, voice_name, display_name, sample_text, is_active "
+        "FROM female_mc_candidates"
+    )
+    params: tuple[Any, ...] = ()
+    if active_only:
+        query += " WHERE is_active = 1"
+    query += " ORDER BY voice_name"
+    with get_db_connection() as conn:
+        return [_candidate_to_dict(row) for row in conn.execute(query, params).fetchall()]
+
+
+def get_female_mc_candidate(voice_name: str, *, active_only: bool = False) -> dict[str, Any] | None:
+    query = (
+        "SELECT id, voice_name, display_name, sample_text, is_active "
+        "FROM female_mc_candidates WHERE voice_name = ?"
+    )
+    params: tuple[Any, ...] = (voice_name,)
+    if active_only:
+        query += " AND is_active = 1"
+    with get_db_connection() as conn:
+        row = conn.execute(query, params).fetchone()
+    return _candidate_to_dict(row) if row else None
+
+
+def _validate_female_mc_candidate(
+    voice_name: Any,
+    display_name: Any,
+    sample_text: Any,
+    is_active: Any,
+) -> dict[str, Any]:
+    if not isinstance(voice_name, str) or not _FEMALE_MC_VOICE_NAME_PATTERN.fullmatch(voice_name):
+        raise ValueError("voice_name must contain only letters, numbers, dot, underscore, or hyphen")
+    if not isinstance(display_name, str) or not display_name.strip() or len(display_name) > 100:
+        raise ValueError("display_name must be a non-empty string of at most 100 characters")
+    if not isinstance(sample_text, str) or not sample_text.strip() or len(sample_text) > 2000:
+        raise ValueError("sample_text must be a non-empty string of at most 2000 characters")
+    if not isinstance(is_active, bool):
+        raise ValueError("is_active must be a boolean")
+    return {
+        "voice_name": voice_name,
+        "display_name": display_name.strip(),
+        "sample_text": sample_text.strip(),
+        "is_active": is_active,
+    }
+
+
+def create_female_mc_candidate(
+    voice_name: Any,
+    display_name: Any,
+    sample_text: Any = FEMALE_MC_SAMPLE_TEXT,
+) -> dict[str, Any]:
+    candidate = _validate_female_mc_candidate(voice_name, display_name, sample_text, True)
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO female_mc_candidates "
+            "(voice_name, display_name, sample_text, is_active, updated_at) "
+            "VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP)",
+            (candidate["voice_name"], candidate["display_name"], candidate["sample_text"]),
+        )
+        candidate["id"] = cursor.lastrowid
+    return candidate
+
+
+def update_female_mc_candidate(voice_name: str, values: dict[str, Any]) -> dict[str, Any]:
+    current = get_female_mc_candidate(voice_name)
+    if current is None:
+        raise KeyError(voice_name)
+    candidate = _validate_female_mc_candidate(
+        voice_name,
+        values.get("display_name", current["display_name"]),
+        values.get("sample_text", current["sample_text"]),
+        values.get("is_active", current["is_active"]),
+    )
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE female_mc_candidates SET display_name = ?, sample_text = ?, "
+            "is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE voice_name = ?",
+            (
+                candidate["display_name"], candidate["sample_text"],
+                int(candidate["is_active"]), voice_name,
+            ),
+        )
+    return get_female_mc_candidate(voice_name)  # type: ignore[return-value]
+
+
 def female_mc_voice_catalog() -> list[dict[str, Any]]:
-    """管理画面へ返す女性MC候補の固定カタログを返す。"""
+    """管理画面へ返す有効な女性MC候補を候補マスタから返す。"""
     return [
         {
-            **item,
-            "sample_text": FEMALE_MC_SAMPLE_TEXT,
+            "value": item["voice_name"],
+            "display_name": item["display_name"],
+            "sample_text": item["sample_text"],
         }
-        for item in _CATEGORY_FEMALE_VOICE_CATALOG
+        for item in get_female_mc_candidates(active_only=True)
     ]
 
 
-def validate_category_female_voices(value: Any) -> dict[str, str | None]:
-    """カテゴリ別女性MC割当を検証し、未設定値を正規化する。
+def _normalize_category_female_voices(
+    value: Any, *, reject_inactive: bool
+) -> dict[str, str | None]:
+    """カテゴリごとに割当を正規化する。
 
-    保存するキーは ``EPISODE_CATEGORIES`` の固定値だけに限定する。
-    部分更新は行わず、入力に含まれないカテゴリは未設定として扱う。
+    保存時は ``reject_inactive=True`` で無効候補を拒否する。一方、既存の
+    保存値を読むときは無効なカテゴリだけを None として扱い、有効な他カテゴリ
+    の割当を保持する。
     """
     from app.services.episode_category_service import EPISODE_CATEGORIES
 
@@ -291,18 +387,36 @@ def validate_category_female_voices(value: Any) -> dict[str, str | None]:
 
     valid_categories = set(EPISODE_CATEGORIES)
     unknown_categories = set(value) - valid_categories
-    if unknown_categories:
+    if unknown_categories and reject_inactive:
         raise ValueError(f"unsupported category: {sorted(unknown_categories)[0]}")
 
+    active_voice_names = {
+        item["voice_name"] for item in get_female_mc_candidates(active_only=True)
+    }
     result: dict[str, str | None] = {}
     for category, voice in value.items():
+        if category not in valid_categories:
+            continue
         if voice is None or (isinstance(voice, str) and not voice.strip()):
             result[category] = None
             continue
-        if not isinstance(voice, str) or voice not in FEMALE_MC_VOICE_ALLOWLIST:
+        if not isinstance(voice, str):
+            if reject_inactive:
+                raise ValueError(f"unsupported female MC voice: {voice}")
+            result[category] = None
+            continue
+        if voice not in active_voice_names:
+            if not reject_inactive:
+                result[category] = None
+                continue
             raise ValueError(f"unsupported female MC voice: {voice}")
         result[category] = voice
     return result
+
+
+def validate_category_female_voices(value: Any) -> dict[str, str | None]:
+    """カテゴリ別女性MC割当を保存用に厳格検証する。"""
+    return _normalize_category_female_voices(value, reject_inactive=True)
 
 
 def get_category_female_voices_or_default() -> dict[str, str | None]:
@@ -315,7 +429,7 @@ def get_category_female_voices_or_default() -> dict[str, str | None]:
             if not row or not row[CATEGORY_FEMALE_VOICE_COLUMN]:
                 return {}
             raw = json.loads(row[CATEGORY_FEMALE_VOICE_COLUMN])
-            return validate_category_female_voices(raw)
+            return _normalize_category_female_voices(raw, reject_inactive=False)
     except (sqlite3.Error, OSError, TypeError, ValueError, json.JSONDecodeError, KeyError):
         # 壊れた設定は生成を止めず、カテゴリ未設定と同じ既定値へ戻す。
         return {}
@@ -336,6 +450,18 @@ def save_category_female_voices(value: dict[str, str | None]) -> dict[str, str |
     return normalized
 
 
+def get_effective_female_mc_default_voice(fallback_voice: str | None = None) -> str:
+    """候補マスタの有効状態に沿ったFish S2 Pro女性MCの実効既定値を返す。"""
+    active_candidates = get_female_mc_candidates(active_only=True)
+    requested_voice = (fallback_voice or "").strip()
+    active_names = {item["voice_name"] for item in active_candidates}
+    if requested_voice in active_names:
+        return requested_voice
+    if active_candidates:
+        return active_candidates[0]["voice_name"]
+    return requested_voice
+
+
 def resolve_category_female_voice(
     categories: list[str] | tuple[str, ...] | None,
     *,
@@ -349,12 +475,14 @@ def resolve_category_female_voice(
     通信失敗時は呼び出し側が空集合を渡すことで安全にフォールバックできる。
     """
     settings = get_voice_settings_or_default()
-    default_voice = fallback_voice or settings.fishs2pro_voice_female
+    default_voice = get_effective_female_mc_default_voice(
+        fallback_voice if fallback_voice is not None else settings.fishs2pro_voice_female
+    )
     assignments = get_category_female_voices_or_default()
     selected: str | None = None
     for category in categories or ():
         voice = assignments.get(category)
-        if voice in FEMALE_MC_VOICE_ALLOWLIST:
+        if isinstance(voice, str):
             selected = voice
             break
 
