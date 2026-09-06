@@ -393,7 +393,7 @@ describe('GenerateEpisodeButton — パラメータすり替え防止', () => {
     expect(args[0]).toBeDefined()
     expect(args[1]).toBe(10)
     expect(args[2]).toBe('hatena_bookmark')
-    expect(args[3]).toBe('aivispeech')
+    expect(args[3]).toBe('fishs2pro')
     expect(args[4]).toBe(false)
     expect(args[5]).toBe('https://example.com/original')
     expect(args[6]).toBe('solo')
@@ -422,16 +422,15 @@ describe('GenerateEpisodeButton — 通常ラジオ生成（回帰）', () => {
     expect(mockSearchEpisodesBySourceUrl).not.toHaveBeenCalled()
   })
 
-  it('Fish S2 Proを選択するとfishs2proを生成APIへ送信する', async () => {
+  it('初期状態でFish S2 Proが選択されており、既定のまま生成するとfishs2proを生成APIへ送信する', async () => {
     const user = userEvent.setup()
 
     render(<GenerateEpisodeButton />)
 
-    expect(screen.getByRole('radio', { name: /AivisSpeech/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /Fish S2 Pro/ })).toBeChecked()
     expect(screen.getByRole('radio', { name: /VOICEVOX/ })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /Fish S2 Pro/ })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /AivisSpeech/ })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('radio', { name: /Fish S2 Pro/ }))
     await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
 
     await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
