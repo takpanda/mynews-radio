@@ -116,21 +116,12 @@ def test_stale_recovery_does_not_change_completed_or_failed_jobs(client, monkeyp
     finish_job(active.job_id, False)
 
 
-def test_daily_generation_limit_is_shared_by_operations(client):
+def test_more_than_ten_daily_generations_are_allowed(client):
     claims = []
-    for i in range(10):
+    for i in range(12):
         claims.append(claim_job(1, "generate" if i % 2 else "synthesize", f"daily-{i}", {"i": i}))
         finish_job(claims[-1].job_id, True)
-    for claim in claims:
-        finish_job(claim.job_id, True)
-
-    response = client.post(
-        "/generate",
-        json={"date": "2099-01-06"},
-        headers={"Idempotency-Key": "daily-over"},
-    )
-    assert response.status_code == 429
-    assert int(response.headers["Retry-After"]) > 0
+    assert len(claims) == 12
 
 
 def test_synthesis_duplicate_reports_active_completed_and_failed_state(client):
@@ -158,26 +149,16 @@ def test_synthesis_duplicate_reports_active_completed_and_failed_state(client):
             finish_job(claim.job_id, False)
 
 
-def test_failed_claim_allows_next_start_and_jst_boundary_retry_is_positive(client):
-    from app.services.generation_control import _seconds_until_jst_midnight
-
+def test_failed_claim_allows_next_start(client):
     failed = claim_job(1, "generate", "failed-then-retry", {"date": "2099-01-08"})
     finish_job(failed.job_id, False)
     retried = claim_job(1, "generate", "failed-then-retry-2", {"date": "2099-01-08"})
     assert retried.duplicate is False
     finish_job(retried.job_id, False)
 
-    near_midnight = datetime(2026, 7, 29, 14, 59, 59, tzinfo=timezone.utc)
-    assert _seconds_until_jst_midnight(near_midnight) == 1
-
-
-def test_endpoints_share_daily_limit_and_return_jst_boundary_retry_after(client, monkeypatch):
-    import app.services.generation_control as control
+def test_endpoints_allow_more_than_ten_daily_generations(client, monkeypatch):
     from app.api import generate as generate_api
     from app.services.episode_service import EpisodeService
-
-    fixed_now = datetime(2026, 7, 29, 14, 59, 59, tzinfo=timezone.utc)
-    monkeypatch.setattr(control, "_utc_now", lambda: fixed_now)
 
     def complete_generation(episode_id, _body):
         EpisodeService().update_episode_status(episode_id, "completed")
@@ -190,7 +171,7 @@ def test_endpoints_share_daily_limit_and_return_jst_boundary_retry_after(client,
 
     monkeypatch.setattr(generate_api, "_stream_synthesize", complete_synthesis)
 
-    for i in range(10):
+    for i in range(12):
         if i % 2:
             response = client.post(
                 "/generate", json={"date": f"2099-02-{i + 1:02d}"},
@@ -212,14 +193,6 @@ def test_endpoints_share_daily_limit_and_return_jst_boundary_retry_after(client,
             if row and row["status"] != "active":
                 break
             time.sleep(0.01)
-
-    response = client.post(
-        "/generate", json={"date": "2099-02-20"},
-        headers={"Idempotency-Key": "endpoint-daily-over"},
-    )
-    assert response.status_code == 429
-    assert response.headers["Retry-After"] == "1"
-
 
 def test_ip_and_global_active_limits_apply_across_owners_and_operations(client):
     from app.auth import hash_password
@@ -254,7 +227,7 @@ def test_ip_and_global_active_limits_apply_across_owners_and_operations(client):
         finish_job(other_ip.job_id, False)
 
 
-def test_ip_and_global_daily_limits_are_enforced(client):
+def test_more_than_ten_generations_are_allowed_from_one_ip(client):
     from app.auth import hash_password
 
     with get_db_connection() as conn:
@@ -269,24 +242,21 @@ def test_ip_and_global_daily_limits_are_enforced(client):
             ).fetchall()
         ]
 
-    # Ten completed jobs from one IP reach the IP-scoped daily quota first.
-    for index in range(10):
+    for index in range(12):
         owner_id = owner_ids[index % len(owner_ids)]
         claim = claim_job(owner_id, "generate", f"ip-daily-{index}", {"n": index}, client_ip="10.0.1.1")
         finish_job(claim.job_id, True)
-    with pytest.raises(GenerationControlError) as exc_info:
-        claim_job(1, "synthesize", "ip-daily-over", {"n": 11}, client_ip="10.0.1.1")
-    assert exc_info.value.status_code == 429
-    assert exc_info.value.retry_after > 0
+    claim = claim_job(1, "synthesize", "ip-daily-over", {"n": 13}, client_ip="10.0.1.1")
+    assert claim.duplicate is False
+    finish_job(claim.job_id, True)
 
-def test_global_daily_limit_is_enforced_across_ips(client):
-    for index in range(10):
+def test_more_than_ten_generations_are_allowed_across_ips(client):
+    for index in range(12):
         claim = claim_job(1, "generate", f"global-daily-{index}", {"n": index}, client_ip=f"10.0.2.{index + 1}")
         finish_job(claim.job_id, True)
-    with pytest.raises(GenerationControlError) as exc_info:
-        claim_job(1, "synthesize", "global-daily-over", {"n": 12}, client_ip="10.0.2.99")
-    assert exc_info.value.status_code == 429
-    assert exc_info.value.retry_after > 0
+    claim = claim_job(1, "synthesize", "global-daily-over", {"n": 13}, client_ip="10.0.2.99")
+    assert claim.duplicate is False
+    finish_job(claim.job_id, True)
 
 
 def test_untrusted_proxy_ip_headers_are_ignored_for_generation_and_synthesis(client, monkeypatch):

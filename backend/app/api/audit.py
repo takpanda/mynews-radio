@@ -20,9 +20,6 @@ AUDIT_REASON_CODES = {
     "active_limit",
     "ip_active_limit",
     "global_active_limit",
-    "daily_limit",
-    "ip_daily_limit",
-    "global_daily_limit",
 }
 
 
