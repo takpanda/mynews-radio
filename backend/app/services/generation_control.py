@@ -2,16 +2,12 @@
 
 import hashlib
 import json
-import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 from app.db.connection import get_db_connection
 from app.audit import hash_value, insert_audit_log
 
-JST = ZoneInfo("Asia/Tokyo")
-DAILY_LIMIT = 10
 ACTIVE_LIMIT = 1
 IP_ACTIVE_LIMIT = 1
 GLOBAL_ACTIVE_LIMIT = 1
@@ -49,18 +45,6 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _jst_day_bounds(now: datetime) -> tuple[str, str]:
-    local = now.astimezone(JST)
-    start = local.replace(hour=0, minute=0, second=0, microsecond=0)
-    return _utc_text(start), _utc_text(start + timedelta(days=1))
-
-
-def _seconds_until_jst_midnight(now: datetime) -> int:
-    local = now.astimezone(JST)
-    tomorrow = (local + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    return max(1, math.ceil((tomorrow - local).total_seconds()))
-
-
 def _insert_episode(conn, episode_date: str, episode_type: str, source_url: str | None) -> int:
     if episode_type == "radio":
         conn.execute(
@@ -94,7 +78,7 @@ def claim_job(
     episode_id: int | None = None,
     client_ip: str = "unknown",
 ) -> JobClaim:
-    """Claim a job and enforce both limits in one SQLite write transaction."""
+    """Claim a job and enforce concurrency limits in one SQLite write transaction."""
     digest = input_hash(payload)
     key_digest = hash_value(idempotency_key) if idempotency_key else None
     client_ip_digest = hash_value(client_ip or "unknown")
@@ -106,7 +90,6 @@ def claim_job(
         raise GenerationControlError(400, "Idempotency-Key is required and must be at most 255 characters")
     now = _utc_now()
     retention_cutoff = _utc_text(now - IDEMPOTENCY_RETENTION)
-    day_start, day_end = _jst_day_bounds(now)
 
     with get_db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -163,43 +146,6 @@ def claim_job(
                              rejection_reason="global_active_limit")
             conn.commit()
             raise GenerationControlError(429, "The generation service is busy", 60)
-
-        daily = conn.execute(
-            "SELECT COUNT(*) AS count FROM generation_jobs "
-            "WHERE owner_user_id = ? AND claimed_at >= ? AND claimed_at < ?",
-            (owner_user_id, day_start, day_end),
-        ).fetchone()["count"]
-        if daily >= DAILY_LIMIT:
-            insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="rejected",
-                             idempotency_key_hash=key_digest, input_hash=digest, accepted=False,
-                             rejection_reason="daily_limit")
-            conn.commit()
-            raise GenerationControlError(429, "Daily generation limit exceeded", _seconds_until_jst_midnight(now))
-
-        ip_daily = conn.execute(
-            "SELECT COUNT(*) AS count FROM generation_jobs "
-            "WHERE client_ip_hash = ? AND claimed_at >= ? AND claimed_at < ?",
-            (client_ip_digest, day_start, day_end),
-        ).fetchone()["count"]
-        if ip_daily >= DAILY_LIMIT:
-            insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="rejected",
-                             idempotency_key_hash=key_digest, input_hash=digest, accepted=False,
-                             rejection_reason="ip_daily_limit")
-            conn.commit()
-            raise GenerationControlError(429, "Daily generation limit for this IP exceeded",
-                                          _seconds_until_jst_midnight(now))
-
-        global_daily = conn.execute(
-            "SELECT COUNT(*) AS count FROM generation_jobs WHERE claimed_at >= ? AND claimed_at < ?",
-            (day_start, day_end),
-        ).fetchone()["count"]
-        if global_daily >= DAILY_LIMIT:
-            insert_audit_log(conn, operation=operation, actor_user_id=owner_user_id, result="rejected",
-                             idempotency_key_hash=key_digest, input_hash=digest, accepted=False,
-                             rejection_reason="global_daily_limit")
-            conn.commit()
-            raise GenerationControlError(429, "Daily generation limit exceeded for all users",
-                                          _seconds_until_jst_midnight(now))
 
         cursor = conn.execute(
             "INSERT INTO generation_jobs(owner_user_id, operation, idempotency_key, input_hash, "

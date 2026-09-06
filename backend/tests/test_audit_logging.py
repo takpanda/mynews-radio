@@ -348,7 +348,7 @@ def test_old_audit_schema_app_startup_migrates_before_actor_index(tmp_path):
     assert "idx_audit_logs_actor" in indexes
 
 
-def test_active_and_daily_quota_rejections_are_audited(client):
+def test_active_limit_rejection_is_audited(client):
     from app.services.generation_control import claim_job, finish_job
 
     active = claim_job(1, "generate", "quota-active-holder", {"date": "2099-06-10"})
@@ -360,30 +360,13 @@ def test_active_and_daily_quota_rejections_are_audited(client):
     assert response.status_code == 429
     finish_job(active.job_id, False)
 
-    # active holder itself counts toward the daily quota.
-    for index in range(9):
-        claim = claim_job(1, "generate", f"quota-daily-{index}", {"index": index})
-        finish_job(claim.job_id, True)
-    response = client.post(
-        "/generate",
-        json={"date": "2099-06-12"},
-        headers={"Idempotency-Key": "quota-daily-rejected"},
-    )
-    assert response.status_code == 429
-
     with get_db_connection() as conn:
         rows = conn.execute(
             "SELECT idempotency_key_hash, accepted, rejection_reason FROM audit_logs "
-            "WHERE result = 'rejected' AND idempotency_key_hash IN (?, ?) ORDER BY id",
-            (
-                hashlib.sha256(b"quota-active-rejected").hexdigest(),
-                hashlib.sha256(b"quota-daily-rejected").hexdigest(),
-            ),
+            "WHERE result = 'rejected' AND idempotency_key_hash = ? ORDER BY id",
+            (hashlib.sha256(b"quota-active-rejected").hexdigest(),),
         ).fetchall()
-    assert [(row["accepted"], row["rejection_reason"]) for row in rows] == [
-        (0, "active_limit"),
-        (0, "daily_limit"),
-    ]
+    assert [(row["accepted"], row["rejection_reason"]) for row in rows] == [(0, "active_limit")]
 
 
 def test_synthesis_claim_audit_failure_rolls_back_job_and_start_audit(client, monkeypatch):
