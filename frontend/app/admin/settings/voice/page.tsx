@@ -1,5 +1,7 @@
 import AdminVoiceSettingsShell from '../../../components/AdminVoiceSettingsShell'
+import CategoryFemaleMcSection from '../../../components/CategoryFemaleMcSection'
 import { fetchVoiceOptions, fetchVoiceSettings } from '../../../lib/admin-voice-settings'
+import { fetchCategoryFemaleMc } from '../../../lib/admin-category-female-mc'
 import AdminNav from '../../../components/AdminNav'
 import { requireAdminSessionForPage } from '../../auth'
 
@@ -15,6 +17,14 @@ export default async function AdminVoiceSettingsPage() {
     error = 'エラーが発生しました。しばらく後でもう一度お試しください。'
   }
 
+  let initialCategoryFemaleMc: Awaited<ReturnType<typeof fetchCategoryFemaleMc>> | null = null
+  let categoryError: string | null = null
+  try {
+    initialCategoryFemaleMc = await fetchCategoryFemaleMc()
+  } catch {
+    categoryError = 'カテゴリ別女性MC設定を取得できませんでした。しばらく後でもう一度お試しください。'
+  }
+
   return (
     <main className="mx-auto max-w-5xl px-4 pb-24 pt-6 sm:px-6">
       <AdminNav />
@@ -23,7 +33,10 @@ export default async function AdminVoiceSettingsPage() {
           {error}
         </div>
       ) : (
-        <AdminVoiceSettingsShell initialSettings={initialSettings!} initialOptions={initialOptions!} />
+        <div className="space-y-6">
+          <AdminVoiceSettingsShell initialSettings={initialSettings!} initialOptions={initialOptions!} />
+          <CategoryFemaleMcSection initialData={initialCategoryFemaleMc} initialError={categoryError} />
+        </div>
       )}
     </main>
   )
