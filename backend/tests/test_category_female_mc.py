@@ -98,6 +98,17 @@ class TestCategoryFemaleVoiceApi:
         )
         assert invalid_category.status_code == 422
 
+    def test_get_and_put_require_owner_session(self):
+        from app.main import app
+        from fastapi.testclient import TestClient
+
+        unauthenticated = TestClient(app)
+        assert unauthenticated.get("/settings/voices/categories").status_code in (401, 403)
+        assert unauthenticated.put(
+            "/settings/voices/categories",
+            json={"category_female_voices": {"テック・IT": "female"}},
+        ).status_code in (401, 403)
+
     def test_sample_requires_owner_and_serves_only_allowlisted_file(self, client, monkeypatch, tmp_path):
         from app.api import settings as settings_api
 
@@ -122,3 +133,62 @@ class TestCategoryFemaleVoiceApi:
         from app.main import app
 
         assert TestClient(app).get("/settings/voices/categories/samples/female").status_code in (401, 403)
+
+
+def test_fishs2pro_explicit_speakers_take_precedence_over_category_settings(monkeypatch, tmp_path):
+    """既存契約どおり、パイプラインへの明示話者値は保存設定より優先する。"""
+    from app.batch import radio_pipeline
+    from app.services.episode_service import EpisodeService
+
+    settings_service.save_voice_settings(_voice_settings())
+    settings_service.save_category_female_voices({"テック・IT": "female"})
+    episode_id, _ = EpisodeService().create_radio_episode("2099-04-01")
+    captured = {}
+
+    def write_script(path, **_kwargs):
+        with open(path, "w", encoding="utf-8") as output:
+            json.dump({"lines": [{"article_id": None, "text": "本文"}]}, output)
+        return 1
+
+    def capture_synthesis(*_args, **kwargs):
+        captured.update(kwargs)
+        return 1
+
+    def unexpected_category_resolution(*_args, **_kwargs):
+        raise AssertionError("explicit Fish S2 Pro speakers must skip category resolution")
+
+    monkeypatch.setattr(radio_pipeline, "import_articles_by_source", lambda _source: (1, 0))
+    monkeypatch.setattr(radio_pipeline, "summarize_articles", lambda *_args, **_kwargs: 1)
+    monkeypatch.setattr(radio_pipeline, "generate_script", write_script)
+    monkeypatch.setattr(
+        radio_pipeline,
+        "review_script",
+        lambda *_args, **_kwargs: {"revised": False, "review_count": 0},
+    )
+    monkeypatch.setattr(radio_pipeline, "select_episode_categories", lambda *_args: ["テック・IT"])
+    monkeypatch.setattr(radio_pipeline, "synthesize_episode", capture_synthesis)
+    monkeypatch.setattr(
+        radio_pipeline,
+        "build_episode",
+        lambda *_args, **_kwargs: {"audio_path": "episode.mp3"},
+    )
+    monkeypatch.setattr(
+        radio_pipeline,
+        "_resolve_fishs2pro_category_female_voice",
+        unexpected_category_resolution,
+    )
+
+    result = radio_pipeline.run_radio_pipeline(
+        episode_id,
+        episode_date="2099-04-01",
+        tts_engine="fishs2pro",
+        tts_base_url="http://explicit-fish.test",
+        tts_speaker_male="explicit-male",
+        tts_speaker_female="explicit-female",
+        default_episodes_dir=str(tmp_path),
+    )
+
+    assert result is not None
+    assert captured["tts_engine"] == "fishs2pro"
+    assert captured["speaker_male"] == "explicit-male"
+    assert captured["speaker_female"] == "explicit-female"

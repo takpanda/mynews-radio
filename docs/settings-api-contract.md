@@ -95,7 +95,7 @@ AivisSpeech・VOICEVOX・Fish S2 Pro の男声・女声、計6項目を `user_se
 
 サンプルファイルは `FISHS2PRO_VOICE_SAMPLE_DIR`（既定 `/app/data/voice-samples`）配下の `{voice_name}.wav` に配置する。候補レスポンスにはファイルの有無（`sample.available`）も含める。
 
-新規ラジオ生成でエンジンが Fish S2 Pro の場合のみ、台本から保存されたカテゴリを順に確認し、現在の `/health` が提供するボイスだけを採用する。未設定、未提供、ヘルスチェック失敗時は全体の `fishs2pro_voice_female` へフォールバックする。AivisSpeech・VOICEVOX、男性MC、既存エピソードの再合成にはカテゴリ割当を適用しない。
+新規ラジオ生成でエンジンが Fish S2 Pro の場合のみ、台本から保存されたカテゴリを順に確認し、現在の `/health` が提供するボイスだけを採用する。複数カテゴリに異なる割当がある場合は、エピソードの `categories` 配列で先に現れるカテゴリ（LLMが返した主カテゴリ）を優先する。未設定、未提供、ヘルスチェック失敗時は全体の `fishs2pro_voice_female` へフォールバックする。呼び出し元がTTS話者値を3項目（接続先・男性・女性）すべて明示した場合は、既存契約どおりカテゴリ解決より明示値を優先する。AivisSpeech・VOICEVOX、男性MC、既存エピソードの再合成にはカテゴリ割当を適用しない。
 
 ### 生成処理への反映
 

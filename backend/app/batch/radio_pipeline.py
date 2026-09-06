@@ -268,7 +268,12 @@ def run_radio_pipeline(
 
         # -- TTS SETUP --
         tts_config = _determine_tts_config(tts_engine)
-        if tts_base_url is not None and tts_speaker_male is not None and tts_speaker_female is not None:
+        explicit_tts_speakers = (
+            tts_base_url is not None
+            and tts_speaker_male is not None
+            and tts_speaker_female is not None
+        )
+        if explicit_tts_speakers:
             effective_tts_base_url = tts_base_url
             effective_tts_male = tts_speaker_male
             effective_tts_female = tts_speaker_female
@@ -314,7 +319,7 @@ def run_radio_pipeline(
 
         # カテゴリ別女性MCはFish S2 Proの新規生成だけに適用する。
         # 他エンジンは従来どおり、また男性MCの設定は変更しない。
-        if tts_config["tts_engine"] == "fishs2pro":
+        if tts_config["tts_engine"] == "fishs2pro" and not explicit_tts_speakers:
             effective_tts_female = _resolve_fishs2pro_category_female_voice(
                 categories,
                 effective_tts_base_url,
