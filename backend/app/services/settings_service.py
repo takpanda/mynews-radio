@@ -21,6 +21,17 @@ DURATION_LIMITS: dict[str, dict[str, int]] = {
     "long": {"max_articles": 14, "min_importance_score": 2},
 }
 
+# カテゴリ別設定で選択できる女性MCは、音声サーバーの応答ではなく
+# アプリケーションの許可リストで固定する。これにより、サーバー停止中も
+# 管理画面の候補表示と入力検証を安定して行える。
+FEMALE_MC_VOICE_ALLOWLIST = ("female", "morigawa")
+CATEGORY_FEMALE_VOICE_COLUMN = "fishs2pro_category_female_voices"
+FEMALE_MC_SAMPLE_TEXT = "こんにちは、ニュースの時間です。今日の主な話題をお伝えします。"
+_CATEGORY_FEMALE_VOICE_CATALOG = (
+    {"value": "female", "display_name": "female"},
+    {"value": "morigawa", "display_name": "morigawa"},
+)
+
 
 @dataclass(frozen=True)
 class ProgramSettings:
@@ -254,3 +265,101 @@ def resolve_tts_speakers(
     if engine == "voicevox":
         return vs.voicevox_speaker_male, vs.voicevox_speaker_female
     return vs.aivispeech_speaker_male, vs.aivispeech_speaker_female
+
+
+def female_mc_voice_catalog() -> list[dict[str, Any]]:
+    """管理画面へ返す女性MC候補の固定カタログを返す。"""
+    return [
+        {
+            **item,
+            "sample_text": FEMALE_MC_SAMPLE_TEXT,
+        }
+        for item in _CATEGORY_FEMALE_VOICE_CATALOG
+    ]
+
+
+def validate_category_female_voices(value: Any) -> dict[str, str | None]:
+    """カテゴリ別女性MC割当を検証し、未設定値を正規化する。
+
+    保存するキーは ``EPISODE_CATEGORIES`` の固定値だけに限定する。
+    部分更新は行わず、入力に含まれないカテゴリは未設定として扱う。
+    """
+    from app.services.episode_category_service import EPISODE_CATEGORIES
+
+    if not isinstance(value, dict):
+        raise ValueError("category_female_voices must be an object")
+
+    valid_categories = set(EPISODE_CATEGORIES)
+    unknown_categories = set(value) - valid_categories
+    if unknown_categories:
+        raise ValueError(f"unsupported category: {sorted(unknown_categories)[0]}")
+
+    result: dict[str, str | None] = {}
+    for category, voice in value.items():
+        if voice is None or (isinstance(voice, str) and not voice.strip()):
+            result[category] = None
+            continue
+        if not isinstance(voice, str) or voice not in FEMALE_MC_VOICE_ALLOWLIST:
+            raise ValueError(f"unsupported female MC voice: {voice}")
+        result[category] = voice
+    return result
+
+
+def get_category_female_voices_or_default() -> dict[str, str | None]:
+    """保存済みカテゴリ設定を返す。DB障害・旧DBでは空の設定を返す。"""
+    try:
+        with get_db_connection() as conn:
+            row = conn.execute(
+                f"SELECT {CATEGORY_FEMALE_VOICE_COLUMN} FROM user_settings WHERE id = 1"
+            ).fetchone()
+            if not row or not row[CATEGORY_FEMALE_VOICE_COLUMN]:
+                return {}
+            raw = json.loads(row[CATEGORY_FEMALE_VOICE_COLUMN])
+            return validate_category_female_voices(raw)
+    except (sqlite3.Error, OSError, TypeError, ValueError, json.JSONDecodeError, KeyError):
+        # 壊れた設定は生成を止めず、カテゴリ未設定と同じ既定値へ戻す。
+        return {}
+
+
+def save_category_female_voices(value: dict[str, str | None]) -> dict[str, str | None]:
+    """カテゴリ別女性MC設定を検証して、既存の番組・音声設定を保持したまま保存する。"""
+    normalized = validate_category_female_voices(value)
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO user_settings (id, fishs2pro_category_female_voices, updated_at) "
+            "VALUES (1, ?, CURRENT_TIMESTAMP) "
+            "ON CONFLICT(id) DO UPDATE SET "
+            "fishs2pro_category_female_voices=excluded.fishs2pro_category_female_voices, "
+            "updated_at=CURRENT_TIMESTAMP",
+            (json.dumps(normalized, ensure_ascii=False),),
+        )
+    return normalized
+
+
+def resolve_category_female_voice(
+    categories: list[str] | tuple[str, ...] | None,
+    *,
+    available_voices: set[str] | list[str] | tuple[str, ...] | None = None,
+    fallback_voice: str | None = None,
+) -> str:
+    """新規Fish S2 Pro生成用にカテゴリから女性MCを解決する。
+
+    ``available_voices`` を渡した場合は、保存済み割当が現在のFish S2 Pro
+    に存在するときだけ採用する。不在・未設定時は全体の既定女性MCへ戻す。
+    通信失敗時は呼び出し側が空集合を渡すことで安全にフォールバックできる。
+    """
+    settings = get_voice_settings_or_default()
+    default_voice = fallback_voice or settings.fishs2pro_voice_female
+    assignments = get_category_female_voices_or_default()
+    selected: str | None = None
+    for category in categories or ():
+        voice = assignments.get(category)
+        if voice in FEMALE_MC_VOICE_ALLOWLIST:
+            selected = voice
+            break
+
+    if selected is None:
+        return default_voice
+    if available_voices is None or selected in set(available_voices):
+        return selected
+    return default_voice

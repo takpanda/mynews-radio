@@ -275,6 +275,15 @@ def _apply_db_migrations() -> None:
             except sqlite3.OperationalError:
                 pass  # カラムが既に存在する場合は無視
 
+        # カテゴリ別女性MC設定（BEE-903）。旧DBでは空のJSONから開始する。
+        try:
+            conn.execute(
+                "ALTER TABLE user_settings ADD COLUMN "
+                "fishs2pro_category_female_voices TEXT NOT NULL DEFAULT '{}'"
+            )
+        except sqlite3.OperationalError:
+            pass  # カラムが既に存在する場合は無視
+
         row = conn.execute("SELECT COUNT(*) FROM dictionary_entries").fetchone()
         if row[0] == 0:
             seed_entries = [

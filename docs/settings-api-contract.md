@@ -83,6 +83,20 @@ AivisSpeech・VOICEVOX・Fish S2 Pro の男声・女声、計6項目を `user_se
 - Fish S2 Pro は `GET /health` が返す `voices` をそのまま保存候補として使用する（話者・スタイルの区別がないため `speaker_name` / `style_name` は `null`）。
 - 1エンジンの一覧取得に失敗しても他2エンジンの結果は返す。失敗したエンジンは `status: "error"` となり、`error` に一般的な失敗メッセージのみを含める（接続先や認証情報などの内部情報は含めない）。
 
+## カテゴリ別女性MC設定・試聴（BEE-903）
+
+カテゴリ別設定で選択できる女性MCはアプリ側の固定許可リスト（`female`, `morigawa`）で管理する。Fish S2 Pro の `/health` 応答には依存しないため、音声サーバー停止中でも候補と現在設定を取得できる。設定は `user_settings.fishs2pro_category_female_voices` に JSON として保存し、入力に含まれないカテゴリは未設定として扱う。
+
+| Method | Path | 動作 |
+|---|---|---|
+| GET | `/settings/voices/categories` | 15固定カテゴリの割当、候補女性MC、固定サンプル文・認証付きサンプルURLを返す |
+| PUT | `/settings/voices/categories` | `{ "category_female_voices": { "テック・IT": "morigawa" } }` を検証・保存。候補外ボイス・カテゴリは422、保存失敗は503 |
+| GET | `/settings/voices/categories/samples/{voice_name}` | 許可済みボイスの事前生成済みWAVを管理セッション認証付きで配信。内部音声サーバーURLは返さない |
+
+サンプルファイルは `FISHS2PRO_VOICE_SAMPLE_DIR`（既定 `/app/data/voice-samples`）配下の `{voice_name}.wav` に配置する。候補レスポンスにはファイルの有無（`sample.available`）も含める。
+
+新規ラジオ生成でエンジンが Fish S2 Pro の場合のみ、台本から保存されたカテゴリを順に確認し、現在の `/health` が提供するボイスだけを採用する。複数カテゴリに異なる割当がある場合は、エピソードの `categories` 配列で先に現れるカテゴリ（LLMが返した主カテゴリ）を優先する。未設定、未提供、ヘルスチェック失敗時は全体の `fishs2pro_voice_female` へフォールバックする。呼び出し元がTTS話者値を3項目（接続先・男性・女性）すべて明示した場合は、既存契約どおりカテゴリ解決より明示値を優先する。AivisSpeech・VOICEVOX、男性MC、既存エピソードの再合成にはカテゴリ割当を適用しない。
+
 ### 生成処理への反映
 
 `resolve_tts_speakers(engine)`（`app.services.settings_service`）が保存済み話者値（未保存項目は `config.py` 既定値）を返す一元的な解決処理で、以下の4経路すべてがこれを経由する。
