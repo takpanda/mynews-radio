@@ -218,6 +218,26 @@ CREATE TABLE IF NOT EXISTS notification_deliveries (
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_ready
     ON notification_deliveries(status, next_attempt_at);
 
+-- 女性MC候補マスタ。候補の有効性・表示名・試聴情報はこのテーブルを正とする。
+CREATE TABLE IF NOT EXISTS female_mc_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voice_name TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    sample_text TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_female_mc_candidates_active
+    ON female_mc_candidates(is_active, voice_name);
+
+-- 既存の固定候補を初期データとして移行する。既存の管理値は上書きしない。
+INSERT OR IGNORE INTO female_mc_candidates
+    (voice_name, display_name, sample_text)
+VALUES
+    ('female', 'female', 'こんにちは、ニュースの時間です。今日の主な話題をお伝えします。'),
+    ('morigawa', 'morigawa', 'こんにちは、ニュースの時間です。今日の主な話題をお伝えします。');
+
 -- MVP settings are local, single-user state.  Keep one row and store the
 -- validated category selections as JSON so the schema can evolve later.
 -- ボイス設定6項目は未設定（NULL）を許容する。NULLの間はconfig.pyの既定値を使う

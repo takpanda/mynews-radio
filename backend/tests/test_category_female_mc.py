@@ -134,6 +134,56 @@ class TestCategoryFemaleVoiceApi:
 
         assert TestClient(app).get("/settings/voices/categories/samples/female").status_code in (401, 403)
 
+    def test_candidate_master_crud_and_disabled_candidate_behavior(self, client):
+        candidates = client.get("/settings/voices/female-mc-candidates")
+        assert candidates.status_code == 200
+        assert {item["voice_name"] for item in candidates.json()} == {"female", "morigawa"}
+
+        created = client.post(
+            "/settings/voices/female-mc-candidates",
+            json={"voice_name": "new-female", "display_name": "新しい女性MC"},
+        )
+        assert created.status_code == 201
+        assert created.json()["is_active"] is True
+
+        assigned = client.put(
+            "/settings/voices/categories",
+            json={"category_female_voices": {"テック・IT": "new-female"}},
+        )
+        assert assigned.status_code == 200
+        assert assigned.json()["category_female_voices"]["テック・IT"] == "new-female"
+
+        disabled = client.patch(
+            "/settings/voices/female-mc-candidates/new-female",
+            json={"is_active": False},
+        )
+        assert disabled.status_code == 200
+        assert disabled.json()["is_active"] is False
+
+        # 無効化後は新規カテゴリ選択を拒否し、既存設定は保持したまま実効値を未設定扱いにする。
+        rejected = client.put(
+            "/settings/voices/categories",
+            json={"category_female_voices": {"テック・IT": "new-female"}},
+        )
+        assert rejected.status_code == 422
+        effective = client.get("/settings/voices/categories")
+        assert effective.status_code == 200
+        assert effective.json()["category_female_voices"]["テック・IT"] is None
+
+    def test_candidate_master_is_session_only(self, client, monkeypatch):
+        from app.main import app
+        from fastapi.testclient import TestClient
+
+        monkeypatch.setenv("API_KEY", "service-key")
+        from app.config import get_settings
+        get_settings.cache_clear()
+        service_client = TestClient(app, headers={"Authorization": "Bearer service-key"})
+        assert service_client.get("/settings/voices/female-mc-candidates").status_code == 401
+        assert service_client.post(
+            "/settings/voices/female-mc-candidates",
+            json={"voice_name": "not-authorized", "display_name": "未認証"},
+        ).status_code == 401
+
 
 def test_fishs2pro_explicit_speakers_take_precedence_over_category_settings(monkeypatch, tmp_path):
     """既存契約どおり、パイプラインへの明示話者値は保存設定より優先する。"""
