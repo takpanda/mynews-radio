@@ -66,7 +66,7 @@ class TestCategoryFemaleVoiceSettings:
 
 
 class TestCategoryFemaleVoiceApi:
-    def test_get_returns_all_categories_and_fixed_candidates(self, client):
+    def test_get_returns_all_categories_and_active_candidates(self, client):
         response = client.get("/settings/voices/categories")
         assert response.status_code == 200
         data = response.json()
@@ -109,7 +109,7 @@ class TestCategoryFemaleVoiceApi:
             json={"category_female_voices": {"テック・IT": "female"}},
         ).status_code in (401, 403)
 
-    def test_sample_requires_owner_and_serves_only_allowlisted_file(self, client, monkeypatch, tmp_path):
+    def test_sample_requires_owner_and_serves_only_active_candidate_file(self, client, monkeypatch, tmp_path):
         from app.api import settings as settings_api
 
         sample = tmp_path / "female.wav"
@@ -148,10 +148,16 @@ class TestCategoryFemaleVoiceApi:
 
         assigned = client.put(
             "/settings/voices/categories",
-            json={"category_female_voices": {"テック・IT": "new-female"}},
+            json={
+                "category_female_voices": {
+                    "テック・IT": "new-female",
+                    "政治・行政": "female",
+                }
+            },
         )
         assert assigned.status_code == 200
         assert assigned.json()["category_female_voices"]["テック・IT"] == "new-female"
+        assert assigned.json()["category_female_voices"]["政治・行政"] == "female"
 
         disabled = client.patch(
             "/settings/voices/female-mc-candidates/new-female",
@@ -160,7 +166,12 @@ class TestCategoryFemaleVoiceApi:
         assert disabled.status_code == 200
         assert disabled.json()["is_active"] is False
 
-        # 無効化後は新規カテゴリ選択を拒否し、既存設定は保持したまま実効値を未設定扱いにする。
+        management = client.get("/settings/voices/female-mc-candidates")
+        disabled_data = next(item for item in management.json() if item["voice_name"] == "new-female")
+        assert disabled_data["is_active"] is False
+        assert disabled_data["sample"]["available"] is False
+
+        # 無効化後は新規カテゴリ選択を拒否し、既存設定は保持したまま対象だけ未設定扱いにする。
         rejected = client.put(
             "/settings/voices/categories",
             json={"category_female_voices": {"テック・IT": "new-female"}},
@@ -169,6 +180,54 @@ class TestCategoryFemaleVoiceApi:
         effective = client.get("/settings/voices/categories")
         assert effective.status_code == 200
         assert effective.json()["category_female_voices"]["テック・IT"] is None
+        assert effective.json()["category_female_voices"]["政治・行政"] == "female"
+
+        # 全体既定値の候補を無効化しても、API表示と生成時の既定値を一致させる。
+        disabled_default = client.patch(
+            "/settings/voices/female-mc-candidates/morigawa",
+            json={"is_active": False},
+        )
+        assert disabled_default.status_code == 200
+        effective_default = client.get("/settings/voices/categories").json()
+        assert effective_default["default_voice"] == "female"
+        from app.services import settings_service
+        assert settings_service.resolve_category_female_voice(
+            [], available_voices={"female"}, fallback_voice="morigawa"
+        ) == "female"
+
+        # 再有効化すると、保持していたカテゴリ割当と既定値を復元する。
+        assert client.patch(
+            "/settings/voices/female-mc-candidates/morigawa",
+            json={"is_active": True},
+        ).status_code == 200
+        assert client.patch(
+            "/settings/voices/female-mc-candidates/new-female",
+            json={"is_active": True},
+        ).status_code == 200
+        restored = client.get("/settings/voices/categories").json()
+        assert restored["default_voice"] == "morigawa"
+        assert restored["category_female_voices"]["テック・IT"] == "new-female"
+        assert restored["category_female_voices"]["政治・行政"] == "female"
+
+    def test_candidate_master_validates_boundaries_and_conflicts(self, client):
+        duplicate = client.post(
+            "/settings/voices/female-mc-candidates",
+            json={"voice_name": "female", "display_name": "重複"},
+        )
+        assert duplicate.status_code == 409
+
+        for voice_name in ("../unsafe", "", "white space"):
+            invalid = client.post(
+                "/settings/voices/female-mc-candidates",
+                json={"voice_name": voice_name, "display_name": "不正"},
+            )
+            assert invalid.status_code == 422
+
+        missing = client.patch(
+            "/settings/voices/female-mc-candidates/missing",
+            json={"is_active": False},
+        )
+        assert missing.status_code == 404
 
     def test_candidate_master_is_session_only(self, client, monkeypatch):
         from app.main import app

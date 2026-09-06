@@ -371,11 +371,14 @@ def female_mc_voice_catalog() -> list[dict[str, Any]]:
     ]
 
 
-def validate_category_female_voices(value: Any) -> dict[str, str | None]:
-    """カテゴリ別女性MC割当を検証し、未設定値を正規化する。
+def _normalize_category_female_voices(
+    value: Any, *, reject_inactive: bool
+) -> dict[str, str | None]:
+    """カテゴリごとに割当を正規化する。
 
-    保存するキーは ``EPISODE_CATEGORIES`` の固定値だけに限定する。
-    部分更新は行わず、入力に含まれないカテゴリは未設定として扱う。
+    保存時は ``reject_inactive=True`` で無効候補を拒否する。一方、既存の
+    保存値を読むときは無効なカテゴリだけを None として扱い、有効な他カテゴリ
+    の割当を保持する。
     """
     from app.services.episode_category_service import EPISODE_CATEGORIES
 
@@ -384,18 +387,36 @@ def validate_category_female_voices(value: Any) -> dict[str, str | None]:
 
     valid_categories = set(EPISODE_CATEGORIES)
     unknown_categories = set(value) - valid_categories
-    if unknown_categories:
+    if unknown_categories and reject_inactive:
         raise ValueError(f"unsupported category: {sorted(unknown_categories)[0]}")
 
+    active_voice_names = {
+        item["voice_name"] for item in get_female_mc_candidates(active_only=True)
+    }
     result: dict[str, str | None] = {}
     for category, voice in value.items():
+        if category not in valid_categories:
+            continue
         if voice is None or (isinstance(voice, str) and not voice.strip()):
             result[category] = None
             continue
-        if not isinstance(voice, str) or get_female_mc_candidate(voice, active_only=True) is None:
+        if not isinstance(voice, str):
+            if reject_inactive:
+                raise ValueError(f"unsupported female MC voice: {voice}")
+            result[category] = None
+            continue
+        if voice not in active_voice_names:
+            if not reject_inactive:
+                result[category] = None
+                continue
             raise ValueError(f"unsupported female MC voice: {voice}")
         result[category] = voice
     return result
+
+
+def validate_category_female_voices(value: Any) -> dict[str, str | None]:
+    """カテゴリ別女性MC割当を保存用に厳格検証する。"""
+    return _normalize_category_female_voices(value, reject_inactive=True)
 
 
 def get_category_female_voices_or_default() -> dict[str, str | None]:
@@ -408,7 +429,7 @@ def get_category_female_voices_or_default() -> dict[str, str | None]:
             if not row or not row[CATEGORY_FEMALE_VOICE_COLUMN]:
                 return {}
             raw = json.loads(row[CATEGORY_FEMALE_VOICE_COLUMN])
-            return validate_category_female_voices(raw)
+            return _normalize_category_female_voices(raw, reject_inactive=False)
     except (sqlite3.Error, OSError, TypeError, ValueError, json.JSONDecodeError, KeyError):
         # 壊れた設定は生成を止めず、カテゴリ未設定と同じ既定値へ戻す。
         return {}
@@ -429,6 +450,18 @@ def save_category_female_voices(value: dict[str, str | None]) -> dict[str, str |
     return normalized
 
 
+def get_effective_female_mc_default_voice(fallback_voice: str | None = None) -> str:
+    """候補マスタの有効状態に沿ったFish S2 Pro女性MCの実効既定値を返す。"""
+    active_candidates = get_female_mc_candidates(active_only=True)
+    requested_voice = (fallback_voice or "").strip()
+    active_names = {item["voice_name"] for item in active_candidates}
+    if requested_voice in active_names:
+        return requested_voice
+    if active_candidates:
+        return active_candidates[0]["voice_name"]
+    return requested_voice
+
+
 def resolve_category_female_voice(
     categories: list[str] | tuple[str, ...] | None,
     *,
@@ -442,12 +475,14 @@ def resolve_category_female_voice(
     通信失敗時は呼び出し側が空集合を渡すことで安全にフォールバックできる。
     """
     settings = get_voice_settings_or_default()
-    default_voice = fallback_voice or settings.fishs2pro_voice_female
+    default_voice = get_effective_female_mc_default_voice(
+        fallback_voice if fallback_voice is not None else settings.fishs2pro_voice_female
+    )
     assignments = get_category_female_voices_or_default()
     selected: str | None = None
     for category in categories or ():
         voice = assignments.get(category)
-        if isinstance(voice, str) and get_female_mc_candidate(voice, active_only=True) is not None:
+        if isinstance(voice, str):
             selected = voice
             break
 

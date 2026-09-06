@@ -14,8 +14,10 @@ from app.config import get_settings
 from app.services.fishs2pro_client import FishS2ProClient
 from app.services.settings_service import (
     DURATION_PRESETS,
+    FEMALE_MC_SAMPLE_TEXT,
     create_female_mc_candidate,
     female_mc_voice_catalog,
+    get_effective_female_mc_default_voice,
     get_female_mc_candidate,
     get_female_mc_candidates,
     get_category_female_voices_or_default,
@@ -192,7 +194,7 @@ class FemaleMcCandidatePayload(BaseModel):
 
     voice_name: str = Field(..., min_length=1, max_length=100)
     display_name: str = Field(..., min_length=1, max_length=100)
-    sample_text: str = Field(default="こんにちは、ニュースの時間です。今日の主な話題をお伝えします。", max_length=2000)
+    sample_text: str = Field(default=FEMALE_MC_SAMPLE_TEXT, max_length=2000)
 
 
 class FemaleMcCandidateUpdatePayload(BaseModel):
@@ -303,7 +305,7 @@ def get_voice_options() -> dict:
 def _female_mc_sample_path(voice_name: str) -> Path:
     cfg = get_settings()
     sample_dir = getattr(cfg, "fishs2pro_voice_sample_dir", "/app/data/voice-samples")
-    # voice_name は許可リスト照合済みで、ファイル名を外部入力から組み立てない。
+    # voice_name は候補マスタ照合済みで、ファイル名を未検証の外部入力から組み立てない。
     return Path(sample_dir) / f"{voice_name}.wav"
 
 
@@ -315,7 +317,7 @@ def _candidate_response(candidate: dict) -> dict:
             "url": f"/settings/voices/categories/samples/{voice_name}",
             "text": candidate["sample_text"],
             "media_type": "audio/wav",
-            "available": _female_mc_sample_path(voice_name).is_file(),
+            "available": candidate["is_active"] and _female_mc_sample_path(voice_name).is_file(),
         },
     }
 
@@ -396,12 +398,8 @@ def disable_female_mc_candidate(voice_name: str) -> dict:
 def _category_female_mc_response() -> dict:
     assignments = get_category_female_voices_or_default()
     defaults = get_voice_settings_or_default()
-    default_voice = defaults.fishs2pro_voice_female
-    active_candidates = {
-        item["voice_name"] for item in get_female_mc_candidates(active_only=True)
-    }
-    if default_voice not in active_candidates and active_candidates:
-        default_voice = sorted(active_candidates)[0]
+    default_voice = get_effective_female_mc_default_voice(defaults.fishs2pro_voice_female)
+    active_candidates = {item["voice_name"] for item in get_female_mc_candidates(active_only=True)}
     voices = []
     for voice in female_mc_voice_catalog():
         voice_name = voice["value"]
