@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
     voicevox_speaker_female INTEGER,
     fishs2pro_voice_male TEXT,
     fishs2pro_voice_female TEXT,
+    fishs2pro_category_female_voices TEXT NOT NULL DEFAULT '{}',
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

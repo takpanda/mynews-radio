@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     fishs2pro_base_url: str = "http://192.168.1.102:8000"
     fishs2pro_voice_male: str = "male"
     fishs2pro_voice_female: str = "morigawa"
+    fishs2pro_voice_sample_dir: str = "/app/data/voice-samples"
     api_key: str = ""
     proxy_client_ip_hmac_secret: str = ""
     cookie_secure: bool = True

@@ -2,9 +2,11 @@
 
 import logging
 import sqlite3
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.auth import require_owner_session
@@ -12,6 +14,9 @@ from app.config import get_settings
 from app.services.fishs2pro_client import FishS2ProClient
 from app.services.settings_service import (
     DURATION_PRESETS,
+    FEMALE_MC_VOICE_ALLOWLIST,
+    female_mc_voice_catalog,
+    get_category_female_voices_or_default,
     THEMES,
     ProgramSettings,
     VoiceSettings,
@@ -20,9 +25,11 @@ from app.services.settings_service import (
     reset_settings,
     save_settings,
     save_voice_settings,
+    save_category_female_voices,
     validate_settings,
     validate_voice_settings,
 )
+from app.services.episode_category_service import EPISODE_CATEGORIES
 from app.services.voicevox_client import VoicevoxClient
 
 logger = logging.getLogger(__name__)
@@ -164,6 +171,51 @@ class VoiceOptionsResponse(BaseModel):
     fishs2pro: EngineVoiceOptions
 
 
+class FemaleMcSample(BaseModel):
+    url: str
+    text: str
+    media_type: str
+    available: bool
+
+
+class FemaleMcOption(BaseModel):
+    display_name: str
+    value: str
+    sample: FemaleMcSample
+
+
+class CategoryFemaleMcResponse(BaseModel):
+    categories: list[str]
+    category_female_voices: dict[str, str | None]
+    default_voice: str
+    voices: list[FemaleMcOption]
+
+
+class CategoryFemaleMcPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    category_female_voices: dict[str, str | None] | None = None
+    settings: dict[str, str | None] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_mapping_payload(cls, value: object) -> object:
+        # Frontend契約は category_female_voices だが、単純なカテゴリ→ボイス
+        # オブジェクトも受け入れてAPI利用者の移行を容易にする。
+        if isinstance(value, dict) and not ({"category_female_voices", "settings"} & value.keys()):
+            return {"category_female_voices": value}
+        return value
+
+    @model_validator(mode="after")
+    def merge_settings_alias(self) -> "CategoryFemaleMcPayload":
+        if self.category_female_voices is not None and self.settings is not None:
+            if self.category_female_voices != self.settings:
+                raise ValueError("category_female_voices and settings must match")
+        if self.category_female_voices is None:
+            self.category_female_voices = self.settings or {}
+        return self
+
+
 # 一覧取得失敗時にクライアント例外の詳細（接続先ホスト等）を応答へそのまま含めない。
 _VOICE_LIST_FAILURE_MESSAGE = "話者一覧を取得できませんでした"
 
@@ -218,3 +270,82 @@ def get_voice_options() -> dict:
         "voicevox": _fetch_speaker_style_options(cfg.voicevox_base_url).model_dump(),
         "fishs2pro": _fetch_fishs2pro_options(cfg.fishs2pro_base_url).model_dump(),
     }
+
+
+def _female_mc_sample_path(voice_name: str) -> Path:
+    cfg = get_settings()
+    sample_dir = getattr(cfg, "fishs2pro_voice_sample_dir", "/app/data/voice-samples")
+    # voice_name は許可リスト照合済みで、ファイル名を外部入力から組み立てない。
+    return Path(sample_dir) / f"{voice_name}.wav"
+
+
+def _category_female_mc_response() -> dict:
+    assignments = get_category_female_voices_or_default()
+    defaults = get_voice_settings_or_default()
+    default_voice = defaults.fishs2pro_voice_female
+    voices = []
+    for voice in female_mc_voice_catalog():
+        voice_name = voice["value"]
+        voices.append({
+            "display_name": voice["display_name"],
+            "value": voice_name,
+            "sample": {
+                "url": f"/settings/voices/categories/samples/{voice_name}",
+                "text": voice["sample_text"],
+                "media_type": "audio/wav",
+                "available": _female_mc_sample_path(voice_name).is_file(),
+            },
+        })
+    return {
+        "categories": list(EPISODE_CATEGORIES),
+        "category_female_voices": {
+            category: assignments.get(category)
+            for category in EPISODE_CATEGORIES
+        },
+        "default_voice": default_voice,
+        "voices": voices,
+    }
+
+
+@router.get(
+    "/voices/categories",
+    response_model=CategoryFemaleMcResponse,
+    dependencies=[Depends(require_owner_session)],
+)
+def get_category_female_mc_settings() -> dict:
+    """15固定カテゴリの女性MC設定と固定試聴サンプル情報を返す。"""
+    return _category_female_mc_response()
+
+
+@router.put(
+    "/voices/categories",
+    response_model=CategoryFemaleMcResponse,
+    dependencies=[Depends(require_owner_session)],
+)
+def update_category_female_mc_settings(payload: CategoryFemaleMcPayload) -> dict:
+    """カテゴリ別女性MC設定を検証・保存する（既存管理者セッション必須）。"""
+    try:
+        save_category_female_voices(payload.category_female_voices or {})
+        return _category_female_mc_response()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (sqlite3.Error, OSError) as exc:
+        raise HTTPException(status_code=503, detail="カテゴリ別音声設定を保存できませんでした") from exc
+
+
+@router.get(
+    "/voices/categories/samples/{voice_name}",
+    dependencies=[Depends(require_owner_session)],
+)
+def get_category_female_mc_sample(voice_name: str) -> FileResponse:
+    """許可済み女性MCの事前生成済み固定サンプルだけを認証付きで配信する。"""
+    if voice_name not in FEMALE_MC_VOICE_ALLOWLIST:
+        raise HTTPException(status_code=404, detail="Voice sample not found")
+    sample_path = _female_mc_sample_path(voice_name)
+    if not sample_path.is_file():
+        raise HTTPException(status_code=404, detail="Voice sample not found")
+    return FileResponse(
+        sample_path,
+        media_type="audio/wav",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )

@@ -17,7 +17,13 @@ from app.batch.synthesize_voicevox import synthesize_episode
 from app.config import get_settings
 from app.services.episode_service import EpisodeService, override_script_title, build_radio_title
 from app.services.episode_category_service import select_episode_categories
-from app.services.settings_service import ProgramSettings, get_settings_or_default, resolve_tts_speakers
+from app.services.fishs2pro_client import FishS2ProClient
+from app.services.settings_service import (
+    ProgramSettings,
+    get_settings_or_default,
+    resolve_category_female_voice,
+    resolve_tts_speakers,
+)
 from app.services.telegram_notifier import notify_failure, notify_success
 
 
@@ -98,6 +104,29 @@ def _determine_tts_config(tts_engine: str | None = None) -> dict[str, Any]:
         "speaker_male": speaker_male,
         "speaker_female": speaker_female,
     }
+
+
+def _resolve_fishs2pro_category_female_voice(
+    categories: list[str], base_url: str, fallback_voice: str
+) -> str:
+    """カテゴリ割当を現在利用可能なFish S2 Proボイスへ解決する。
+
+    ヘルスチェック失敗は生成失敗にせず、保存済み割当を採用せずに
+    全体既定女性MCへフォールバックする。接続先やレスポンス内容はログへ出さない。
+    """
+    available_voices: set[str] = set()
+    client = FishS2ProClient(base_url)
+    try:
+        available_voices = set(client.list_voices())
+    except Exception:
+        logger.warning("Fish S2 Proのボイス一覧取得に失敗したため既定女性MCを使用します")
+    finally:
+        client.close()
+    return resolve_category_female_voice(
+        categories,
+        available_voices=available_voices,
+        fallback_voice=fallback_voice,
+    )
 
 
 def run_radio_pipeline(
@@ -276,11 +305,21 @@ def run_radio_pipeline(
             override_script_title(script_path, effective_program_name, episode_date, seq)
 
         # 台本（レビュー後の最終版）を優先し、失敗しても生成本体は継続する。
+        categories: list[str] = []
         try:
             categories = select_episode_categories(script_path, summaries_path)
             service.update_episode_categories(episode_id, categories)
         except Exception:
             logger.warning("episode category persistence failed (non-fatal)", exc_info=True)
+
+        # カテゴリ別女性MCはFish S2 Proの新規生成だけに適用する。
+        # 他エンジンは従来どおり、また男性MCの設定は変更しない。
+        if tts_config["tts_engine"] == "fishs2pro":
+            effective_tts_female = _resolve_fishs2pro_category_female_voice(
+                categories,
+                effective_tts_base_url,
+                str(effective_tts_female),
+            )
 
         # -- SYNTHESIZE TTS --
         _progress("synthesize", "音声を合成しています…")
