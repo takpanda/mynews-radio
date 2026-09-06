@@ -1,5 +1,5 @@
 import AdminVoiceSettingsShell from '../../../components/AdminVoiceSettingsShell'
-import CategoryFemaleMcPanel from '../../../components/CategoryFemaleMcPanel'
+import CategoryFemaleMcSection from '../../../components/CategoryFemaleMcSection'
 import { fetchVoiceOptions, fetchVoiceSettings } from '../../../lib/admin-voice-settings'
 import { fetchCategoryFemaleMc } from '../../../lib/admin-category-female-mc'
 import AdminNav from '../../../components/AdminNav'
@@ -35,13 +35,7 @@ export default async function AdminVoiceSettingsPage() {
       ) : (
         <div className="space-y-6">
           <AdminVoiceSettingsShell initialSettings={initialSettings!} initialOptions={initialOptions!} />
-          {categoryError ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              {categoryError}
-            </div>
-          ) : (
-            <CategoryFemaleMcPanel initialData={initialCategoryFemaleMc!} />
-          )}
+          <CategoryFemaleMcSection initialData={initialCategoryFemaleMc} initialError={categoryError} />
         </div>
       )}
     </main>
