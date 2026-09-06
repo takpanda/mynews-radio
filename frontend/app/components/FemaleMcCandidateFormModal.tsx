@@ -63,7 +63,7 @@ export default function FemaleMcCandidateFormModal({ candidate, onClose, onSucce
       if (isEdit) {
         saved = await updateFemaleMcCandidateClient(candidate!.voice_name, {
           display_name: displayName.trim(),
-          sample_text: trimmedSampleText,
+          ...(trimmedSampleText ? { sample_text: trimmedSampleText } : {}),
         })
       } else {
         saved = await createFemaleMcCandidateClient({
@@ -182,7 +182,7 @@ export default function FemaleMcCandidateFormModal({ candidate, onClose, onSucce
               maxLength={MAX_SAMPLE_TEXT}
               rows={3}
               className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100"
-              placeholder="空欄の場合は既定の試聴文を使用します"
+              placeholder={isEdit ? '空欄の場合は現在の試聴文を維持します' : '空欄の場合は既定の試聴文を使用します'}
             />
             <p className="mt-0.5 text-right text-[11px] text-slate-400">
               {sampleText.length}/{MAX_SAMPLE_TEXT}

@@ -42,6 +42,19 @@ const sampleCandidates: FemaleMcCandidate[] = [
       available: false,
     },
   },
+  {
+    id: 3,
+    voice_name: 'no_sample_yet',
+    display_name: '未登録候補',
+    sample_text: 'これは未登録候補のサンプル文です。',
+    is_active: true,
+    sample: {
+      url: '/api/admin/settings/voices/categories/samples/no_sample_yet',
+      text: 'これは未登録候補のサンプル文です。',
+      media_type: 'audio/wav',
+      available: false,
+    },
+  },
 ]
 
 beforeEach(() => {
@@ -67,6 +80,13 @@ describe('FemaleMcCandidatesPanel', () => {
   it('サンプル未登録の候補は再生ボタンが無効化される', () => {
     render(<FemaleMcCandidatesPanel initialData={sampleCandidates} />)
     expect(screen.getByRole('button', { name: 'femaleのサンプルを再生' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '未登録候補のサンプルを再生' })).toBeDisabled()
+  })
+
+  it('サンプル未登録の理由を無効化と未登録で区別して表示する', () => {
+    render(<FemaleMcCandidatesPanel initialData={sampleCandidates} />)
+    expect(screen.getByText('無効化されているため試聴できません')).toBeInTheDocument()
+    expect(screen.getByText('サンプル音声が未登録です')).toBeInTheDocument()
   })
 
   it('再生・停止：候補を再生でき、再生ボタンが停止表示に切り替わる', async () => {
@@ -131,5 +151,39 @@ describe('FemaleMcCandidatesPanel', () => {
       expect(screen.getByText('新しい候補')).toBeInTheDocument()
     })
     expect(mockCreate).toHaveBeenCalledWith({ voice_name: 'newvoice', display_name: '新しい候補' })
+  })
+
+  it('候補を編集：試聴文を空欄にして保存すると sample_text を送らず現在値を維持する', async () => {
+    mockUpdate.mockResolvedValueOnce(sampleCandidates[0])
+    const user = userEvent.setup()
+    render(<FemaleMcCandidatesPanel initialData={sampleCandidates} />)
+
+    await user.click(screen.getAllByRole('button', { name: '編集' })[0])
+    const sampleTextBox = screen.getByDisplayValue('これはもりかわのサンプル文です。')
+    await user.clear(sampleTextBox)
+    await user.click(screen.getByRole('button', { name: '保存する' }))
+
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledWith('morigawa', { display_name: 'もりかわ' })
+    })
+  })
+
+  it('候補を編集：試聴文を入力して保存すると sample_text を含めて送信する', async () => {
+    mockUpdate.mockResolvedValueOnce(sampleCandidates[0])
+    const user = userEvent.setup()
+    render(<FemaleMcCandidatesPanel initialData={sampleCandidates} />)
+
+    await user.click(screen.getAllByRole('button', { name: '編集' })[0])
+    const sampleTextBox = screen.getByDisplayValue('これはもりかわのサンプル文です。')
+    await user.clear(sampleTextBox)
+    await user.type(sampleTextBox, '更新後のサンプル文です。')
+    await user.click(screen.getByRole('button', { name: '保存する' }))
+
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledWith('morigawa', {
+        display_name: 'もりかわ',
+        sample_text: '更新後のサンプル文です。',
+      })
+    })
   })
 })

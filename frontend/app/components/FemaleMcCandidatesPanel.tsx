@@ -146,7 +146,9 @@ export default function FemaleMcCandidatesPanel({ initialData }: Props) {
                   <p className="mt-0.5 truncate text-xs text-slate-500">{candidate.voice_name}</p>
                   <p className="mt-0.5 truncate text-xs text-slate-400">{candidate.sample_text}</p>
                   {!candidate.sample.available && (
-                    <p className="mt-1 text-xs text-amber-600">サンプル音声が未登録です</p>
+                    <p className="mt-1 text-xs text-amber-600">
+                      {candidate.is_active ? 'サンプル音声が未登録です' : '無効化されているため試聴できません'}
+                    </p>
                   )}
                   {playError && (
                     <p role="alert" className="mt-1 text-xs text-rose-600">
