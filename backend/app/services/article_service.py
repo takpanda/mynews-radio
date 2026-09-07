@@ -23,14 +23,18 @@ _MAX_ARTICLES_PER_TOPIC = 2
 _KNOWN_TOPIC_CATEGORIES = {
     "technology", "business", "society", "sports", "entertainment", "general",
 }
+_CANDIDATE_POOL_MULTIPLIER = 5
+_MAX_CANDIDATE_POOL_SIZE = 100
 
 # 要約プロンプトの category には天気・災害の専用値がないため、category/title/summary
 # の既存テキストに現れる明示語を連続抑制用の一つのグループとして扱う。
 _WEATHER_DISASTER_CATEGORIES = {"weather", "disaster", "防災", "災害", "気象"}
 _WEATHER_DISASTER_KEYWORDS = (
-    "天気", "気象", "雨", "大雪", "雪", "猛暑", "酷暑", "熱波", "台風", "豪雨",
+    "天気", "気象", "降雨", "雨量", "大雨", "雨雲", "雨天", "雷雨", "大雪", "雪害",
+    "積雪", "降雪", "豪雪", "雪崩", "雪解け", "雪道", "落雷", "雷雲", "雷鳴",
+    "猛暑", "酷暑", "熱波", "台風", "豪雨",
     "洪水", "浸水", "土砂", "線状降水帯", "地震", "震度", "津波", "火山", "噴火",
-    "竜巻", "雷", "災害", "防災", "避難", "警報", "注意報", "警戒", "被災",
+    "竜巻", "災害", "防災", "避難", "警報", "注意報", "警戒", "被災",
     "weather", "disaster", "earthquake", "typhoon", "flood", "landslide",
 )
 
@@ -486,15 +490,20 @@ class ArticleService:
             placeholders = ",".join("?" for _ in priority)
             order = f"CASE WHEN category IN ({placeholders}) THEN 0 ELSE 1 END, {order}"
             params.extend(priority)
+        candidate_limit = min(
+            max(0, max_articles) * _CANDIDATE_POOL_MULTIPLIER,
+            _MAX_CANDIDATE_POOL_SIZE,
+        )
+        params.append(candidate_limit)
         query = (
             "SELECT id, title, source, url, summary, category, importance_score, difficulty "
-            f"FROM articles WHERE {' AND '.join(where)} ORDER BY {order}"
+            f"FROM articles WHERE {' AND '.join(where)} ORDER BY {order} LIMIT ?"
         )
         with get_db_connection() as conn:
             rows = conn.execute(query, params).fetchall()
             # SQLの選定順を保ったまま、タイトル重複とテーマ集中を後段で除外する。
-            # 先にLIMITをかけると、除外後に後続候補で件数を補充できないため、
-            # lookback期間内の候補を取得してから max_articles 件に切り詰める。
+            # max_articlesの5倍（最大100件）を候補として取得し、除外後に後続候補で
+            # 件数を補充する。無制限取得による計算量増加も避ける。
             candidates = _filter_similar_articles([dict(row) for row in rows])
             return _filter_topic_concentration(candidates, max_articles)
 
