@@ -109,19 +109,16 @@ docker compose exec api python3 /app/app/batch/orchestrate.py 2026-05-31
 
 ### フロントエンドテスト（ローカル）
 
-依存関係未導入の状態からフロントエンドのテストを実行するには:
+依存関係未導入の状態からフロントエンドのテストを実行するには、依存導入とテストを一括するコマンドを使用します:
 
 ```bash
-# 1. Node.js 20.x を選択（nvmを使う場合）
+# Node.js 20.x を選択（nvmを使う場合）
 cd frontend
 nvm use
-
-# 2. 依存関係をロックファイルに従ってインストール
-npm ci
-
-# 3. テストを実行
-npm test -- --runInBand
+npm run test:local
 ```
+
+`test:local` は `npm ci` でlockfileどおりに依存関係を構築してから、`npm test -- --runInBand` を実行します。個別に実行する場合も、先に `npm ci` を実行してください。
 
 `nvm` を使わない場合は、Node.js 20.x と npm 10 以上を用意したうえで `frontend` ディレクトリから `npm ci` を実行してください。`.nvmrc` と `package.json` の `engines` が必要なバージョンを示します。
 
