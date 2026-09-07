@@ -11,6 +11,7 @@
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 3010",
     "test": "jest",
+    "test:local": "node -e \"if (!process.versions.node.startsWith('20.')) { console.error('Node 20.x is required; run nvm use first.'); process.exit(1) }\" && npm ci && npm test -- --runInBand",
     "lint": "next lint"
   },
   "dependencies": {

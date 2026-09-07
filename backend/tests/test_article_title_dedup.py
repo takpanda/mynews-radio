@@ -163,6 +163,17 @@ def test_priority_theme_below_high_impact_threshold_keeps_existing_order():
     assert reordered == filtered
 
 
+def test_priority_theme_absent_keeps_existing_order_as_fallback():
+    filtered = [
+        {"title": "一般記事", "category": "general", "importance_score": 5},
+        {"title": "企業ニュース", "category": "business", "importance_score": 4},
+    ]
+
+    reordered = _prioritize_high_impact_articles(filtered, ["sports"])
+
+    assert reordered == filtered
+
+
 def test_prioritization_preserves_weather_disaster_run_limit():
     filtered = [
         {"title": "大雨1", "category": "society", "summary": "大雨", "importance_score": 5},
