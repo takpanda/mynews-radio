@@ -23,6 +23,7 @@ _MAX_ARTICLES_PER_TOPIC = 2
 _KNOWN_TOPIC_CATEGORIES = {
     "technology", "business", "society", "sports", "entertainment", "general",
 }
+_HIGH_IMPACT_SCORE_THRESHOLD = 4
 _CANDIDATE_POOL_MULTIPLIER = 5
 _MAX_CANDIDATE_POOL_SIZE = 100
 
@@ -394,6 +395,69 @@ def _filter_topic_concentration(
     return selected
 
 
+def _prioritize_high_impact_articles(
+    articles: list[dict[str, Any]], priority_themes: list[str] | tuple[str, ...] | None
+) -> list[dict[str, Any]]:
+    """多様性フィルタ後の候補から高インパクト記事を先頭へ安定移動する。
+
+    高インパクトは、優先テーマに一致し、かつ既存の重要度スコアが4以上の
+    記事とする。記事の入れ替えはフィルタ後に行うため、カテゴリ上限は変わら
+    ない。天気・災害の連続抑制だけは並び替え後にも満たすよう、3件目以降を
+    次の通常記事の後ろへ繰り下げる。
+    """
+    priority = {
+        str(theme).strip().casefold()
+        for theme in (priority_themes or ())
+        if str(theme).strip()
+    }
+    if not priority:
+        return list(articles)
+
+    high_impact: list[dict[str, Any]] = []
+    fallback: list[dict[str, Any]] = []
+    for article in articles:
+        category = str(article.get("category") or "").strip().casefold()
+        try:
+            importance_score = int(article.get("importance_score"))
+        except (TypeError, ValueError):
+            importance_score = 0
+        if category in priority and importance_score >= _HIGH_IMPACT_SCORE_THRESHOLD:
+            high_impact.append(article)
+        else:
+            fallback.append(article)
+
+    # 非該当時は元の重要度・公開日時順（SQL選定順）をそのまま返す。
+    if not high_impact:
+        return list(articles)
+
+    reordered = high_impact + fallback
+    result: list[dict[str, Any]] = []
+    deferred_weather: list[dict[str, Any]] = []
+
+    def would_create_weather_run(article: dict[str, Any]) -> bool:
+        return (
+            _is_weather_disaster_article(article)
+            and len(result) >= 2
+            and all(_is_weather_disaster_article(item) for item in result[-2:])
+        )
+
+    def flush_deferred_weather() -> None:
+        while deferred_weather and not would_create_weather_run(deferred_weather[0]):
+            result.append(deferred_weather.pop(0))
+
+    for article in reordered:
+        if would_create_weather_run(article):
+            deferred_weather.append(article)
+            continue
+        result.append(article)
+        if not _is_weather_disaster_article(article):
+            flush_deferred_weather()
+
+    # 通常記事が存在しない場合は、元のフィルタと同様に件数充足を優先する。
+    result.extend(deferred_weather)
+    return result
+
+
 class ArticleService:
     def upsert_article(self, article: dict[str, Any]) -> bool:
         with get_db_connection() as conn:
@@ -505,7 +569,8 @@ class ArticleService:
             # max_articlesの5倍（最大100件）を候補として取得し、除外後に後続候補で
             # 件数を補充する。無制限取得による計算量増加も避ける。
             candidates = _filter_similar_articles([dict(row) for row in rows])
-            return _filter_topic_concentration(candidates, max_articles)
+            filtered = _filter_topic_concentration(candidates, max_articles)
+            return _prioritize_high_impact_articles(filtered, priority)
 
     def fetch_and_store_article_by_url(self, url: str, timeout: int = 10) -> bool:
         """Fetch article from URL and store in DB with source='url_commentary'.

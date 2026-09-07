@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from app.services.article_service import (
     ArticleService,
     _is_weather_disaster_article,
+    _prioritize_high_impact_articles,
     normalize_title,
     titles_are_similar,
 )
@@ -132,4 +133,53 @@ def test_fetch_summaries_breaks_weather_disaster_run_when_alternative_exists():
     assert not any(
         all("大雨" in item["title"] for item in summaries[index:index + 3])
         for index in range(len(summaries) - 2)
+    )
+
+
+def test_prioritizes_high_impact_priority_theme_after_filtering():
+    filtered = [
+        {"title": "天気情報", "category": "society", "importance_score": 5},
+        {"title": "安全保障の動き", "category": "business", "importance_score": 4},
+        {"title": "企業ニュース", "category": "business", "importance_score": 3},
+    ]
+
+    reordered = _prioritize_high_impact_articles(filtered, ["business"])
+
+    assert [article["title"] for article in reordered] == [
+        "安全保障の動き",
+        "天気情報",
+        "企業ニュース",
+    ]
+
+
+def test_priority_theme_below_high_impact_threshold_keeps_existing_order():
+    filtered = [
+        {"title": "重要度5の一般記事", "category": "general", "importance_score": 5},
+        {"title": "優先テーマだが重要度3", "category": "business", "importance_score": 3},
+    ]
+
+    reordered = _prioritize_high_impact_articles(filtered, ["business"])
+
+    assert reordered == filtered
+
+
+def test_prioritization_preserves_weather_disaster_run_limit():
+    filtered = [
+        {"title": "大雨1", "category": "society", "summary": "大雨", "importance_score": 5},
+        {"title": "大雨2", "category": "society", "summary": "大雨", "importance_score": 5},
+        {"title": "大雨3", "category": "society", "summary": "大雨", "importance_score": 4},
+        {"title": "一般記事", "category": "business", "summary": "企業", "importance_score": 3},
+    ]
+
+    reordered = _prioritize_high_impact_articles(filtered, ["society"])
+
+    assert [article["title"] for article in reordered] == [
+        "大雨1",
+        "大雨2",
+        "一般記事",
+        "大雨3",
+    ]
+    assert not any(
+        all(_is_weather_disaster_article(item) for item in reordered[index:index + 3])
+        for index in range(len(reordered) - 2)
     )
