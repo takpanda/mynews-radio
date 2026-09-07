@@ -16,6 +16,24 @@ _TITLE_SIMILARITY_THRESHOLD = 0.92
 _CROSS_LANGUAGE_TOKEN_THRESHOLD = 0.68
 _MIN_SEMANTIC_TOKEN_COVERAGE = 0.5
 
+# 同じカテゴリの記事が一つのエピソードに偏りすぎないための上限。
+# 要約時に保存している category はLLMの分類結果であり、追加のクラスタリングを
+# 行わずに利用できる唯一の安定したテーマ情報なので、初期値は2件に限定する。
+_MAX_ARTICLES_PER_TOPIC = 2
+_KNOWN_TOPIC_CATEGORIES = {
+    "technology", "business", "society", "sports", "entertainment", "general",
+}
+
+# 要約プロンプトの category には天気・災害の専用値がないため、category/title/summary
+# の既存テキストに現れる明示語を連続抑制用の一つのグループとして扱う。
+_WEATHER_DISASTER_CATEGORIES = {"weather", "disaster", "防災", "災害", "気象"}
+_WEATHER_DISASTER_KEYWORDS = (
+    "天気", "気象", "雨", "大雪", "雪", "猛暑", "酷暑", "熱波", "台風", "豪雨",
+    "洪水", "浸水", "土砂", "線状降水帯", "地震", "震度", "津波", "火山", "噴火",
+    "竜巻", "雷", "災害", "防災", "避難", "警報", "注意報", "警戒", "被災",
+    "weather", "disaster", "earthquake", "typhoon", "flood", "landslide",
+)
+
 # 社名と一緒に頻出する定型語は、アンカー以外の意味的な一致とはみなさない。
 # 日本語カタカナ語はローマ字形も登録し、security／セキュリティ等を同じ扱いにする。
 _GENERIC_TITLE_TERMS = {
@@ -272,6 +290,106 @@ def _filter_similar_articles(articles: list[dict[str, Any]]) -> list[dict[str, A
     return selected
 
 
+def _article_topic_key(article: dict[str, Any]) -> str | None:
+    """記事の後段フィルタ用テーマキーを返す。
+
+    要約時に保存された既知の category を使う。未知・空の category は判定不能
+    として上限を適用しない（異なる話題を誤ってまとめないため）。天気・災害の
+    連続抑制は category/title/summary を使う別判定で行う。
+    """
+    category = str(article.get("category") or "").strip().casefold()
+    if category in _KNOWN_TOPIC_CATEGORIES:
+        return category
+    return None
+
+
+def _is_weather_disaster_article(article: dict[str, Any]) -> bool:
+    category = str(article.get("category") or "").strip().casefold()
+    searchable_text = " ".join(
+        str(article.get(field) or "") for field in ("category", "title", "summary")
+    ).casefold()
+    return (
+        category in _WEATHER_DISASTER_CATEGORIES
+        or any(keyword in searchable_text for keyword in _WEATHER_DISASTER_KEYWORDS)
+    )
+
+
+def _filter_topic_concentration(
+    articles: list[dict[str, Any]], max_articles: int
+) -> list[dict[str, Any]]:
+    """カテゴリ上限と天気・災害の連続抑制を適用して選定数を満たす。
+
+    候補をSQLで先に ``max_articles`` 件へ切り詰めず、後続候補まで見てから
+    フィルタすることで、偏りを除外した分だけ件数が不必要に減ることを防ぐ。
+    天気・災害の3件目は一旦保留し、通常記事が後続にあればその後へ回す。
+    代替候補がない場合は、件数充足のため保留候補を最後に採用する。
+    """
+    if max_articles <= 0:
+        return []
+
+    selected: list[dict[str, Any]] = []
+    deferred_weather: list[dict[str, Any]] = []
+    topic_counts: dict[str, int] = {}
+
+    def can_select(article: dict[str, Any], *, allow_weather_run: bool = False) -> bool:
+        topic = _article_topic_key(article)
+        # 天気・災害は category が society/general に寄りやすく、別々の事象を
+        # 同一テーマと誤認しやすい。ここではカテゴリ上限の対象から外し、専用の
+        # 連続抑制だけを適用する。
+        if (
+            topic is not None
+            and not _is_weather_disaster_article(article)
+            and topic_counts.get(topic, 0) >= _MAX_ARTICLES_PER_TOPIC
+        ):
+            return False
+        if (
+            not allow_weather_run
+            and _is_weather_disaster_article(article)
+            and len(selected) >= 2
+            and all(_is_weather_disaster_article(item) for item in selected[-2:])
+        ):
+            return False
+        return True
+
+    def select(article: dict[str, Any]) -> None:
+        selected.append(article)
+        topic = _article_topic_key(article)
+        if topic is not None and not _is_weather_disaster_article(article):
+            topic_counts[topic] = topic_counts.get(topic, 0) + 1
+
+    def flush_deferred_weather() -> None:
+        if not deferred_weather:
+            return
+        remaining: list[dict[str, Any]] = []
+        while deferred_weather and len(selected) < max_articles:
+            article = deferred_weather.pop(0)
+            if can_select(article):
+                select(article)
+            else:
+                remaining.append(article)
+        deferred_weather.extend(remaining)
+
+    for article in articles:
+        if len(selected) >= max_articles:
+            break
+        if _is_weather_disaster_article(article) and not can_select(article):
+            deferred_weather.append(article)
+            continue
+        if can_select(article):
+            select(article)
+            # 通常記事を差し込めた時点で、保留していた天気・災害記事を再評価する。
+            if not _is_weather_disaster_article(article):
+                flush_deferred_weather()
+
+    # 代替候補がなかった場合だけ、連続抑制を解除して件数を充足する。
+    while deferred_weather and len(selected) < max_articles:
+        article = deferred_weather.pop(0)
+        if can_select(article, allow_weather_run=True):
+            select(article)
+
+    return selected
+
+
 class ArticleService:
     def upsert_article(self, article: dict[str, Any]) -> bool:
         with get_db_connection() as conn:
@@ -368,16 +486,17 @@ class ArticleService:
             placeholders = ",".join("?" for _ in priority)
             order = f"CASE WHEN category IN ({placeholders}) THEN 0 ELSE 1 END, {order}"
             params.extend(priority)
-        params.append(max_articles)
         query = (
             "SELECT id, title, source, url, summary, category, importance_score, difficulty "
-            f"FROM articles WHERE {' AND '.join(where)} ORDER BY {order} LIMIT ?"
+            f"FROM articles WHERE {' AND '.join(where)} ORDER BY {order}"
         )
         with get_db_connection() as conn:
             rows = conn.execute(query, params).fetchall()
-            # SQLの選定順（importance_score、published_at、id）を保ったまま、
-            # URLの重複判定とは独立してタイトルの高類似候補だけを落とす。
-            return _filter_similar_articles([dict(row) for row in rows])
+            # SQLの選定順を保ったまま、タイトル重複とテーマ集中を後段で除外する。
+            # 先にLIMITをかけると、除外後に後続候補で件数を補充できないため、
+            # lookback期間内の候補を取得してから max_articles 件に切り詰める。
+            candidates = _filter_similar_articles([dict(row) for row in rows])
+            return _filter_topic_concentration(candidates, max_articles)
 
     def fetch_and_store_article_by_url(self, url: str, timeout: int = 10) -> bool:
         """Fetch article from URL and store in DB with source='url_commentary'.

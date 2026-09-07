@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from app.services.article_service import normalize_title, titles_are_similar
+from app.services.article_service import ArticleService, normalize_title, titles_are_similar
 
 
 def _insert_summary(title: str, score: int) -> None:
@@ -19,6 +19,29 @@ def _insert_summary(title: str, score: int) -> None:
                 "test",
                 f"https://example.test/{score}-{title}",
                 title,
+                score,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+
+
+def _insert_summary_with_category(title: str, category: str, score: int) -> None:
+    from app.db.connection import get_db_connection
+
+    with get_db_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO articles (
+                title, source, url, text, summary, category, importance_score,
+                difficulty, status, published_at
+            ) VALUES (?, ?, ?, '', ?, ?, ?, 1, 'summarized', ?)
+            """,
+            (
+                title,
+                "test",
+                f"https://example.test/{score}-{title}",
+                title,
+                category,
                 score,
                 datetime.now(timezone.utc).isoformat(),
             ),
@@ -55,3 +78,45 @@ def test_fetch_summaries_removes_later_transliterated_duplicate_and_keeps_order(
         "OpenAI、ハラペーニョを発表",
         "米国市場で株価が上昇",
     ]
+
+
+def test_fetch_summaries_limits_known_topic_to_two_and_fills_with_later_candidates():
+    for index in range(3):
+        _insert_summary_with_category(f"テクノロジー記事{index}", "technology", 5)
+    for index in range(3):
+        _insert_summary_with_category(f"社会記事{index}", "society", 4)
+
+    summaries = ArticleService().fetch_summaries_for_script(
+        max_articles=5,
+        min_importance_score=3,
+        source="test",
+    )
+
+    assert len(summaries) == 4
+    assert sum(item["category"] == "technology" for item in summaries) == 2
+    assert sum(item["category"] == "society" for item in summaries) == 2
+
+
+def test_fetch_summaries_breaks_weather_disaster_run_when_alternative_exists():
+    for index in range(3):
+        _insert_summary_with_category(f"大雨に関する記事{index}", "society", 5)
+    _insert_summary_with_category("企業の決算発表", "business", 4)
+
+    summaries = ArticleService().fetch_summaries_for_script(
+        max_articles=4,
+        min_importance_score=3,
+        source="test",
+    )
+
+    assert len(summaries) == 4
+    assert summaries[2]["title"] == "企業の決算発表"
+    assert {item["title"] for item in summaries} == {
+        "大雨に関する記事0",
+        "大雨に関する記事1",
+        "大雨に関する記事2",
+        "企業の決算発表",
+    }
+    assert not any(
+        all("大雨" in item["title"] for item in summaries[index:index + 3])
+        for index in range(len(summaries) - 2)
+    )
