@@ -229,6 +229,64 @@ describe('GenerateEpisodeButton — 解説モード重複チェック', () => {
   })
 })
 
+describe('GenerateEpisodeButton — LLMプロバイダー・モデルの既定選択', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGenerateEpisode.mockResolvedValue({ episode_id: 100 })
+    mockFetchLlmProviders.mockResolvedValue({ providers: [
+      { provider: 'ollama', models: ['gemma4:26b-mlx', 'qwen3.8:27b-mlx'], available: true },
+    ] })
+    localStorage.clear()
+  })
+
+  it('未操作のまま生成すると、一覧の先頭に表示された値を明示送信せずバックエンドの既定モデルへ委ねる', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    // 表示上は一覧の先頭（gemma4:26b-mlx）が補完表示される
+    await waitFor(() => expect(screen.getByLabelText('LLMモデル')).toHaveValue('gemma4:26b-mlx'))
+
+    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    expect(mockGenerateEpisode.mock.calls[0][10]).toBeUndefined()
+    expect(mockGenerateEpisode.mock.calls[0][11]).toBeUndefined()
+  })
+
+  it('モデルを明示的に選び直した場合は、その選択を生成APIへ送信する', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await waitFor(() => expect(screen.getByLabelText('LLMモデル')).toHaveValue('gemma4:26b-mlx'))
+    await user.selectOptions(screen.getByLabelText('LLMモデル'), 'qwen3.8:27b-mlx')
+
+    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    expect(mockGenerateEpisode.mock.calls[0][10]).toBe('ollama')
+    expect(mockGenerateEpisode.mock.calls[0][11]).toBe('qwen3.8:27b-mlx')
+  })
+
+  it('プロバイダー自体を選び直した場合は、新プロバイダーとその先頭モデルを生成APIへ送信する', async () => {
+    mockFetchLlmProviders.mockResolvedValue({ providers: [
+      { provider: 'ollama', models: ['gemma4:26b-mlx', 'qwen3.8:27b-mlx'], available: true },
+      { provider: 'lm_studio', models: ['local-model-a', 'local-model-b'], available: true },
+    ] })
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await waitFor(() => expect(screen.getByLabelText('LLMプロバイダー')).toHaveValue('ollama'))
+    await user.selectOptions(screen.getByLabelText('LLMプロバイダー'), 'lm_studio')
+    await waitFor(() => expect(screen.getByLabelText('LLMモデル')).toHaveValue('local-model-a'))
+
+    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    expect(mockGenerateEpisode.mock.calls[0][10]).toBe('lm_studio')
+    expect(mockGenerateEpisode.mock.calls[0][11]).toBe('local-model-a')
+  })
+})
+
 describe('GenerateEpisodeButton — パラメータすり替え防止', () => {
   beforeEach(() => {
     jest.clearAllMocks()

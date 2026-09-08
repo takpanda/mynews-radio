@@ -301,6 +301,7 @@ interface GenerationParams {
   settingsSnapshot?: ProgramSettings
   llmProvider: string
   llmModel: string
+  llmTouched: boolean
 }
 
 const STORAGE_KEY = 'generating_episode_id'
@@ -333,6 +334,9 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   const [llmError, setLlmError] = useState<string | null>(null)
   const [llmProvider, setLlmProvider] = useState('')
   const [llmModel, setLlmModel] = useState('')
+  // discovery APIが返す一覧の先頭を初期表示用に補完しているだけで、利用者が明示的に選んだ値ではない。
+  // 未操作のまま生成した場合はこのプレースホルダー値を送らず、バックエンドの既定モデルに委ねる。
+  const [llmTouched, setLlmTouched] = useState(false)
   const [urlError, setUrlError] = useState<string | null>(null)
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false)
   const [duplicateDialog, setDuplicateDialog] = useState<{
@@ -559,8 +563,9 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
     const engine = params ? params.ttsEngine : ttsEngine
     const articles = params ? params.maxArticles : maxArticles
     const recreate = params ? params.recreateSummary : recreateSummary
-    const selectedLlmProvider = params ? params.llmProvider : llmProvider
-    const selectedLlmModel = params ? params.llmModel : llmModel
+    const llmWasTouched = params ? params.llmTouched : llmTouched
+    const selectedLlmProvider = llmWasTouched ? (params ? params.llmProvider : llmProvider) : undefined
+    const selectedLlmModel = llmWasTouched ? (params ? params.llmModel : llmModel) : undefined
 
     setIsLoading(true)
     setProgress([{ phase: 'start', message: '番組の生成を準備しています…', updatedAt: Date.now() }])
@@ -624,6 +629,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
         : undefined,
       llmProvider,
       llmModel,
+      llmTouched,
     }
     setIsCheckingDuplicate(true)
     setDuplicateDialog(null)
@@ -804,6 +810,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
                         const next = llmProviders.find((item) => item.provider === nextProvider)
                         setLlmProvider(nextProvider)
                         setLlmModel(next?.models[0] ?? '')
+                        setLlmTouched(true)
                       }}
                       className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100"
                     >
@@ -819,7 +826,10 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
                     <select
                       aria-label="LLMモデル"
                       value={llmModel}
-                      onChange={(event) => setLlmModel(event.target.value)}
+                      onChange={(event) => {
+                        setLlmModel(event.target.value)
+                        setLlmTouched(true)
+                      }}
                       disabled={!llmProvider || !selectedProvider?.models.length}
                       className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-50"
                     >
