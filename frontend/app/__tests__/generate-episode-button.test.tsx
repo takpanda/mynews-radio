@@ -266,6 +266,25 @@ describe('GenerateEpisodeButton — LLMプロバイダー・モデルの既定�
     expect(mockGenerateEpisode.mock.calls[0][10]).toBe('ollama')
     expect(mockGenerateEpisode.mock.calls[0][11]).toBe('qwen3.8:27b-mlx')
   })
+
+  it('プロバイダー自体を選び直した場合は、新プロバイダーとその先頭モデルを生成APIへ送信する', async () => {
+    mockFetchLlmProviders.mockResolvedValue({ providers: [
+      { provider: 'ollama', models: ['gemma4:26b-mlx', 'qwen3.8:27b-mlx'], available: true },
+      { provider: 'lm_studio', models: ['local-model-a', 'local-model-b'], available: true },
+    ] })
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await waitFor(() => expect(screen.getByLabelText('LLMプロバイダー')).toHaveValue('ollama'))
+    await user.selectOptions(screen.getByLabelText('LLMプロバイダー'), 'lm_studio')
+    await waitFor(() => expect(screen.getByLabelText('LLMモデル')).toHaveValue('local-model-a'))
+
+    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    expect(mockGenerateEpisode.mock.calls[0][10]).toBe('lm_studio')
+    expect(mockGenerateEpisode.mock.calls[0][11]).toBe('local-model-a')
+  })
 })
 
 describe('GenerateEpisodeButton — パラメータすり替え防止', () => {
