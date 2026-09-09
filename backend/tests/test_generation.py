@@ -13,6 +13,7 @@ class TestGenerateEndpoint:
         [
             ("llm_model_not_loaded", 422),
             ("llm_model_not_found", 422),
+            ("llm_model_not_configured", 422),
             ("llm_provider_unavailable", 503),
         ],
     )

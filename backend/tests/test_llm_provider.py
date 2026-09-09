@@ -1,5 +1,6 @@
 import asyncio
 import time
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -71,6 +72,86 @@ def test_lm_studio_preflight_accepts_loaded_requested_model(monkeypatch):
     result = llm_provider.validate_provider_model("lm_studio", "requested-model", preflight=True)
 
     assert result.model == "requested-model"
+
+
+def test_lm_studio_preflight_classifies_missing_model_configuration(monkeypatch):
+    _configs(monkeypatch)
+    monkeypatch.setattr(
+        llm_provider,
+        "_fetch",
+        lambda config: asyncio.sleep(0, result={
+            "provider": "lm_studio", "models": ["loaded-model"], "available": True,
+        }),
+    )
+
+    with pytest.raises(LlmProviderValidationError) as raised:
+        llm_provider.validate_provider_model("lm_studio", None, preflight=True)
+
+    assert raised.value.code == "llm_model_not_configured"
+    assert raised.value.status_code == 422
+
+
+def test_lm_studio_preflight_refreshes_expired_cache(monkeypatch):
+    _configs(monkeypatch)
+    llm_provider._cache["lm_studio"] = (
+        time.monotonic() - 61,
+        {"provider": "lm_studio", "models": ["old-model"], "available": True},
+    )
+    calls = []
+
+    async def fetch(config):
+        calls.append(config.name)
+        return {"provider": config.name, "models": ["new-model"], "available": True}
+
+    monkeypatch.setattr(llm_provider, "_fetch", fetch)
+    result = llm_provider.validate_provider_model("lm_studio", "new-model", preflight=True)
+
+    assert result.model == "new-model"
+    assert calls == ["lm_studio"]
+
+
+def test_lm_studio_preflight_uses_fresh_cache(monkeypatch):
+    _configs(monkeypatch)
+    llm_provider._cache["lm_studio"] = (
+        time.monotonic(),
+        {"provider": "lm_studio", "models": ["cached-model"], "available": True},
+    )
+
+    async def unexpected_fetch(_config):
+        raise AssertionError("fresh preflight cache should not be refreshed")
+
+    monkeypatch.setattr(llm_provider, "_fetch", unexpected_fetch)
+    result = llm_provider.validate_provider_model("lm_studio", "cached-model", preflight=True)
+
+    assert result.model == "cached-model"
+
+
+def test_lm_studio_preflight_does_not_use_stale_provider_list(monkeypatch):
+    _configs(monkeypatch)
+    llm_provider._cache["lm_studio"] = (
+        time.monotonic(),
+        {"provider": "lm_studio", "models": ["loaded-model"], "available": True, "stale": True},
+    )
+
+    async def unavailable(config):
+        return {"provider": config.name, "models": [], "available": False}
+
+    monkeypatch.setattr(llm_provider, "_fetch", unavailable)
+    with pytest.raises(LlmProviderValidationError) as raised:
+        llm_provider.validate_provider_model("lm_studio", "loaded-model", preflight=True)
+
+    assert raised.value.code == "llm_provider_unavailable"
+
+
+def test_lm_studio_preflight_fails_closed_inside_running_event_loop(monkeypatch):
+    _configs(monkeypatch)
+    monkeypatch.setattr(llm_provider.asyncio, "get_running_loop", lambda: MagicMock())
+
+    with pytest.raises(LlmProviderValidationError) as raised:
+        llm_provider.validate_provider_model("lm_studio", "requested-model", preflight=True)
+
+    assert raised.value.code == "llm_provider_unavailable"
+    assert raised.value.status_code == 503
 
 
 def test_provider_result_does_not_expose_endpoint_or_exception(monkeypatch):
