@@ -49,6 +49,8 @@ class FakeWriterClient:
     instances = []
 
     def __init__(self, *args, **kwargs):
+        self.init_args = args
+        self.init_kwargs = kwargs
         self.calls = []
         self.contexts = []
         self.__class__.instances.append(self)
@@ -88,6 +90,12 @@ class FakeRetryClient(FakeWriterClient):
 
 
 def test_fixed_nine_summaries_run_real_writer_and_lint_without_services(monkeypatch, tmp_path):
+    """固定fixtureの配線・JSON・Lintを検証する（自由生成LLMの品質保証ではない）。
+
+    語尾多様性・討論の深さ・エンディングの質はFakeが返す決定的な出力に対して
+    検証する。任意の実LLMが同じ品質を保証するテストではないため、実LLM評価は
+    別の明示的な統合テストで行う。
+    """
     summaries = json.loads(FIXTURE.read_text(encoding="utf-8"))
     assert len(summaries) == 9
     assert [item["id"] for item in summaries] == [53078, 53085, 52624, 53067, 52620, 53093, 53091, 53095, 53092]
@@ -113,9 +121,17 @@ def test_fixed_nine_summaries_run_real_writer_and_lint_without_services(monkeypa
     assert result["lines"][-1]["section"] == "outro"
 
     client = FakeWriterClient.instances[0]
+    assert client.init_args[0] == generation.get_settings().ollama_base_url
+    assert client.init_args[1].lower().startswith("qwen")
     assert len(client.calls) == 2
     assert [context["phase"] for context in client.contexts] == ["arc", "script"]
     assert all(item["title"] in client.calls[0] for item in summaries)
+    suffixes = ("ですね。", "ですよね。", "ですね", "ですよね")
+    endings = [
+        next((suffix for suffix in suffixes if line["text"].endswith(suffix)), None)
+        for line in result["lines"]
+    ]
+    assert all(left is None or right is None or left != right for left, right in zip(endings, endings[1:]))
 
 
 def test_auto_lint_correction_is_exercised_without_external_services(monkeypatch, tmp_path):
@@ -130,6 +146,7 @@ def test_auto_lint_correction_is_exercised_without_external_services(monkeypatch
     result = json.loads(output.read_text(encoding="utf-8"))
     assert lint_script(result["lines"], expected_discussion_article_id=53078) == []
     client = FakeRetryClient.instances[0]
+    assert client.init_args[1].lower().startswith("qwen")
     assert [context["phase"] for context in client.contexts] == ["arc", "script", "correction"]
     assert len(client.calls) == 3
     assert "記事IDの参照表記" in client.calls[2]
