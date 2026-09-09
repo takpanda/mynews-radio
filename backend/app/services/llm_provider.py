@@ -17,6 +17,16 @@ from app.config import get_settings
 PROVIDERS = ("ollama", "lm_studio", "vllm")
 
 
+class LlmProviderValidationError(ValueError):
+    """A provider selection cannot be used for a new generation request."""
+
+    def __init__(self, code: str, message: str, status_code: int):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+
+
 @dataclass(frozen=True)
 class ProviderConfig:
     name: str
@@ -35,12 +45,54 @@ def provider_configs() -> dict[str, ProviderConfig]:
     }
 
 
-def validate_provider_model(provider: str | None, model: str | None) -> ProviderConfig:
+def validate_provider_model(
+    provider: str | None,
+    model: str | None,
+    *,
+    preflight: bool = False,
+) -> ProviderConfig:
+    """Resolve a provider/model, optionally checking LM Studio before use."""
     name = provider or get_settings().llm_provider
     config = provider_configs().get(name)
     if config is None:
         raise ValueError("unsupported llm provider")
     selected = model or config.model
+
+    # LM Studio reports loaded models through /v1/models. Validate the
+    # configured default as well as request overrides before reserving an
+    # episode, otherwise a missing model is only noticed by the background
+    # generation pipeline.
+    if name == "lm_studio" and preflight:
+        discovery = _discover_for_validation(config)
+        if not discovery.get("available"):
+            raise LlmProviderValidationError(
+                "llm_provider_unavailable",
+                "LM Studioに接続できません。LM Studioのサーバー起動状態を確認してください。",
+                503,
+            )
+        discovered = discovery.get("models", [])
+        if not isinstance(discovered, list):
+            discovered = []
+        if not discovered:
+            raise LlmProviderValidationError(
+                "llm_model_not_loaded",
+                "LM Studioにモデルがロードされていません。モデルをロードしてから再試行してください。",
+                422,
+            )
+        if not selected:
+            raise LlmProviderValidationError(
+                "llm_model_not_configured",
+                "LM Studioで使用するモデルが指定されていません。モデルを選択してください。",
+                422,
+            )
+        if selected not in discovered:
+            raise LlmProviderValidationError(
+                "llm_model_not_found",
+                "指定したLM Studioモデルが利用可能なモデル一覧にありません。モデルを選択し直してください。",
+                422,
+            )
+        return ProviderConfig(config.name, config.base_url, selected, config.native, config.api_key)
+
     if not selected:
         raise ValueError("llm model is not configured")
     # A configured default is an explicit server-side allow-list entry. For a
@@ -65,6 +117,34 @@ def validate_provider_model(provider: str | None, model: str | None) -> Provider
             if selected not in discovered:
                 raise ValueError("model is not available for provider")
     return ProviderConfig(config.name, config.base_url, selected, config.native, config.api_key)
+
+
+def _discover_for_validation(config: ProviderConfig) -> dict[str, Any]:
+    """Return a short-lived discovery result for a generation preflight."""
+    now = time.monotonic()
+    cached = _cache.get(config.name)
+    cache_ttl = 60 if cached and cached[1].get("available") and not cached[1].get("stale") else 10
+    if cached and not cached[1].get("stale") and now - cached[0] < cache_ttl:
+        return cached[1]
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        fetched = asyncio.run(_fetch(config))
+    else:
+        # validate_provider_model is normally called from a synchronous
+        # endpoint/thread. If an event loop is already running, fail closed so
+        # generation cannot start without a successful preflight.
+        fetched = {
+            "provider": config.name,
+            "models": [],
+            "available": False,
+            "error_code": "connection_failed",
+        }
+    _cache[config.name] = (now, fetched)
+    if fetched.get("available"):
+        _last_success[config.name] = (now, fetched)
+    return fetched
 
 
 def _timeout() -> httpx.Timeout:

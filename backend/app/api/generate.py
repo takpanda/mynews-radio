@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Generator
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -29,7 +29,7 @@ from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_u
 from app.services.settings_service import get_settings_or_default, resolve_tts_speakers, validate_settings
 from app.services.generation_control import GenerationControlError, bind_episode, claim_job, finish_job
 from app.services.verified_client_ip import get_verified_client_ip
-from app.services.llm_provider import validate_provider_model
+from app.services.llm_provider import LlmProviderValidationError, validate_provider_model
 
 logger = logging.getLogger(__name__)
 
@@ -387,7 +387,14 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
             raise HTTPException(status_code=422, detail=f"invalid settings_snapshot: {exc}") from exc
 
     try:
-        validate_provider_model(body.llm_provider, body.llm_model)
+        validate_provider_model(body.llm_provider, body.llm_model, preflight=True)
+    except LlmProviderValidationError as exc:
+        # Keep FastAPI's existing string ``detail`` contract for the UI and
+        # expose a stable machine-readable code for provider-specific handling.
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.message, "error_code": exc.code},
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=f"invalid llm selection: {exc}") from exc
 
