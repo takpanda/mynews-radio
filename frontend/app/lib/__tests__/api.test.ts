@@ -138,3 +138,24 @@ describe('生成制御エラー', () => {
     expect(describeGenerationError(status, '')).toBe(message)
   })
 })
+
+describe('LM Studio固有エラーの案内文言（BEE-923契約: error_code）', () => {
+  it.each([
+    [422, 'llm_model_not_loaded', 'LM Studio にモデルがロードされていません。モデルをロードしてから再実行してください。'],
+    [422, 'llm_model_not_found', '指定したモデルが LM Studio に見つかりません。モデル設定を確認してください。'],
+    [503, 'llm_provider_unavailable', 'LM Studio に接続できません。起動状態と接続先を確認してください。'],
+  ])('%sの%sを専用メッセージにする', (status, errorCode, message) => {
+    const body = JSON.stringify({ error_code: errorCode, detail: '汎用のバックエンド文言' })
+    expect(describeGenerationError(status, body)).toBe(message)
+  })
+
+  it('対象範囲外のerror_code（llm_model_not_configured）はdetailを使う汎用表示にフォールバックする', () => {
+    const body = JSON.stringify({ error_code: 'llm_model_not_configured', detail: 'モデルが設定されていません' })
+    expect(describeGenerationError(422, body)).toBe('モデルが設定されていません')
+  })
+
+  it('error_codeが無い場合は従来通りdetailを使う', () => {
+    const body = JSON.stringify({ detail: '生成に失敗しました' })
+    expect(describeGenerationError(500, body)).toBe('生成に失敗しました')
+  })
+})

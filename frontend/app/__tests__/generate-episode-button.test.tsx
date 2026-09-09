@@ -753,6 +753,21 @@ describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', ()
     expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument()
   })
 
+  it.each([
+    ['LM Studio にモデルがロードされていません。モデルをロードしてから再実行してください。'],
+    ['指定したモデルが LM Studio に見つかりません。モデル設定を確認してください。'],
+    ['LM Studio に接続できません。起動状態と接続先を確認してください。'],
+  ])('LM Studio固有エラー（%s）は専用メッセージと再試行ボタンを表示する', async (message) => {
+    mockGenerateEpisode.mockRejectedValue(new GenerationError(message, 422))
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.click(radioSubmit())
+
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument()
+  })
+
   it('429後の再試行では同じ冪等キーを送信する', async () => {
     mockGenerateEpisode
       .mockRejectedValueOnce(new GenerationError('利用制限に達しました。約1分後に再試行できます。', 429))
