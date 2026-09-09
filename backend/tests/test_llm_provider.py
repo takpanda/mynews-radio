@@ -4,7 +4,7 @@ import time
 import pytest
 
 from app.services import llm_provider
-from app.services.llm_provider import ProviderConfig
+from app.services.llm_provider import LlmProviderValidationError, ProviderConfig
 
 
 def _configs(monkeypatch):
@@ -37,6 +37,40 @@ def test_discovered_override_is_allowed(monkeypatch):
         "provider": config.name, "models": ["discovered"], "available": True,
     }))
     assert llm_provider.validate_provider_model("ollama", "discovered").model == "discovered"
+
+
+@pytest.mark.parametrize(
+    ("discovery", "code", "status_code"),
+    [
+        ({"provider": "lm_studio", "models": [], "available": True}, "llm_model_not_loaded", 422),
+        ({"provider": "lm_studio", "models": ["loaded-model"], "available": True}, "llm_model_not_found", 422),
+        ({"provider": "lm_studio", "models": [], "available": False}, "llm_provider_unavailable", 503),
+    ],
+)
+def test_lm_studio_preflight_classifies_provider_state(monkeypatch, discovery, code, status_code):
+    _configs(monkeypatch)
+    monkeypatch.setattr(llm_provider, "_fetch", lambda config: asyncio.sleep(0, result=discovery))
+
+    with pytest.raises(LlmProviderValidationError) as raised:
+        llm_provider.validate_provider_model("lm_studio", "requested-model", preflight=True)
+
+    assert raised.value.code == code
+    assert raised.value.status_code == status_code
+
+
+def test_lm_studio_preflight_accepts_loaded_requested_model(monkeypatch):
+    _configs(monkeypatch)
+    monkeypatch.setattr(
+        llm_provider,
+        "_fetch",
+        lambda config: asyncio.sleep(0, result={
+            "provider": "lm_studio", "models": ["requested-model"], "available": True,
+        }),
+    )
+
+    result = llm_provider.validate_provider_model("lm_studio", "requested-model", preflight=True)
+
+    assert result.model == "requested-model"
 
 
 def test_provider_result_does_not_expose_endpoint_or_exception(monkeypatch):

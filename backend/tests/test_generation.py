@@ -8,6 +8,33 @@ import pytest
 
 
 class TestGenerateEndpoint:
+    @pytest.mark.parametrize(
+        ("code", "status_code"),
+        [
+            ("llm_model_not_loaded", 422),
+            ("llm_model_not_found", 422),
+            ("llm_provider_unavailable", 503),
+        ],
+    )
+    def test_lm_studio_preflight_error_does_not_start_generation(self, client, code, status_code):
+        from app.services.llm_provider import LlmProviderValidationError
+
+        with patch(
+            "app.api.generate.validate_provider_model",
+            side_effect=LlmProviderValidationError(code, f"display message for {code}", status_code),
+        ), patch("app.api.generate.claim_job") as claim_job:
+            response = client.post(
+                "/generate",
+                json={"date": "2099-01-01", "llm_provider": "lm_studio", "llm_model": "local-model"},
+            )
+
+        assert response.status_code == status_code
+        assert response.json() == {
+            "detail": f"display message for {code}",
+            "error_code": code,
+        }
+        claim_job.assert_not_called()
+
     def test_post_generate_returns_json_not_sse(self, client):
         resp = client.post("/generate", json={
             "date": "2099-01-01",
