@@ -294,6 +294,13 @@ function retryAfterMessage(value: string | null): string {
   return ''
 }
 
+/** BEE-923で確定したLM Studio固有エラーコードのうち、専用文言で案内する対象。 */
+const LLM_ERROR_MESSAGES: Record<string, string> = {
+  llm_model_not_loaded: 'LM Studio にモデルがロードされていません。モデルをロードしてから再実行してください。',
+  llm_model_not_found: '指定したモデルが LM Studio に見つかりません。モデル設定を確認してください。',
+  llm_provider_unavailable: 'LM Studio に接続できません。起動状態と接続先を確認してください。',
+}
+
 export function describeGenerationError(status: number, body: string, retryAfter: string | null = null): string {
   if (status === 401) return 'ログインが必要です。再度ログインしてください。'
   if (status === 403) return 'この操作を実行する権限がありません。'
@@ -304,6 +311,10 @@ export function describeGenerationError(status: number, body: string, retryAfter
       ? `利用制限に達しました。${waitMessage}`
       : '利用制限に達しました。しばらく待ってから再試行してください。'
   }
+  const errorCode = parseErrorCode(body)
+  if (errorCode && errorCode in LLM_ERROR_MESSAGES) {
+    return LLM_ERROR_MESSAGES[errorCode]
+  }
   return parseErrorDetail(body) || `生成に失敗しました（${status}）。`
 }
 
@@ -313,6 +324,14 @@ function parseErrorDetail(body: string): string {
     if (typeof parsed.detail === 'string') return parsed.detail
   } catch {}
   return body
+}
+
+function parseErrorCode(body: string): string | undefined {
+  try {
+    const parsed = JSON.parse(body)
+    if (typeof parsed.error_code === 'string') return parsed.error_code
+  } catch {}
+  return undefined
 }
 
 export async function generateEpisode(date: string, maxArticles = 10, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', recreateSummary = false, url?: string, style?: 'solo' | 'dialogue', mcGender?: 'male' | 'female', settingsSnapshot?: ProgramSettings, idempotencyKey?: string, llmProvider?: string, llmModel?: string): Promise<GenerateResponse> {
