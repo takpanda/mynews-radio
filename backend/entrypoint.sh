@@ -20,7 +20,7 @@ CRONTAB_HEADER
 # Write environment variables for cron jobs
 # Note: only non-empty values are written; empty/undefined vars are skipped.
 # CR/LF characters are stripped to prevent cron definition injection.
-for _var in OLLAMA_BASE_URL OLLAMA_MODEL DGX_HOST \
+for _var in OLLAMA_BASE_URL OLLAMA_MODEL OLLAMA_NUM_CTX DGX_HOST \
     LLM_PROVIDER LM_STUDIO_BASE_URL LM_STUDIO_MODEL LM_STUDIO_API_KEY \
     VLLM_BASE_URL VLLM_MODEL VLLM_API_KEY \
     VOICEVOX_BASE_URL VOICEVOX_SPEAKER_MALE VOICEVOX_SPEAKER_FEMALE \

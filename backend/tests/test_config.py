@@ -135,7 +135,7 @@ def _run_cron_env_cmd(env_vars: dict[str, str]) -> str:
 set -e
 OUTPUT_FILE="$1"
 printf 'SHELL=/bin/bash\nPATH=/dummy\n' > "$OUTPUT_FILE"
-for _var in OLLAMA_BASE_URL OLLAMA_MODEL DGX_HOST \
+for _var in OLLAMA_BASE_URL OLLAMA_MODEL OLLAMA_NUM_CTX DGX_HOST \
     LLM_PROVIDER LM_STUDIO_BASE_URL LM_STUDIO_MODEL LM_STUDIO_API_KEY \
     VLLM_BASE_URL VLLM_MODEL VLLM_API_KEY \
     VOICEVOX_BASE_URL VOICEVOX_SPEAKER_MALE VOICEVOX_SPEAKER_FEMALE \
@@ -193,7 +193,7 @@ class TestCronEnvInjectionViaSubprocess:
     """entrypoint.sh の env var 書き出しロジックをサブプロセスで直接実行"""
 
     CRON_TARGET_VARS = [
-        "OLLAMA_BASE_URL", "OLLAMA_MODEL", "DGX_HOST",
+        "OLLAMA_BASE_URL", "OLLAMA_MODEL", "OLLAMA_NUM_CTX", "DGX_HOST",
         "LLM_PROVIDER", "LM_STUDIO_BASE_URL", "LM_STUDIO_MODEL", "LM_STUDIO_API_KEY",
         "VLLM_BASE_URL", "VLLM_MODEL", "VLLM_API_KEY",
         "VOICEVOX_BASE_URL", "VOICEVOX_SPEAKER_MALE", "VOICEVOX_SPEAKER_FEMALE",
@@ -207,6 +207,7 @@ class TestCronEnvInjectionViaSubprocess:
         env = {
             "OLLAMA_BASE_URL": "http://192.168.1.102:11434",
             "OLLAMA_MODEL": "qwen3.6:27b",
+            "OLLAMA_NUM_CTX": "32768",
             "DGX_HOST": "192.168.1.102",
             "VOICEVOX_BASE_URL": "http://192.168.1.102:50021",
             "VOICEVOX_SPEAKER_MALE": "21",

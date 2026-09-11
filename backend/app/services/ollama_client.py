@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 import time
 from typing import Any, Optional
@@ -9,6 +10,18 @@ import httpx
 from app.services.llm_call_log_service import record_llm_call
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_NUM_CTX = 32768
+
+
+def _get_num_ctx() -> int:
+    """OLLAMA_NUM_CTX を読み取り、不正値は既定値へフォールバックする。"""
+    raw_num_ctx = os.getenv("OLLAMA_NUM_CTX")
+    try:
+        num_ctx = int(raw_num_ctx) if raw_num_ctx else DEFAULT_NUM_CTX
+        return num_ctx if num_ctx >= 1 else DEFAULT_NUM_CTX
+    except (TypeError, ValueError):
+        return DEFAULT_NUM_CTX
 
 
 def _record_llm_call(*args, **kwargs) -> None:
@@ -65,7 +78,7 @@ class OllamaClient:
             payload["format"] = "json"
 
         options = payload.get("options", {})
-        options["num_ctx"] = 65536
+        options["num_ctx"] = _get_num_ctx()
         payload["options"] = options
 
         for attempt in range(1, self._max_retries + 2):
