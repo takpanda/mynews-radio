@@ -92,9 +92,9 @@ _DISCUSSION_TRANSITIONS = [
     "{topic}について、二人で頭を絞ってみますよ。",
 ]
 
-# 記事境界のtransitionは両MCの短い掛け合い（橋渡し＋短い受け）にする必要がある（BEE-630）。
-# LLMがtransitionを省略しプログラム側で補完する場合も、この「短い受け」を橋渡しの直後に
-# 挿入し、単独1行の告知にならないようにする。次の記事の内容は先取りしない。
+# 記事境界のtransitionは、記事間の関係または次の記事の理解補助がある場合だけ
+# 両MCの短い掛け合いにする。関連が薄い場合は単独1行の中立的な告知を許容し、
+# 意味のない相づちは補完しない。
 _TRANSITION_REACTION_PHRASES = [
     "気になりますね。",
     "それは見逃せません。",
@@ -487,16 +487,42 @@ def _is_usable_bridge_text(bridge_text: str) -> bool:
     return True
 
 
+_GENERIC_TRANSITION_REACTION_TEXTS = frozenset(
+    _TRANSITION_REACTION_PHRASES + _SENSITIVE_TRANSITION_REACTION_PHRASES
+)
+_GENERIC_TRANSITION_REACTION_RE = _re.compile(
+    r"^(?:はい|ええ|なるほど|そうですね|お願いします|詳しく聞きたいです|"
+    r"早速聞いてみましょう|気になりますね|それは見逃せません|楽しみですね|"
+    r"興味深いですね|続けてお願いします|そちらも気になっていました|"
+    r"どう見ていきましょうか？|これは驚きました|背景も知りたいですね|"
+    r"ここは確認したいです|状況を確認しましょう|詳しくお伝えします|"
+    r"落ち着いて見ていきましょう|こちらも(?:お願いします|聞いてみましょう)|"
+    r"(?:続けて|詳しく|一緒に)見ていきましょう)[。！？]?$"
+)
+
+
+def _is_generic_transition_reaction_text(text: str) -> bool:
+    """記事内容への補助にならない短い定型反応かを判定する。
+
+    記事間の関係や次の記事の理解を補う発言は保持するが、意味のない
+    相づちだけを2行目に置く場合は、1行transitionへ戻せるようにする。
+    """
+    stripped = (text or "").strip()
+    return stripped in _GENERIC_TRANSITION_REACTION_TEXTS or bool(
+        _GENERIC_TRANSITION_REACTION_RE.fullmatch(stripped)
+    )
+
+
 def _is_valid_news_transition_block(
     block: list[dict], article_id, *, check_broken_text: bool, sensitive: bool
 ) -> bool:
     """記事境界のLLM transitionが既存の検証契約を満たすか判定する。
 
-    LLMが生成した内容は、2行・異なる話者・空でない発話であれば保持する。
-    テンプレートへ置き換えるのは、既存の ``TRANSITION_SOLO`` 相当の不備か、
-    記事境界で既存検証が壊れた文と判定した場合だけに限定する。
+    LLMが生成した内容は、1行または、記事間の関係・次の記事の理解を補う
+    内容を含む2行であれば保持する。意味のない定型相づちだけの2行は、
+    1行transitionへ戻せるよう不正と判定する。
     """
-    if len(block) != 2:
+    if len(block) not in (1, 2):
         return False
 
     speakers: list[str] = []
@@ -514,7 +540,11 @@ def _is_valid_news_transition_block(
             return False
         speakers.append(line["speaker"])
 
-    return speakers[0] != speakers[1]
+    if len(block) == 1:
+        return True
+    if speakers[0] == speakers[1]:
+        return False
+    return not _is_generic_transition_reaction_text(block[1].get("text", ""))
 
 
 def _coerce_discussion_transition_speakers(result: list[dict]) -> None:
@@ -594,7 +624,6 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
     result: list = []
     last_content_aid = None   # 直前の news/discussion の article_id
     trans_phrase_used = {"last": None}  # 乱択重複回避用状態
-    reaction_phrase_used = {"last": None}  # 短い受けフレーズの乱択重複回避用状態
 
     for line in lines:
         section = line.get("section", "news")
@@ -651,7 +680,10 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                     prev_is_transition = False
 
             # article_id が変わった（または intro→news）かつ直前が transition でない場合に挿入
-            if not prev_is_transition and article_id != last_content_aid:
+            # discussion は最後の news と同じ article_id になるため、article_id の
+            # 差分だけでは discussion 直前のtransitionを補完できない。
+            needs_transition = article_id != last_content_aid or section == "discussion"
+            if not prev_is_transition and needs_transition:
                 speaker = _pick_speaker(result, section)
                 topic = _topic(article_id)
                 # トピック抽出がフォールバックした場合、通常テンプレートの固定
@@ -698,24 +730,10 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                 })
                 logger.debug("transition 挿入: article_id=%s text=%s", article_id, text)
 
-                # 記事境界（news）のtransitionは両MCの短い掛け合い（2行）にする（BEE-630）。
-                # discussion直前のtransitionは従来どおり1行のまま維持する。
-                if section == "news":
-                    reaction_speaker = "female" if speaker == "male" else "male"
-                    reaction_phrases = (
-                        _SENSITIVE_TRANSITION_REACTION_PHRASES
-                        if article_id in sensitive_article_ids
-                        else _TRANSITION_REACTION_PHRASES
-                    )
-                    reaction_text = _pick_phrase(reaction_phrases, reaction_phrase_used)
-                    result.append({
-                        "speaker": reaction_speaker,
-                        "text": reaction_text,
-                        "article_id": article_id,
-                        "section": "transition",
-                        "delivery": "neutral",
-                    })
-                    logger.debug("transition 短い受け挿入: article_id=%s text=%s", article_id, reaction_text)
+                # 2行目の短い受けは、LLMが記事間の関係や理解補助を含めて
+                # 生成した場合だけ保持する。プログラム側の補完では、関連が
+                # 明示されたbridgeを含む1行、または中立的な1行だけを生成し、
+                # 意味のない相づちを強制しない。
 
             last_content_aid = article_id
 
@@ -852,31 +870,64 @@ def lint_script(
                 )
 
     # --- ルール5: transitionコンテキストチェック [TRANS_CONTEXT] (ERROR) ---
-    if bridges:
-        first_trans_idx: int | None = None
-        for i, line in enumerate(lines):
-            if line.get("section") == "transition":
-                first_trans_idx = i
-                break
-        for i, line in enumerate(lines):
-            if line.get("section") != "transition":
-                continue
-            if i == first_trans_idx:
-                continue
-            text = line.get("text", "").strip()
-            if not text:
-                continue
-            if _re.search(r"次の話題|次のトピック", text):
-                errors.append(f"[TRANS_CONTEXT] transition行 {i} に汎用表記が含まれています: 「{text[:40]}...」")
-            elif _re.search(r"^続いては", text):
-                errors.append(f"[TRANS_CONTEXT] transition行 {i} に汎用表記が含まれています: 「{text[:40]}...」")
-            elif _re.search(r"^次は", text):
-                errors.append(f"[TRANS_CONTEXT] transition行 {i} に汎用表記が含まれています: 「{text[:40]}...」")
-            elif _re.search(r"では次", text):
-                errors.append(f"[TRANS_CONTEXT] transition行 {i} に汎用表記が含まれています: 「{text[:40]}...」")
+    # bridge が定義された記事境界だけを対象にする。bridgeのない境界まで
+    # Contextual Bridgeを要求すると、関連の薄い記事に無理なこじつけを生む。
+    transition_blocks: list[list[int]] = []
+    current_block: list[int] = []
+    sections = [line.get("section") for line in lines]
+    for i, section in enumerate(sections):
+        if section == "transition":
+            current_block.append(i)
+        elif current_block:
+            transition_blocks.append(current_block)
+            current_block = []
+    if current_block:
+        transition_blocks.append(current_block)
+
+    bridge_pairs = {
+        (bridge.get("from_article_id"), bridge.get("to_article_id"))
+        for bridge in (bridges or [])
+        if isinstance(bridge, dict)
+        and _is_usable_bridge_text(bridge.get("bridge_text", ""))
+    }
+    # 旧形式のbridge（from_topic/to_topic/bridge）は記事IDと紐付かないため、
+    # 後方互換として従来の全transition検査を残す。新形式では記事境界単位で
+    # 関連が明示された場合だけ検査する。
+    has_legacy_bridges = bool(bridges) and not bridge_pairs
+
+    def _content_article_id(before: int, step: int):
+        index = before + step
+        while 0 <= index < len(lines):
+            if sections[index] in ("news", "discussion"):
+                return lines[index].get("article_id")
+            index += step
+        return None
+
+    first_transition_idx = transition_blocks[0][0] if transition_blocks else None
+    context_blocks = (
+        [[i] for i, section in enumerate(sections)
+         if section == "transition" and i != first_transition_idx]
+        if has_legacy_bridges
+        else transition_blocks
+    )
+    for block in context_blocks:
+        previous_id = _content_article_id(block[0], -1)
+        next_id = _content_article_id(block[-1], 1)
+        if not has_legacy_bridges and (previous_id, next_id) not in bridge_pairs:
+            continue
+        text = lines[block[0]].get("text", "").strip()
+        if not text:
+            continue
+        if _re.search(r"次の話題|次のトピック", text):
+            errors.append(f"[TRANS_CONTEXT] transition行 {block[0]} に汎用表記が含まれています: 「{text[:40]}...」")
+        elif _re.search(r"^続いては", text):
+            errors.append(f"[TRANS_CONTEXT] transition行 {block[0]} に汎用表記が含まれています: 「{text[:40]}...」")
+        elif _re.search(r"^次は", text):
+            errors.append(f"[TRANS_CONTEXT] transition行 {block[0]} に汎用表記が含まれています: 「{text[:40]}...」")
+        elif _re.search(r"では次", text):
+            errors.append(f"[TRANS_CONTEXT] transition行 {block[0]} に汎用表記が含まれています: 「{text[:40]}...」")
 
     # discussion が全 news の後に来ているか確認
-    sections = [line.get("section") for line in lines]
     discussion_indices = [i for i, s in enumerate(sections) if s == "discussion"]
     news_indices = [i for i, s in enumerate(sections) if s == "news"]
     if discussion_indices and news_indices:
@@ -887,6 +938,14 @@ def lint_script(
                 f"discussion が全 news より前に挿入されています "
                 f"(discussion 最初の行インデックス={first_discussion}, 最後の news インデックス={last_news})"
             )
+        if expected_discussion_article_id is not None:
+            last_news_article_id = lines[last_news].get("article_id")
+            if last_news_article_id != expected_discussion_article_id:
+                errors.append(
+                    "[DISCUSSION_ARTICLE_POSITION] discussion対象記事がニュース部の最後に"
+                    f"配置されていません（最後のnews article_id={last_news_article_id}, "
+                    f"対象={expected_discussion_article_id}）"
+                )
 
     # --- ルール6: discussion行数チェック [DISCUSSION_LENGTH] (ERROR) ---
     # 対象記事の根拠のみで4〜8行の対話にする受入条件（BEE-630 QA指摘）を検査する
@@ -919,20 +978,9 @@ def lint_script(
                 "（別記事の話題を深掘りしている可能性があります）"
             )
 
-    # --- ルール8: 記事境界transitionの単独告知チェック [TRANSITION_SOLO] (ERROR) ---
-    # discussion直前のtransitionを除き、記事境界のtransitionは両MCの短い掛け合い
-    # （2行以上・話者が異なる）である必要がある（BEE-630 QA指摘）
-    transition_blocks: list[list[int]] = []
-    _current_block: list[int] = []
-    for i, s in enumerate(sections):
-        if s == "transition":
-            _current_block.append(i)
-        elif _current_block:
-            transition_blocks.append(_current_block)
-            _current_block = []
-    if _current_block:
-        transition_blocks.append(_current_block)
-
+    # --- ルール8: 記事境界transitionの構造チェック [TRANSITION_SOLO] (ERROR) ---
+    # discussion直前のtransitionを除き、記事境界のtransitionは1行、または
+    # 補助内容を含む2行でよい。関連の薄い境界に2行を強制しない。
     discussion_precursor_block = None
     if discussion_indices:
         first_discussion = min(discussion_indices)
@@ -944,15 +992,23 @@ def lint_script(
     for block in transition_blocks:
         if block is discussion_precursor_block:
             continue
-        if len(block) < 2:
+        if len(block) > 2:
             errors.append(
-                f"[TRANSITION_SOLO] transition行 {block} が1行の単独告知になっています"
-                "（記事境界のtransitionは両MCの短い掛け合い2行にしてください）"
+                f"[TRANSITION_LENGTH] transition行 {block} が{len(block)}行あります"
+                "（記事境界のtransitionは1行または補助内容を含む2行にしてください）"
             )
         elif lines[block[0]].get("speaker") == lines[block[-1]].get("speaker"):
+            if len(block) == 2:
+                errors.append(
+                    f"[TRANSITION_SOLO] transition行 {block} の話者が同一です"
+                    "（2行構成にする場合はもう一方のMCを使ってください）"
+                )
+        elif len(block) == 2 and _is_generic_transition_reaction_text(
+            lines[block[1]].get("text", "")
+        ):
             errors.append(
-                f"[TRANSITION_SOLO] transition行 {block} の話者が同一です"
-                "（記事境界のtransitionはもう一方のMCが短く受ける構成にしてください）"
+                f"[TRANSITION_REDUNDANT] transition行 {block[1]} が記事内容を補わない"
+                "定型相づちです（関連または理解補助を含めるか、1行にしてください）"
             )
 
     for i, line in enumerate(lines):
@@ -1058,7 +1114,7 @@ def _build_narrative_arc_section(arc: dict, summaries: list) -> str:
 
     disc_id = arc.get("discussion_article_id")
     disc_reason = arc.get("discussion_reason", "")
-    if disc_id:
+    if disc_id is not None:
         lines.append("")
         lines.append(f"**discussion で深掘りする記事**: 記事ID={disc_id}（{id_to_title.get(disc_id, '')}）")
         lines.append(f"  理由: {disc_reason}")
@@ -1081,6 +1137,37 @@ def _generate_arc(client: OllamaClient, summaries: list) -> dict | None:
     if not arc or not isinstance(arc.get("article_order"), list):
         logger.warning("Narrative Arc generation failed or returned invalid structure; skipping arc")
         return None
+
+    # discussion対象はニュース部の最後に置く契約。LLMが従来の「最後から2番目」
+    # の順序を返しても、writerへ渡す順序をここで正規化して話題の往復を防ぐ。
+    valid_ids = {summary.get("id") for summary in summaries}
+    discussion_id = arc.get("discussion_article_id")
+    if discussion_id not in valid_ids and summaries:
+        discussion_id = max(
+            summaries,
+            key=lambda summary: summary.get("importance_score", 0) or 0,
+        ).get("id")
+        logger.warning(
+            "Narrative Arc discussion_article_id is invalid; using highest importance article: %s",
+            discussion_id,
+        )
+
+    article_order: list = []
+    for article_id in arc.get("article_order", []):
+        if article_id in valid_ids and article_id not in article_order:
+            article_order.append(article_id)
+    article_order.extend(
+        summary.get("id")
+        for summary in summaries
+        if summary.get("id") not in article_order
+    )
+    if discussion_id in article_order:
+        article_order.remove(discussion_id)
+        article_order.append(discussion_id)
+
+    arc = dict(arc)
+    arc["article_order"] = article_order
+    arc["discussion_article_id"] = discussion_id
 
     logger.info(
         "Narrative Arc generated: theme=%s order=%s discussion=%s",
