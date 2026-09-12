@@ -9,9 +9,10 @@ class TestTransitionPhrases:
         from app.batch.generate_script import _TRANSITION_REACTION_PHRASES
 
         assert len(_TRANSITION_REACTION_PHRASES) > 8
-        assert any("？" in phrase for phrase in _TRANSITION_REACTION_PHRASES)
-        assert any("驚" in phrase for phrase in _TRANSITION_REACTION_PHRASES)
-        assert any("興味" in phrase for phrase in _TRANSITION_REACTION_PHRASES)
+        assert any("確認" in phrase for phrase in _TRANSITION_REACTION_PHRASES)
+        assert any("見ていきましょう" in phrase for phrase in _TRANSITION_REACTION_PHRASES)
+        assert all("楽しみ" not in phrase for phrase in _TRANSITION_REACTION_PHRASES)
+        assert all("おめでとう" not in phrase for phrase in _TRANSITION_REACTION_PHRASES)
 
     def test_no_unnatural_templates(self):
         from app.batch.generate_script import _TRANSITION_PHRASES
@@ -122,7 +123,7 @@ class TestEnsureTransitionsTopicExtraction:
         assert any(text in _SENSITIVE_TRANSITION_REACTION_PHRASES for text in transition_texts)
         assert not any("期待" in text or "喜ばしい" in text for text in transition_texts)
 
-    def test_entertainment_keeps_positive_transition_reactions_available(self):
+    def test_unknown_topic_uses_neutral_transition_reactions(self):
         from app.batch.generate_script import _TRANSITION_REACTION_PHRASES, _ensure_transitions
 
         summaries = [{"id": 1, "title": "新作映画の公開", "summary": "出演者が発表されました。", "category": "entertainment"}]
@@ -131,14 +132,15 @@ class TestEnsureTransitionsTopicExtraction:
         with patch("app.batch.generate_script.random.choice", return_value=2):
             result = _ensure_transitions(lines, summaries)
         transition_texts = [line["text"] for line in result if line.get("section") == "transition"]
-        assert _TRANSITION_REACTION_PHRASES[2] == "楽しみですね。"
-        assert "楽しみですね。" in transition_texts
+        assert _TRANSITION_REACTION_PHRASES[2] in transition_texts
+        assert all("楽しみ" not in text for text in transition_texts)
+        assert all("おめでとう" not in text for text in transition_texts)
 
-    def test_uses_summary_first_sentence(self):
+    def test_does_not_embed_complete_summary_sentence_in_topic_template(self):
         from app.batch.generate_script import _ensure_transitions
 
         summaries = [
-            {"id": 1, "title": "That Title Could Be Very Long And Cut Off Weirdly",
+            {"id": 1, "title": "天気予報",
              "summary": "今日は素晴らしい天気です。明日も引き続き良い天気予報となっています。"}
         ]
         lines = [
@@ -149,9 +151,26 @@ class TestEnsureTransitionsTopicExtraction:
 
         transitions = [l for l in result if l.get("section") == "transition"]
         assert len(transitions) >= 1
-        # summaryの先頭文が抽出されていることを確認（titleではなく）
-        topic = transitions[0]["text"]
-        assert "今日は素晴らしい天気です" in topic or "That Title" not in topic
+        transition_text = transitions[0]["text"]
+        assert "今日は素晴らしい天気です。について" not in transition_text
+        assert "今日は素晴らしい天気です。のニュース" not in transition_text
+        assert "天気予報" in transition_text
+
+    def test_complete_summary_and_title_use_standalone_fallback(self):
+        from app.batch.generate_script import _FALLBACK_TRANSITION_PHRASES, _ensure_transitions
+
+        summaries = [{
+            "id": 1,
+            "title": "自治体が制度を発表しました",
+            "summary": "新しい制度を発表しました。",
+        }]
+        lines = [{"section": "intro"}, {"section": "news", "article_id": 1, "speaker": "male", "text": "test"}]
+
+        result = _ensure_transitions(lines, summaries)
+        transition_texts = [line["text"] for line in result if line.get("section") == "transition"]
+
+        assert transition_texts[0] in _FALLBACK_TRANSITION_PHRASES
+        assert all("。について" not in text and "。のニュース" not in text for text in transition_texts)
 
     def test_falls_back_to_title_when_no_summary(self):
         from app.batch.generate_script import _ensure_transitions
@@ -331,9 +350,9 @@ class TestTitleNoFifteenCharTruncation:
     """15文字切り出しが廃止されており、より自然なトピック表記になっていること。"""
 
     def test_title_not_truncated_at_15_chars(self):
-        from app.batch.generate_script import _ensure_transitions
+        from app.batch.generate_script import _FALLBACK_TRANSITION_PHRASES, _ensure_transitions
 
-        # 16文字を超えるtitle（旧ロジックなら[:15]で切れる長さ）
+        # 完結文のtitleはテンプレートへ差し込まず、汎用文へフォールバックする。
         summaries = [
             {"id": 1, "title": "那覇市で激しい雨を観測しました", "summary": ""}
         ]
@@ -346,6 +365,5 @@ class TestTitleNoFifteenCharTruncation:
         transitions = [l for l in result if l.get("section") == "transition"]
         assert len(transitions) >= 1
         topic_text = transitions[0]["text"]
-        # 「についてです。」パターンが残っていないことを確認
-        assert "{topic}についてです。" not in topic_text
-        # titleのまま使われている（半角で区切られるが「についてです」は付かない）
+        assert topic_text in _FALLBACK_TRANSITION_PHRASES
+        assert "那覇市で激しい雨を観測しました" not in topic_text
