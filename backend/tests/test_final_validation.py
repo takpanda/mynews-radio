@@ -147,3 +147,19 @@ def test_radio_pipeline_stops_before_tts_when_final_validation_is_unresolved():
     assert episode["status"] == "failed"
     assert episode["phase"] == "human_review"
     assert "回答なし" in episode["generation_message"]
+
+
+def test_commentary_shape_does_not_require_radio_outro_contract():
+    from app.batch import final_validation
+
+    lines = [
+        _line("intro", "今日は記事を解説します。"),
+        _line("news", "発表された内容を数字とともに整理します。"),
+        _line("outro", "今回は発表の背景を振り返りました。"),
+    ]
+
+    with patch.object(final_validation, "lint_script", return_value=[]):
+        result = final_validation.validate_final_script(lines, commentary=True, style="solo")
+
+    assert result["status"] == "passed"
+    assert result["can_synthesize"] is True

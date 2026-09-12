@@ -40,6 +40,19 @@ _MINOR_LINT_CODES = {
     "INTRO_LINEUP",
     "TRUNCATED_TRANS",
 }
+_COMMENTARY_IGNORED_LINT_CODES = {
+    "INTRO_FORMAT",
+    "INTRO_LINEUP",
+    "OUTRO_LENGTH",
+    "TRANS_VARIATION",
+    "TRANS_CONTEXT",
+    "TRANSITION_LENGTH",
+    "TRANSITION_SOLO",
+    "TRANSITION_REDUNDANT",
+    "DISCUSSION_ARTICLE_POSITION",
+    "DISCUSSION_LENGTH",
+    "DISCUSSION_ARTICLE_DRIFT",
+}
 
 
 def _issue(code: str, message: str, *, line_indices: list[int] | None = None) -> dict[str, Any]:
@@ -126,7 +139,9 @@ def _repair_outro_questions(lines: list[dict[str, Any]]) -> tuple[list[dict[str,
     return repaired, repairs
 
 
-def _outro_issues(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _outro_issues(
+    lines: list[dict[str, Any]], *, commentary: bool = False,
+) -> list[dict[str, Any]]:
     outro_indices = [i for i, line in enumerate(lines) if line.get("section") == "outro"]
     if not outro_indices:
         return [_issue("OUTRO_STRUCTURE", "outroセクションがありません")]
@@ -144,6 +159,11 @@ def _outro_issues(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     outro = [lines[i] for i in outro_indices]
     texts = [str(line.get("text", "") or "").strip() for line in outro]
+    if commentary:
+        # URL解説のoutroは「まとめ」1〜2行で、ラジオ本編の
+        # 「振り返り・問い→別れの挨拶」契約とは異なる。
+        return issues
+
     question_positions = [
         index for index, text in enumerate(texts) if text and _generate_is_question(text)
     ]
@@ -202,6 +222,23 @@ def _classify_lint_errors(errors: list[str]) -> tuple[list[dict[str, Any]], list
     return critical, warnings
 
 
+def _lint_errors(
+    lines: list[dict[str, Any]], *, program_name: str, commentary: bool,
+) -> list[str]:
+    errors = lint_script(lines, program_name=program_name)
+    if not commentary:
+        return errors
+
+    filtered: list[str] = []
+    for error in errors:
+        warn_match = re.search(r"\[WARN\]\[([^]]+)\]", error)
+        code_match = re.search(r"\[([^]]+)\]", error)
+        code = warn_match.group(1) if warn_match else (code_match.group(1) if code_match else "LINT")
+        if code not in _COMMENTARY_IGNORED_LINT_CODES:
+            filtered.append(error)
+    return filtered
+
+
 def validate_final_script(
     lines: list[dict[str, Any]],
     *,
@@ -209,6 +246,7 @@ def validate_final_script(
     program_name: str = "ニュースのとなり",
     style: str = "dialogue",
     prior_review_result: dict[str, Any] | None = None,
+    commentary: bool = False,
 ) -> dict[str, Any]:
     """Validate the post-review script and return a synthesis decision.
 
@@ -253,14 +291,14 @@ def validate_final_script(
         )
 
     lint_critical, lint_warnings = _classify_lint_errors(
-        lint_script(repaired_lines, program_name=program_name)
+        _lint_errors(repaired_lines, program_name=program_name, commentary=commentary)
     )
     critical.extend(lint_critical)
     warnings.extend(lint_warnings)
 
     transition_issues = check_transition_integrity(repaired_lines)
     critical.extend(_issue("TRANSITION_INTEGRITY", message) for message in transition_issues)
-    critical.extend(_outro_issues(repaired_lines))
+    critical.extend(_outro_issues(repaired_lines, commentary=commentary))
     critical.extend(_transition_reaction_issues(repaired_lines, summaries or []))
 
     review_result = prior_review_result or {}
@@ -309,6 +347,8 @@ def validate_final_script_file(
     summaries_path: str | None = None,
     output_dir: str | None = None,
     program_name: str = "ニュースのとなり",
+    article: dict[str, Any] | None = None,
+    commentary: bool = False,
     prior_review_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Read, validate, and persist the final-validation report."""
@@ -335,12 +375,15 @@ def validate_final_script_file(
                 summaries = [item for item in payload if isinstance(item, dict)]
         except (OSError, TypeError, ValueError):
             logger.warning("final validation: summaries could not be loaded: %s", summaries_path)
+    if not summaries and isinstance(article, dict):
+        summaries = [dict(article)]
 
     result = validate_final_script(
         script.get("lines", []) if isinstance(script, dict) else [],
         summaries=summaries,
         program_name=program_name,
-        style=str(script.get("style", "dialogue")) if isinstance(script, dict) else "dialogue",
+        style=str(script.get("style", "solo" if commentary else "dialogue")) if isinstance(script, dict) else ("solo" if commentary else "dialogue"),
+        commentary=commentary,
         prior_review_result=prior_review_result,
     )
     if result["repairs"]:

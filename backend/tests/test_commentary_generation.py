@@ -169,6 +169,62 @@ class TestRunCommentaryGeneration:
         ep = svc.get_episode(ep_id)
         assert ep["status"] == "failed"
 
+    def test_commentary_stops_before_tts_when_final_validation_requires_human_review(self):
+        from app.api.generate import _run_commentary_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode(episode_date="2099-06-01", status="generating")
+        body = GenerateRequest(
+            date="2099-06-01",
+            url="https://example.com/article",
+            style="solo",
+            mc_gender="male",
+        )
+        review_result = {
+            "revised": True,
+            "review_count": 5,
+            "dialogue_balance_issues": [],
+            "question_response_issues": [],
+            "transition_integrity_issues": [],
+        }
+        final_result = {
+            "status": "human_review",
+            "can_synthesize": False,
+            "critical_issues": [{"code": "GRAMMAR_BREAKDOWN", "message": "台本の行構造が不正です"}],
+            "warnings": [],
+            "repairs": [],
+            "lines": [],
+        }
+        fake_script = '{"lines": [{"article_id": 1, "text": "This is a commentary"}]}'
+
+        with patch("app.api.generate.fetch_article_by_url",
+                   return_value={"title": "Test Article", "url": body.url, "text": "Article body text here", "source": "url_input"}), \
+             patch("app.api.generate.ArticleService.upsert_article", return_value=True), \
+             patch("app.api.generate.ArticleService.fetch_new_articles", return_value=[]), \
+             patch("app.api.generate.get_db_connection") as mock_conn, \
+             patch("app.api.generate.generate_commentary_script", return_value=1), \
+             patch("app.api.generate.review_script", return_value=review_result), \
+             patch("app.api.generate.validate_final_script_file", return_value=final_result) as final_check, \
+             patch("app.api.generate.synthesize_episode") as mock_synth, \
+             patch("shutil.copy"), \
+             patch("builtins.open", _make_fake_open(fake_script)):
+            mock_row = MagicMock()
+            mock_row.__getitem__ = lambda self, key: 123 if key == "id" else None
+            mock_conn_instance = MagicMock()
+            mock_conn_instance.__enter__.return_value.execute.return_value.fetchone.return_value = mock_row
+            mock_conn.return_value = mock_conn_instance
+
+            _run_commentary_generation(ep_id, body)
+
+        final_check.assert_called_once()
+        assert final_check.call_args.kwargs["commentary"] is True
+        mock_synth.assert_not_called()
+        episode = svc.get_episode(ep_id)
+        assert episode["status"] == "failed"
+        assert episode["phase"] == "human_review"
+        assert "台本の行構造が不正です" in episode["generation_message"]
+
     def test_commentary_fails_on_script_generation_error(self):
         from app.api.generate import _run_commentary_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
