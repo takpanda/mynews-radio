@@ -430,6 +430,7 @@ class TestReviewScriptOutputIssueExample:
                 script_json='{"lines": []}',
                 style_guidance=style_guidance,
                 output_issue_example=output_issue_example,
+                article_summaries_json="[]",
             )
             assert "{{" not in prompt, \
                 f"style='{style}' のプロンプトに {{ が残っています"

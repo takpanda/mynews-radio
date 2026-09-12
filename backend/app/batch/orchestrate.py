@@ -25,7 +25,7 @@ from app.batch.generate_script import generate_script
 from app.batch.review_script import review_script
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
-from app.services.article_service import ArticleService
+from app.services.article_service import ArticleService, write_fallback_summaries
 from app.services.episode_service import EpisodeService, retry_on_busy, override_script_title, build_radio_title
 from app.services.telegram_notifier import notify_failure, notify_success
 
@@ -120,6 +120,10 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
                 "No new articles to summarize, but %d existing summarized articles are available. Continuing.",
                 len(existing_summaries),
             )
+            # summarize_articles writes [] when it has no new rows. Preserve
+            # the DB-backed summaries used by generate_script so review_script
+            # can verify the final dialogue against the same evidence.
+            write_fallback_summaries(summaries_path, existing_summaries)
 
         # Step 3: generate_script
         logger.info("=== Step 3/5: generate_script (source=%s) ===", news_source)
@@ -142,7 +146,11 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
             Path(reviewed_episode_dir).mkdir(parents=True, exist_ok=True)
             Path(os.path.join(reviewed_episode_dir, "lines")).mkdir(exist_ok=True)
 
-            review_result = review_script(script_path, reviewed_episode_dir)
+            review_result = review_script(
+                script_path,
+                reviewed_episode_dir,
+                summaries_path=summaries_path,
+            )
             logger.info(
                 "review_script completed: revised=%s review_count=%d",
                 review_result["revised"],
