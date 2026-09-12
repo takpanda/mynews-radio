@@ -49,7 +49,7 @@ class TestEnsureTransitionsTopicExtraction:
                 line["text"] for line in result
                 if line.get("section") == "transition" and line.get("article_id") == 2
             ]
-            assert any(text in {"状況を確認しましょう。", "詳しくお伝えします。", "落ち着いて見ていきましょう。"} for text in alert_transition)
+            assert len(alert_transition) == 1
             assert all("楽しみ" not in text for text in alert_transition)
 
     def test_llm_positive_reaction_before_disaster_is_replaced(self):
@@ -72,7 +72,7 @@ class TestEnsureTransitionsTopicExtraction:
             if line.get("section") == "transition" and line.get("article_id") == 2
         ]
         assert "楽しみですね。" not in alert_transition
-        assert any(text in {"状況を確認しましょう。", "詳しくお伝えします。", "落ち着いて見ていきましょう。"} for text in alert_transition)
+        assert len(alert_transition) == 1
 
     def test_major_accident_uses_neutral_auto_inserted_reaction(self):
         """重大事故も災害と同じく、補完reactionの肯定表現を使わない。"""
@@ -95,7 +95,8 @@ class TestEnsureTransitionsTopicExtraction:
             line["text"] for line in result
             if line.get("section") == "transition" and line.get("article_id") == 2
         ]
-        assert set(transition_texts) & set(_SENSITIVE_TRANSITION_REACTION_PHRASES)
+        assert len(transition_texts) == 1
+        assert not (set(transition_texts) & set(_SENSITIVE_TRANSITION_REACTION_PHRASES))
         assert not (set(transition_texts) & set(_TRANSITION_REACTION_PHRASES))
 
     def test_llm_multiline_positive_transitions_before_major_accident_are_replaced(self):
@@ -119,8 +120,8 @@ class TestEnsureTransitionsTopicExtraction:
             line["text"] for line in result
             if line.get("section") == "transition" and line.get("article_id") == 2
         ]
-        assert len(transition_texts) == 2
-        assert any(text in _SENSITIVE_TRANSITION_REACTION_PHRASES for text in transition_texts)
+        assert len(transition_texts) == 1
+        assert not any(text in _SENSITIVE_TRANSITION_REACTION_PHRASES for text in transition_texts)
         assert not any("期待" in text or "喜ばしい" in text for text in transition_texts)
 
     def test_unknown_topic_uses_neutral_transition_reactions(self):
@@ -132,7 +133,9 @@ class TestEnsureTransitionsTopicExtraction:
         with patch("app.batch.generate_script.random.choice", return_value=2):
             result = _ensure_transitions(lines, summaries)
         transition_texts = [line["text"] for line in result if line.get("section") == "transition"]
-        assert _TRANSITION_REACTION_PHRASES[2] in transition_texts
+        # BEE-934: 関連性を補う2行目が不要な境界では、定型reactionを強制しない。
+        assert _TRANSITION_REACTION_PHRASES[2] == "状況を見ていきましょう。"
+        assert _TRANSITION_REACTION_PHRASES[2] not in transition_texts
         assert all("楽しみ" not in text for text in transition_texts)
         assert all("おめでとう" not in text for text in transition_texts)
 
@@ -242,8 +245,8 @@ class TestEnsureTransitionsTopicExtraction:
 
         transitions = [l for l in result if l.get("section") == "transition"]
         # 同じ article_id 内では transition は挿入されない（最初の境界の1回のみ）。
-        # 境界のtransitionは両MCの短い掛け合い（橋渡し＋短い受け）の2行になる（BEE-630）
-        assert len(transitions) == 2
+        # 関連や理解補助がない補完は中立的な1行にする。
+        assert len(transitions) == 1
 
     def test_transition_inserted_on_article_change(self):
         from app.batch.generate_script import _ensure_transitions
@@ -261,8 +264,8 @@ class TestEnsureTransitionsTopicExtraction:
 
         transitions = [l for l in result if l.get("section") == "transition"]
         # article_id が変わった2箇所（intro→記事1、記事1→記事2）でそれぞれ
-        # 2行（橋渡し＋短い受け）のtransitionが挿入される（BEE-630）
-        assert len(transitions) == 4
+        # 各境界に中立的な1行のtransitionが挿入される。
+        assert len(transitions) == 2
 
 
 class TestFallbackTopicDuplicatePrevention:

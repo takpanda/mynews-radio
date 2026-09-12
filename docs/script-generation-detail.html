@@ -303,7 +303,7 @@
   <ul>
     <li><strong>起承転結</strong> を意識し、中程度のインパクトのニュースで掴み始める</li>
     <li>最重要トピックは冒頭に使い切らず、<strong>中盤以降</strong>に配置する</li>
-    <li><code>discussion_article_id</code> の記事は最後から2番目の news として配置し、discussion セクションへ自然に繋げる</li>
+    <li><code>discussion_article_id</code> の記事はニュース部の最後の記事として配置し、discussion セクションへ自然に繋げる</li>
     <li>複数記事に共通する「緊張・対比・連鎖」（例: "便利さ vs. リスク"）をテーマとして発見する</li>
   </ul>
 
@@ -355,7 +355,7 @@
     <text x="450" y="156" text-anchor="middle" font-size="11" fill="#4A3FA0" font-weight="bold">共通テーマ: 「AI の加速と制度・人々の不安が交差する週」</text>
     <text x="450" y="172" text-anchor="middle" font-size="10.5" fill="#4A5568">各記事の共通軸を意識した台本執筆を台本Writerに指示</text>
   </svg>
-  <figcaption><b>図2</b>　Narrative Arc が設計する記事順序と橋渡し。discussion 対象記事（紫枠）は最後から2番目の news として配置される。</figcaption>
+  <figcaption><b>図2</b>　Narrative Arc が設計する記事順序と橋渡し。discussion 対象記事（紫枠）はニュース部の最後の記事として配置される。</figcaption>
   </figure>
 </section>
 
@@ -520,14 +520,14 @@ for lint_attempt in range(1, _MAX_LINT_RETRIES + 1):
     <tr>
       <td><span class="rule-badge error">TRANS_CONTEXT</span></td>
       <td><span class="pill warn">ERROR</span></td>
-      <td>Narrative Arc Bridge 存在時に汎用的すぎる transition を使っていないか</td>
-      <td>「次の話題」「続いては」「次は」「では次」で始まる transition が2個目以降に出現しないこと</td>
+      <td>Narrative Arc Bridge がある境界で汎用的すぎる transition を使っていないか</td>
+      <td>Bridge が定義された記事境界だけを対象に、「次の話題」「続いては」「次は」「では次」で始まる transition を検出</td>
     </tr>
     <tr>
       <td>—</td>
       <td><span class="pill warn">ERROR</span></td>
-      <td>discussion が全 news の後に配置されているか</td>
-      <td>discussion 最初の行インデックス > news 最後の行インデックス</td>
+      <td>discussion が全 news の後に配置され、対象記事が最後の news と一致するか</td>
+      <td>discussion 最初の行インデックス > news 最後の行インデックス、かつ対象記事の article_id が最後の news と一致</td>
     </tr>
     <tr>
       <td>—</td>
@@ -942,7 +942,7 @@ for lint_attempt in range(1, _MAX_LINT_RETRIES + 1):
   <table>
     <tr><th>指示カテゴリ</th><th>内容</th></tr>
     <tr><td>テーマ発見</td><td>「緊張・対比・連鎖」を探す（例: 便利さ vs. リスク / 技術の加速と制度の遅れ）</td></tr>
-    <tr><td>記事順序設計</td><td>中程度インパクトで掴み始め、最重要は中盤以降。discussion 記事は最後から2番目の news に</td></tr>
+    <tr><td>記事順序設計</td><td>中程度インパクトで掴み始め、最重要は中盤以降。discussion 記事はニュース部の最後に</td></tr>
     <tr><td>Bridge 設計</td><td>各記事間の文脈・対比・共通点を30〜60文字で表現</td></tr>
     <tr><td>出力形式</td><td>JSON のみ。<code>theme / theme_description / article_order / bridges / discussion_article_id / discussion_reason</code></td></tr>
   </table>

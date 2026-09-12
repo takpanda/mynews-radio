@@ -21,6 +21,9 @@ def _line(speaker, text, article_id, section, delivery="neutral"):
 
 
 def _writer_output(summaries):
+    # 新しい契約ではdiscussion対象（このfixtureでは先頭の最高重要度記事）を
+    # ニュース部の最後へ配置する。
+    summaries = list(summaries[1:]) + list(summaries[:1])
     ids = [item["id"] for item in summaries]
     lines = [
         _line("male", "「ニュースのとなり」の時間です。今日のニュースをお届けします。", None, "intro"),
@@ -32,10 +35,10 @@ def _writer_output(summaries):
             lines.append(_line("male", f"{item['title']}について、具体的な中身を確認しましょう。", item["id"], "transition"))
         lines.append(_line("male", f"{item['title']}では、要約にある動きを確認しました。", item["id"], "news"))
     lines.extend([
-        _line("male", "特にAI障害と運用環境の課題を、もう少し考えます。", ids[0], "discussion", "thoughtful"),
-        _line("female", "一方で、使う人の現場の負担も見逃せないと思います。", ids[0], "discussion", "questioning"),
-        _line("male", "三つのAIサービスが同じ時間帯に止まり、原因としてデータセンター障害が疑われました。", ids[0], "discussion", "thoughtful"),
-        _line("female", "便利さだけでなく、止まったときの備えも必要ですね。", ids[0], "discussion", "thoughtful"),
+        _line("male", "特にAI障害と運用環境の課題を、もう少し考えます。", ids[-1], "discussion", "thoughtful"),
+        _line("female", "一方で、使う人の現場の負担も見逃せないと思います。", ids[-1], "discussion", "questioning"),
+        _line("male", "三つのAIサービスが同じ時間帯に止まり、原因としてデータセンター障害が疑われました。", ids[-1], "discussion", "thoughtful"),
+        _line("female", "便利さだけでなく、止まったときの備えも必要ですね。", ids[-1], "discussion", "thoughtful"),
         _line("male", "今日はAI障害と仕様駆動開発を含む、技術と暮らしの話題を見てきました。", None, "outro", "warm"),
         _line("female", "技術を使う現場の備えを、これからも考えていきましょう。", None, "outro", "warm"),
         _line("male", "それではまた明日、ニュースをお届けします。", None, "outro", "warm"),

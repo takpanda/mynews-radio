@@ -102,7 +102,7 @@ def test_representative_dialogue_output_can_be_checked_without_external_llm():
             {"speaker": "male", "text": "店頭価格への反映には時間差があるようです。", "article_id": 1, "section": "news", "delivery": "neutral"},
             {"speaker": "female", "text": "家計を預かる側としては、変化の時期を知りたいところです。", "article_id": 1, "section": "news", "delivery": "thoughtful"},
             {"speaker": "female", "text": "暮らしの変化に続いて、次は技術の話題です。", "article_id": 2, "section": "transition", "delivery": "neutral"},
-            {"speaker": "male", "text": "こちらも聞いてみましょう。", "article_id": 2, "section": "transition", "delivery": "neutral"},
+            {"speaker": "male", "text": "認証機能の手順も確認したいですね。", "article_id": 2, "section": "transition", "delivery": "neutral"},
             {"speaker": "male", "text": "新しい認証機能が発表されました。", "article_id": 2, "section": "news", "delivery": "neutral"},
             {"speaker": "female", "text": "便利そうですが、設定は難しくないですか？", "article_id": 2, "section": "news", "delivery": "questioning"},
             {"speaker": "male", "text": "登録した端末を使って本人確認を行う仕組みです。", "article_id": 2, "section": "news", "delivery": "neutral"},

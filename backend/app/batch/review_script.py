@@ -19,7 +19,10 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from app.batch.generate_script import _is_broken_transition_text
+from app.batch.generate_script import (
+    _is_broken_transition_text,
+    _is_generic_transition_reaction_text,
+)
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
@@ -84,11 +87,13 @@ def _build_radio_director_style_guidance(style: str) -> str:
         "MC（male / female）が交互に発話します。\n"
         "\n"
         "### 評価の観点（dialogue モード）\n"
-        "- transition が前の話題に自然に言及しているか（Contextual Bridge の有無）\n"
-        "  - 「続いては気象に関する話題です」→ △（前の話題への言及なし）\n"
-        "  - 「そういった極限的な脅威から視点を移して、次に〜」→ ○\n"
-        "- **記事境界の transition が両MCの短い掛け合い（2行）になっているか。**\n"
-        "  片方のMCの単独告知1行だけで終わっている場合は指摘すること（discussion直前のtransitionは1行でよい）\n"
+        "- 関連が明示できる記事間では transition が前の話題に自然に言及しているか（Contextual Bridge）\n"
+        "  - 関連がある記事間でtransitionで前の話題への言及がなく、単なる告知になっている場合は指摘する\n"
+        "  - 関連が薄い記事間の「続いては気象に関する話題です」のような中立的な1行は許容する\n"
+        "  - 「そういった極限的な脅威から視点を移して、次に〜」のように関係が伝わる場合は許容する\n"
+        "  - 関連があるのに単なる話題告知で終わる場合は指摘する\n"
+        "- **記事境界の transition が、必要な場合だけ2行の掛け合いになっているか。**\n"
+        "  関連や次の記事の理解補助がない1行は許容し、意味のない相槌だけの2行は1行にするよう指摘すること（discussion直前のtransitionは1行でよい）\n"
         "- MC間の対話バランス（片方だけが情報発信していないか）\n"
         "- discussion が対話形式として成立しているか（男女交互に喋っているか）\n"
         "- **discussion が選んだ1本の記事の内容だけで構成され、他の記事の話題が混ざっていないか**\n"
@@ -131,8 +136,8 @@ def _build_output_issue_example(style: str) -> str:
         '  "issues": [\n'
         '    {\n'
         '      "line_index": 3,\n'
-        '      "issue": "transitionで前の話題への言及がなく、唐突に次の話題に移っている",\n'
-        '      "suggestion": "「そういったリスクを踏まえた上で、次はこちらの話題に目を向けてみましょう」のように前の話題に一言触れてから次に移る"\n'
+        '      "issue": "関連がある記事間のtransitionで前の話題への言及がなく、単なる話題告知になっている",\n'
+        '      "suggestion": "前の話題との関係・共通点・対比を入力要約の範囲で一言加える。関連が薄い場合は中立的な1行のままにする"\n'
         '    }\n'
         '  ],\n'
         '  "general_feedback": "音声メディアとしての聴きやすさについて一言コメント"\n'
@@ -261,10 +266,42 @@ def check_transition_integrity(lines: list) -> list[str]:
     if current:
         blocks.append(current)
 
+    news_indices = [i for i, section in enumerate(sections) if section == "news"]
+    discussion_indices = [i for i, section in enumerate(sections) if section == "discussion"]
+    if news_indices and discussion_indices:
+        last_news = max(news_indices)
+        first_discussion = min(discussion_indices)
+        if first_discussion < last_news:
+            issues.append(
+                "[DISCUSSION_POSITION] discussionが全newsの後にありません"
+            )
+        discussion_article_ids = {
+            lines[i].get("article_id") for i in discussion_indices
+        }
+        if len(discussion_article_ids) == 1:
+            discussion_article_id = next(iter(discussion_article_ids))
+            last_news_article_id = lines[last_news].get("article_id")
+            if discussion_article_id != last_news_article_id:
+                issues.append(
+                    "[DISCUSSION_ARTICLE_POSITION] discussion対象記事がニュース部の最後と"
+                    f"一致しません（最後のnews article_id={last_news_article_id}, "
+                    f"discussion={discussion_article_id}）"
+                )
+
     for block in blocks:
         next_idx = block[-1] + 1
         if next_idx >= len(sections) or sections[next_idx] != "news":
             continue
+        if len(block) > 2:
+            issues.append(
+                f"[TRANSITION_LENGTH] transition行 {block} が{len(block)}行あります"
+                "（1行または補助内容を含む2行にしてください）"
+            )
+        elif len(block) == 2 and lines[block[0]].get("speaker") == lines[block[1]].get("speaker"):
+            issues.append(
+                f"[TRANSITION_SOLO] transition行 {block} の話者が同一です"
+                "（2行構成にする場合はもう一方のMCを使ってください）"
+            )
         for i in block:
             text = lines[i].get("text", "")
             if _is_broken_transition_text(text):
@@ -272,6 +309,13 @@ def check_transition_integrity(lines: list) -> list[str]:
                     f"[TRANSITION_MIXED] transition行 {i} に前の記事の締め文と次の記事の"
                     f"告知が混在している可能性があります: 「{text[:40]}...」"
                 )
+        if len(block) == 2 and _is_generic_transition_reaction_text(
+            lines[block[1]].get("text", "")
+        ):
+            issues.append(
+                f"[TRANSITION_REDUNDANT] transition行 {block[1]} が記事内容を補わない"
+                "定型相づちです（関連または理解補助を含めるか、1行にしてください）"
+            )
 
     return issues
 
