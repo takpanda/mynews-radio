@@ -682,7 +682,11 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
             # article_id が変わった（または intro→news）かつ直前が transition でない場合に挿入
             # discussion は最後の news と同じ article_id になるため、article_id の
             # 差分だけでは discussion 直前のtransitionを補完できない。
-            needs_transition = article_id != last_content_aid or section == "discussion"
+            discussion_starts_here = (
+                section == "discussion"
+                and (not result or result[-1].get("section") not in {"discussion", "transition"})
+            )
+            needs_transition = article_id != last_content_aid or discussion_starts_here
             if not prev_is_transition and needs_transition:
                 speaker = _pick_speaker(result, section)
                 topic = _topic(article_id)

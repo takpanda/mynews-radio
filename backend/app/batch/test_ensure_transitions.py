@@ -43,7 +43,7 @@ class TestEnsureTransitionsDiscussionInsertion:
 
     def test_valid_llm_transition_block_is_preserved(self):
         bridge = "前の話題を踏まえて、次は暮らしの変化を見ていきます。"
-        reaction = "こちらも聞いてみましょう。"
+        reaction = "暮らしの変化で確認したい点もあります。"
         result = _ensure_transitions(
             self._transition_lines([
                 {"section": "transition", "article_id": 2, "speaker": "female", "text": bridge},
@@ -55,7 +55,7 @@ class TestEnsureTransitionsDiscussionInsertion:
         assert bridge in transition_texts
         assert reaction in transition_texts
 
-    def test_empty_transition_is_replaced_with_two_line_fallback(self):
+    def test_empty_transition_is_replaced_with_one_line_fallback(self):
         result = _ensure_transitions(
             self._transition_lines([
                 {"section": "transition", "article_id": 2, "speaker": "female", "text": ""},
@@ -64,11 +64,10 @@ class TestEnsureTransitionsDiscussionInsertion:
             [{"id": 1, "title": "記事1"}, {"id": 2, "title": "記事2"}],
         )
         transitions = [line for line in result if line["section"] == "transition" and line.get("article_id") == 2]
-        assert len(transitions) == 2
-        assert all(line["text"] for line in transitions)
-        assert transitions[0]["speaker"] != transitions[1]["speaker"]
+        assert len(transitions) == 1
+        assert transitions[0]["text"]
 
-    def test_missing_speaker_transition_is_replaced_with_two_line_fallback(self):
+    def test_missing_speaker_transition_is_replaced_with_one_line_fallback(self):
         result = _ensure_transitions(
             self._transition_lines([
                 {"section": "transition", "article_id": 2, "text": "橋渡しです。"},
@@ -77,8 +76,8 @@ class TestEnsureTransitionsDiscussionInsertion:
             [{"id": 1, "title": "記事1"}, {"id": 2, "title": "記事2"}],
         )
         transitions = [line for line in result if line["section"] == "transition" and line.get("article_id") == 2]
-        assert len(transitions) == 2
-        assert transitions[0]["speaker"] != transitions[1]["speaker"]
+        assert len(transitions) == 1
+        assert transitions[0]["speaker"] in {"male", "female"}
 
     def test_transition_inserted_before_discussion(self):
         lines = [
@@ -123,10 +122,9 @@ class TestEnsureTransitionsDiscussionInsertion:
         ]
         summaries = [{"id": 1, "title": "T1"}, {"id": 2, "title": "T2"}]
         result = _ensure_transitions(lines, summaries)
-        # art2のLLM transitionは1行のため不正と判定され、安全な2行へ置き換わる。
-        # 正常生成を受け取った場合だけ、その内容を保持する。
+        # 1行のtransitionは、関連が薄い記事間の中立的な告知として保持する。
         trans_count = sum(1 for r in result if r["section"] == "transition")
-        assert trans_count == 4, f"unexpected transition count: {trans_count}"
+        assert trans_count == 2, f"unexpected transition count: {trans_count}"
 
 
 class TestEnsureTransitionsArticleBoundary:
@@ -147,7 +145,7 @@ class TestEnsureTransitionsArticleBoundary:
         assert trans_count >= 2, f"expected at least 2 transitions across 3 articles, got {trans_count}"
 
     def test_same_article_id_no_extra_transition(self):
-        # intro->news(1) inserts a 2-line transition (bridge + short reaction, BEE-630)
+        # intro->news(1) inserts a 1-line neutral transition
         # news(1)->news(1) does NOT insert because article_id unchanged
         lines = [
             {"section": "intro", "speaker": "male"},
@@ -157,7 +155,7 @@ class TestEnsureTransitionsArticleBoundary:
         summaries = [{"id": 1, "title": "Single"}]
         result = _ensure_transitions(lines, summaries)
         trans_count = sum(1 for r in result if r["section"] == "transition")
-        assert trans_count == 2, f"expected exactly 2 transition lines on intro->news boundary, got {trans_count}"
+        assert trans_count == 1, f"expected exactly 1 transition line on intro->news boundary, got {trans_count}"
 
 
 class TestPickSpeaker:
@@ -261,12 +259,11 @@ class TestEnsureTransitionsBridgeContextual:
             ],
         }
         result = _ensure_transitions(lines, summaries, arc=arc)
-        # 記事境界のtransitionは橋渡し＋短い受けの2行（BEE-630）。bridgeテキストは
-        # 1行目（橋渡し）にのみ含まれ、2行目（短い受け）には含まれない。
+        # 関連を明示するbridgeを含む1行のtransitionを生成する。
         art2_transitions = [
             l for l in result if l["section"] == "transition" and l.get("article_id") == 2
         ]
-        assert len(art2_transitions) == 2
+        assert len(art2_transitions) == 1
         assert "気候変動の影響は経済にも及んでいます" in art2_transitions[0].get("text", ""), (
             f"bridge text not found in transition: {art2_transitions[0].get('text', '')}"
         )
@@ -393,12 +390,11 @@ class TestEnsureTransitionsBridgeContextual:
             ],
         }
         result = _ensure_transitions(lines, summaries, arc=arc)
-        # 記事境界のtransitionは2行（橋渡し＋短い受け）。_BRIDGE_TRANSITION_PHRASES に
-        # 従ったbridgeテキストは1行目（橋渡し）にのみ含まれる（BEE-630）。
+        # bridgeを含むtransitionは1行で完結する。
         art2_transitions = [
             l for l in result if l["section"] == "transition" and l.get("article_id") == 2
         ]
-        assert len(art2_transitions) == 2
+        assert len(art2_transitions) == 1
         bridge_text = art2_transitions[0].get("text", "")
         # _BRIDGE_TRANSITION_PHRASES のテンプレートに従っていれば
         # "{bridge}" は bridge text で置換済みのはず
@@ -435,8 +431,8 @@ class TestEnsureTransitionsBridgeContextual:
 
 class TestEnsureTransitionsMissingInputRegression:
     """BEE-630 レビュー指摘の回帰テスト: LLMがtransitionを完全に省略した入力でも、
-    _ensure_transitions() 後の最終台本が記事境界transitionの2行・異話者制約
-    ([TRANSITION_SOLO]) を満たすこと。"""
+    _ensure_transitions() 後の最終台本が、記事境界transitionを必要以上に
+    増やさず1行で補完されること。"""
 
     def test_missing_transitions_are_completed_as_two_line_alternating_speaker(self):
         # LLM出力を模した、transition行が一切ない2記事構成の台本
@@ -462,21 +458,14 @@ class TestEnsureTransitionsMissingInputRegression:
 
         result = _ensure_transitions(lines, summaries)
 
-        # 補完後は各記事境界のtransitionが2行・異話者になっているため
-        # TRANSITION_SOLO は検出されないこと（BEE-630 レビュー指摘の再現ケース）
+        # 補完後も単独1行は許容され、構造エラーにならないこと
         post_errors = lint_script(result)
         post_solo_errors = [e for e in post_errors if "[TRANSITION_SOLO]" in e]
         assert post_solo_errors == [], f"unexpected TRANSITION_SOLO errors: {post_solo_errors}"
 
         transitions = [l for l in result if l["section"] == "transition"]
-        # intro→記事1、記事1→記事2 の2境界 × 2行 = 4行
-        assert len(transitions) == 4
-        for i in range(0, len(transitions), 2):
-            pair = transitions[i:i + 2]
-            assert pair[0]["speaker"] != pair[1]["speaker"], (
-                f"transition pair should alternate speakers: {pair}"
-            )
-            assert pair[0]["article_id"] == pair[1]["article_id"]
+        # intro→記事1、記事1→記事2 の2境界 × 1行 = 2行
+        assert len(transitions) == 2
 
 
 class TestIsBrokenTransitionText:
@@ -630,12 +619,11 @@ class TestEnsureTransitionsBrokenLLMTransitionReplacement:
         assert self._BROKEN_TEXT not in transition_texts
         assert not any("息のニュースをどうぞ" in t for t in transition_texts), transition_texts
 
-        # 記事2境界のtransitionは、既存の2行（橋渡し＋短い受け）仕様に置き換わること
+        # 記事2境界のtransitionは、安全な1行へ置き換わること
         art2_transitions = [
             l for l in result if l["section"] == "transition" and l.get("article_id") == 2
         ]
-        assert len(art2_transitions) == 2
-        assert art2_transitions[0]["speaker"] != art2_transitions[1]["speaker"]
+        assert len(art2_transitions) == 1
 
         # lint_script でも壊れたtransitionに起因するエラーが出ないこと
         errors = lint_script(result)
@@ -669,9 +657,8 @@ class TestEnsureTransitionsBrokenLLMTransitionReplacement:
         transition_texts = [l["text"] for l in result if l["section"] == "transition"]
         assert two_sentence_discussion_trans in transition_texts
 
-    def test_broken_style_text_on_first_article_after_intro_is_not_touched(self):
-        # last_content_aid が None（intro直後 = 前の記事が存在しない）場合は
-        # 『前記事の締め文混入』という前提が成立しないため対象外とする
+    def test_unnecessary_two_line_transition_after_intro_is_reduced(self):
+        # intro直後でも、意味のない相づちだけの2行は1行へ戻す。
         two_sentence_text = "本日も盛りだくさんです。それでは記事1のニュースをどうぞ。"
         lines = [
             {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
@@ -684,7 +671,8 @@ class TestEnsureTransitionsBrokenLLMTransitionReplacement:
         result = _ensure_transitions(lines, summaries)
 
         transition_texts = [l["text"] for l in result if l["section"] == "transition"]
-        assert two_sentence_text in transition_texts
+        assert two_sentence_text not in transition_texts
+        assert len(transition_texts) == 1
 
     def test_normal_llm_transition_at_news_boundary_is_preserved(self):
         # 正常な単文transitionは過剰に置換されないこと（受入条件: 既存の正常な
@@ -694,7 +682,7 @@ class TestEnsureTransitionsBrokenLLMTransitionReplacement:
             {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
             {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
             {"section": "transition", "article_id": 2, "speaker": "female", "text": normal_text},
-            {"section": "transition", "article_id": 2, "speaker": "male", "text": "詳しく聞きたいです。"},
+            {"section": "transition", "article_id": 2, "speaker": "male", "text": "経済ニュースの数字も確認したいです。"},
             {"section": "news", "article_id": 2, "speaker": "male", "text": "記事2の内容です。"},
         ]
         summaries = [
@@ -720,7 +708,7 @@ class TestEnsureTransitionsBrokenLLMTransitionReplacement:
             {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
             {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
             {"section": "transition", "article_id": 2, "speaker": "female", "text": bridge_text},
-            {"section": "transition", "article_id": 2, "speaker": "male", "text": "興味深いですね。"},
+            {"section": "transition", "article_id": 2, "speaker": "male", "text": "テクノロジーの内容も確認したいです。"},
             {"section": "news", "article_id": 2, "speaker": "male", "text": "記事2の内容です。"},
         ]
         summaries = [
@@ -773,13 +761,11 @@ class TestEnsureTransitionsBrokenFollowedByShortReaction:
         assert self._BROKEN_TEXT not in transition_texts
         assert not any("H3ロケットでを" in t for t in transition_texts), transition_texts
 
-        # 記事2境界のtransitionは、既存の2行（橋渡し＋短い受け）仕様で
-        # 安全な文に置き換わっていること（両司会者の短い掛け合いが維持される）
+        # 記事2境界のtransitionは、安全な1行に置き換わること
         art2_transitions = [
             l for l in result if l["section"] == "transition" and l.get("article_id") == 2
         ]
-        assert len(art2_transitions) == 2
-        assert art2_transitions[0]["speaker"] != art2_transitions[1]["speaker"]
+        assert len(art2_transitions) == 1
         for t in art2_transitions:
             assert _is_broken_transition_text(t["text"]) is False, t["text"]
 
@@ -820,8 +806,7 @@ class TestEnsureTransitionsBrokenFollowedByShortReaction:
             blocks = [
                 l for l in result if l["section"] == "transition" and l.get("article_id") == aid
             ]
-            assert len(blocks) == 2
-            assert blocks[0]["speaker"] != blocks[1]["speaker"]
+            assert len(blocks) == 1
 
 
 class TestEnsureTransitionsBrokenBehindMismatchedArticleId:
@@ -861,14 +846,13 @@ class TestEnsureTransitionsBrokenBehindMismatchedArticleId:
         assert self._BROKEN_TEXT not in transition_texts
         assert not any("息のニュースをどうぞ" in t for t in transition_texts), transition_texts
         # article_id不一致だった反応行の文言も残らないこと（ブロックごと
-        # 安全な2行に置き換わる）
+        # 安全な1行に置き換わる）
         assert "そうなんですね。" not in transition_texts
 
         art2_transitions = [
             l for l in result if l["section"] == "transition" and l.get("article_id") == 2
         ]
-        assert len(art2_transitions) == 2
-        assert art2_transitions[0]["speaker"] != art2_transitions[1]["speaker"]
+        assert len(art2_transitions) == 1
         for t in art2_transitions:
             assert _is_broken_transition_text(t["text"]) is False, t["text"]
 
@@ -883,7 +867,7 @@ class TestEnsureTransitionsNormalComplexLeadInPreserved:
 
     def test_generic_two_sentence_transition_block_is_not_replaced(self):
         normal_text = "続いて経済ニュースです。詳しく見ていきましょう。"
-        reaction_text = "楽しみですね。"
+        reaction_text = "経済ニュースの数字も確認したいです。"
         lines = [
             {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
             {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
@@ -911,7 +895,7 @@ class TestEnsureTransitionsNormalComplexLeadInPreserved:
         # 2文目に含むだけの正常なtransitionが、全文への部分一致によって
         # 誤って置換されないこと
         normal_text = "続いて経済ニュースです。市場の動きをまとめて確認しましょう。"
-        reaction_text = "楽しみですね。"
+        reaction_text = "経済ニュースの数字も確認したいです。"
         lines = [
             {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},
             {"section": "news", "article_id": 1, "speaker": "male", "text": "記事1の内容です。"},
@@ -971,8 +955,7 @@ class TestEnsureTransitionsShortBackwardReferenceStillReplaced:
         art2_transitions = [
             l for l in result if l["section"] == "transition" and l.get("article_id") == 2
         ]
-        assert len(art2_transitions) == 2
-        assert art2_transitions[0]["speaker"] != art2_transitions[1]["speaker"]
+        assert len(art2_transitions) == 1
         for t in art2_transitions:
             assert _is_broken_transition_text(t["text"]) is False, t["text"]
 
@@ -1257,5 +1240,4 @@ class TestEnsureTransitionsEpisode362Regression:
         art2_transitions = [
             l for l in result if l["section"] == "transition" and l.get("article_id") == 2
         ]
-        assert len(art2_transitions) == 2
-        assert art2_transitions[0]["speaker"] != art2_transitions[1]["speaker"]
+        assert len(art2_transitions) == 1

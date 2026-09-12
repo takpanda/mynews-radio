@@ -807,7 +807,7 @@ class TestTransitionSoloCheck:
         solo_errors = [e for e in errors if "[TRANSITION_SOLO]" in e]
         assert len(solo_errors) == 0
 
-    def test_single_line_transition_raises_error(self):
+    def test_single_line_transition_is_allowed_when_no_support_is_needed(self):
         from app.batch.generate_script import lint_script
 
         lines = [
@@ -818,7 +818,7 @@ class TestTransitionSoloCheck:
         ]
         errors = lint_script(lines)
         solo_errors = [e for e in errors if "[TRANSITION_SOLO]" in e]
-        assert len(solo_errors) == 1
+        assert len(solo_errors) == 0
 
     def test_two_line_same_speaker_raises_error(self):
         from app.batch.generate_script import lint_script
