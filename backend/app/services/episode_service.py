@@ -174,6 +174,24 @@ class EpisodeService:
                 )
 
     @retry_on_busy()
+    def hold_for_human_review(self, episode_id: int, reason: str) -> None:
+        """人間確認待ちとして停止理由を保存する。
+
+        既存の status 契約（pending/generating/completed/failed）を変更せず、
+        進捗表示用の phase と generation_message で確認待ちを識別可能にする。
+        """
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                UPDATE episodes
+                SET status = 'failed', phase = 'human_review', generation_message = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (reason, episode_id),
+            )
+
+    @retry_on_busy()
     def add_episode_item(
         self,
         episode_id: int,
@@ -317,7 +335,7 @@ class EpisodeService:
             conn.execute(
                 """
                 UPDATE episodes
-                SET status = 'pending', phase = '', updated_at = CURRENT_TIMESTAMP
+                SET status = 'pending', phase = '', generation_message = '', updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
                 (episode_id,),

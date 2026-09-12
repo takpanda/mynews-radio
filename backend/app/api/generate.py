@@ -15,6 +15,11 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.batch.generate_commentary_script import generate_commentary_script
+from app.batch.final_validation import (
+    FINAL_VALIDATION_PHASE,
+    human_review_message,
+    validate_final_script_file,
+)
 from app.batch.radio_pipeline import run_radio_pipeline
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
@@ -113,6 +118,8 @@ PHASE_SEQUENCE = {
     "generate_script": {"step_index": 3, "step_total": 6, "step_label": "台本生成"},
     "review": {"step_index": 4, "step_total": 6, "step_label": "レビュー"},
     "review_done": {"step_index": 4, "step_total": 6, "step_label": "レビュー"},
+    "final_validation": {"step_index": 5, "step_total": 6, "step_label": "最終確認"},
+    "human_review": {"step_index": 5, "step_total": 6, "step_label": "人間確認待ち"},
     "reviewed": {"step_index": 4, "step_total": 6, "step_label": "レビュー完了"},
     "synthesize": {"step_index": 5, "step_total": 6, "step_label": "音声合成"},
     "build": {"step_index": 6, "step_total": 6, "step_label": "音声統合"},
@@ -294,6 +301,28 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         # -- BRANCH based on revised flag --
         if review_result.get("revised"):
             shutil.copy(os.path.join(reviewed_episode_dir, "script.json"), script_path)
+
+            # Reviewで台本が変更された場合は、解説経路も音声合成前に
+            # 共通の最終検証を通す。commentaryはsummaries.jsonを持たないため、
+            # 取得済みの記事を検証根拠として渡す。
+            service.update_episode_phase(
+                episode_id, FINAL_VALIDATION_PHASE, "解説台本を最終確認しています…"
+            )
+            final_validation = validate_final_script_file(
+                script_path,
+                output_dir=base_dir,
+                program_name="",
+                article=article,
+                commentary=True,
+                prior_review_result=review_result,
+            )
+            if not final_validation["can_synthesize"]:
+                reason = human_review_message(final_validation)
+                service.hold_for_human_review(episode_id, reason)
+                logger.error("[%d] commentary final validation requires human review: %s", episode_id, reason)
+                return
+            for warning in final_validation.get("warnings", []):
+                logger.warning("[%d] commentary final validation warning: %s", episode_id, warning.get("message", warning))
 
         # -- TTS SETUP --
         settings = get_settings()

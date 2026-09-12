@@ -22,6 +22,10 @@ from app.db.connection import get_db_connection
 from app.batch.import_articles import import_articles_by_source
 from app.batch.summarize_articles import summarize_articles
 from app.batch.generate_script import generate_script
+from app.batch.final_validation import (
+    human_review_message,
+    validate_final_script_file,
+)
 from app.batch.review_script import review_script
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
@@ -46,6 +50,15 @@ def _set_episode_status(episode_id: int, status: str) -> None:
         conn.execute(
             "UPDATE episodes SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (status, episode_id),
+        )
+
+
+def _hold_episode_for_human_review(episode_id: int, reason: str) -> None:
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE episodes SET status = 'failed', phase = 'human_review', "
+            "generation_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (reason, episode_id),
         )
 
 
@@ -163,6 +176,27 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
                 logger.info("Reviewed script copied to production script.json")
         except Exception as _rev_exc:
             logger.warning("review_script failed (non-fatal): %s", _rev_exc)
+
+        # Review後の台本を音声化へ渡す前に、共通の最終品質ゲートを通す。
+        if review_result.get("revised") and (
+            "transition_integrity_issues" in review_result
+            or "question_response_issues" in review_result
+            or "dialogue_balance_issues" in review_result
+        ):
+            logger.info("=== Final validation (before synthesis) ===")
+            final_validation = validate_final_script_file(
+                script_path,
+                summaries_path=summaries_path,
+                output_dir=episode_dir,
+                program_name=program_name,
+                prior_review_result=review_result,
+            )
+            if not final_validation["can_synthesize"]:
+                reason = human_review_message(final_validation)
+                _hold_episode_for_human_review(episode_id, reason)
+                _notify_failure("human_review", reason)
+                logger.error("[%d] final validation requires human review: %s", episode_id, reason)
+                return
 
         # Step 5: synthesize_voicevox
         logger.info("=== Step 5/5: synthesize_voicevox ===")
