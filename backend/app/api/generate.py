@@ -280,7 +280,8 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             Path(reviewed_episode_dir).mkdir(parents=True, exist_ok=True)
             Path(os.path.join(reviewed_episode_dir, "lines")).mkdir(exist_ok=True)
             review_result = review_script(script_path, reviewed_episode_dir,
-                                          llm_provider=llm.name, llm_model=llm.model)
+                                          llm_provider=llm.name, llm_model=llm.model,
+                                          article=article)
             logger.info(
                 "review_script: revised=%s review_count=%d",
                 review_result["revised"],

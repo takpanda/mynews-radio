@@ -16,6 +16,7 @@ from app.batch.summarize_articles import summarize_articles
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.config import get_settings
 from app.services.episode_service import EpisodeService, override_script_title, build_radio_title
+from app.services.article_service import ArticleService
 from app.services.episode_category_service import select_episode_categories
 from app.services.fishs2pro_client import FishS2ProClient
 from app.services.settings_service import (
@@ -221,6 +222,30 @@ def run_radio_pipeline(
                 summaries_path, llm_provider=llm.name, llm_model=llm.model,
             )
             logger.info("summarize done: count=%d", summarized)
+            if summarized == 0:
+                existing_summaries = ArticleService().fetch_summaries_for_script(
+                    max_articles=effective_max_articles,
+                    min_importance_score=effective_min_score,
+                    source=news_source,
+                    priority_themes=profile.priority_themes,
+                    excluded_themes=profile.excluded_themes,
+                )
+                Path(summaries_path).write_text(
+                    json.dumps(
+                        [
+                            {**summary, "article_id": summary.get("id")}
+                            for summary in existing_summaries
+                        ],
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                logger.info(
+                    "No new articles to summarize; wrote %d existing summaries for review evidence",
+                    len(existing_summaries),
+                )
         except Exception:
             logger.exception("summarize failed")
             _fail("summarize", "記事の要約に失敗しました")
@@ -294,6 +319,7 @@ def run_radio_pipeline(
             review_result = review_script(
                 script_path, reviewed_episode_dir,
                 llm_provider=llm.name, llm_model=llm.model,
+                summaries_path=summaries_path,
             )
             logger.info(
                 "review_script: revised=%s review_count=%d",

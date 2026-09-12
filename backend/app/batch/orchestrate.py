@@ -10,6 +10,7 @@ Intermediate artifacts are preserved on error.
 If articles.json does not exist, a WARNING is logged and processing stops (status remains unchanged).
 """
 
+import json
 import logging
 import os
 import shutil
@@ -120,6 +121,21 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
                 "No new articles to summarize, but %d existing summarized articles are available. Continuing.",
                 len(existing_summaries),
             )
+            # summarize_articles writes [] when it has no new rows. Preserve
+            # the DB-backed summaries used by generate_script so review_script
+            # can verify the final dialogue against the same evidence.
+            Path(summaries_path).write_text(
+                json.dumps(
+                    [
+                        {**summary, "article_id": summary.get("id")}
+                        for summary in existing_summaries
+                    ],
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
 
         # Step 3: generate_script
         logger.info("=== Step 3/5: generate_script (source=%s) ===", news_source)
@@ -142,7 +158,11 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
             Path(reviewed_episode_dir).mkdir(parents=True, exist_ok=True)
             Path(os.path.join(reviewed_episode_dir, "lines")).mkdir(exist_ok=True)
 
-            review_result = review_script(script_path, reviewed_episode_dir)
+            review_result = review_script(
+                script_path,
+                reviewed_episode_dir,
+                summaries_path=summaries_path,
+            )
             logger.info(
                 "review_script completed: revised=%s review_count=%d",
                 review_result["revised"],

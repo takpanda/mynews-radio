@@ -50,6 +50,53 @@ def _load_prompt(filename: str) -> str:
     return (_PROMPTS_DIR / filename).read_text(encoding="utf-8")
 
 
+def _load_review_evidence(
+    source_script_path: str,
+    summaries_path: str | None = None,
+    article: dict | None = None,
+) -> list[dict]:
+    """Load factual evidence for script review.
+
+    Radio episodes keep ``summaries.json`` next to ``script.json``. Commentary
+    episodes instead pass the source article because they have no summaries
+    file. If neither is available, the prompt explicitly reports that fact
+    verification is unavailable rather than encouraging invented facts.
+    """
+    candidate_paths: list[Path] = []
+    if summaries_path:
+        candidate_paths.append(Path(summaries_path))
+    candidate_paths.append(Path(source_script_path).with_name("summaries.json"))
+
+    for candidate in candidate_paths:
+        try:
+            if not candidate.is_file():
+                continue
+            payload = json.loads(candidate.read_text(encoding="utf-8"))
+            if isinstance(payload, list):
+                evidence = [item for item in payload if isinstance(item, dict)]
+                if evidence:
+                    return evidence
+                continue
+            if isinstance(payload, dict) and isinstance(payload.get("summaries"), list):
+                evidence = [item for item in payload["summaries"] if isinstance(item, dict)]
+                if evidence:
+                    return evidence
+                continue
+        except (OSError, TypeError, ValueError) as exc:
+            logger.warning("review_script: failed to load evidence %s: %s", candidate, exc)
+
+    if isinstance(article, dict):
+        return [dict(article)]
+    return []
+
+
+def _format_review_evidence(evidence: list[dict]) -> str:
+    """Serialize evidence and make an unavailable source explicit."""
+    if not evidence:
+        return "[]\n（根拠資料は利用できません。要約にない事実を補わず、根拠不足として指摘してください。）"
+    return json.dumps(evidence, ensure_ascii=False, indent=2)
+
+
 def _build_radio_director_style_guidance(style: str) -> str:
     """Return style-specific evaluation guidance for the radio director prompt.
 
@@ -227,6 +274,52 @@ def check_dialogue_balance(lines: list) -> list[str]:
     return issues
 
 
+def check_question_response_contract(lines: list) -> list[str]:
+    """Check that dialogue questions receive an immediate, non-empty reply.
+
+    Semantic correctness is reviewed by the LLM against the article evidence,
+    while this deterministic check catches the structural failures that are
+    easy to miss: a question followed by a topic change or by another line from
+    the same speaker, and an exact repeated explanation in one article block.
+    Solo commentary is intentionally not handled here by the caller.
+    """
+    issues: list[str] = []
+    answerable_sections = {"news", "discussion"}
+    seen: dict[tuple[object, str], int] = {}
+
+    for index, line in enumerate(lines):
+        section = line.get("section")
+        text = str(line.get("text", "") or "").strip()
+        if section not in answerable_sections or not text:
+            continue
+
+        key = (line.get("article_id"), text)
+        if key in seen:
+            issues.append(
+                f"[EXPLANATION_REPEAT] {section}行 {seen[key]} と {index} が同じ説明を繰り返しています。"
+                "質問への回答後は新しい観点を加えてください"
+            )
+        else:
+            seen[key] = index
+
+        if not _is_question(text):
+            continue
+
+        next_index = index + 1
+        if (
+            next_index >= len(lines)
+            or lines[next_index].get("section") != section
+            or not str(lines[next_index].get("text", "") or "").strip()
+            or lines[next_index].get("speaker") == line.get("speaker")
+        ):
+            issues.append(
+                f"[DIRECT_ANSWER_MISSING] {section}行 {index} の質問に直後の相手の回答がありません。"
+                "入力要約に根拠がなければ質問を書き換え、推測で回答しないでください"
+            )
+
+    return issues
+
+
 # ---------------------------------------------------------------------------
 # Transition integrity check — 前の記事の締め文と次の記事の告知が1行に
 # 混在した壊れたtransition（BEE-661/BEE-662）がレビュー後の最終台本に
@@ -324,13 +417,24 @@ def check_transition_integrity(lines: list) -> list[str]:
 # Public API
 # ---------------------------------------------------------------------------
 
-def review_script(source_script_path: str, output_dir: str, *, llm_provider: str | None = None, llm_model: str | None = None) -> dict:
+def review_script(
+    source_script_path: str,
+    output_dir: str,
+    *,
+    llm_provider: str | None = None,
+    llm_model: str | None = None,
+    summaries_path: str | None = None,
+    article: dict | None = None,
+) -> dict:
     """Review *source_script_path* with 5 directors and write a revised script.
 
     Args:
         source_script_path: Path to the original script.json (read-only).
         output_dir:         Directory for output files (script.json, review.json).
                             The directory must already exist.
+        summaries_path:     Optional article summaries JSON path. When omitted,
+                            summaries.json next to source_script_path is used.
+        article:            Optional source article for commentary scripts.
 
     Returns:
         dict with keys:
@@ -351,6 +455,8 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
             dialogue_balance_issues (list[str]) – 山口(female)の質問偏重・一問一答の
                                                    連続を検出した警告。空リストなら合格。
                                                    (style="solo" の台本では常に空)
+            question_response_issues (list[str]) – 質問直後の回答欠落と同じ説明の
+                                                   反復を検出した警告。空リストなら合格。
             transition_integrity_issues (list[str]) – 記事境界のtransitionに前の記事の
                                                    締め文と次の記事の告知が混在した壊れた
                                                    文（BEE-661/BEE-662）を検出した警告。
@@ -375,10 +481,14 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
             "revision_summary": "",
             "lines_count": 0,
             "dialogue_balance_issues": [],
+            "question_response_issues": [],
             "transition_integrity_issues": [],
         }
 
     script_json_str = json.dumps(source, ensure_ascii=False, indent=2)
+    article_summaries_json = _format_review_evidence(
+        _load_review_evidence(source_script_path, summaries_path, article)
+    )
 
     reviews: dict[str, dict] = {}
     review_count = 0
@@ -405,8 +515,16 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
                         style_guidance=style_guidance,
                         output_issue_example=output_issue_example,
                     )
+                    prompt += (
+                        "\n\n# 記事要約・根拠資料 (JSON)\n\n"
+                        + article_summaries_json
+                        + "\n"
+                    )
                 else:
-                    prompt = template.format(script_json=script_json_str)
+                    prompt = template.format(
+                        script_json=script_json_str,
+                        article_summaries_json=article_summaries_json,
+                    )
                 result = client.generate_json(prompt)
                 if result and isinstance(result, dict):
                     reviews[key] = result
@@ -431,6 +549,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
             mc_gender = source.get("mc_gender", "male")
             synth_prompt = synth_template.format(
                 original_script_json=script_json_str,
+                article_summaries_json=article_summaries_json,
                 mode=mode,
                 mc_gender=mc_gender,
                 genius_review=json.dumps(reviews.get("genius", {}), ensure_ascii=False, indent=2),
@@ -468,14 +587,22 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
     # revised が書き出す最終行を対象に、山口(female)の質問偏重・一問一答の
     # 連続を検査する。solo（一人喋り）は対話が成立しないため対象外。
     dialogue_balance_issues: list[str] = []
+    question_response_issues: list[str] = []
     if style != "solo":
         dialogue_check_lines = revised_script["lines"] if (revised and revised_script) else source.get("lines", [])
         dialogue_balance_issues = check_dialogue_balance(dialogue_check_lines)
+        question_response_issues = check_question_response_contract(dialogue_check_lines)
         if dialogue_balance_issues:
             logger.warning(
                 "review_script: dialogue balance check found %d issue(s):\n%s",
                 len(dialogue_balance_issues),
                 "\n".join(f"  - {issue}" for issue in dialogue_balance_issues),
+            )
+        if question_response_issues:
+            logger.warning(
+                "review_script: question response check found %d issue(s):\n%s",
+                len(question_response_issues),
+                "\n".join(f"  - {issue}" for issue in question_response_issues),
             )
 
     # --- Step 4: 記事境界transitionの複文混入チェック（BEE-661/BEE-662）---
@@ -516,6 +643,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
         revision_summary=revision_summary,
         revised=revised,
         dialogue_balance_issues=dialogue_balance_issues,
+        question_response_issues=question_response_issues,
         transition_integrity_issues=transition_integrity_issues,
     )
 
@@ -525,6 +653,7 @@ def review_script(source_script_path: str, output_dir: str, *, llm_provider: str
         "revision_summary": revision_summary,
         "lines_count": lines_count,
         "dialogue_balance_issues": dialogue_balance_issues,
+        "question_response_issues": question_response_issues,
         "transition_integrity_issues": transition_integrity_issues,
     }
 
@@ -591,6 +720,7 @@ def _write_review_json(
     revision_summary: str,
     revised: bool,
     dialogue_balance_issues: list[str] | None = None,
+    question_response_issues: list[str] | None = None,
     transition_integrity_issues: list[str] | None = None,
 ) -> None:
     review_data = {
@@ -600,6 +730,7 @@ def _write_review_json(
         "revision_summary": revision_summary,
         "revised": revised,
         "dialogue_balance_issues": dialogue_balance_issues or [],
+        "question_response_issues": question_response_issues or [],
         "transition_integrity_issues": transition_integrity_issues or [],
     }
     review_path = os.path.join(output_dir, "review.json")
