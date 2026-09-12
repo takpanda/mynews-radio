@@ -113,6 +113,8 @@ PHASE_SEQUENCE = {
     "generate_script": {"step_index": 3, "step_total": 6, "step_label": "台本生成"},
     "review": {"step_index": 4, "step_total": 6, "step_label": "レビュー"},
     "review_done": {"step_index": 4, "step_total": 6, "step_label": "レビュー"},
+    "final_validation": {"step_index": 5, "step_total": 6, "step_label": "最終確認"},
+    "human_review": {"step_index": 5, "step_total": 6, "step_label": "人間確認待ち"},
     "reviewed": {"step_index": 4, "step_total": 6, "step_label": "レビュー完了"},
     "synthesize": {"step_index": 5, "step_total": 6, "step_label": "音声合成"},
     "build": {"step_index": 6, "step_total": 6, "step_label": "音声統合"},

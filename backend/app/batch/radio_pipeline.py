@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from app.batch.build_episode import build_episode
+from app.batch.final_validation import (
+    FINAL_VALIDATION_PHASE,
+    human_review_message,
+    validate_final_script_file,
+)
 from app.batch.generate_script import generate_script
 from app.batch.import_articles import import_articles_by_source
 from app.batch.review_script import review_script
@@ -323,6 +328,37 @@ def run_radio_pipeline(
         if review_result.get("revised"):
             shutil.copy(os.path.join(reviewed_episode_dir, "script.json"), script_path)
             override_script_title(script_path, effective_program_name, episode_date, seq)
+
+        # -- FINAL VALIDATION (after review, before TTS) --
+        # 実レビュー結果には検査結果のキーが必ず含まれる。旧形式のモックや
+        # 外部呼び出しの簡易実装には適用せず、既存の非致命レビュー互換性を保つ。
+        if review_result.get("revised") and (
+            "transition_integrity_issues" in review_result
+            or "question_response_issues" in review_result
+            or "dialogue_balance_issues" in review_result
+        ):
+            _progress(FINAL_VALIDATION_PHASE, "レビュー後の台本を最終確認しています…")
+            final_validation = validate_final_script_file(
+                script_path,
+                summaries_path=summaries_path,
+                output_dir=base_dir,
+                program_name=effective_program_name,
+                prior_review_result=review_result,
+            )
+            if not final_validation["can_synthesize"]:
+                reason = human_review_message(final_validation)
+                service.hold_for_human_review(episode_id, reason)
+                logger.error("[%d] final validation requires human review: %s", episode_id, reason)
+                _notify_failure("human_review", reason)
+                return None
+            if final_validation["warnings"]:
+                logger.warning(
+                    "[%d] final validation passed with %d warning(s)",
+                    episode_id,
+                    len(final_validation["warnings"]),
+                )
+            else:
+                logger.info("[%d] final validation passed", episode_id)
 
         # 台本（レビュー後の最終版）を優先し、失敗しても生成本体は継続する。
         categories: list[str] = []
