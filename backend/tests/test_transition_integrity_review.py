@@ -88,6 +88,95 @@ class TestCheckTransitionIntegrity:
 
         assert check_transition_integrity([]) == []
 
+    def test_discussion_article_must_match_last_news_article(self):
+        from app.batch.review_script import check_transition_integrity
+
+        lines = [
+            _make_line("news", "最初の記事です。", article_id=1),
+            _make_line("news", "最後の記事です。", article_id=2),
+            _make_line("discussion", "討論1", speaker="male", article_id=1),
+            _make_line("discussion", "討論2", speaker="female", article_id=1),
+            _make_line("discussion", "討論3", speaker="male", article_id=1),
+            _make_line("discussion", "討論4", speaker="female", article_id=1),
+        ]
+
+        issues = check_transition_integrity(lines)
+
+        assert any("[DISCUSSION_ARTICLE_POSITION]" in issue for issue in issues)
+
+    def test_discussion_article_matching_last_news_has_no_position_issue(self):
+        from app.batch.review_script import check_transition_integrity
+
+        lines = [
+            _make_line("news", "最初の記事です。", article_id=1),
+            _make_line("news", "最後の記事です。", article_id=2),
+            _make_line("discussion", "討論1", speaker="male", article_id=2),
+            _make_line("discussion", "討論2", speaker="female", article_id=2),
+            _make_line("discussion", "討論3", speaker="male", article_id=2),
+            _make_line("discussion", "討論4", speaker="female", article_id=2),
+        ]
+
+        issues = check_transition_integrity(lines)
+
+        assert not any("[DISCUSSION_ARTICLE_POSITION]" in issue for issue in issues)
+
+    def test_three_line_transition_reports_length_issue(self):
+        from app.batch.review_script import check_transition_integrity
+
+        lines = [
+            _make_line("news", "最初の記事です。", article_id=1),
+            _make_line("transition", "ここで海外市場の動きを確認します。", speaker="male", article_id=2),
+            _make_line("transition", "次に国内の制度変更を紹介します。", speaker="female", article_id=2),
+            _make_line("transition", "続いて現場への影響を見ていきます。", speaker="male", article_id=2),
+            _make_line("news", "次の記事です。", article_id=2),
+        ]
+
+        issues = check_transition_integrity(lines)
+
+        assert any("[TRANSITION_LENGTH]" in issue for issue in issues)
+
+    def test_same_speaker_two_line_transition_reports_solo_issue(self):
+        from app.batch.review_script import check_transition_integrity
+
+        lines = [
+            _make_line("news", "最初の記事です。", article_id=1),
+            _make_line("transition", "海外市場との関係を整理します。", speaker="male", article_id=2),
+            _make_line("transition", "海外市場との影響も確認します。", speaker="male", article_id=2),
+            _make_line("news", "次の記事です。", article_id=2),
+        ]
+
+        issues = check_transition_integrity(lines)
+
+        assert any("[TRANSITION_SOLO]" in issue for issue in issues)
+
+    def test_generic_second_transition_line_reports_redundant_issue(self):
+        from app.batch.review_script import check_transition_integrity
+
+        lines = [
+            _make_line("news", "最初の記事です。", article_id=1),
+            _make_line("transition", "海外市場との関係を整理します。", speaker="male", article_id=2),
+            _make_line("transition", "内容を確認しましょう。", speaker="female", article_id=2),
+            _make_line("news", "次の記事です。", article_id=2),
+        ]
+
+        issues = check_transition_integrity(lines)
+
+        assert any("[TRANSITION_REDUNDANT]" in issue for issue in issues)
+
+    def test_meaningful_second_transition_line_has_no_redundant_issue(self):
+        from app.batch.review_script import check_transition_integrity
+
+        lines = [
+            _make_line("news", "最初の記事です。", article_id=1),
+            _make_line("transition", "海外市場との関係を整理します。", speaker="male", article_id=2),
+            _make_line("transition", "海外市場との関係も確認しましょう。", speaker="female", article_id=2),
+            _make_line("news", "次の記事です。", article_id=2),
+        ]
+
+        issues = check_transition_integrity(lines)
+
+        assert not any("[TRANSITION_REDUNDANT]" in issue for issue in issues)
+
     def test_all_transition_phrases_pass_review_check(self):
         # BEE-664: _TRANSITION_PHRASES 31件全件が、記事境界のtransitionとして
         # レビュー検査を通過すること（受入条件）。

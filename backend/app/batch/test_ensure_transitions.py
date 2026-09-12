@@ -434,7 +434,7 @@ class TestEnsureTransitionsMissingInputRegression:
     _ensure_transitions() 後の最終台本が、記事境界transitionを必要以上に
     増やさず1行で補完されること。"""
 
-    def test_missing_transitions_are_completed_as_two_line_alternating_speaker(self):
+    def test_missing_transitions_are_completed_as_one_line_neutral_transition(self):
         # LLM出力を模した、transition行が一切ない2記事構成の台本
         lines = [
             {"section": "intro", "speaker": "male", "text": "「ニュースのとなり」の時間です。"},

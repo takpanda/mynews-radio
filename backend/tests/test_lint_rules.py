@@ -807,6 +807,94 @@ class TestTransitionSoloCheck:
         solo_errors = [e for e in errors if "[TRANSITION_SOLO]" in e]
         assert len(solo_errors) == 0
 
+
+class TestDiscussionPositionAndTransitionContract:
+    """BEE-934で追加したdiscussion位置・遷移構造ルールを直接検証する。"""
+
+    def test_discussion_article_must_match_last_news_article(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。本日のニュースをお届けします。"),
+            _make_line("news", "最初の記事です。", article_id=1),
+            _make_line("news", "最後の記事です。", article_id=2),
+            _make_line("discussion", "討論1", speaker="male", article_id=1),
+            _make_line("discussion", "討論2", speaker="female", article_id=1),
+            _make_line("discussion", "討論3", speaker="male", article_id=1),
+            _make_line("discussion", "討論4", speaker="female", article_id=1),
+            _make_line("outro", "本日のニュースは以上です。"),
+            _make_line("outro", "また次回お会いしましょう。"),
+        ]
+
+        errors = lint_script(lines, expected_discussion_article_id=1)
+
+        assert any("[DISCUSSION_ARTICLE_POSITION]" in error for error in errors)
+
+    def test_discussion_article_matching_last_news_has_no_position_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。本日のニュースをお届けします。"),
+            _make_line("news", "最初の記事です。", article_id=1),
+            _make_line("news", "最後の記事です。", article_id=2),
+            _make_line("discussion", "討論1", speaker="male", article_id=2),
+            _make_line("discussion", "討論2", speaker="female", article_id=2),
+            _make_line("discussion", "討論3", speaker="male", article_id=2),
+            _make_line("discussion", "討論4", speaker="female", article_id=2),
+            _make_line("outro", "本日のニュースは以上です。"),
+            _make_line("outro", "また次回お会いしましょう。"),
+        ]
+
+        errors = lint_script(lines, expected_discussion_article_id=2)
+
+        assert not any("[DISCUSSION_ARTICLE_POSITION]" in error for error in errors)
+
+    def test_three_line_transition_raises_length_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。本日のニュースをお届けします。"),
+            _make_line("news", "最初の記事です。", article_id=1),
+            _make_line("transition", "ここで海外市場の動きを確認します。", speaker="male", article_id=2),
+            _make_line("transition", "次に国内の制度変更を紹介します。", speaker="female", article_id=2),
+            _make_line("transition", "続いて現場への影響を見ていきます。", speaker="male", article_id=2),
+            _make_line("news", "次の記事です。", article_id=2),
+        ]
+
+        errors = lint_script(lines)
+
+        assert any("[TRANSITION_LENGTH]" in error for error in errors)
+
+    def test_generic_second_transition_line_raises_redundant_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。本日のニュースをお届けします。"),
+            _make_line("news", "最初の記事です。", article_id=1),
+            _make_line("transition", "海外市場との関係を整理します。", speaker="male", article_id=2),
+            _make_line("transition", "内容を確認しましょう。", speaker="female", article_id=2),
+            _make_line("news", "次の記事です。", article_id=2),
+        ]
+
+        errors = lint_script(lines)
+
+        assert any("[TRANSITION_REDUNDANT]" in error for error in errors)
+
+    def test_meaningful_second_transition_line_has_no_redundant_error(self):
+        from app.batch.generate_script import lint_script
+
+        lines = [
+            _make_line("intro", "「ニュースのとなり」の時間です。本日のニュースをお届けします。"),
+            _make_line("news", "最初の記事です。", article_id=1),
+            _make_line("transition", "海外市場との関係を整理します。", speaker="male", article_id=2),
+            _make_line("transition", "海外市場との関係も確認しましょう。", speaker="female", article_id=2),
+            _make_line("news", "次の記事です。", article_id=2),
+        ]
+
+        errors = lint_script(lines)
+
+        assert not any("[TRANSITION_REDUNDANT]" in error for error in errors)
+
     def test_single_line_transition_is_allowed_when_no_support_is_needed(self):
         from app.batch.generate_script import lint_script
 

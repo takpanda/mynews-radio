@@ -96,18 +96,18 @@ _DISCUSSION_TRANSITIONS = [
 # 両MCの短い掛け合いにする。関連が薄い場合は単独1行の中立的な告知を許容し、
 # 意味のない相づちは補完しない。
 _TRANSITION_REACTION_PHRASES = [
-    "気になりますね。",
-    "それは見逃せません。",
-    "楽しみですね。",
-    "詳しく聞きたいです。",
-    "早速聞いてみましょう。",
-    "そちらも気になっていました。",
-    "続けてお願いします。",
-    "興味深いですね。",
-    "どう見ていきましょうか？",
-    "これは驚きました。",
-    "背景も知りたいですね。",
-    "ここは確認したいです。",
+    "内容を確認しましょう。",
+    "詳しく見ていきましょう。",
+    "状況を見ていきましょう。",
+    "ポイントを整理しましょう。",
+    "続けてお伝えします。",
+    "こちらも確認したいです。",
+    "背景を見ていきましょう。",
+    "どのような動きか見ていきましょう。",
+    "落ち着いて見ていきましょう。",
+    "まずは内容を見てみましょう。",
+    "詳しい内容をお伝えします。",
+    "引き続き確認していきましょう。",
 ]
 
 # 災害・重大事故のニュースでは、記事境界の定型的な短い受けであっても
@@ -407,6 +407,35 @@ _TOPIC_BOUNDARY_CHARS = "、,;：・"
 # ため長い順に並べる）。
 _TOPIC_TRAILING_PARTICLES = ("から", "まで", "より", "は", "が", "を", "に", "へ", "で", "と", "も", "や")
 
+# 話題テンプレートに差し込めるのは、読み上げ時に文として完結していない
+# 名詞句だけに限定する。LLM要約の先頭文をそのまま採用すると、例えば
+# 「制度を発表しました。についても」のように、完結文とテンプレートの
+# 接尾辞が衝突するため、文末表現を保守的に検出して汎用話題へフォールバック
+# する（BEE-935）。
+_TOPIC_SENTENCE_END_CHARS = "。！？.!?"
+_TOPIC_PREDICATE_ENDINGS = (
+    "でした",
+    "だった",
+    "です",
+    "ます",
+    "ました",
+    "ません",
+    "ない",
+    "ある",
+    "あります",
+    "ありました",
+    "いる",
+    "います",
+    "いました",
+    "した",
+    "します",
+    "される",
+    "されます",
+    "されました",
+    "となる",
+    "となりました",
+)
+
 
 def _strip_trailing_particle(text: str) -> str:
     """話題名の末尾の助詞を取り除き、テンプレート側の助詞との二重連結
@@ -420,6 +449,39 @@ def _strip_trailing_particle(text: str) -> str:
         else:
             break
     return stripped
+
+
+def _looks_like_complete_topic_sentence(text: str) -> bool:
+    """text が名詞句ではなく完結した文に見えるかを判定する。
+
+    日本語の形態素解析を追加せず、明示的な句読点と代表的な述語末尾を
+    用いて安全側に判定する。判定できない入力は、呼び出し側で汎用の
+    中立文へフォールバックする。
+    """
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+
+    if any(char in stripped for char in _TOPIC_SENTENCE_END_CHARS):
+        return True
+
+    return stripped.endswith(_TOPIC_PREDICATE_ENDINGS)
+
+
+def _safe_topic_phrase(raw_text: str, *, minimum_length: int = 1) -> str | None:
+    """テンプレートへ差し込める安全な名詞句を返す。"""
+    text = (raw_text or "").strip()
+    if not text or "\n" in text or "://" in text:
+        return None
+    if _looks_like_complete_topic_sentence(text):
+        return None
+    if len(text) > _TOPIC_MAX_LEN:
+        return None
+
+    text = _strip_trailing_particle(text)
+    if len(text) < minimum_length:
+        return None
+    return text
 
 
 def _truncate_topic_at_boundary(text: str, max_len: int = _TOPIC_MAX_LEN) -> str | None:
@@ -448,7 +510,7 @@ def _safe_topic_from_title(raw_title: str) -> str:
     truncated = _truncate_topic_at_boundary(raw_title)
     if not truncated:
         return _FALLBACK_TOPIC
-    finalized = _strip_trailing_particle(truncated.strip())
+    finalized = _safe_topic_phrase(truncated, minimum_length=3)
     return finalized or _FALLBACK_TOPIC
 
 
@@ -605,16 +667,14 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                     candidate = raw_summary[:sentence_end]
                 else:
                     candidate = _re.split(r"[、,;：]", raw_summary)[0].strip()
-            if candidate and len(candidate) <= _TOPIC_MAX_LEN:
-                topic_map[art_id] = _strip_trailing_particle(candidate) or _safe_topic_from_title(raw_title)
-            elif raw_title:
-                title_clean = _re.split(r"[、,;：・]", raw_title)[0].strip()
-                if title_clean and 3 <= len(title_clean) <= _TOPIC_MAX_LEN:
-                    topic_map[art_id] = _strip_trailing_particle(title_clean) or _safe_topic_from_title(raw_title)
-                else:
-                    topic_map[art_id] = _safe_topic_from_title(raw_title)
+            # 要約の先頭文が完結文の場合はテンプレートへ差し込まず、タイトルの
+            # 名詞句を試す。タイトルも文や不完全な断片なら、専用フォールバック
+            # テンプレートが文法的に完結した中立文を生成する。
+            topic = _safe_topic_phrase(candidate)
+            if topic:
+                topic_map[art_id] = topic
             else:
-                topic_map[art_id] = _FALLBACK_TOPIC
+                topic_map[art_id] = _safe_topic_from_title(raw_title)
 
     def _topic(article_id) -> str:
         if article_id is None:
