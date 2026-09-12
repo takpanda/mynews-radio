@@ -16,7 +16,7 @@ from app.batch.summarize_articles import summarize_articles
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.config import get_settings
 from app.services.episode_service import EpisodeService, override_script_title, build_radio_title
-from app.services.article_service import ArticleService
+from app.services.article_service import ArticleService, write_fallback_summaries
 from app.services.episode_category_service import select_episode_categories
 from app.services.fishs2pro_client import FishS2ProClient
 from app.services.settings_service import (
@@ -230,18 +230,7 @@ def run_radio_pipeline(
                     priority_themes=profile.priority_themes,
                     excluded_themes=profile.excluded_themes,
                 )
-                Path(summaries_path).write_text(
-                    json.dumps(
-                        [
-                            {**summary, "article_id": summary.get("id")}
-                            for summary in existing_summaries
-                        ],
-                        ensure_ascii=False,
-                        indent=2,
-                    )
-                    + "\n",
-                    encoding="utf-8",
-                )
+                write_fallback_summaries(summaries_path, existing_summaries)
                 logger.info(
                     "No new articles to summarize; wrote %d existing summaries for review evidence",
                     len(existing_summaries),

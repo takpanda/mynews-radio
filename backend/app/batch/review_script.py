@@ -514,11 +514,7 @@ def review_script(
                         script_json=script_json_str,
                         style_guidance=style_guidance,
                         output_issue_example=output_issue_example,
-                    )
-                    prompt += (
-                        "\n\n# 記事要約・根拠資料 (JSON)\n\n"
-                        + article_summaries_json
-                        + "\n"
+                        article_summaries_json=article_summaries_json,
                     )
                 else:
                     prompt = template.format(

@@ -10,7 +10,6 @@ Intermediate artifacts are preserved on error.
 If articles.json does not exist, a WARNING is logged and processing stops (status remains unchanged).
 """
 
-import json
 import logging
 import os
 import shutil
@@ -26,7 +25,7 @@ from app.batch.generate_script import generate_script
 from app.batch.review_script import review_script
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
-from app.services.article_service import ArticleService
+from app.services.article_service import ArticleService, write_fallback_summaries
 from app.services.episode_service import EpisodeService, retry_on_busy, override_script_title, build_radio_title
 from app.services.telegram_notifier import notify_failure, notify_success
 
@@ -124,18 +123,7 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
             # summarize_articles writes [] when it has no new rows. Preserve
             # the DB-backed summaries used by generate_script so review_script
             # can verify the final dialogue against the same evidence.
-            Path(summaries_path).write_text(
-                json.dumps(
-                    [
-                        {**summary, "article_id": summary.get("id")}
-                        for summary in existing_summaries
-                    ],
-                    ensure_ascii=False,
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
+            write_fallback_summaries(summaries_path, existing_summaries)
 
         # Step 3: generate_script
         logger.info("=== Step 3/5: generate_script (source=%s) ===", news_source)

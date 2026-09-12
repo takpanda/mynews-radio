@@ -1,7 +1,9 @@
+import json
 import os
 import re
 from datetime import datetime, timezone, timedelta
 from difflib import SequenceMatcher
+from pathlib import Path
 from typing import Any
 import unicodedata
 
@@ -26,6 +28,27 @@ _KNOWN_TOPIC_CATEGORIES = {
 _HIGH_IMPACT_SCORE_THRESHOLD = 4
 _CANDIDATE_POOL_MULTIPLIER = 5
 _MAX_CANDIDATE_POOL_SIZE = 100
+
+
+def write_fallback_summaries(output_path: str, summaries: list[dict[str, Any]]) -> None:
+    """Persist DB-backed summaries in the file format consumed by reviewers.
+
+    ``fetch_summaries_for_script`` returns the DB column as ``id`` while
+    ``summarize_articles`` writes the same value as ``article_id``. Keeping the
+    normalization and serialization here prevents the batch and web pipelines
+    from drifting apart.
+    """
+    normalized = [
+        {**summary, "article_id": summary.get("article_id", summary.get("id"))}
+        for summary in summaries
+        if isinstance(summary, dict)
+    ]
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(normalized, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 # 要約プロンプトの category には天気・災害の専用値がないため、category/title/summary
 # の既存テキストに現れる明示語を連続抑制用の一つのグループとして扱う。
