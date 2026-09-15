@@ -141,6 +141,7 @@ function toDetailEpisode(episode: Episode): DetailEpisode {
     generatedAtLabel: episode.generated_at ? formatGeneratedAt(episode.generated_at) : undefined,
     keyPoints: episode.key_points,
     llmModel: episode.llm_model,
+    mcDisplayName: episode.mc_display_name,
     sourceArticles: episode.source_articles ?? [],
     topics: episode.topics ?? [],
     corrections: episode.corrections ?? [],
