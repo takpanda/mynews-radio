@@ -10,6 +10,7 @@ from fastapi import APIRouter, Cookie, HTTPException, Query
 from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService
 from app.services.episode_category_service import parse_episode_categories
+from app.services.settings_service import resolve_female_mc_display_name
 from app.auth import require_owner_session, has_owner_session
 
 
@@ -382,6 +383,7 @@ def get_episode(episode_id: int, admin_session: Optional[str] = Cookie(None)) ->
         except (OSError, json.JSONDecodeError, AttributeError):
             script_lines = []
     source_articles, topics = _build_public_sources(episode_id, items, script_lines)
+    categories = parse_episode_categories(episode.get("categories"))
 
     result: dict = {
         "id": episode["id"],
@@ -400,7 +402,8 @@ def get_episode(episode_id: int, admin_session: Optional[str] = Cookie(None)) ->
         "audio_url": None,
         "articles": items,
         "key_points": _parse_key_points(episode),
-        "categories": parse_episode_categories(episode.get("categories")),
+        "categories": categories,
+        "mc_display_name": resolve_female_mc_display_name(categories),
         "source_articles": source_articles,
         "topics": topics,
         "corrections": _public_corrections(episode_id),
