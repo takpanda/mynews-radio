@@ -162,6 +162,7 @@ def test_radio_pipeline_stops_before_tts_when_final_validation_is_unresolved():
          patch.object(radio_pipeline, "override_script_title"), \
          patch.object(radio_pipeline, "review_script", return_value=review_result), \
          patch.object(radio_pipeline, "validate_final_script_file", return_value=final_result) as final_check, \
+         patch.object(radio_pipeline, "notify_failure") as notify_failure, \
          patch.object(radio_pipeline, "synthesize_episode") as synth, \
          patch("shutil.copy"):
         result = radio_pipeline.run_radio_pipeline(
@@ -172,6 +173,9 @@ def test_radio_pipeline_stops_before_tts_when_final_validation_is_unresolved():
 
     assert result is None
     final_check.assert_called_once()
+    notify_failure.assert_called_once()
+    assert notify_failure.call_args.kwargs["episode_id"] == episode_id
+    assert notify_failure.call_args.kwargs["phase"] == "human_review"
     synth.assert_not_called()
     episode = service.get_episode(episode_id)
     assert episode["status"] == "failed"
