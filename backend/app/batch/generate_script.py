@@ -370,7 +370,10 @@ def _is_broken_transition_text(text: str) -> bool:
     stripped = (text or "").strip()
     if not stripped:
         return False
-    if any(pattern in stripped for pattern in _DUPLICATE_FALLBACK_TOPIC_PATTERNS):
+    if (
+        any(pattern in stripped for pattern in _DUPLICATE_FALLBACK_TOPIC_PATTERNS)
+        or _is_malformed_topic_transition_text(stripped)
+    ):
         return True
     if _matches_known_transition_template(stripped):
         return False
@@ -393,6 +396,17 @@ _DUPLICATE_FALLBACK_TOPIC_PATTERNS = (
     f"{_FALLBACK_TOPIC}の話題",
     f"{_FALLBACK_TOPIC}のニュース",
 )
+
+_MALFORMED_TOPIC_COMPOSITION_RE = _re.compile(
+    r"(?:。(?:について|の(?:話題|ニュース)|かの)|"
+    r"(?:見て|みて|して|しながら|考えて|紹介して|取り上げて)(?:について|の(?:話題|ニュース))|"
+    r"かの(?:話題|ニュース))"
+)
+
+
+def _is_malformed_topic_transition_text(text: str) -> bool:
+    """話題名とテンプレート接尾辞の衝突による文法破綻を検出する。"""
+    return bool(_MALFORMED_TOPIC_COMPOSITION_RE.search((text or "").strip()))
 
 _TOPIC_MAX_LEN = 25
 
@@ -436,6 +450,26 @@ _TOPIC_PREDICATE_ENDINGS = (
     "となりました",
 )
 
+# 要約・タイトルの途中で切れた連用形は、名詞句として扱わない。
+# これをテンプレートへ差し込むと「静岡についても見ての話題です」のように
+# 固定接尾辞と衝突するため、中立フォールバックへ切り替える（BEE-946）。
+_TOPIC_FRAGMENT_ENDINGS = (
+    "についても見て",
+    "について見て",
+    "を見て",
+    "見て",
+    "みて",
+    "して",
+    "しながら",
+    "考えて",
+    "紹介して",
+    "取り上げて",
+    "か",
+)
+_TOPIC_FRAGMENT_ENDING_RE = _re.compile(
+    r"(?:" + "|".join(_re.escape(ending) for ending in _TOPIC_FRAGMENT_ENDINGS) + r")$"
+)
+
 
 def _strip_trailing_particle(text: str) -> str:
     """話題名の末尾の助詞を取り除き、テンプレート側の助詞との二重連結
@@ -468,12 +502,18 @@ def _looks_like_complete_topic_sentence(text: str) -> bool:
     return stripped.endswith(_TOPIC_PREDICATE_ENDINGS)
 
 
+def _looks_like_incomplete_topic_fragment(text: str) -> bool:
+    """text がテンプレートへ差し込めない連用形・断片で終わるか判定する。"""
+    stripped = (text or "").strip()
+    return bool(stripped and _TOPIC_FRAGMENT_ENDING_RE.search(stripped))
+
+
 def _safe_topic_phrase(raw_text: str, *, minimum_length: int = 1) -> str | None:
     """テンプレートへ差し込める安全な名詞句を返す。"""
     text = (raw_text or "").strip()
     if not text or "\n" in text or "://" in text:
         return None
-    if _looks_like_complete_topic_sentence(text):
+    if _looks_like_complete_topic_sentence(text) or _looks_like_incomplete_topic_fragment(text):
         return None
     if len(text) > _TOPIC_MAX_LEN:
         return None
@@ -1100,6 +1140,11 @@ def lint_script(
 
         # transition行の不完全チェック（WARN: 演出上の「間」意図の可能性を考慮し警告レベル）
         if section == "transition":
+            if _is_malformed_topic_transition_text(text):
+                errors.append(
+                    f"[TOPIC_GRAMMAR] transition行 {i} に話題名とテンプレート接尾辞の衝突があります: "
+                    f"「{text[:60]}」"
+                )
             if _re.search(r"[……‥]{2,}$", text):
                 errors.append(f"[WARN][TRUNCATED_TRANS] transition行 {i} が不完全な文で終わっています: 「{text[:40]}...」")
             elif len(text) < 5:
