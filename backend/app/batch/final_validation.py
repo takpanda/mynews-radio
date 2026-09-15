@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,7 @@ from app.batch.review_script import (
     check_question_response_contract,
     check_transition_integrity,
 )
+from app.services.article_service import titles_are_similar
 
 logger = logging.getLogger(__name__)
 
@@ -55,12 +58,20 @@ _COMMENTARY_IGNORED_LINT_CODES = {
 }
 
 
-def _issue(code: str, message: str, *, line_indices: list[int] | None = None) -> dict[str, Any]:
-    return {
+def _issue(
+    code: str,
+    message: str,
+    *,
+    line_indices: list[int] | None = None,
+    **details: Any,
+) -> dict[str, Any]:
+    result = {
         "code": code,
         "message": message,
         "line_indices": line_indices or [],
     }
+    result.update(details)
+    return result
 
 
 def _is_sensitive_article(article: dict[str, Any]) -> bool:
@@ -101,6 +112,160 @@ def _transition_reaction_issues(
                 )
             )
     return issues
+
+
+_TITLE_ANCHOR_RE = re.compile(r"[一-龥々ー]{2,}|[A-Za-z][A-Za-z0-9_-]{3,}")
+_GENERIC_TITLE_ANCHORS = {
+    "ニュース", "発表", "公開", "対応", "問題", "影響", "最新", "情報", "動き",
+    "news", "update", "updates", "announcement", "announces", "announced",
+}
+
+
+def _article_id_value(item: dict[str, Any]) -> Any:
+    value = item.get("article_id")
+    return item.get("id") if value is None else value
+
+
+def _article_id_key(value: Any) -> str | None:
+    if value is None or isinstance(value, (dict, list, set, tuple)):
+        return None
+    return str(value)
+
+
+def _news_article_blocks(lines: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """台本上の連続するnews行を記事ブロックとして集計する。"""
+    blocks: dict[str, list[dict[str, Any]]] = {}
+    current_key: str | None = None
+    current_article_id: Any = None
+    current_indices: list[int] = []
+
+    def flush() -> None:
+        nonlocal current_key, current_article_id, current_indices
+        if current_key is not None and current_indices:
+            blocks.setdefault(current_key, []).append(
+                {
+                    "article_id": current_article_id,
+                    "line_indices": list(current_indices),
+                }
+            )
+        current_key = None
+        current_article_id = None
+        current_indices = []
+
+    for index, line in enumerate(lines):
+        if line.get("section") != "news":
+            flush()
+            continue
+        key = _article_id_key(line.get("article_id"))
+        if key is None:
+            flush()
+            continue
+        if current_key != key:
+            flush()
+            current_key = key
+            current_article_id = line.get("article_id")
+        current_indices.append(index)
+    flush()
+    return blocks
+
+
+def _title_anchors(title: str) -> set[str]:
+    normalized = unicodedata.normalize("NFKC", title or "").casefold()
+    return {
+        anchor
+        for anchor in _TITLE_ANCHOR_RE.findall(normalized)
+        if anchor not in _GENERIC_TITLE_ANCHORS
+    }
+
+
+def _article_recurrence_issues(
+    lines: list[dict[str, Any]], summaries: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """記事の再登場を検出し、削除せずレビュー用の根拠として返す。"""
+    blocks_by_key = _news_article_blocks(lines)
+    if not blocks_by_key:
+        return []
+
+    article_values: dict[str, Any] = {
+        key: blocks[0].get("article_id")
+        for key, blocks in blocks_by_key.items()
+        if blocks and blocks[0].get("article_id") is not None
+    }
+    evidence_by_key: dict[str, dict[str, Any]] = {}
+    for summary in summaries:
+        article_id = _article_id_value(summary)
+        key = _article_id_key(article_id)
+        if key is None:
+            continue
+        article_values.setdefault(key, article_id)
+        title = str(summary.get("title") or "").strip()
+        if title:
+            evidence_by_key[key] = {
+                "article_id": article_id,
+                "title": title,
+                "category": summary.get("category"),
+            }
+
+    findings: list[dict[str, Any]] = []
+    for key, blocks in blocks_by_key.items():
+        if len(blocks) < 2:
+            continue
+        article_id = article_values.get(key, key)
+        line_indices = [index for block in blocks for index in block["line_indices"]]
+        findings.append(
+            _issue(
+                "ARTICLE_REUSED_IN_NEWS_BLOCKS",
+                f"同一 article_id={article_id} が複数のnewsブロックで使われています。人間確認が必要です",
+                line_indices=line_indices,
+                article_ids=[article_id],
+                evidence={
+                    "block_count": len(blocks),
+                    "blocks": blocks,
+                    "title": evidence_by_key.get(key, {}).get("title", ""),
+                },
+                review_status="pending_human_review",
+                auto_action="none",
+            )
+        )
+
+    comparable = [
+        (key, article_values.get(key, key), evidence_by_key[key])
+        for key in blocks_by_key
+        if key in evidence_by_key and evidence_by_key[key].get("title")
+    ]
+    for (left_key, left_id, left), (right_key, right_id, right) in combinations(comparable, 2):
+        left_title = left["title"]
+        right_title = right["title"]
+        shared_anchors = sorted(_title_anchors(left_title) & _title_anchors(right_title))
+        if titles_are_similar(left_title, right_title):
+            detection_method = "title_similarity"
+        elif shared_anchors:
+            detection_method = "shared_title_anchor"
+        else:
+            continue
+        line_indices = [
+            index
+            for key in (left_key, right_key)
+            for block in blocks_by_key[key]
+            for index in block["line_indices"]
+        ]
+        findings.append(
+            _issue(
+                "RELATED_TOPIC_REAPPEARANCE",
+                f"異なるarticle_id={left_id},{right_id} に同一主体・近接主題の可能性があります。自動削除せず人間確認してください",
+                line_indices=line_indices,
+                article_ids=[left_id, right_id],
+                evidence={
+                    "detection_method": detection_method,
+                    "shared_title_anchors": shared_anchors,
+                    "titles": {str(left_id): left_title, str(right_id): right_title},
+                    "review_reason": "同一主体・近接主題・矛盾の可能性をタイトル根拠で検出",
+                },
+                review_status="pending_human_review",
+                auto_action="none",
+            )
+        )
+    return findings
 
 
 def _repair_outro_questions(lines: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -300,6 +465,10 @@ def validate_final_script(
     critical.extend(_issue("TRANSITION_INTEGRITY", message) for message in transition_issues)
     critical.extend(_outro_issues(repaired_lines, commentary=commentary))
     critical.extend(_transition_reaction_issues(repaired_lines, summaries or []))
+    recurrence_issues = _article_recurrence_issues(repaired_lines, summaries or [])
+    # 再登場は根拠不足のまま記事を削除・書き換えしてはならないため、
+    # synthesisを止めないレビュー警告として記録する。
+    warnings.extend(recurrence_issues)
 
     review_result = prior_review_result or {}
     critical.extend(
@@ -338,6 +507,11 @@ def validate_final_script(
         "warnings": warnings,
         "repairs": repairs,
         "lines": repaired_lines,
+        "article_recurrence": {
+            "status": "review_required" if recurrence_issues else "clear",
+            "findings": recurrence_issues,
+            "auto_action": "none",
+        },
     }
 
 
