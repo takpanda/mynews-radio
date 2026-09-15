@@ -135,6 +135,22 @@ PHASE_SEQUENCE = {
 }
 
 
+def _has_female_speaker_line(script_path: str) -> bool:
+    """台本に女性話者の行が実際に含まれているかを判定する。"""
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            script = json.load(f)
+    except (OSError, json.JSONDecodeError, TypeError):
+        return False
+
+    if not isinstance(script, dict) or not isinstance(script.get("lines"), list):
+        return False
+    return any(
+        isinstance(line, dict) and line.get("speaker") == "female"
+        for line in script["lines"]
+    )
+
+
 def _format_sse(event: str, payload: dict) -> bytes:
     return (
         f"event: {event}\n"
@@ -362,7 +378,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             if tts_engine == "fishs2pro"
             and isinstance(tts_speaker_female, str)
             and tts_speaker_female.strip()
-            and mc_gender == "female"
+            and _has_female_speaker_line(script_path)
             else None,
         )
 
@@ -601,6 +617,7 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
         if tts_engine == "fishs2pro"
         and isinstance(tts_speaker_female, str)
         and tts_speaker_female.strip()
+        and _has_female_speaker_line(script_path)
         else None,
     )
 
