@@ -633,11 +633,13 @@ def review_script(
     # レビュー版が不採用でも、生成工程の台本が最終成果物になるため、
     # 最終的に採用される行を対象に記事再登場を必ず記録する。判定根拠が
     # 不十分な場合の自動削除・書き換えは行わず、review.jsonで確認可能にする。
+    # review.jsonはレビュー工程の診断スナップショットであり、outro修復後の
+    # synthesis対象を正とする最終判定はfinal_validation.jsonを参照する。
     article_recurrence: list[dict] = []
     try:
-        from app.batch.final_validation import _article_recurrence_issues
+        from app.batch.final_validation import article_recurrence_issues
 
-        article_recurrence = _article_recurrence_issues(transition_check_lines, review_evidence)
+        article_recurrence = article_recurrence_issues(transition_check_lines, review_evidence)
     except Exception:
         logger.warning("review_script: article recurrence check failed", exc_info=True)
 

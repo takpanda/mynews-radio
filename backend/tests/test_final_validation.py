@@ -166,7 +166,7 @@ def test_commentary_shape_does_not_require_radio_outro_contract():
 
 
 def test_same_article_id_in_multiple_news_blocks_is_recorded_without_rewrite():
-    from app.batch.final_validation import _article_recurrence_issues
+    from app.batch.final_validation import article_recurrence_issues
 
     lines = [
         _line("news", "中部電力が発表しました。", article_id=502),
@@ -176,7 +176,7 @@ def test_same_article_id_in_multiple_news_blocks_is_recorded_without_rewrite():
         _line("news", "中部電力の追加情報です。", article_id=502),
     ]
 
-    findings = _article_recurrence_issues(lines, [])
+    findings = article_recurrence_issues(lines, [])
 
     assert len(findings) == 1
     assert findings[0]["code"] == "ARTICLE_REUSED_IN_NEWS_BLOCKS"
@@ -187,7 +187,7 @@ def test_same_article_id_in_multiple_news_blocks_is_recorded_without_rewrite():
 
 
 def test_different_article_ids_with_shared_subject_are_recorded_with_evidence():
-    from app.batch.final_validation import _article_recurrence_issues
+    from app.batch.final_validation import article_recurrence_issues
 
     lines = [
         _line("news", "中部電力の原発再稼働を伝えます。", article_id=10),
@@ -199,7 +199,7 @@ def test_different_article_ids_with_shared_subject_are_recorded_with_evidence():
         {"id": 11, "title": "中部電力、料金改定を発表"},
     ]
 
-    findings = _article_recurrence_issues(lines, summaries)
+    findings = article_recurrence_issues(lines, summaries)
 
     assert len(findings) == 1
     finding = findings[0]
@@ -212,7 +212,7 @@ def test_different_article_ids_with_shared_subject_are_recorded_with_evidence():
 
 
 def test_fifty_article_case_is_inspected_without_collapsing_distinct_articles():
-    from app.batch.final_validation import _article_recurrence_issues
+    from app.batch.final_validation import article_recurrence_issues
 
     lines = []
     summaries = []
@@ -220,6 +220,6 @@ def test_fifty_article_case_is_inspected_without_collapsing_distinct_articles():
         lines.append(_line("news", f"記事{article_id}の内容です。", article_id=article_id))
         summaries.append({"id": article_id, "title": f"Entity{article_id} announces"})
 
-    findings = _article_recurrence_issues(lines, summaries)
+    findings = article_recurrence_issues(lines, summaries)
 
     assert findings == []

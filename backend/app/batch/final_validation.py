@@ -178,10 +178,15 @@ def _title_anchors(title: str) -> set[str]:
     }
 
 
-def _article_recurrence_issues(
+def article_recurrence_issues(
     lines: list[dict[str, Any]], summaries: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """記事の再登場を検出し、削除せずレビュー用の根拠として返す。"""
+    """記事の再登場を検出し、削除せずレビュー用の根拠として返す。
+
+    This is a public module contract because the review phase uses the same
+    detector for its diagnostic snapshot. ``final_validation.json`` remains
+    the canonical result for the post-repair, synthesis-bound script.
+    """
     blocks_by_key = _news_article_blocks(lines)
     if not blocks_by_key:
         return []
@@ -465,7 +470,7 @@ def validate_final_script(
     critical.extend(_issue("TRANSITION_INTEGRITY", message) for message in transition_issues)
     critical.extend(_outro_issues(repaired_lines, commentary=commentary))
     critical.extend(_transition_reaction_issues(repaired_lines, summaries or []))
-    recurrence_issues = _article_recurrence_issues(repaired_lines, summaries or [])
+    recurrence_issues = article_recurrence_issues(repaired_lines, summaries or [])
     # 再登場は根拠不足のまま記事を削除・書き換えしてはならないため、
     # synthesisを止めないレビュー警告として記録する。
     warnings.extend(recurrence_issues)
