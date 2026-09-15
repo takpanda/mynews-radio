@@ -24,6 +24,7 @@ from app.batch.summarize_articles import summarize_articles
 from app.batch.generate_script import generate_script
 from app.batch.final_validation import (
     human_review_message,
+    script_file_has_discussion_layout_issues,
     validate_final_script_file,
 )
 from app.batch.review_script import review_script
@@ -178,10 +179,18 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
             logger.warning("review_script failed (non-fatal): %s", _rev_exc)
 
         # Review後の台本を音声化へ渡す前に、共通の最終品質ゲートを通す。
-        if review_result.get("revised") and (
-            "transition_integrity_issues" in review_result
-            or "question_response_issues" in review_result
-            or "dialogue_balance_issues" in review_result
+        if (
+            script_file_has_discussion_layout_issues(script_path)
+            or (
+                isinstance(review_result, dict)
+                and isinstance(review_result.get("review_count"), int)
+                and review_result.get("review_count", 0) > 0
+                and (
+                    "transition_integrity_issues" in review_result
+                    or "question_response_issues" in review_result
+                    or "dialogue_balance_issues" in review_result
+                )
+            )
         ):
             logger.info("=== Final validation (before synthesis) ===")
             final_validation = validate_final_script_file(
