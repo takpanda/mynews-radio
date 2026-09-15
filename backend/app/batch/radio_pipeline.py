@@ -12,7 +12,7 @@ from app.batch.build_episode import build_episode
 from app.batch.final_validation import (
     FINAL_VALIDATION_PHASE,
     human_review_message,
-    script_file_has_discussion_layout_issues,
+    should_run_final_validation,
     validate_final_script_file,
 )
 from app.batch.generate_script import generate_script
@@ -331,21 +331,7 @@ def run_radio_pipeline(
             override_script_title(script_path, effective_program_name, episode_date, seq)
 
         # -- FINAL VALIDATION (after review, before TTS) --
-        # 実レビュー結果には検査結果のキーが必ず含まれる。レビュー版を採用
-        # しなかった場合でも、出力が存在するレビュー結果は検査対象にする。
-        if (
-            script_file_has_discussion_layout_issues(script_path)
-            or (
-                isinstance(review_result, dict)
-                and isinstance(review_result.get("review_count"), int)
-                and review_result.get("review_count", 0) > 0
-                and (
-                    "transition_integrity_issues" in review_result
-                    or "question_response_issues" in review_result
-                    or "dialogue_balance_issues" in review_result
-                )
-            )
-        ):
+        if should_run_final_validation(script_path, review_result):
             _progress(FINAL_VALIDATION_PHASE, "レビュー後の台本を最終確認しています…")
             final_validation = validate_final_script_file(
                 script_path,

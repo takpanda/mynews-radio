@@ -447,6 +447,24 @@ def script_file_has_discussion_layout_issues(script_path: str) -> bool:
     return isinstance(script, dict) and bool(script.get("discussion_layout_issues"))
 
 
+def should_run_final_validation(script_path: str, review_result: dict[str, Any]) -> bool:
+    """Return whether the final quality gate is needed for this script."""
+    if script_file_has_discussion_layout_issues(script_path):
+        return True
+    return bool(
+        isinstance(review_result, dict)
+        and review_result.get("revised")
+        and any(
+            key in review_result
+            for key in (
+                "transition_integrity_issues",
+                "question_response_issues",
+                "dialogue_balance_issues",
+            )
+        )
+    )
+
+
 def _write_report(result: dict[str, Any], output_dir: str) -> None:
     try:
         report_path = Path(output_dir) / "final_validation.json"

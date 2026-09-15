@@ -105,6 +105,35 @@ def test_hold_for_human_review_persists_status_phase_and_reason():
     assert "質問への回答がありません" in episode["generation_message"]
 
 
+def test_final_validation_gate_keeps_revised_contract():
+    from app.batch.final_validation import should_run_final_validation
+
+    review_result = {
+        "revised": False,
+        "review_count": 5,
+        "dialogue_balance_issues": [],
+        "question_response_issues": [],
+        "transition_integrity_issues": [],
+    }
+
+    assert should_run_final_validation("missing-script.json", review_result) is False
+
+    review_result["revised"] = True
+    assert should_run_final_validation("missing-script.json", review_result) is True
+
+
+def test_final_validation_gate_runs_for_recorded_discussion_layout_issue(tmp_path):
+    from app.batch.final_validation import should_run_final_validation
+
+    script_path = tmp_path / "script.json"
+    script_path.write_text(
+        json.dumps({"discussion_layout_issues": [{"code": "DISCUSSION_ARTICLE_POSITION"}]}),
+        encoding="utf-8",
+    )
+
+    assert should_run_final_validation(str(script_path), {"revised": False, "review_count": 5}) is True
+
+
 def test_radio_pipeline_stops_before_tts_when_final_validation_is_unresolved():
     from app.batch import radio_pipeline
     from app.services.episode_service import EpisodeService
