@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+from app.batch.script_structure import normalize_discussion_layout
 from app.config import get_settings
 from app.services.article_service import ArticleService
 from app.services.ollama_client import OllamaClient, create_llm_client
@@ -1443,6 +1444,26 @@ def generate_script(
 
     # LLM が transition を省略した場合に備えてプログラム側で補完する
     script["lines"] = _ensure_transitions(script["lines"], ordered_summaries, arc=arc)
+
+    # Arcで選定した記事IDをレビュー後も引き継ぎ、レビューLLMが順序を
+    # 崩した場合にも最終検証で同じ対象を使えるようにする。
+    expected_discussion_article_id = arc.get("discussion_article_id") if arc else None
+    if expected_discussion_article_id is not None:
+        script["discussion_article_id"] = expected_discussion_article_id
+
+    # Writerの出力がArcの指示どおりでない場合も、既存ブロックだけを安全に
+    # 並べ替える。transitionを捏造する必要があるケースは、そのまま出力して
+    # 最終検証で人間確認待ちにする。
+    script["lines"], repairs, layout_issues = normalize_discussion_layout(
+        script["lines"],
+        expected_discussion_article_id=expected_discussion_article_id,
+    )
+    for repair in repairs:
+        logger.warning("discussion layout repaired: %s", repair["message"])
+    for issue in layout_issues:
+        logger.error("discussion layout could not be guaranteed: %s", issue["message"])
+    if layout_issues:
+        script["discussion_layout_issues"] = layout_issues
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     Path(output_path).write_text(

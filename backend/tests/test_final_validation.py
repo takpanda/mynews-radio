@@ -1,5 +1,6 @@
 """レビュー後の音声化前最終検証のテスト。"""
 
+import json
 from unittest.mock import patch
 
 
@@ -104,6 +105,35 @@ def test_hold_for_human_review_persists_status_phase_and_reason():
     assert "質問への回答がありません" in episode["generation_message"]
 
 
+def test_final_validation_gate_keeps_revised_contract():
+    from app.batch.final_validation import should_run_final_validation
+
+    review_result = {
+        "revised": False,
+        "review_count": 5,
+        "dialogue_balance_issues": [],
+        "question_response_issues": [],
+        "transition_integrity_issues": [],
+    }
+
+    assert should_run_final_validation("missing-script.json", review_result) is False
+
+    review_result["revised"] = True
+    assert should_run_final_validation("missing-script.json", review_result) is True
+
+
+def test_final_validation_gate_runs_for_recorded_discussion_layout_issue(tmp_path):
+    from app.batch.final_validation import should_run_final_validation
+
+    script_path = tmp_path / "script.json"
+    script_path.write_text(
+        json.dumps({"discussion_layout_issues": [{"code": "DISCUSSION_ARTICLE_POSITION"}]}),
+        encoding="utf-8",
+    )
+
+    assert should_run_final_validation(str(script_path), {"revised": False, "review_count": 5}) is True
+
+
 def test_radio_pipeline_stops_before_tts_when_final_validation_is_unresolved():
     from app.batch import radio_pipeline
     from app.services.episode_service import EpisodeService
@@ -163,6 +193,126 @@ def test_commentary_shape_does_not_require_radio_outro_contract():
 
     assert result["status"] == "passed"
     assert result["can_synthesize"] is True
+
+
+def test_final_validation_reorders_discussion_after_all_news():
+    from app.batch import final_validation
+
+    lines = [
+        _line("intro", "「ニュースのとなり」の時間です。", article_id=None),
+        _line("news", "記事1です。", article_id=1),
+        _line("transition", "記事3へ移ります。", article_id=3),
+        _line("news", "記事3です。", article_id=3),
+        _line("transition", "記事2へ移ります。", article_id=2),
+        _line("news", "記事2です。", article_id=2),
+        _line("transition", "記事2を深掘りします。", article_id=2),
+        _line("discussion", "記事2のポイントです。", article_id=2),
+        _line("discussion", "利用者への影響を見ます。", speaker="female", article_id=2),
+        _line("discussion", "背景も確認できます。", article_id=2),
+        _line("discussion", "重要な動きですね。", speaker="female", article_id=2),
+        _line("transition", "記事4へ移ります。", article_id=4),
+        _line("news", "記事4です。", article_id=4),
+        _line("outro", "今日は記事2を振り返りました。", article_id=None),
+        _line("outro", "みなさんはどう感じましたか？", speaker="female", article_id=None),
+        _line("outro", "それではまた明日、お会いしましょう。", article_id=None),
+    ]
+
+    with patch.object(final_validation, "lint_script", return_value=[]):
+        result = final_validation.validate_final_script(
+            lines,
+            expected_discussion_article_id=2,
+        )
+
+    assert result["can_synthesize"] is True
+    news_ids = [line["article_id"] for line in result["lines"] if line["section"] == "news"]
+    discussion_indices = [i for i, line in enumerate(result["lines"]) if line["section"] == "discussion"]
+    assert news_ids[-1] == 2
+    assert min(discussion_indices) > max(i for i, line in enumerate(result["lines"]) if line["section"] == "news")
+    assert result["lines"][-1]["section"] == "outro"
+    assert any(item["code"] == "DISCUSSION_REORDERED" for item in result["repairs"])
+
+
+def test_final_validation_reorders_fifty_eight_article_case():
+    from app.batch import final_validation
+
+    target_id = 58147
+    lines = [_line("intro", "「ニュースのとなり」の時間です。", article_id=None)]
+    for article_id in range(1, 59):
+        if article_id > 1:
+            lines.append(_line("transition", f"記事{article_id}へ移ります。", article_id=article_id))
+        lines.append(_line("news", f"記事{article_id}です。", article_id=target_id if article_id == 6 else article_id))
+        if article_id == 6:
+            lines.extend([
+                _line("transition", "記事58147を詳しく見ていきましょう。", article_id=target_id),
+                _line("discussion", "記事58147の背景を確認します。", article_id=target_id),
+                _line("discussion", "影響を整理できます。", speaker="female", article_id=target_id),
+                _line("discussion", "今後の動きも注目です。", article_id=target_id),
+                _line("discussion", "大切な論点ですね。", speaker="female", article_id=target_id),
+            ])
+    lines.extend([
+        _line("outro", "今日はニュースを振り返りました。", article_id=None),
+        _line("outro", "みなさんはどう感じましたか？", speaker="female", article_id=None),
+        _line("outro", "それではまた明日、お会いしましょう。", article_id=None),
+    ])
+
+    with patch.object(final_validation, "lint_script", return_value=[]):
+        result = final_validation.validate_final_script(
+            lines,
+            expected_discussion_article_id=target_id,
+        )
+
+    assert result["can_synthesize"] is True
+    assert [line["article_id"] for line in result["lines"] if line["section"] == "news"][-1] == target_id
+    discussion_indices = [i for i, line in enumerate(result["lines"]) if line["section"] == "discussion"]
+    assert min(discussion_indices) > max(i for i, line in enumerate(result["lines"]) if line["section"] == "news")
+    assert result["lines"][-1]["section"] == "outro"
+
+
+def test_final_validation_blocks_when_discussion_target_news_is_missing():
+    from app.batch import final_validation
+
+    lines = _valid_lines()
+    for line in lines:
+        if line["section"] == "discussion":
+            line["article_id"] = 999
+
+    with patch.object(final_validation, "lint_script", return_value=[]):
+        result = final_validation.validate_final_script(
+            lines,
+            expected_discussion_article_id=999,
+        )
+
+    assert result["can_synthesize"] is False
+    assert any(item["code"] == "DISCUSSION_ARTICLE_POSITION" for item in result["critical_issues"])
+
+
+def test_final_validation_file_preserves_arc_discussion_target(tmp_path):
+    from app.batch.final_validation import validate_final_script_file
+
+    script_path = tmp_path / "script.json"
+    script_path.write_text(
+        json.dumps({
+            "discussion_article_id": 2,
+            "lines": [
+                _line("intro", "「ニュースのとなり」の時間です。", article_id=None),
+                _line("news", "記事1です。", article_id=1),
+                _line("discussion", "記事1の討論です。", article_id=1),
+                _line("discussion", "影響を見ます。", speaker="female", article_id=1),
+                _line("discussion", "背景を確認します。", article_id=1),
+                _line("discussion", "大切な論点です。", speaker="female", article_id=1),
+                _line("outro", "今日は記事を振り返りました。", article_id=None),
+                _line("outro", "みなさんはどう感じましたか？", speaker="female", article_id=None),
+                _line("outro", "それではまた明日、お会いしましょう。", article_id=None),
+            ],
+        }, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    with patch("app.batch.final_validation.lint_script", return_value=[]):
+        result = validate_final_script_file(str(script_path))
+
+    assert result["can_synthesize"] is False
+    assert any(item["code"] == "DISCUSSION_ARTICLE_DRIFT" for item in result["critical_issues"])
 
 
 def test_same_article_id_in_multiple_news_blocks_is_recorded_without_rewrite():

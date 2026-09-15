@@ -26,6 +26,7 @@ from app.batch.review_script import (
     check_question_response_contract,
     check_transition_integrity,
 )
+from app.batch.script_structure import check_discussion_layout, normalize_discussion_layout
 from app.services.article_service import titles_are_similar
 
 logger = logging.getLogger(__name__)
@@ -394,8 +395,13 @@ def _classify_lint_errors(errors: list[str]) -> tuple[list[dict[str, Any]], list
 
 def _lint_errors(
     lines: list[dict[str, Any]], *, program_name: str, commentary: bool,
+    expected_discussion_article_id: Any = None,
 ) -> list[str]:
-    errors = lint_script(lines, program_name=program_name)
+    errors = lint_script(
+        lines,
+        program_name=program_name,
+        expected_discussion_article_id=expected_discussion_article_id,
+    )
     if not commentary:
         return errors
 
@@ -415,6 +421,7 @@ def validate_final_script(
     summaries: list[dict[str, Any]] | None = None,
     program_name: str = "ニュースのとなり",
     style: str = "dialogue",
+    expected_discussion_article_id: Any = None,
     prior_review_result: dict[str, Any] | None = None,
     commentary: bool = False,
 ) -> dict[str, Any]:
@@ -427,6 +434,14 @@ def validate_final_script(
     repaired_lines, repairs = _repair_outro_questions(source_lines)
     critical: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = list(repairs)
+
+    repaired_lines, layout_repairs, layout_repair_issues = normalize_discussion_layout(
+        repaired_lines,
+        expected_discussion_article_id=expected_discussion_article_id,
+    )
+    repairs.extend(layout_repairs)
+    warnings.extend(layout_repairs)
+    critical.extend(layout_repair_issues)
 
     malformed_indices = [index for index, line in enumerate(lines) if not isinstance(line, dict)]
     if malformed_indices:
@@ -461,13 +476,24 @@ def validate_final_script(
         )
 
     lint_critical, lint_warnings = _classify_lint_errors(
-        _lint_errors(repaired_lines, program_name=program_name, commentary=commentary)
+        _lint_errors(
+            repaired_lines,
+            program_name=program_name,
+            commentary=commentary,
+            expected_discussion_article_id=expected_discussion_article_id,
+        )
     )
     critical.extend(lint_critical)
     warnings.extend(lint_warnings)
 
     transition_issues = check_transition_integrity(repaired_lines)
     critical.extend(_issue("TRANSITION_INTEGRITY", message) for message in transition_issues)
+    critical.extend(
+        check_discussion_layout(
+            repaired_lines,
+            expected_discussion_article_id=expected_discussion_article_id,
+        )
+    )
     critical.extend(_outro_issues(repaired_lines, commentary=commentary))
     critical.extend(_transition_reaction_issues(repaired_lines, summaries or []))
     recurrence_issues = article_recurrence_issues(repaired_lines, summaries or [])
@@ -562,15 +588,60 @@ def validate_final_script_file(
         summaries=summaries,
         program_name=program_name,
         style=str(script.get("style", "solo" if commentary else "dialogue")) if isinstance(script, dict) else ("solo" if commentary else "dialogue"),
+        expected_discussion_article_id=(
+            script.get("discussion_article_id")
+            if isinstance(script, dict)
+            else None
+        ),
         commentary=commentary,
         prior_review_result=prior_review_result,
     )
+    if isinstance(script, dict):
+        for recorded_issue in script.get("discussion_layout_issues", []) or []:
+            if not isinstance(recorded_issue, dict):
+                continue
+            result["critical_issues"].append(
+                _issue(
+                    str(recorded_issue.get("code", "DISCUSSION_LAYOUT")),
+                    str(recorded_issue.get("message", "discussionの構造を保証できません")),
+                )
+            )
+            result["can_synthesize"] = False
+        if not result["can_synthesize"]:
+            result["status"] = HUMAN_REVIEW_PHASE
     if result["repairs"]:
         repaired_script = dict(script)
         repaired_script["lines"] = result["lines"]
         path.write_text(json.dumps(repaired_script, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     _write_report(result, output_dir or str(path.parent))
     return result
+
+
+def script_file_has_discussion_layout_issues(script_path: str) -> bool:
+    """Return whether generation recorded an unrepairable discussion layout."""
+    try:
+        script = json.loads(Path(script_path).read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return False
+    return isinstance(script, dict) and bool(script.get("discussion_layout_issues"))
+
+
+def should_run_final_validation(script_path: str, review_result: dict[str, Any]) -> bool:
+    """Return whether the final quality gate is needed for this script."""
+    if script_file_has_discussion_layout_issues(script_path):
+        return True
+    return bool(
+        isinstance(review_result, dict)
+        and review_result.get("revised")
+        and any(
+            key in review_result
+            for key in (
+                "transition_integrity_issues",
+                "question_response_issues",
+                "dialogue_balance_issues",
+            )
+        )
+    )
 
 
 def _write_report(result: dict[str, Any], output_dir: str) -> None:

@@ -691,6 +691,8 @@ def _build_revised_script(source: dict, response: dict) -> dict:
         "subtitle": subtitle,
         "lines": [],
     }
+    if source.get("discussion_article_id") is not None:
+        script["discussion_article_id"] = source["discussion_article_id"]
     if style:
         script["style"] = style
     if mc_gender:
