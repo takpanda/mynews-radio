@@ -393,6 +393,17 @@ def run_radio_pipeline(
             _fail("synthesize", "音声ファイルが生成されませんでした")
             return None
 
+        # 実際の合成に使った女性MCを保存する。Fish S2 Pro以外では
+        # female_mc_candidates のMCを使っていないため、表示対象をクリアする。
+        service.update_episode_mc_voice_name(
+            episode_id,
+            effective_tts_female.strip()
+            if tts_config["tts_engine"] == "fishs2pro"
+            and isinstance(effective_tts_female, str)
+            and effective_tts_female.strip()
+            else None,
+        )
+
         # -- BUILD MP3 --
         _progress("build", "音声をまとめています…")
         ep_metadata = build_episode(base_dir, episode_id=episode_id, generation_job_id=generation_job_id)

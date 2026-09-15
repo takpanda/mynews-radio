@@ -491,3 +491,31 @@ def resolve_category_female_voice(
     if available_voices is None or selected in set(available_voices):
         return selected
     return default_voice
+
+
+_JAPANESE_DISPLAY_NAME_PATTERN = re.compile(
+    r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]"
+)
+
+
+def resolve_female_mc_display_name(
+    voice_name: str | None,
+) -> str | None:
+    """保存済みの実使用voice_nameから、日本語表示名だけを解決する。
+
+    voice_nameは生成時点の値を使い、表示名のみ現在の候補マスタから取得する。
+    候補が無効化されても過去エピソードの実績表示を維持するため、候補の
+    ``is_active`` は判定に使わない。候補名や英語表示名は公開APIへ返さず、
+    日本語文字を含まない表示名は ``None`` とする。
+    """
+    if not isinstance(voice_name, str) or not voice_name.strip():
+        return None
+    candidate = get_female_mc_candidate(voice_name.strip())
+    if not candidate:
+        return None
+    display_name = candidate.get("display_name")
+    if not isinstance(display_name, str) or not display_name.strip():
+        return None
+    if not _JAPANESE_DISPLAY_NAME_PATTERN.search(display_name):
+        return None
+    return display_name.strip()

@@ -120,6 +120,51 @@ class TestEpisodeGeneratedAt:
         data = resp.json()
         assert "generated_at" in data
 
+    def test_detail_contains_current_female_mc_display_name(self, client):
+        from app.services import settings_service
+        from app.services.episode_service import EpisodeService
+
+        settings_service.update_female_mc_candidate(
+            "female", {"display_name": "秋元優里"}
+        )
+
+        episode_id = EpisodeService().create_episode("2099-12-25")
+        EpisodeService().update_episode_mc_voice_name(episode_id, "female")
+
+        response = client.get(f"/episodes/{episode_id}")
+
+        assert response.status_code == 200
+        assert response.json()["mc_display_name"] == "秋元優里"
+
+    def test_detail_does_not_return_non_japanese_mc_display_name(self, client):
+        from app.services import settings_service
+        from app.services.episode_service import EpisodeService
+
+        settings_service.update_female_mc_candidate(
+            "morigawa", {"display_name": "morigawa"}
+        )
+        episode_id = EpisodeService().create_episode("2099-12-26")
+        EpisodeService().update_episode_mc_voice_name(episode_id, "morigawa")
+
+        response = client.get(f"/episodes/{episode_id}")
+
+        assert response.status_code == 200
+        assert response.json()["mc_display_name"] is None
+
+    def test_detail_does_not_infer_mc_for_episode_without_saved_voice(self, client):
+        from app.services import settings_service
+        from app.services.episode_service import EpisodeService
+
+        settings_service.update_female_mc_candidate(
+            "morigawa", {"display_name": "現在の既定MC"}
+        )
+        episode_id = EpisodeService().create_episode("2099-12-27")
+
+        response = client.get(f"/episodes/{episode_id}")
+
+        assert response.status_code == 200
+        assert response.json()["mc_display_name"] is None
+
 
 class TestEpisodeSourcesAndCorrections:
     def test_detail_returns_only_episode_sources_and_groups_consecutive_topics(self, client):

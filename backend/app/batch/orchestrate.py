@@ -32,6 +32,8 @@ from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
 from app.services.article_service import ArticleService, write_fallback_summaries
 from app.services.episode_service import EpisodeService, retry_on_busy, override_script_title, build_radio_title
+from app.services.settings_service import resolve_tts_speakers
+from app.config import get_settings
 from app.services.telegram_notifier import notify_failure, notify_success
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,13 @@ def _create_episode_record(date_str: str) -> tuple[int, int]:
 def _update_episode_audio(episode_id: int, audio_path: str) -> None:
     ep_service = EpisodeService()
     ep_service.update_episode_audio_path(episode_id, audio_path)
+    settings = get_settings()
+    voice_name = (
+        resolve_tts_speakers("fishs2pro")[1]
+        if settings.default_tts_engine == "fishs2pro"
+        else None
+    )
+    ep_service.update_episode_mc_voice_name(episode_id, voice_name)
 
 
 # ---------------------------------------------------------------------------

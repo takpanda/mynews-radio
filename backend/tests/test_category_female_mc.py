@@ -64,6 +64,23 @@ class TestCategoryFemaleVoiceSettings:
             ["政治・行政"], available_voices={"morigawa"}
         ) == "morigawa"
 
+    def test_display_name_requires_japanese_characters(self):
+        settings_service.update_female_mc_candidate(
+            "morigawa", {"display_name": "森川由加里"}
+        )
+        assert settings_service.resolve_female_mc_display_name("morigawa") == "森川由加里"
+
+        settings_service.update_female_mc_candidate(
+            "morigawa", {"display_name": "morigawa"}
+        )
+        assert settings_service.resolve_female_mc_display_name("morigawa") is None
+
+    def test_display_name_uses_saved_voice_even_after_candidate_is_disabled(self):
+        settings_service.update_female_mc_candidate(
+            "female", {"display_name": "秋元優里", "is_active": False}
+        )
+        assert settings_service.resolve_female_mc_display_name("female") == "秋元優里"
+
 
 class TestCategoryFemaleVoiceApi:
     def test_get_returns_all_categories_and_active_candidates(self, client):

@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS episodes (
     type TEXT NOT NULL DEFAULT 'radio',
     source_url TEXT,
     categories TEXT NOT NULL DEFAULT '[]',
+    mc_voice_name TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

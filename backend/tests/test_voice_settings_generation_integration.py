@@ -143,6 +143,42 @@ class TestCommentaryGenerationUsesSavedVoiceSettings:
         ep = svc.get_episode(ep_id)
         assert ep["status"] == "completed"
 
+    def test_dialogue_with_male_mc_gender_saves_female_voice_name(self):
+        from app.api.generate import GenerateRequest, _run_commentary_generation
+        from app.services.episode_service import EpisodeService
+
+        _save_voice_settings()
+        svc = EpisodeService()
+        ep_id = svc.create_episode(episode_date="2099-08-05", status="generating")
+        body = GenerateRequest(
+            date="2099-08-05", url="https://example.com/dialogue",
+            style="dialogue", mc_gender="male", tts_engine="fishs2pro",
+        )
+        fake_script = (
+            '{"lines": [{"speaker": "male", "text": "male line"}, '
+            '{"speaker": "female", "text": "female line"}]}'
+        )
+
+        with patch("app.api.generate.fetch_article_by_url",
+                   return_value={"title": "T", "url": body.url, "text": "body", "source": "url_input"}), \
+             patch("app.api.generate.ArticleService.upsert_article", return_value=True), \
+             patch("app.api.generate.ArticleService.fetch_new_articles", return_value=[]), \
+             patch("app.api.generate.get_db_connection") as mock_conn, \
+             patch("app.api.generate.generate_commentary_script", return_value=2), \
+             patch("app.api.generate.synthesize_episode", return_value=2), \
+             patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}), \
+             patch("builtins.open", _make_fake_open(fake_script)):
+
+            mock_row = MagicMock()
+            mock_row.__getitem__ = lambda self, key: 123 if key == "id" else None
+            mock_conn_instance = MagicMock()
+            mock_conn_instance.__enter__.return_value.execute.return_value.fetchone.return_value = mock_row
+            mock_conn.return_value = mock_conn_instance
+
+            _run_commentary_generation(ep_id, body)
+
+        assert svc.get_episode(ep_id)["mc_voice_name"] == "custom-female"
+
 
 class TestResynthesisUsesSavedVoiceSettings:
     def test_stream_synthesize_passes_saved_speakers(self):
@@ -164,3 +200,25 @@ class TestResynthesisUsesSavedVoiceSettings:
         kwargs = mock_synth.call_args.kwargs
         assert kwargs["speaker_male"] == 9001
         assert kwargs["speaker_female"] == 9002
+
+    def test_stream_synthesize_clears_female_voice_without_female_line(self):
+        from app.api.generate import SynthesizeRequest, _stream_synthesize
+        from app.services.episode_service import EpisodeService
+
+        _save_voice_settings()
+        service = EpisodeService()
+        episode_id = service.create_episode("2099-08-06", status="completed", type="radio")
+        service.update_episode_mc_voice_name(episode_id, "custom-female")
+        base_dir = Path(os.environ["EPISODES_DIR"]) / str(episode_id)
+        base_dir.mkdir(parents=True)
+        (base_dir / "script.json").write_text(
+            '{"lines": [{"speaker": "male", "text": "male line"}]}',
+            encoding="utf-8",
+        )
+
+        with patch("app.api.generate.DEFAULT_EPISODES_DIR", os.environ["EPISODES_DIR"]), \
+             patch("app.api.generate.synthesize_episode", return_value=1), \
+             patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}):
+            list(_stream_synthesize(episode_id, SynthesizeRequest(tts_engine="fishs2pro")))
+
+        assert service.get_episode(episode_id)["mc_voice_name"] is None

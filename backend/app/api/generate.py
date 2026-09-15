@@ -135,6 +135,22 @@ PHASE_SEQUENCE = {
 }
 
 
+def _has_female_speaker_line(script_path: str) -> bool:
+    """台本に女性話者の行が実際に含まれているかを判定する。"""
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            script = json.load(f)
+    except (OSError, json.JSONDecodeError, TypeError):
+        return False
+
+    if not isinstance(script, dict) or not isinstance(script.get("lines"), list):
+        return False
+    return any(
+        isinstance(line, dict) and line.get("speaker") == "female"
+        for line in script["lines"]
+    )
+
+
 def _format_sse(event: str, payload: dict) -> bytes:
     return (
         f"event: {event}\n"
@@ -355,6 +371,16 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         if success_count <= 0:
             service.update_episode_status(episode_id, "failed")
             return
+
+        service.update_episode_mc_voice_name(
+            episode_id,
+            tts_speaker_female.strip()
+            if tts_engine == "fishs2pro"
+            and isinstance(tts_speaker_female, str)
+            and tts_speaker_female.strip()
+            and _has_female_speaker_line(script_path)
+            else None,
+        )
 
         # -- BUILD MP3 --
         service.update_episode_phase(episode_id, "build", "音声をまとめています…")
@@ -584,6 +610,16 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
             status="tts_error",
         ))
         return
+
+    service.update_episode_mc_voice_name(
+        episode_id,
+        tts_speaker_female.strip()
+        if tts_engine == "fishs2pro"
+        and isinstance(tts_speaker_female, str)
+        and tts_speaker_female.strip()
+        and _has_female_speaker_line(script_path)
+        else None,
+    )
 
     yield _format_sse("progress", _build_progress_payload("build", "音声ファイルを統合しています..."))
     ep_metadata = build_episode(base_dir, episode_id=episode_id, generation_job_id=job_id)

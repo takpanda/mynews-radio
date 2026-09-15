@@ -335,7 +335,8 @@ class EpisodeService:
             conn.execute(
                 """
                 UPDATE episodes
-                SET status = 'pending', phase = '', generation_message = '', updated_at = CURRENT_TIMESTAMP
+                SET status = 'pending', phase = '', generation_message = '', mc_voice_name = NULL,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
                 (episode_id,),
@@ -383,6 +384,19 @@ class EpisodeService:
                 WHERE id = ?
                 """,
                 (audio_path, episode_id),
+            )
+
+    @retry_on_busy()
+    def update_episode_mc_voice_name(self, episode_id: int, voice_name: str | None) -> None:
+        """実際に合成で使用した女性MCのvoice_nameを保存する。"""
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                UPDATE episodes
+                SET mc_voice_name = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (voice_name, episode_id),
             )
 
     def get_completed_episodes_for_feed(self, limit: int = 50) -> list[dict[str, Any]]:
