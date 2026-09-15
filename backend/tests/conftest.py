@@ -129,6 +129,24 @@ def no_daemon_thread_leaks(test_env):
             t.join(timeout=max(0.01, remaining))
 
 
+@pytest.fixture(autouse=True)
+def isolate_external_telegram_notifications(test_env, monkeypatch):
+    """Keep pipeline tests from sending Telegram notifications externally.
+
+    Notification behavior is tested explicitly in test_telegram_notifier.py;
+    tests that need to assert a pipeline notification can override these
+    module-level seams with monkeypatch or patch.object.
+    """
+    from app.batch import orchestrate, radio_pipeline
+
+    def _blocked_notification(**_kwargs):
+        return False
+
+    for module in (radio_pipeline, orchestrate):
+        monkeypatch.setattr(module, "notify_failure", _blocked_notification)
+        monkeypatch.setattr(module, "notify_success", _blocked_notification)
+
+
 @pytest.fixture
 def client():
     from app.main import app
