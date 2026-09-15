@@ -685,6 +685,7 @@ class TestRadioPipelineArgPropagation:
         assert kwargs["speaker_male"] == settings.fishs2pro_voice_male
         assert kwargs["speaker_female"] == settings.fishs2pro_voice_female
         assert kwargs["tts_engine"] == "fishs2pro"
+        assert svc.get_episode(ep_id)["mc_voice_name"] == settings.fishs2pro_voice_female
 
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)

@@ -499,16 +499,18 @@ _JAPANESE_DISPLAY_NAME_PATTERN = re.compile(
 
 
 def resolve_female_mc_display_name(
-    categories: list[str] | tuple[str, ...] | None,
+    voice_name: str | None,
 ) -> str | None:
-    """現在の女性MC設定から、日本語表示名だけを解決する。
+    """保存済みの実使用voice_nameから、日本語表示名だけを解決する。
 
-    エピソードのカテゴリは保存時点の値を使い、女性MCの割当と候補の
-    表示名はリクエスト時点の設定から解決する。候補名や英語表示名を
-    公開APIへ返さないため、日本語文字を含まない表示名は ``None`` とする。
+    voice_nameは生成時点の値を使い、表示名のみ現在の候補マスタから取得する。
+    候補が無効化されても過去エピソードの実績表示を維持するため、候補の
+    ``is_active`` は判定に使わない。候補名や英語表示名は公開APIへ返さず、
+    日本語文字を含まない表示名は ``None`` とする。
     """
-    voice_name = resolve_category_female_voice(categories)
-    candidate = get_female_mc_candidate(voice_name, active_only=True)
+    if not isinstance(voice_name, str) or not voice_name.strip():
+        return None
+    candidate = get_female_mc_candidate(voice_name.strip())
     if not candidate:
         return None
     display_name = candidate.get("display_name")

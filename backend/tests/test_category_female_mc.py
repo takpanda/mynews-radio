@@ -65,29 +65,21 @@ class TestCategoryFemaleVoiceSettings:
         ) == "morigawa"
 
     def test_display_name_requires_japanese_characters(self):
-        settings_service.save_voice_settings(_voice_settings())
         settings_service.update_female_mc_candidate(
             "morigawa", {"display_name": "森川由加里"}
         )
-        assert settings_service.resolve_female_mc_display_name([]) == "森川由加里"
+        assert settings_service.resolve_female_mc_display_name("morigawa") == "森川由加里"
 
         settings_service.update_female_mc_candidate(
             "morigawa", {"display_name": "morigawa"}
         )
-        assert settings_service.resolve_female_mc_display_name([]) is None
+        assert settings_service.resolve_female_mc_display_name("morigawa") is None
 
-    def test_display_name_uses_category_override(self):
-        settings_service.save_voice_settings(_voice_settings())
+    def test_display_name_uses_saved_voice_even_after_candidate_is_disabled(self):
         settings_service.update_female_mc_candidate(
-            "morigawa", {"display_name": "既定MC"}
+            "female", {"display_name": "秋元優里", "is_active": False}
         )
-        settings_service.update_female_mc_candidate(
-            "female", {"display_name": "秋元優里"}
-        )
-        settings_service.save_category_female_voices({"テック・IT": "female"})
-
-        assert settings_service.resolve_female_mc_display_name(["テック・IT"]) == "秋元優里"
-        assert settings_service.resolve_female_mc_display_name(["社会・暮らし"]) == "既定MC"
+        assert settings_service.resolve_female_mc_display_name("female") == "秋元優里"
 
 
 class TestCategoryFemaleVoiceApi:

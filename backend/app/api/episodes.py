@@ -403,7 +403,7 @@ def get_episode(episode_id: int, admin_session: Optional[str] = Cookie(None)) ->
         "articles": items,
         "key_points": _parse_key_points(episode),
         "categories": categories,
-        "mc_display_name": resolve_female_mc_display_name(categories),
+        "mc_display_name": resolve_female_mc_display_name(episode.get("mc_voice_name")),
         "source_articles": source_articles,
         "topics": topics,
         "corrections": _public_corrections(episode_id),

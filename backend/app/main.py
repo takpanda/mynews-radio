@@ -284,6 +284,13 @@ def _apply_db_migrations() -> None:
         except sqlite3.OperationalError:
             pass  # カラムが既に存在する場合は無視
 
+        # 実際に使用した女性MCをエピソード単位で保持する（BEE-950）。
+        # 既存エピソードは特定できないため NULL のままとする。
+        try:
+            conn.execute("ALTER TABLE episodes ADD COLUMN mc_voice_name TEXT")
+        except sqlite3.OperationalError:
+            pass  # カラムが既に存在する場合は無視
+
         # 女性MC候補マスタ（BEE-908）。旧DBにも既存固定候補を初期投入する。
         from app.db.migration import migrate_female_mc_candidates
         migrate_female_mc_candidates(conn)

@@ -356,6 +356,16 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             service.update_episode_status(episode_id, "failed")
             return
 
+        service.update_episode_mc_voice_name(
+            episode_id,
+            tts_speaker_female.strip()
+            if tts_engine == "fishs2pro"
+            and isinstance(tts_speaker_female, str)
+            and tts_speaker_female.strip()
+            and mc_gender == "female"
+            else None,
+        )
+
         # -- BUILD MP3 --
         service.update_episode_phase(episode_id, "build", "音声をまとめています…")
         ep_metadata = build_episode(base_dir, episode_id=episode_id, generation_job_id=job_id)
@@ -584,6 +594,15 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
             status="tts_error",
         ))
         return
+
+    service.update_episode_mc_voice_name(
+        episode_id,
+        tts_speaker_female.strip()
+        if tts_engine == "fishs2pro"
+        and isinstance(tts_speaker_female, str)
+        and tts_speaker_female.strip()
+        else None,
+    )
 
     yield _format_sse("progress", _build_progress_payload("build", "音声ファイルを統合しています..."))
     ep_metadata = build_episode(base_dir, episode_id=episode_id, generation_job_id=job_id)
