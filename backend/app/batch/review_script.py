@@ -486,9 +486,8 @@ def review_script(
         }
 
     script_json_str = json.dumps(source, ensure_ascii=False, indent=2)
-    article_summaries_json = _format_review_evidence(
-        _load_review_evidence(source_script_path, summaries_path, article)
-    )
+    review_evidence = _load_review_evidence(source_script_path, summaries_path, article)
+    article_summaries_json = _format_review_evidence(review_evidence)
 
     reviews: dict[str, dict] = {}
     review_count = 0
@@ -631,6 +630,19 @@ def review_script(
             )
             revised = False
 
+    # レビュー版が不採用でも、生成工程の台本が最終成果物になるため、
+    # 最終的に採用される行を対象に記事再登場を必ず記録する。判定根拠が
+    # 不十分な場合の自動削除・書き換えは行わず、review.jsonで確認可能にする。
+    # review.jsonはレビュー工程の診断スナップショットであり、outro修復後の
+    # synthesis対象を正とする最終判定はfinal_validation.jsonを参照する。
+    article_recurrence: list[dict] = []
+    try:
+        from app.batch.final_validation import article_recurrence_issues
+
+        article_recurrence = article_recurrence_issues(transition_check_lines, review_evidence)
+    except Exception:
+        logger.warning("review_script: article recurrence check failed", exc_info=True)
+
     # --- Save review.json ---
     _write_review_json(
         output_dir=output_dir,
@@ -641,6 +653,7 @@ def review_script(
         dialogue_balance_issues=dialogue_balance_issues,
         question_response_issues=question_response_issues,
         transition_integrity_issues=transition_integrity_issues,
+        article_recurrence=article_recurrence,
     )
 
     return {
@@ -651,6 +664,7 @@ def review_script(
         "dialogue_balance_issues": dialogue_balance_issues,
         "question_response_issues": question_response_issues,
         "transition_integrity_issues": transition_integrity_issues,
+        "article_recurrence": article_recurrence,
     }
 
 
@@ -720,6 +734,7 @@ def _write_review_json(
     dialogue_balance_issues: list[str] | None = None,
     question_response_issues: list[str] | None = None,
     transition_integrity_issues: list[str] | None = None,
+    article_recurrence: list[dict] | None = None,
 ) -> None:
     review_data = {
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
@@ -730,6 +745,11 @@ def _write_review_json(
         "dialogue_balance_issues": dialogue_balance_issues or [],
         "question_response_issues": question_response_issues or [],
         "transition_integrity_issues": transition_integrity_issues or [],
+        "article_recurrence": {
+            "status": "review_required" if article_recurrence else "clear",
+            "findings": article_recurrence or [],
+            "auto_action": "none",
+        },
     }
     review_path = os.path.join(output_dir, "review.json")
     try:

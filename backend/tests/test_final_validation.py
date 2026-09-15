@@ -313,3 +313,63 @@ def test_final_validation_file_preserves_arc_discussion_target(tmp_path):
 
     assert result["can_synthesize"] is False
     assert any(item["code"] == "DISCUSSION_ARTICLE_DRIFT" for item in result["critical_issues"])
+
+
+def test_same_article_id_in_multiple_news_blocks_is_recorded_without_rewrite():
+    from app.batch.final_validation import article_recurrence_issues
+
+    lines = [
+        _line("news", "中部電力が発表しました。", article_id=502),
+        _line("transition", "続いて別の話題です。", article_id=503),
+        _line("news", "別の記事を紹介します。", article_id=503),
+        _line("transition", "話題を戻します。", article_id=502),
+        _line("news", "中部電力の追加情報です。", article_id=502),
+    ]
+
+    findings = article_recurrence_issues(lines, [])
+
+    assert len(findings) == 1
+    assert findings[0]["code"] == "ARTICLE_REUSED_IN_NEWS_BLOCKS"
+    assert findings[0]["article_ids"] == [502]
+    assert findings[0]["review_status"] == "pending_human_review"
+    assert findings[0]["auto_action"] == "none"
+    assert findings[0]["line_indices"] == [0, 4]
+
+
+def test_different_article_ids_with_shared_subject_are_recorded_with_evidence():
+    from app.batch.final_validation import article_recurrence_issues
+
+    lines = [
+        _line("news", "中部電力の原発再稼働を伝えます。", article_id=10),
+        _line("transition", "次の話題です。", article_id=11),
+        _line("news", "中部電力の料金改定を伝えます。", article_id=11),
+    ]
+    summaries = [
+        {"id": 10, "title": "中部電力、原発再稼働を申請"},
+        {"id": 11, "title": "中部電力、料金改定を発表"},
+    ]
+
+    findings = article_recurrence_issues(lines, summaries)
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding["code"] == "RELATED_TOPIC_REAPPEARANCE"
+    assert finding["article_ids"] == [10, 11]
+    assert finding["evidence"]["detection_method"] == "shared_title_anchor"
+    assert "中部電力" in finding["evidence"]["shared_title_anchors"]
+    assert finding["review_status"] == "pending_human_review"
+    assert finding["auto_action"] == "none"
+
+
+def test_fifty_article_case_is_inspected_without_collapsing_distinct_articles():
+    from app.batch.final_validation import article_recurrence_issues
+
+    lines = []
+    summaries = []
+    for article_id in range(1, 51):
+        lines.append(_line("news", f"記事{article_id}の内容です。", article_id=article_id))
+        summaries.append({"id": article_id, "title": f"Entity{article_id} announces"})
+
+    findings = article_recurrence_issues(lines, summaries)
+
+    assert findings == []

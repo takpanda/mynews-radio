@@ -7,6 +7,7 @@ from app.batch.generate_script import (
     _pick_phrase,
     _pick_speaker,
     _safe_topic_from_title,
+    _safe_topic_phrase,
     _strip_trailing_particle,
     _truncate_topic_at_boundary,
     lint_script,
@@ -1019,6 +1020,22 @@ class TestTopicParticleStripping:
     def test_does_not_strip_below_minimum_length(self):
         # 助詞除去後に空文字にはしない（短すぎる場合は元の助詞を残す）
         assert _strip_trailing_particle("を") == "を"
+
+
+class TestTopicFragmentFallback:
+    """BEE-946: 完結文・断片を話題名テンプレートへ差し込まない。"""
+
+    def test_complete_sentence_falls_back(self):
+        assert _safe_topic_phrase("制度を発表しました。") is None
+
+    def test_episode_502_fragment_falls_back(self):
+        assert _safe_topic_phrase("静岡についても見て") is None
+
+    def test_episode_502_broken_predicate_falls_back(self):
+        assert _safe_topic_phrase("解体かの話題です") is None
+
+    def test_empty_input_falls_back_at_title_boundary(self):
+        assert _safe_topic_from_title("") == "次の話題"
 
 
 class TestTopicBoundaryTruncation:
