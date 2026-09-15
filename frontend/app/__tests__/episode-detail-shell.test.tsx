@@ -135,6 +135,61 @@ describe('EpisodeDetailShell llmModel 表示', () => {
   })
 })
 
+describe('EpisodeDetailShell mcDisplayName 表示', () => {
+  it('mcDisplayName がある場合にMCバッジを表示する', () => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ mcDisplayName: '秋元優里' })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    const label = screen.getByText('MC: 秋元優里')
+    expect(label).toBeInTheDocument()
+    expect(label).toHaveAttribute('title', 'MC')
+    expect(label).toHaveAttribute('aria-label', 'MC: 秋元優里')
+    expect(label).toHaveClass('bg-slate-100', 'text-slate-600')
+  })
+
+  it.each([null, undefined, ''])('mcDisplayName が %p の場合はバッジを表示しない', (mcDisplayName) => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ mcDisplayName })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    expect(screen.queryByLabelText(/^MC:/)).not.toBeInTheDocument()
+  })
+
+  it('解説バッジの右かつLLMモデルバッジの左にMCバッジを表示する', () => {
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({
+          isCommentary: true,
+          mcDisplayName: '秋元優里',
+          llmModel: 'qwen3:8b',
+        })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    const commentaryBadge = screen.getByText('解説')
+    const mcBadge = screen.getByText('MC: 秋元優里')
+    const llmBadge = screen.getByText('qwen3:8b')
+    const container = commentaryBadge.parentElement!
+    const children = Array.from(container.children)
+    expect(children.indexOf(commentaryBadge)).toBeLessThan(children.indexOf(mcBadge))
+    expect(children.indexOf(mcBadge)).toBeLessThan(children.indexOf(llmBadge))
+  })
+})
+
 describe('EpisodeDetailShell この回で分かること 表示', () => {
   it('keyPoints が1件の場合に表示される', () => {
     render(

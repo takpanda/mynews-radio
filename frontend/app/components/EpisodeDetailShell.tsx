@@ -30,6 +30,7 @@ export interface DetailEpisode {
   generatedAtLabel?: string
   keyPoints?: string[]
   llmModel?: string | null
+  mcDisplayName?: string | null
   sourceArticles?: SourceArticle[]
   topics?: EpisodeTopic[]
   corrections?: EpisodeCorrection[]
@@ -118,6 +119,15 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
           {episode.isCommentary && (
             <span className="inline-flex items-center rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700">
               解説
+            </span>
+          )}
+          {episode.mcDisplayName?.trim() && (
+            <span
+              className="inline-flex max-w-full whitespace-normal break-all rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600"
+              title="MC"
+              aria-label={`MC: ${episode.mcDisplayName.trim()}`}
+            >
+              MC: {episode.mcDisplayName.trim()}
             </span>
           )}
           {episode.llmModel?.trim() && (
