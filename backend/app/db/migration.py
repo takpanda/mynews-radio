@@ -21,9 +21,14 @@ def migrate_generation_jobs(conn: sqlite3.Connection) -> bool:
     if "waiting" in sql and "payload" in columns:
         return False
 
-    conn.execute("ALTER TABLE generation_jobs RENAME TO generation_jobs_old")
-    conn.execute(
-        "CREATE TABLE generation_jobs ("
+    foreign_keys_enabled = bool(conn.execute("PRAGMA foreign_keys").fetchone()[0])
+    if foreign_keys_enabled:
+        # generation_jobsを参照する詳細ログのFKを壊さずに親テーブルを再構築する。
+        # この関数は呼び出し元のトランザクション開始前に実行される。
+        conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute(
+        "CREATE TABLE generation_jobs_new ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
         "owner_user_id INTEGER NOT NULL, operation TEXT NOT NULL, "
         "idempotency_key TEXT NOT NULL, input_hash TEXT NOT NULL, "
@@ -34,17 +39,17 @@ def migrate_generation_jobs(conn: sqlite3.Connection) -> bool:
         "FOREIGN KEY (owner_user_id) REFERENCES admin_users(id) ON DELETE CASCADE, "
         "FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE SET NULL, "
         "UNIQUE(owner_user_id, operation, idempotency_key))"
-    )
-    old_columns = {item[1] for item in conn.execute("PRAGMA table_info(generation_jobs_old)").fetchall()}
+        )
+        old_columns = {item[1] for item in conn.execute("PRAGMA table_info(generation_jobs)").fetchall()}
 
-    def old_column(name: str, fallback: str) -> str:
-        return f'"{name}"' if name in old_columns else fallback
+        def old_column(name: str, fallback: str) -> str:
+            return f'"{name}"' if name in old_columns else fallback
 
-    empty_text = "''"
-    failed_status = "'failed'"
+        empty_text = "''"
+        failed_status = "'failed'"
 
-    conn.execute(
-        "INSERT INTO generation_jobs "
+        conn.execute(
+        "INSERT INTO generation_jobs_new "
         "(id, owner_user_id, operation, idempotency_key, input_hash, client_ip_hash, payload, "
         " episode_id, status, claimed_at, finished_at) SELECT "
         f"{old_column('id', 'NULL')}, {old_column('owner_user_id', 'NULL')}, "
@@ -52,12 +57,16 @@ def migrate_generation_jobs(conn: sqlite3.Connection) -> bool:
         f"{old_column('input_hash', empty_text)}, {old_column('client_ip_hash', empty_text)}, '{{}}', "
         f"{old_column('episode_id', 'NULL')}, {old_column('status', failed_status)}, "
         f"{old_column('claimed_at', 'CURRENT_TIMESTAMP')}, {old_column('finished_at', 'NULL')} "
-        "FROM generation_jobs_old"
-    )
-    conn.execute("DROP TABLE generation_jobs_old")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_owner_status ON generation_jobs(owner_user_id, status)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_claimed_at ON generation_jobs(claimed_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_ip_status ON generation_jobs(client_ip_hash, status)")
+        "FROM generation_jobs"
+        )
+        conn.execute("DROP TABLE generation_jobs")
+        conn.execute("ALTER TABLE generation_jobs_new RENAME TO generation_jobs")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_owner_status ON generation_jobs(owner_user_id, status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_claimed_at ON generation_jobs(claimed_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_ip_status ON generation_jobs(client_ip_hash, status)")
+    finally:
+        if foreign_keys_enabled:
+            conn.execute("PRAGMA foreign_keys = ON")
     return True
 
 
