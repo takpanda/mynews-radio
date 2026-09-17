@@ -70,6 +70,11 @@ const STATUS_TO_PHASE: Record<string, PhaseCode> = {
 }
 
 function mapStatusToPhase(episode: { status: string; generation_phase?: string }): PhaseCode {
+  // waitingへのエンキュー時、バックエンドはphaseカラムを"start"のまま残すため、
+  // generation_phaseより先にstatus==='waiting'を判定しないとプログレスバーが誤表示される。
+  if (episode.status === 'waiting') {
+    return 'waiting'
+  }
   if (episode.generation_phase && episode.generation_phase in STATUS_TO_PHASE) {
     return STATUS_TO_PHASE[episode.generation_phase]
   }
@@ -664,8 +669,11 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   }
 
   const handleClick = async () => {
-    if (!isLoading && episodes?.some((ep) => ep.status === 'generating' || ep.status === 'waiting')) {
-      setMessage('先に生成中のタスクがあります')
+    const blockingEpisode = !isLoading
+      ? episodes?.find((ep) => ep.status === 'generating' || ep.status === 'waiting')
+      : undefined
+    if (blockingEpisode) {
+      setMessage(blockingEpisode.status === 'waiting' ? '先に生成待ちのタスクがあります' : '先に生成中のタスクがあります')
       return
     }
     if (isUrlMode && !isValidUrl(urlInput)) {
@@ -691,7 +699,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   // 401/403/409などcanRetryがfalseの再試行不可エラーは、生成失敗を示す新バッジの対象外とし従来のエラー表示に留める
   const isRetryableFailure = isFailure && canRetry
   const currentEstimate = getCurrentEstimate(activeStep, isSuccess, isFailure, isWaiting)
-  const isDuplicateError = message === '先に生成中のタスクがあります'
+  const isDuplicateError = message === '先に生成中のタスクがあります' || message === '先に生成待ちのタスクがあります'
   const phasePresentation = getPhasePresentation(latestProgress, isFailure)
   const visualProgressPercent = isFailure ? phasePresentation.progressPercent : phasePresentation.progressPercent
   const statusTone = isSuccess
@@ -1307,7 +1315,9 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
                   </>
                 )
                 : isDuplicateError
-                  ? '先に生成中のタスクがあります。完了をお待ちください。'
+                  ? (message === '先に生成待ちのタスクがあります'
+                      ? '先に生成待ちのタスクがあります。開始までお待ちください。'
+                      : '先に生成中のタスクがあります。完了をお待ちください。')
                   : message || '生成を完了できませんでした。必要に応じてログを開いて詳細を確認してください。'}
             </div>
           ) : null}

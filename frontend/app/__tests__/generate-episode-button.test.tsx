@@ -824,7 +824,9 @@ describe('GenerateEpisodeButton — 生成状態バッジの表示分岐', () =>
   })
 
   it('status: waiting のときは「生成待ち」バッジを表示し、工程の進み具合は表示しない', async () => {
-    jest.mocked(fetchEpisode).mockResolvedValue({ id: 100, status: 'waiting' } as Awaited<ReturnType<typeof fetchEpisode>>)
+    // 実バックエンドはwaitingへのエンキュー時もphaseカラムを"start"のまま返すため、
+    // generation_phaseが併存するケースを再現してmapStatusToPhaseの優先順位を検証する。
+    jest.mocked(fetchEpisode).mockResolvedValue({ id: 100, status: 'waiting', generation_phase: 'start' } as Awaited<ReturnType<typeof fetchEpisode>>)
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
@@ -838,8 +840,8 @@ describe('GenerateEpisodeButton — 生成状態バッジの表示分岐', () =>
   it('waiting から generating に変わるとポーリングを継続し、進捗表示へ切り替わる', async () => {
     localStorage.setItem('generating_episode_id', '100')
     jest.mocked(fetchEpisode)
-      .mockResolvedValueOnce({ id: 100, status: 'waiting' } as Awaited<ReturnType<typeof fetchEpisode>>)
-      .mockResolvedValue({ id: 100, status: 'generating' } as Awaited<ReturnType<typeof fetchEpisode>>)
+      .mockResolvedValueOnce({ id: 100, status: 'waiting', generation_phase: 'start' } as Awaited<ReturnType<typeof fetchEpisode>>)
+      .mockResolvedValue({ id: 100, status: 'generating', generation_phase: 'start' } as Awaited<ReturnType<typeof fetchEpisode>>)
 
     render(<GenerateEpisodeButton />)
 
@@ -877,5 +879,34 @@ describe('GenerateEpisodeButton — 生成状態バッジの表示分岐', () =>
     await screen.findByText(message)
     expect(screen.queryByText('生成できませんでした。再試行できます')).not.toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('確認が必要')
+  })
+})
+
+describe('GenerateEpisodeButton — 新規生成の排他ブロック時のメッセージ分岐', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    localStorage.clear()
+  })
+
+  const radioSubmit = () => screen.getByRole('button', { name: 'この設定で番組を生成する' })
+
+  it('他エピソードがgeneratingのときは「生成中」の文言でブロックする', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton episodes={[{ id: 1, title: '', subtitle: '', date: '2026-09-18', duration: 0, audio_url: '', status: 'generating' }]} />)
+
+    await user.click(radioSubmit())
+
+    expect(await screen.findByText('先に生成中のタスクがあります。完了をお待ちください。')).toBeInTheDocument()
+    expect(mockGenerateEpisode).not.toHaveBeenCalled()
+  })
+
+  it('他エピソードがwaitingのときは「生成待ち」の文言でブロックする', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton episodes={[{ id: 1, title: '', subtitle: '', date: '2026-09-18', duration: 0, audio_url: '', status: 'waiting' }]} />)
+
+    await user.click(radioSubmit())
+
+    expect(await screen.findByText('先に生成待ちのタスクがあります。開始までお待ちください。')).toBeInTheDocument()
+    expect(mockGenerateEpisode).not.toHaveBeenCalled()
   })
 })
