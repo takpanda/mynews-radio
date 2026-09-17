@@ -7,6 +7,14 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 
+def _run_daily_job_for_test(date: str, episode_id: int = 99, **payload):
+    from app.batch.run_daily import run_daily_job
+
+    job_payload = {"date": date, **payload}
+    with patch("app.batch.run_daily.EpisodeService.get_episode", return_value={"seq": 0}):
+        return run_daily_job({"episode_id": episode_id, "payload": json.dumps(job_payload)})
+
+
 class TestGenerateEndpoint:
     @pytest.mark.parametrize(
         ("code", "status_code"),
@@ -871,71 +879,58 @@ class TestRunDailyTtsEngineDefault:
     @patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(99, 0))
     @patch("app.batch.run_daily.setup_daily_logging")
     def test_batch_defaults_to_fishs2pro_when_unspecified(self, mock_log, mock_create):
-        """batch_default_tts_engine (既定 fishs2pro) が run_radio_pipeline へ明示的に渡される。"""
-        from app.batch.run_daily import main
+        """batch_default_tts_engine (既定 fishs2pro) がキューペイロードへ保存される。"""
+        from app.services.generation_control import JobClaim
 
-        with patch("app.batch.run_daily.run_radio_pipeline", return_value={"audio_path": "ep.mp3"}) as mock_pipeline, \
-             patch("app.batch.run_daily._write_manifest"), \
+        with patch("app.batch.run_daily.enqueue_job", return_value=JobClaim(1, None, status="active")) as mock_enqueue, \
              patch.dict(os.environ, {"BATCH_DATE": "2099-06-03"}):
-
+            from app.batch.run_daily import main
             main()
 
-        mock_pipeline.assert_called_once()
-        assert mock_pipeline.call_args.kwargs["tts_engine"] == "fishs2pro"
+        assert mock_enqueue.call_args.args[3]["tts_engine"] == "fishs2pro"
 
     @patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(99, 0))
     @patch("app.batch.run_daily.setup_daily_logging")
     def test_batch_tts_engine_can_be_overridden_via_env(self, mock_log, mock_create, monkeypatch):
-        """BATCH_DEFAULT_TTS_ENGINE で定期生成の既定エンジンを上書きできる。"""
+        """BATCH_DEFAULT_TTS_ENGINE でキューペイロードの既定エンジンを上書きできる。"""
         from app.config import get_settings
-        from app.batch.run_daily import main
-
+        from app.services.generation_control import JobClaim
         monkeypatch.setenv("BATCH_DEFAULT_TTS_ENGINE", "aivispeech")
         get_settings.cache_clear()
 
-        with patch("app.batch.run_daily.run_radio_pipeline", return_value={"audio_path": "ep.mp3"}) as mock_pipeline, \
-             patch("app.batch.run_daily._write_manifest"), \
+        with patch("app.batch.run_daily.enqueue_job", return_value=JobClaim(1, None, status="active")) as mock_enqueue, \
              patch.dict(os.environ, {"BATCH_DATE": "2099-06-04"}):
-
+            from app.batch.run_daily import main
             main()
 
-        mock_pipeline.assert_called_once()
-        assert mock_pipeline.call_args.kwargs["tts_engine"] == "aivispeech"
+        assert mock_enqueue.call_args.args[3]["tts_engine"] == "aivispeech"
 
 
 class TestRunDailyFailureModes:
-    """run_daily.main() 経由の失敗時動作検証."""
+    """キューから実行されるrun_daily_jobの失敗時動作検証."""
 
     @patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(99, 0))
     @patch("app.batch.run_daily.setup_daily_logging")
     def test_batch_import_exit_on_failure(self, mock_log, mock_create):
-        """run_radio_pipeline が None を返した場合 sys.exit(1) で終了する."""
-        from app.batch.run_daily import main
-
+        """run_radio_pipeline が None を返した場合、失敗結果を返す."""
         with patch("app.batch.run_daily.run_radio_pipeline", return_value=None), \
              patch("app.batch.run_daily._write_manifest") as mock_manifest, \
              patch.dict(os.environ, {"BATCH_DATE": "2099-06-01"}):
 
-            try:
-                main()
-                assert False, "expected sys.exit"
-            except SystemExit as exc:
-                assert exc.code == 1
+            assert _run_daily_job_for_test("2099-06-01") is False
 
         mock_manifest.assert_called_once_with(status="failed")
 
     @patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(99, 0))
     @patch("app.batch.run_daily.setup_daily_logging")
     def test_batch_no_content_exits_successfully(self, mock_log, mock_create):
-        """0行の正常系は cron を終了コード0で終え、manifestもdoneにする。"""
+        """0行の正常系は成功結果を返し、manifestもdoneにする。"""
         from app.batch.radio_pipeline import PipelineResult
-        from app.batch.run_daily import main
-
         with patch("app.batch.run_daily.run_radio_pipeline", return_value=PipelineResult.NO_CONTENT), \
              patch("app.batch.run_daily._write_manifest") as mock_manifest, \
              patch.dict(os.environ, {"BATCH_DATE": "2099-06-02"}):
 
-            assert main() is None
+            assert _run_daily_job_for_test("2099-06-02") is True
 
         mock_manifest.assert_called_once_with(status="done")
 
@@ -1077,8 +1072,6 @@ class TestRunDailyReviewConsistency:
         self, mock_review, mock_build, mock_synth, mock_gen, mock_sum, mock_import,
     ):
         """revised=True の場合、review/script.json が本番 script.json にコピーされること。"""
-        from app.batch.run_daily import main
-
         with patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(1, 0)), \
              patch("app.batch.run_daily._write_manifest"), \
              patch("app.batch.run_daily.setup_daily_logging"), \
@@ -1087,7 +1080,7 @@ class TestRunDailyReviewConsistency:
              patch.dict(os.environ, {"BATCH_DATE": "2099-12-31", "BATCH_NEWS_SOURCE": "hatena_bookmark"}):
 
             mock_open.return_value.__enter__.return_value.read.return_value = '{"lines": [{"article_id": "1", "text": "Hello"}]}'
-            main()
+            _run_daily_job_for_test("2099-12-31", episode_id=1)
 
         mock_copy.assert_called()
         found_copy = any(
@@ -1113,8 +1106,6 @@ class TestRunDailyReviewConsistency:
         self, mock_review, mock_build, mock_synth, mock_gen, mock_sum, mock_import,
     ):
         """revised=False の場合、コピーが発生せず通常フローが継続されること。"""
-        from app.batch.run_daily import main
-
         with patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(1, 0)), \
              patch("app.batch.run_daily._write_manifest"), \
              patch("app.batch.run_daily.setup_daily_logging"), \
@@ -1122,7 +1113,7 @@ class TestRunDailyReviewConsistency:
              patch.dict(os.environ, {"BATCH_DATE": "2099-12-31", "BATCH_NEWS_SOURCE": "hatena_bookmark"}):
 
             mock_open.return_value.__enter__.return_value.read.return_value = '{"lines": [{"article_id": "1", "text": "Hello"}]}'
-            main()
+            _run_daily_job_for_test("2099-12-31", episode_id=1)
 
         mock_synth.assert_called()
         mock_build.assert_called()
@@ -1137,8 +1128,6 @@ class TestRunDailyReviewConsistency:
         self, mock_review, mock_build, mock_synth, mock_gen, mock_sum, mock_import,
     ):
         """review の例外は non-fatal で、synthesize/build は継続されること。"""
-        from app.batch.run_daily import main
-
         with patch("app.batch.run_daily.EpisodeService.create_radio_episode", return_value=(1, 0)), \
              patch("app.batch.run_daily._write_manifest"), \
              patch("app.batch.run_daily.setup_daily_logging"), \
@@ -1146,7 +1135,7 @@ class TestRunDailyReviewConsistency:
              patch.dict(os.environ, {"BATCH_DATE": "2099-12-31", "BATCH_NEWS_SOURCE": "hatena_bookmark"}):
 
             mock_open.return_value.__enter__.return_value.read.return_value = '{"lines": [{"article_id": "1", "text": "Hello"}]}'
-            main()
+            _run_daily_job_for_test("2099-12-31", episode_id=1)
 
         mock_synth.assert_called()
         mock_synth.assert_called_once()
@@ -1362,7 +1351,6 @@ class TestBatchRunDailyDBState:
     @patch("app.batch.run_daily.setup_daily_logging")
     def test_batch_success_persists_episode_items(self, mock_log):
         """run_daily 経由成功時、episode_items が保存されること。"""
-        from app.batch.run_daily import main
         from app.services.episode_service import EpisodeService
 
         svc = EpisodeService()
@@ -1383,7 +1371,7 @@ class TestBatchRunDailyDBState:
              patch("builtins.open", _make_fake_open(fake_script)), \
              patch.dict(os.environ, {"BATCH_DATE": "2099-09-01", "BATCH_NEWS_SOURCE": "hatena_bookmark"}):
 
-            main()
+            _run_daily_job_for_test("2099-09-01", episode_id=target_id)
 
         # pipeline を通じて episode_items が保存されていることを確認
         items = svc.get_episode_items(target_id)
@@ -1394,16 +1382,11 @@ class TestBatchRunDailyDBState:
     def test_batch_pipeline_none_keeps_episode_generating_in_db(self, mock_log, mock_create):
         """pipeline から None が返った場合でも run_daily.main は exit するだけで DB は pipeline 側で更新済み。
         run_radio_pipeline は内部で status=failed に更新するためこのテストでは None 時の主処理を確認。"""
-        from app.batch.run_daily import main
-
         with patch("app.batch.run_daily.run_radio_pipeline", return_value=None), \
              patch("app.batch.run_daily._write_manifest") as mock_manifest, \
              patch.dict(os.environ, {"BATCH_DATE": "2099-09-02"}):
 
-            try:
-                main()
-            except SystemExit as exc:
-                assert exc.code == 1
+            assert _run_daily_job_for_test("2099-09-02", episode_id=7777) is False
 
         mock_manifest.assert_called_once_with(status="failed")
 

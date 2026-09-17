@@ -1,6 +1,5 @@
 """Broadcast generation endpoint (POST /generate) - async background execution."""
 
-import asyncio
 import json
 import logging
 import os
@@ -542,11 +541,6 @@ def _run_pipeline_with_audit(episode_id: int, body: GenerateRequest, pipeline: c
             success = False
         finally:
             finish_job(job_id, success)
-
-
-async def _async_wrapper(episode_id: int, body: GenerateRequest, pipeline: callable = _run_generation, owner_user_id: int | None = None, operation: str = "generate", job_id: int = 0) -> None:
-    """Run synchronous pipeline in a thread to not block the event loop."""
-    await asyncio.to_thread(_run_pipeline_with_audit, episode_id, body, pipeline, owner_user_id, operation, job_id)
 
 
 def execute_queued_job(job) -> None:

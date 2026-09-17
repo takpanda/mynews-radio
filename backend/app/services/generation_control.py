@@ -356,6 +356,10 @@ class GenerationDispatcher:
                     # payloadだけを扱う制御テストや外部利用者の予約を、API実行
                     # 経路として誤って実行しない。実ジョブはepisodeを予約する。
                     if job["episode_id"] is None and job["operation"] != "daily":
+                        logger.warning(
+                            "generation dispatcher skipped unbound active job; job_id=%d queue remains paused",
+                            job_id,
+                        )
                         continue
                     self._execute(job)
             except Exception:
