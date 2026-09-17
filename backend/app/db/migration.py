@@ -1,6 +1,111 @@
 import sqlite3
 
 
+SYSTEM_OWNER_USERNAME = "__generation_queue_system__"
+
+
+def migrate_generation_jobs(conn: sqlite3.Connection) -> bool:
+    """既存の生成ジョブを待機キュー対応スキーマへ再構築する。
+
+    SQLiteでは既存CHECK制約へ ``waiting`` を追加できないため、行を保持した
+    まま一時テーブルへコピーして再構築する。payloadが無い旧行は空JSONで
+    復元し、冪等性・監査ログから参照されるidも維持する。
+    """
+    def table_exists(name: str) -> bool:
+        return conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+        ).fetchone() is not None
+
+    # テーブル再構築の途中（DROP後のプロセス終了など）で残った一時テーブルを
+    # 起動時に復旧する。両方残っている場合は、旧本体を正として stale な一時表を
+    # 破棄し、通常の移行を続行する。
+    if table_exists("generation_jobs_new"):
+        foreign_keys_enabled = bool(conn.execute("PRAGMA foreign_keys").fetchone()[0])
+        if foreign_keys_enabled:
+            conn.execute("PRAGMA foreign_keys = OFF")
+        try:
+            if table_exists("generation_jobs"):
+                conn.execute("DROP TABLE generation_jobs_new")
+            else:
+                conn.execute("ALTER TABLE generation_jobs_new RENAME TO generation_jobs")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_owner_status ON generation_jobs(owner_user_id, status)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_claimed_at ON generation_jobs(claimed_at)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_ip_status ON generation_jobs(client_ip_hash, status)")
+        finally:
+            if foreign_keys_enabled:
+                conn.execute("PRAGMA foreign_keys = ON")
+
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'generation_jobs'"
+    ).fetchone()
+    if not row:
+        return False
+    sql = row[0] or ""
+    columns = {item[1] for item in conn.execute("PRAGMA table_info(generation_jobs)").fetchall()}
+    if "waiting" in sql and "payload" in columns:
+        return False
+
+    foreign_keys_enabled = bool(conn.execute("PRAGMA foreign_keys").fetchone()[0])
+    if foreign_keys_enabled:
+        # generation_jobsを参照する詳細ログのFKを壊さずに親テーブルを再構築する。
+        # この関数は呼び出し元のトランザクション開始前に実行される。
+        conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute(
+        "CREATE TABLE generation_jobs_new ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "owner_user_id INTEGER NOT NULL, operation TEXT NOT NULL, "
+        "idempotency_key TEXT NOT NULL, input_hash TEXT NOT NULL, "
+        "client_ip_hash TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL DEFAULT '{}', "
+        "episode_id INTEGER, status TEXT NOT NULL DEFAULT 'active' "
+        "CHECK (status IN ('waiting', 'active', 'completed', 'failed')), "
+        "claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, finished_at TEXT, "
+        "FOREIGN KEY (owner_user_id) REFERENCES admin_users(id) ON DELETE CASCADE, "
+        "FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE SET NULL, "
+        "UNIQUE(owner_user_id, operation, idempotency_key))"
+        )
+        old_columns = {item[1] for item in conn.execute("PRAGMA table_info(generation_jobs)").fetchall()}
+
+        def old_column(name: str, fallback: str) -> str:
+            return f'"{name}"' if name in old_columns else fallback
+
+        empty_text = "''"
+        failed_status = "'failed'"
+
+        conn.execute(
+        "INSERT INTO generation_jobs_new "
+        "(id, owner_user_id, operation, idempotency_key, input_hash, client_ip_hash, payload, "
+        " episode_id, status, claimed_at, finished_at) SELECT "
+        f"{old_column('id', 'NULL')}, {old_column('owner_user_id', 'NULL')}, "
+        f"{old_column('operation', 'NULL')}, {old_column('idempotency_key', empty_text)}, "
+        f"{old_column('input_hash', empty_text)}, {old_column('client_ip_hash', empty_text)}, '{{}}', "
+        f"{old_column('episode_id', 'NULL')}, {old_column('status', failed_status)}, "
+        f"{old_column('claimed_at', 'CURRENT_TIMESTAMP')}, {old_column('finished_at', 'NULL')} "
+        "FROM generation_jobs"
+        )
+        conn.execute("DROP TABLE generation_jobs")
+        conn.execute("ALTER TABLE generation_jobs_new RENAME TO generation_jobs")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_owner_status ON generation_jobs(owner_user_id, status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_claimed_at ON generation_jobs(claimed_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_ip_status ON generation_jobs(client_ip_hash, status)")
+    finally:
+        if foreign_keys_enabled:
+            conn.execute("PRAGMA foreign_keys = ON")
+    return True
+
+
+def ensure_generation_system_owner(conn: sqlite3.Connection) -> int:
+    """cronジョブ用のログイン不能な所有者を冪等に作成し、そのidを返す。"""
+    conn.execute(
+        "INSERT OR IGNORE INTO admin_users (username, password_hash) VALUES (?, ?)",
+        (SYSTEM_OWNER_USERNAME, "disabled$generation_queue"),
+    )
+    row = conn.execute(
+        "SELECT id FROM admin_users WHERE username = ?", (SYSTEM_OWNER_USERNAME,)
+    ).fetchone()
+    return int(row[0])
+
+
 FEMALE_MC_SAMPLE_TEXT = "こんにちは、ニュースの時間です。今日の主な話題をお伝えします。"
 
 

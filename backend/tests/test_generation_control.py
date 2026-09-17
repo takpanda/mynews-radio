@@ -25,7 +25,7 @@ def test_idempotency_key_is_required(client):
     assert response.status_code == 400
 
 
-def test_active_generation_returns_retry_after(client):
+def test_active_generation_is_queued(client):
     claim = claim_job(1, "generate", "active-claim", {"date": "2099-01-04"})
     response = client.post(
         "/generate",
@@ -33,9 +33,10 @@ def test_active_generation_returns_retry_after(client):
         headers={"Idempotency-Key": "active-claim-2"},
     )
 
-    assert response.status_code == 429
-    assert response.headers["Retry-After"] == "60"
-    finish_job(claim.job_id, False)
+    assert response.status_code == 200
+    assert response.json()["status"] == "waiting"
+    with get_db_connection() as conn:
+        conn.execute("UPDATE generation_jobs SET status = 'failed' WHERE status IN ('active', 'waiting')")
 
 
 def test_claim_job_recovers_stale_active_job_and_allows_new_claim(client, monkeypatch):
@@ -63,7 +64,7 @@ def test_claim_job_recovers_stale_active_job_and_allows_new_claim(client, monkey
     finish_job(replacement.job_id, False)
 
 
-def test_claim_job_does_not_recover_active_job_at_exact_ten_minute_boundary(client, monkeypatch):
+def test_claim_job_queues_active_job_at_exact_ten_minute_boundary(client, monkeypatch):
     import app.services.generation_control as control
 
     fixed_now = datetime(2026, 7, 31, 12, 0, 0, tzinfo=timezone.utc)
@@ -75,16 +76,16 @@ def test_claim_job_does_not_recover_active_job_at_exact_ten_minute_boundary(clie
             ((fixed_now - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S"), active.job_id),
         )
 
-    with pytest.raises(GenerationControlError) as exc_info:
-        claim_job(1, "generate", "boundary-rejected", {"n": 2})
-    assert exc_info.value.status_code == 429
+    queued = claim_job(1, "generate", "boundary-queued", {"n": 2})
+    assert queued.status == "waiting"
     with get_db_connection() as conn:
         row = conn.execute(
             "SELECT status, finished_at FROM generation_jobs WHERE id = ?", (active.job_id,)
         ).fetchone()
     assert row["status"] == "active"
     assert row["finished_at"] is None
-    finish_job(active.job_id, False)
+    with get_db_connection() as conn:
+        conn.execute("UPDATE generation_jobs SET status = 'failed' WHERE status IN ('active', 'waiting')")
 
 
 def test_stale_recovery_does_not_change_completed_or_failed_jobs(client, monkeypatch):
@@ -194,7 +195,7 @@ def test_endpoints_allow_more_than_ten_daily_generations(client, monkeypatch):
                 break
             time.sleep(0.01)
 
-def test_ip_and_global_active_limits_apply_across_owners_and_operations(client):
+def test_ip_and_global_active_limits_are_serialized_in_one_queue(client):
     from app.auth import hash_password
 
     with get_db_connection() as conn:
@@ -207,24 +208,14 @@ def test_ip_and_global_active_limits_apply_across_owners_and_operations(client):
         ).fetchone()[0]
 
     same_ip = claim_job(1, "generate", "ip-active-1", {"n": 1}, client_ip="10.0.0.1")
-    try:
-        with pytest.raises(GenerationControlError) as exc_info:
-            claim_job(second_owner_id, "synthesize", "ip-active-2", {"n": 2}, client_ip="10.0.0.1")
-        assert exc_info.value.status_code == 429
-        assert exc_info.value.retry_after == 60
-        assert exc_info.value.args[0] == "Another generation from this IP is already running"
-    finally:
-        finish_job(same_ip.job_id, False)
+    queued_same_ip = claim_job(second_owner_id, "synthesize", "ip-active-2", {"n": 2}, client_ip="10.0.0.1")
+    assert queued_same_ip.status == "waiting"
 
     other_ip = claim_job(1, "generate", "global-active-1", {"n": 3}, client_ip="10.0.0.2")
-    try:
-        with pytest.raises(GenerationControlError) as exc_info:
-            claim_job(second_owner_id, "synthesize", "global-active-2", {"n": 4}, client_ip="10.0.0.3")
-        assert exc_info.value.status_code == 429
-        assert exc_info.value.retry_after == 60
-        assert exc_info.value.args[0] == "The generation service is busy"
-    finally:
-        finish_job(other_ip.job_id, False)
+    queued_global = claim_job(second_owner_id, "synthesize", "global-active-2", {"n": 4}, client_ip="10.0.0.3")
+    assert queued_global.status == "waiting"
+    with get_db_connection() as conn:
+        conn.execute("UPDATE generation_jobs SET status = 'failed' WHERE status IN ('active', 'waiting')")
 
 
 def test_more_than_ten_generations_are_allowed_from_one_ip(client):
