@@ -32,7 +32,9 @@ from app.services.article_service import ArticleService
 from app.services.episode_service import EpisodeService
 from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_url
 from app.services.settings_service import get_settings_or_default, resolve_tts_speakers, validate_settings
-from app.services.generation_control import GenerationControlError, bind_episode, claim_job, finish_job
+from app.services.generation_control import (
+    GenerationControlError, bind_episode, claim_job, dispatch_job, finish_job,
+)
 from app.services.verified_client_ip import get_verified_client_ip
 from app.services.llm_provider import LlmProviderValidationError, validate_provider_model
 
@@ -480,7 +482,7 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
             ({k: v for k, v in (body.model_dump() if hasattr(body, "model_dump") else body.dict()).items()
               if not (k in {"llm_provider", "llm_model"} and v is None)}),
             episode_date=body.date, episode_type=episode_type, source_url=body.url,
-            client_ip=_client_ip(request),
+            client_ip=_client_ip(request), dispatch=False,
         )
     except GenerationControlError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
@@ -499,24 +501,23 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
         episode_id, "start",
         "解説の生成を準備しています…" if episode_type == "commentary" else "番組の生成を準備しています…",
     )
+    if claim.status == "waiting":
+        service.update_episode_status(episode_id, "waiting")
+        dispatch_job(claim.job_id)
+        return {
+            "episode_id": episode_id,
+            "status": "waiting",
+            "message": "Generation queued; it will start in FIFO order",
+        }
 
     bind_episode(claim.job_id, episode_id)
-    # Start actual pipeline in background; prefer asyncio under uvicorn
-    loop: asyncio.AbstractEventLoop | None = None
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        pass
-
     pipeline = _run_commentary_generation if episode_type == "commentary" else _run_generation
-
-    if loop is not None:
-        asyncio.ensure_future(_async_wrapper(episode_id, body, pipeline, owner_user_id, operation, claim.job_id))
-    else:
-        import threading as _th
-        t = _th.Thread(target=_run_pipeline_with_audit, args=(episode_id, body, pipeline, owner_user_id, operation, claim.job_id), daemon=True)
-        t.start()
-
+    import threading as _threading
+    _threading.Thread(
+        target=_run_pipeline_with_audit,
+        args=(episode_id, body, pipeline, owner_user_id, operation, claim.job_id),
+        daemon=True,
+    ).start()
     msg = f"Commentary generation started for {body.url}" if episode_type == "commentary" else f"Episode generation started for {body.date}"
     return {
         "episode_id": episode_id,
@@ -546,6 +547,32 @@ def _run_pipeline_with_audit(episode_id: int, body: GenerateRequest, pipeline: c
 async def _async_wrapper(episode_id: int, body: GenerateRequest, pipeline: callable = _run_generation, owner_user_id: int | None = None, operation: str = "generate", job_id: int = 0) -> None:
     """Run synchronous pipeline in a thread to not block the event loop."""
     await asyncio.to_thread(_run_pipeline_with_audit, episode_id, body, pipeline, owner_user_id, operation, job_id)
+
+
+def execute_queued_job(job) -> None:
+    """ディスパッチャから呼ばれる、payload復元込みの共通実行入口。"""
+    payload = json.loads(job["payload"] or "{}")
+    operation = job["operation"]
+    episode_id = job["episode_id"]
+    owner_user_id = job["owner_user_id"]
+    job_id = job["id"]
+    if operation in {"generate", "commentary"}:
+        body = GenerateRequest(**payload)
+        pipeline = _run_commentary_generation if operation == "commentary" else _run_generation
+        _run_pipeline_with_audit(episode_id, body, pipeline, owner_user_id, operation, job_id)
+        return
+    if operation == "synthesize":
+        body_payload = payload.get("body", payload)
+        body = SynthesizeRequest(**body_payload)
+        for _ in _stream_synthesize(episode_id, body):
+            pass
+        _finalize_synthesis_job(job_id, episode_id)
+        return
+    if operation == "daily":
+        from app.batch.run_daily import run_daily_job
+        finish_job(job_id, run_daily_job(job))
+        return
+    raise ValueError(f"unsupported generation operation: {operation}")
 
 
 class SynthesizeRequest(BaseModel):
@@ -656,6 +683,7 @@ def synthesize_episode_audio(episode_id: int, request: Request, body: Synthesize
             {"episode_id": episode_id, "body": body.model_dump() if hasattr(body, "model_dump") else body.dict()},
             episode_id=episode_id,
             client_ip=_client_ip(request),
+            dispatch=False,
         )
     except GenerationControlError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
@@ -677,6 +705,19 @@ def synthesize_episode_audio(episode_id: int, request: Request, body: Synthesize
             payload = _build_error_payload("Existing synthesis job failed", status="failed")
             payload["episode_id"] = episode_id
         return StreamingResponse(iter([_format_sse(event, payload)]), media_type="text/event-stream")
+    if claim.status == "waiting":
+        EpisodeService().update_episode_status(episode_id, "waiting")
+        dispatch_job(claim.job_id)
+        return StreamingResponse(
+            iter([_format_sse(
+                "progress",
+                _build_progress_payload(
+                    "synthesize", "音声合成をキューで待機しています", status="waiting",
+                    episode_id=episode_id,
+                ),
+            )]),
+            media_type="text/event-stream",
+        )
     return StreamingResponse(
         _stream_synthesize_with_audit(episode_id, body, owner_user_id, claim.job_id),
         media_type="text/event-stream",

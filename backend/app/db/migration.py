@@ -1,6 +1,78 @@
 import sqlite3
 
 
+SYSTEM_OWNER_USERNAME = "__generation_queue_system__"
+
+
+def migrate_generation_jobs(conn: sqlite3.Connection) -> bool:
+    """既存の生成ジョブを待機キュー対応スキーマへ再構築する。
+
+    SQLiteでは既存CHECK制約へ ``waiting`` を追加できないため、行を保持した
+    まま一時テーブルへコピーして再構築する。payloadが無い旧行は空JSONで
+    復元し、冪等性・監査ログから参照されるidも維持する。
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'generation_jobs'"
+    ).fetchone()
+    if not row:
+        return False
+    sql = row[0] or ""
+    columns = {item[1] for item in conn.execute("PRAGMA table_info(generation_jobs)").fetchall()}
+    if "waiting" in sql and "payload" in columns:
+        return False
+
+    conn.execute("ALTER TABLE generation_jobs RENAME TO generation_jobs_old")
+    conn.execute(
+        "CREATE TABLE generation_jobs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "owner_user_id INTEGER NOT NULL, operation TEXT NOT NULL, "
+        "idempotency_key TEXT NOT NULL, input_hash TEXT NOT NULL, "
+        "client_ip_hash TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL DEFAULT '{}', "
+        "episode_id INTEGER, status TEXT NOT NULL DEFAULT 'active' "
+        "CHECK (status IN ('waiting', 'active', 'completed', 'failed')), "
+        "claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, finished_at TEXT, "
+        "FOREIGN KEY (owner_user_id) REFERENCES admin_users(id) ON DELETE CASCADE, "
+        "FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE SET NULL, "
+        "UNIQUE(owner_user_id, operation, idempotency_key))"
+    )
+    old_columns = {item[1] for item in conn.execute("PRAGMA table_info(generation_jobs_old)").fetchall()}
+
+    def old_column(name: str, fallback: str) -> str:
+        return f'"{name}"' if name in old_columns else fallback
+
+    empty_text = "''"
+    failed_status = "'failed'"
+
+    conn.execute(
+        "INSERT INTO generation_jobs "
+        "(id, owner_user_id, operation, idempotency_key, input_hash, client_ip_hash, payload, "
+        " episode_id, status, claimed_at, finished_at) SELECT "
+        f"{old_column('id', 'NULL')}, {old_column('owner_user_id', 'NULL')}, "
+        f"{old_column('operation', 'NULL')}, {old_column('idempotency_key', empty_text)}, "
+        f"{old_column('input_hash', empty_text)}, {old_column('client_ip_hash', empty_text)}, '{{}}', "
+        f"{old_column('episode_id', 'NULL')}, {old_column('status', failed_status)}, "
+        f"{old_column('claimed_at', 'CURRENT_TIMESTAMP')}, {old_column('finished_at', 'NULL')} "
+        "FROM generation_jobs_old"
+    )
+    conn.execute("DROP TABLE generation_jobs_old")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_owner_status ON generation_jobs(owner_user_id, status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_claimed_at ON generation_jobs(claimed_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_ip_status ON generation_jobs(client_ip_hash, status)")
+    return True
+
+
+def ensure_generation_system_owner(conn: sqlite3.Connection) -> int:
+    """cronジョブ用のログイン不能な所有者を冪等に作成し、そのidを返す。"""
+    conn.execute(
+        "INSERT OR IGNORE INTO admin_users (username, password_hash) VALUES (?, ?)",
+        (SYSTEM_OWNER_USERNAME, "disabled$generation_queue"),
+    )
+    row = conn.execute(
+        "SELECT id FROM admin_users WHERE username = ?", (SYSTEM_OWNER_USERNAME,)
+    ).fetchone()
+    return int(row[0])
+
+
 FEMALE_MC_SAMPLE_TEXT = "こんにちは、ニュースの時間です。今日の主な話題をお伝えします。"
 
 

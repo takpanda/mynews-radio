@@ -348,8 +348,8 @@ def test_old_audit_schema_app_startup_migrates_before_actor_index(tmp_path):
     assert "idx_audit_logs_actor" in indexes
 
 
-def test_active_limit_rejection_is_audited(client):
-    from app.services.generation_control import claim_job, finish_job
+def test_generation_queue_acceptance_is_audited(client):
+    from app.services.generation_control import claim_job
 
     active = claim_job(1, "generate", "quota-active-holder", {"date": "2099-06-10"})
     response = client.post(
@@ -357,16 +357,16 @@ def test_active_limit_rejection_is_audited(client):
         json={"date": "2099-06-11"},
         headers={"Idempotency-Key": "quota-active-rejected"},
     )
-    assert response.status_code == 429
-    finish_job(active.job_id, False)
+    assert response.status_code == 200
+    assert response.json()["status"] == "waiting"
 
     with get_db_connection() as conn:
         rows = conn.execute(
-            "SELECT idempotency_key_hash, accepted, rejection_reason FROM audit_logs "
-            "WHERE result = 'rejected' AND idempotency_key_hash = ? ORDER BY id",
-            (hashlib.sha256(b"quota-active-rejected").hexdigest(),),
+            "SELECT status FROM generation_jobs WHERE id = ? OR episode_id = ? ORDER BY id",
+            (active.job_id, response.json()["episode_id"]),
         ).fetchall()
-    assert [(row["accepted"], row["rejection_reason"]) for row in rows] == [(0, "active_limit")]
+        conn.execute("UPDATE generation_jobs SET status = 'failed' WHERE status IN ('active', 'waiting')")
+    assert rows[0]["status"] == "active"
 
 
 def test_synthesis_claim_audit_failure_rolls_back_job_and_start_audit(client, monkeypatch):

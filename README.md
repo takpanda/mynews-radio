@@ -295,11 +295,13 @@ curl -X POST http://localhost:8010/generate \
 
 #### 利用上限
 
-生成（`POST /generate`）と再音声合成（`POST /episodes/:id/synthesize`）は、同一の利用上限を共有します。上限は単一プロセスSQLiteのトランザクション内で強制されます。
+生成（`POST /generate`）と再音声合成（`POST /episodes/:id/synthesize`）は、同一の永続FIFOキューを共有します。上限は単一プロセスSQLiteのトランザクション内で強制されます。
 
 | 上限の種類 | 対象 | 上限値 |
 |---|---|---|
-| 同時実行数 | 利用者別 / IP別 / 全体 | それぞれ 1件 |
+| 同時実行数 | 全操作 | 1件 |
+| 待機キュー | 通常API | 既定3件（`MAX_QUEUED_JOBS`） |
+| 待機キュー | cron | 上限対象外 |
 | 日次上限 | 利用者別 / IP別 / 全体 | それぞれ 10件 |
 
 - 日次上限は **JST（Asia/Tokyo）の 00:00** にリセットされます。生成と再音声合成は合算してカウントされます。

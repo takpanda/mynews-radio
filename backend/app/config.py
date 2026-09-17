@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     jingle_news_no_tonari_opening_path: str = "/app/data/jingles/news-no-tonari.mp3"
     jingle_news_no_tonari_ending_path: str = "/app/data/jingles/news-no-tonari.mp3"
     generate_rate_limit: str = "5/minute"
+    max_queued_jobs: int = Field(default=3, ge=0)
     push_rate_limit: str = "30/minute"
     vapid_public_key: str = ""
     vapid_private_key: str = ""

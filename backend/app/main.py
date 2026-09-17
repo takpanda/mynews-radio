@@ -81,6 +81,9 @@ def _apply_db_migrations() -> None:
     """既存DBへのスキーマ追加マイグレーションを安全に実行する。"""
     from app.db.connection import get_db_connection
     with get_db_connection() as conn:
+        from app.db.migration import migrate_generation_jobs, ensure_generation_system_owner
+        migrate_generation_jobs(conn)
+        ensure_generation_system_owner(conn)
         # schema.sql適用前の既存DBにも公開訂正テーブルを追加する。
         conn.execute(
             "CREATE TABLE IF NOT EXISTS episode_corrections ("
@@ -326,6 +329,8 @@ def _apply_db_migrations() -> None:
 
 _init_db()
 _apply_db_migrations()
+from app.services.generation_control import recover_generation_queue
+recover_generation_queue()
 
 
 @app.get("/health")
