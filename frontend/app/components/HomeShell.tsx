@@ -382,6 +382,11 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />生成中
                               </span>
                             )}
+                            {ep.status === 'waiting' && (
+                              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                                <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />生成待ち
+                              </span>
+                            )}
                           </div>
                           {ep.categories && ep.categories.length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-1.5" aria-label="カテゴリ">

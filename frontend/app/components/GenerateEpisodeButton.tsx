@@ -9,6 +9,7 @@ import ProgramSettingsPanel from './ProgramSettingsPanel'
 import type { ProgramSettings } from '../lib/api'
 
 type PhaseCode =
+  | 'waiting'
   | 'start'
   | 'import'
   | 'summarize'
@@ -40,6 +41,7 @@ interface PhasePresentation {
 }
 
 const STATUS_TO_PHASE: Record<string, PhaseCode> = {
+  waiting: 'waiting',
   generating: 'start',
   pending: 'start',
   start: 'start',
@@ -68,6 +70,11 @@ const STATUS_TO_PHASE: Record<string, PhaseCode> = {
 }
 
 function mapStatusToPhase(episode: { status: string; generation_phase?: string }): PhaseCode {
+  // waitingへのエンキュー時、バックエンドはphaseカラムを"start"のまま残すため、
+  // generation_phaseより先にstatus==='waiting'を判定しないとプログレスバーが誤表示される。
+  if (episode.status === 'waiting') {
+    return 'waiting'
+  }
   if (episode.generation_phase && episode.generation_phase in STATUS_TO_PHASE) {
     return STATUS_TO_PHASE[episode.generation_phase]
   }
@@ -75,6 +82,7 @@ function mapStatusToPhase(episode: { status: string; generation_phase?: string }
 }
 
 const MESSAGE_BY_STATUS: Record<string, string> = {
+  waiting: '前の生成が終わり次第、順番に開始します…',
   generating: '番組を生成中…',
   pending: '生成を開始しています…',
   importing: 'ニュース記事を取得しています…',
@@ -116,6 +124,13 @@ const STEP_DEFINITIONS = [
 ] as const
 
 const PHASE_PRESENTATION: Record<PhaseCode, PhasePresentation> = {
+  waiting: {
+    title: '生成待ちです',
+    detail: '前の生成が終わり次第、自動的に開始します。',
+    logLabel: '生成待ち',
+    shortLabel: '待機中',
+    progressPercent: 0,
+  },
   start: {
     title: '生成を準備しています',
     detail: '番組データの作成を開始しています。',
@@ -259,9 +274,10 @@ function resolveActiveStep(progress: ProgressEntry[]) {
   return activeIndex
 }
 
-function getCurrentEstimate(activeStep: number, isSuccess: boolean, isFailure: boolean) {
+function getCurrentEstimate(activeStep: number, isSuccess: boolean, isFailure: boolean, isWaiting: boolean) {
   if (isSuccess) return '完了しました'
   if (isFailure) return 'ログを確認してください'
+  if (isWaiting) return '順番待ち'
   if (activeStep < 0) return '通常 2-5 分'
   return STEP_DEFINITIONS[activeStep]?.estimate ?? '通常 2-5 分'
 }
@@ -653,8 +669,11 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   }
 
   const handleClick = async () => {
-    if (!isLoading && episodes?.some((ep) => ep.status === 'generating')) {
-      setMessage('先に生成中のタスクがあります')
+    const blockingEpisode = !isLoading
+      ? episodes?.find((ep) => ep.status === 'generating' || ep.status === 'waiting')
+      : undefined
+    if (blockingEpisode) {
+      setMessage(blockingEpisode.status === 'waiting' ? '先に生成待ちのタスクがあります' : '先に生成中のタスクがあります')
       return
     }
     if (isUrlMode && !isValidUrl(urlInput)) {
@@ -676,10 +695,11 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   const latestProgress = progress.at(-1)
   const isSuccess = Boolean(progress.some((entry) => entry.phase === 'complete'))
   const isFailure = Boolean(message && !isLoading && !isSuccess && hasError)
+  const isWaiting = Boolean(isLoading && latestProgress?.phase === 'waiting' && !isSuccess && !isFailure)
   // 401/403/409などcanRetryがfalseの再試行不可エラーは、生成失敗を示す新バッジの対象外とし従来のエラー表示に留める
   const isRetryableFailure = isFailure && canRetry
-  const currentEstimate = getCurrentEstimate(activeStep, isSuccess, isFailure)
-  const isDuplicateError = message === '先に生成中のタスクがあります'
+  const currentEstimate = getCurrentEstimate(activeStep, isSuccess, isFailure, isWaiting)
+  const isDuplicateError = message === '先に生成中のタスクがあります' || message === '先に生成待ちのタスクがあります'
   const phasePresentation = getPhasePresentation(latestProgress, isFailure)
   const visualProgressPercent = isFailure ? phasePresentation.progressPercent : phasePresentation.progressPercent
   const statusTone = isSuccess
@@ -688,6 +708,8 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
       ? 'border-amber-200 bg-amber-50 text-amber-800'
       : isDuplicateError
         ? 'border-amber-200 bg-amber-50 text-amber-800'
+      : isWaiting
+        ? 'border-slate-200 bg-slate-100 text-slate-600'
       : 'border-sky-200 bg-sky-50 text-sky-800'
   const selectedProvider = llmProviders.find((item) => item.provider === llmProvider)
   const unavailableReason = (errorCode: LlmProvider['error_code']): string => {
@@ -1145,7 +1167,12 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
                   role="status"
                   className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${statusTone}`}
                 >
-                  {isLoading ? (
+                  {isWaiting ? (
+                    <>
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-slate-400" />
+                      生成待ち・順番にご案内します
+                    </>
+                  ) : isLoading ? (
                     <>
                       <svg className="h-3 w-3 shrink-0 animate-spin" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                         <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.25" />
@@ -1179,61 +1206,69 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
             </div>
           </div>
 
-          <div className="mt-4">
-            <div className="flex items-center justify-between text-xs text-slate-400">
-              <span>{isFailure ? '進行が中断されました' : isDuplicateError ? '生成できません' : '工程の進み具合'}</span>
-              <span className="tabular-nums text-slate-600">{visualProgressPercent}%</span>
+          {isWaiting ? (
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-600">
+              前の生成が終わり次第、自動的に開始します。しばらくお待ちください。
             </div>
-            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
-              <div
-                className={`relative h-full rounded-full transition-all duration-500 ${isSuccess ? 'bg-emerald-500' : isFailure ? 'bg-amber-500' : 'bg-sky-500 progress-shimmer'}`}
-                style={{ width: `${visualProgressPercent}%` }}
-              />
-            </div>
-          </div>
+          ) : (
+            <>
+              <div className="mt-4">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span>{isFailure ? '進行が中断されました' : isDuplicateError ? '生成できません' : '工程の進み具合'}</span>
+                  <span className="tabular-nums text-slate-600">{visualProgressPercent}%</span>
+                </div>
+                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className={`relative h-full rounded-full transition-all duration-500 ${isSuccess ? 'bg-emerald-500' : isFailure ? 'bg-amber-500' : 'bg-sky-500 progress-shimmer'}`}
+                    style={{ width: `${visualProgressPercent}%` }}
+                  />
+                </div>
+              </div>
 
-          <ol className="mt-4 space-y-1.5" aria-live="polite">
-            {STEP_DEFINITIONS.map((step, index) => {
-              const isComplete = activeStep > index || isSuccess
-              const isCurrent = !isSuccess && activeStep === index
+              <ol className="mt-4 space-y-1.5" aria-live="polite">
+                {STEP_DEFINITIONS.map((step, index) => {
+                  const isComplete = activeStep > index || isSuccess
+                  const isCurrent = !isSuccess && activeStep === index
 
-              return (
-                <li
-                  key={step.title}
-                  className={`flex items-center gap-3 rounded-xl p-2.5 transition ${
-                    isCurrent ? 'bg-sky-50' : ''
-                  } ${!isCurrent && !isComplete ? 'opacity-50' : ''}`}
-                >
-                  <span
-                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                      isComplete
-                        ? 'bg-emerald-500 text-white'
-                        : isCurrent
-                          ? 'bg-sky-500 text-white progress-breathe'
-                          : 'bg-slate-100 text-slate-400'
-                    }`}
-                  >
-                    {isComplete ? (
-                      <svg className="h-3 w-3" viewBox="0 0 10 8" fill="none" aria-hidden="true">
-                        <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    ) : (
-                      index + 1
-                    )}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium text-slate-800">{step.title}</span>
-                    {isCurrent && (
-                      <span className="mt-0.5 block text-xs leading-5 text-slate-500">
-                        {step.description}
+                  return (
+                    <li
+                      key={step.title}
+                      className={`flex items-center gap-3 rounded-xl p-2.5 transition ${
+                        isCurrent ? 'bg-sky-50' : ''
+                      } ${!isCurrent && !isComplete ? 'opacity-50' : ''}`}
+                    >
+                      <span
+                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                          isComplete
+                            ? 'bg-emerald-500 text-white'
+                            : isCurrent
+                              ? 'bg-sky-500 text-white progress-breathe'
+                              : 'bg-slate-100 text-slate-400'
+                        }`}
+                      >
+                        {isComplete ? (
+                          <svg className="h-3 w-3" viewBox="0 0 10 8" fill="none" aria-hidden="true">
+                            <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        ) : (
+                          index + 1
+                        )}
                       </span>
-                    )}
-                  </span>
-                  <span className="shrink-0 text-xs tabular-nums text-slate-400">{step.estimate}</span>
-                </li>
-              )
-            })}
-          </ol>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium text-slate-800">{step.title}</span>
+                        {isCurrent && (
+                          <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                            {step.description}
+                          </span>
+                        )}
+                      </span>
+                      <span className="shrink-0 text-xs tabular-nums text-slate-400">{step.estimate}</span>
+                    </li>
+                  )
+                })}
+              </ol>
+            </>
+          )}
 
           {progress.length > 0 && (
             <div className="mt-4 border-t border-slate-100 pt-3">
@@ -1280,7 +1315,9 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
                   </>
                 )
                 : isDuplicateError
-                  ? '先に生成中のタスクがあります。完了をお待ちください。'
+                  ? (message === '先に生成待ちのタスクがあります'
+                      ? '先に生成待ちのタスクがあります。開始までお待ちください。'
+                      : '先に生成中のタスクがあります。完了をお待ちください。')
                   : message || '生成を完了できませんでした。必要に応じてログを開いて詳細を確認してください。'}
             </div>
           ) : null}
