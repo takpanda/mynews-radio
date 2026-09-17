@@ -11,6 +11,30 @@ def migrate_generation_jobs(conn: sqlite3.Connection) -> bool:
     まま一時テーブルへコピーして再構築する。payloadが無い旧行は空JSONで
     復元し、冪等性・監査ログから参照されるidも維持する。
     """
+    def table_exists(name: str) -> bool:
+        return conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+        ).fetchone() is not None
+
+    # テーブル再構築の途中（DROP後のプロセス終了など）で残った一時テーブルを
+    # 起動時に復旧する。両方残っている場合は、旧本体を正として stale な一時表を
+    # 破棄し、通常の移行を続行する。
+    if table_exists("generation_jobs_new"):
+        foreign_keys_enabled = bool(conn.execute("PRAGMA foreign_keys").fetchone()[0])
+        if foreign_keys_enabled:
+            conn.execute("PRAGMA foreign_keys = OFF")
+        try:
+            if table_exists("generation_jobs"):
+                conn.execute("DROP TABLE generation_jobs_new")
+            else:
+                conn.execute("ALTER TABLE generation_jobs_new RENAME TO generation_jobs")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_owner_status ON generation_jobs(owner_user_id, status)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_claimed_at ON generation_jobs(claimed_at)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_generation_jobs_ip_status ON generation_jobs(client_ip_hash, status)")
+        finally:
+            if foreign_keys_enabled:
+                conn.execute("PRAGMA foreign_keys = ON")
+
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'generation_jobs'"
     ).fetchone()

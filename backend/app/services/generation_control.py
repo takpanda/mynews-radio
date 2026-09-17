@@ -176,6 +176,7 @@ def enqueue_job(
             conn, operation=operation, actor_user_id=owner_user_id, result="started",
             idempotency_key_hash=key_digest, input_hash=digest, generation_job_id=job_id,
             accepted=True, started_at=_utc_text(now) if status == "active" else None,
+            record_started_at=status == "active",
         )
         reserved_episode_id = episode_id
         if episode_date is not None:
@@ -260,7 +261,8 @@ def finish_job(job_id: int, success: bool) -> None:
             "WHERE id = ? AND status = 'active'",
             ("completed" if success else "failed", job_id),
         )
-    _dispatcher.notify()
+    promoted = promote_next_job()
+    _dispatcher.notify(promoted.job_id if promoted else None)
 
 
 def bind_episode(job_id: int, episode_id: int) -> None:
@@ -281,7 +283,8 @@ def recover_generation_queue() -> None:
             "UPDATE generation_jobs SET status = 'failed', finished_at = CURRENT_TIMESTAMP "
             "WHERE status = 'active'"
         )
-    _dispatcher.notify()
+    promoted = promote_next_job()
+    _dispatcher.notify(promoted.job_id if promoted else None)
 
 
 def dispatch_job(job_id: int | None = None) -> None:
@@ -294,6 +297,7 @@ def dispatch_job(job_id: int | None = None) -> None:
             "AND episode_id IS NULL AND operation != 'daily' LIMIT 1"
         ).fetchone()
     if unbound_active:
+        logger.warning("generation dispatcher skipped unbound active job; queue remains paused")
         return
     _dispatcher.notify(job_id)
 

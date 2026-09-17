@@ -570,7 +570,23 @@ def execute_queued_job(job) -> None:
         return
     if operation == "daily":
         from app.batch.run_daily import run_daily_job
-        finish_job(job_id, run_daily_job(job))
+        success = False
+        try:
+            success = bool(run_daily_job(job))
+        except Exception:
+            logger.exception("daily generation job failed: job_id=%d", job_id)
+            if episode_id is not None:
+                try:
+                    EpisodeService().update_episode_status(episode_id, "failed")
+                except Exception:
+                    logger.exception("failed to mark daily episode as failed: episode_id=%d", episode_id)
+        finally:
+            try:
+                finalize_audit_log(job_id, "success" if success else "failure", episode_id)
+            except Exception:
+                logger.exception("failed to finalize audit log for daily job %d", job_id)
+                success = False
+            finish_job(job_id, success)
         return
     raise ValueError(f"unsupported generation operation: {operation}")
 

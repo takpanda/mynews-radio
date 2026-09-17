@@ -39,6 +39,7 @@ def insert_audit_log(
     rejection_reason: Optional[str] = None,
     started_at: Optional[str] = None,
     ended_at: Optional[str] = None,
+    record_started_at: bool = True,
 ) -> int:
     now = _now()
     cursor = conn.execute(
@@ -47,7 +48,8 @@ def insert_audit_log(
         " executed_at, result, accepted, rejection_reason, started_at, ended_at, episode_id) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (operation, actor_user_id, actor_user_id, generation_job_id, idempotency_key_hash, input_hash,
-         now, result, int(accepted), rejection_reason, started_at or (now if result == "started" else None),
+         now, result, int(accepted), rejection_reason,
+         started_at or (now if result == "started" and record_started_at else None),
          ended_at or (now if result in {"success", "failure", "rejected"} else None), episode_id),
     )
     return int(cursor.lastrowid)
