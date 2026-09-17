@@ -51,7 +51,7 @@ def test_run_daily_propagates_configured_provider_to_every_generation_stage(
     monkeypatch.setattr(run_daily, "_write_manifest", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(run_daily, "run_radio_pipeline", radio_pipeline.run_radio_pipeline)
 
-    run_daily.main()
+    run_daily.run_daily_job({"episode_id": episode_id, "payload": '{"date":"2099-08-01"}'})
 
     assert [(stage, kwargs["llm_provider"], kwargs["llm_model"]) for stage, kwargs in calls] == [
         ("summarize", provider, model),

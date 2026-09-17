@@ -316,7 +316,8 @@ def test_run_daily_invokes_retention_cleanup(monkeypatch):
     called = []
     original = run_daily.cleanup_episodes
     monkeypatch.setattr(run_daily, "cleanup_episodes", lambda: (called.append(True) or original()))
-    run_daily.main()
+    monkeypatch.setattr(run_daily.EpisodeService, "get_episode", lambda *args, **kwargs: {"seq": 0})
+    run_daily.run_daily_job({"episode_id": 1, "payload": '{"date":"2099-01-01"}'})
     assert called == [True]
 
 

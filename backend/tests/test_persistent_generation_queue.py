@@ -1,6 +1,7 @@
 """BEE-958 永続FIFOキューの受入テスト。"""
 
 import sqlite3
+import threading
 
 import pytest
 
@@ -95,6 +96,33 @@ def test_promotion_is_conditional_and_keeps_old_rows(client):
     with get_db_connection() as conn:
         row = conn.execute("SELECT status FROM generation_jobs WHERE id = ?", (waiting.job_id,)).fetchone()
     assert row["status"] == "active"
+
+
+def test_dispatcher_thread_promotes_and_executes_waiting_job(client, monkeypatch):
+    """常駐ディスパッチャの実スレッドがwaitingジョブを実行入口へ渡す。"""
+    import app.services.generation_control as control
+
+    active = enqueue_job(1, "generate", "dispatcher-active", {"n": 1}, episode_date="2099-03-10")
+    waiting = enqueue_job(1, "generate", "dispatcher-waiting", {"n": 2}, episode_date="2099-03-11")
+    with get_db_connection() as conn:
+        conn.execute("UPDATE generation_jobs SET status = 'failed' WHERE id = ?", (active.job_id,))
+
+    executed = threading.Event()
+    dispatched_ids = []
+
+    def execute(job):
+        dispatched_ids.append(job["id"])
+        control.finish_job(job["id"], True)
+        executed.set()
+
+    monkeypatch.setattr(control.GenerationDispatcher, "_execute", staticmethod(execute))
+    control._dispatcher.notify()
+
+    assert executed.wait(timeout=2)
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT status FROM generation_jobs WHERE id = ?", (waiting.job_id,)).fetchone()
+    assert dispatched_ids == [waiting.job_id]
+    assert row["status"] == "completed"
 
 
 def test_legacy_generation_jobs_migration_preserves_rows(tmp_path):

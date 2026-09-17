@@ -8,7 +8,6 @@ import json
 import logging
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -18,8 +17,9 @@ from app.config import get_settings                       # noqa: E402
 from app.logging_config import setup_daily_logging       # noqa: E402
 from app.services.episode_service import EpisodeService   # noqa: E402
 from app.db.connection import get_db_connection         # noqa: E402
+from app.db.migration import ensure_generation_system_owner  # noqa: E402
 from app.services.generation_control import (            # noqa: E402
-    SYSTEM_OWNER_USERNAME, enqueue_job,
+    enqueue_job,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,29 +45,13 @@ def main() -> None:
     )
 
     with get_db_connection() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO admin_users (username, password_hash) VALUES (?, ?)",
-            (SYSTEM_OWNER_USERNAME, "disabled$generation_queue"),
-        )
-        owner_id = conn.execute(
-            "SELECT id FROM admin_users WHERE username = ?", (SYSTEM_OWNER_USERNAME,)
-        ).fetchone()[0]
+        owner_id = ensure_generation_system_owner(conn)
     claim = enqueue_job(
         owner_id, "daily", f"daily-{episode_date}",
         {"date": episode_date, "news_source": news_source, "tts_engine": batch_tts_engine},
         episode_date=episode_date, client_ip="cron", dispatch=True,
     )
     logger.info("Daily generation queued: job_id=%d status=%s", claim.job_id, claim.status)
-    if claim.status != "active":
-        return
-    while True:
-        with get_db_connection() as conn:
-            row = conn.execute("SELECT status FROM generation_jobs WHERE id = ?", (claim.job_id,)).fetchone()
-        if not row or row["status"] != "active":
-            break
-        time.sleep(0.1)
-    if row and row["status"] == "failed":
-        sys.exit(1)
 
 
 def run_daily_job(job) -> bool:
