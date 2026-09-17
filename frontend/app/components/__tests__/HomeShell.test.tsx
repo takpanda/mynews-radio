@@ -175,6 +175,24 @@ describe('HomeShell アーカイブカードの生成中表示', () => {
   })
 })
 
+describe('HomeShell アーカイブカードの生成待ち表示', () => {
+  it('statusが waiting のカードにのみ「生成待ち」バッジを表示する', () => {
+    renderArchiveEpisodes([
+      { ...episode(), id: 1, title: '生成待ちエピソード', status: 'waiting' },
+      { ...episode(), id: 2, title: '生成中エピソード', status: 'generating' },
+      { ...episode(), id: 3, title: '完了済みエピソード', status: 'completed' },
+    ])
+    expect(screen.getByText('生成待ち')).not.toBeNull()
+    expect(screen.queryAllByText('生成待ち')).toHaveLength(1)
+    expect(screen.getByText('生成中')).not.toBeNull()
+  })
+
+  it('status が completed のカードには「生成待ち」バッジを表示しない', () => {
+    renderArchiveEpisodes([{ ...episode(), status: 'completed' }])
+    expect(screen.queryByText('生成待ち')).toBeNull()
+  })
+})
+
 function heroEpisode(overrides: Partial<HeroEpisode> = {}): HeroEpisode {
   return {
     id: 1,

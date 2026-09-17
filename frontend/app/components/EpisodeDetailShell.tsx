@@ -26,6 +26,7 @@ export interface DetailEpisode {
   sourceUrl: string | null
   audioUrl: string | null
   durationSeconds: number
+  status?: string
   generationPhase?: string
   generatedAtLabel?: string
   keyPoints?: string[]
@@ -247,6 +248,13 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
               <a href="/admin/login" className="mt-3 inline-flex rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700">ログインして再合成</a>
             </div>
           )
+        ) : episode.status === 'waiting' ? (
+          <div className="py-4 text-center">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />生成待ち
+            </span>
+            <p className="mt-2 text-sm text-slate-400">前の生成が終わり次第、自動的に開始します。</p>
+          </div>
         ) : (
           <p className="py-4 text-center text-sm text-slate-400">音声ファイルを準備中です</p>
         )}

@@ -138,6 +138,7 @@ function toDetailEpisode(episode: Episode): DetailEpisode {
     sourceUrl: episode.source_url ?? null,
     audioUrl: episode.audio_url ? buildAudioUrl(episode.audio_url) : null,
     durationSeconds: episode.duration_seconds || 0,
+    status: episode.status,
     generatedAtLabel: episode.generated_at ? formatGeneratedAt(episode.generated_at) : undefined,
     keyPoints: episode.key_points,
     llmModel: episode.llm_model,

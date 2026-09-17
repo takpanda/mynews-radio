@@ -823,6 +823,35 @@ describe('GenerateEpisodeButton — 生成状態バッジの表示分岐', () =>
     expect(await screen.findByRole('status')).toHaveTextContent('完了・再生できます')
   })
 
+  it('status: waiting のときは「生成待ち」バッジを表示し、工程の進み具合は表示しない', async () => {
+    jest.mocked(fetchEpisode).mockResolvedValue({ id: 100, status: 'waiting' } as Awaited<ReturnType<typeof fetchEpisode>>)
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.click(radioSubmit())
+
+    expect(await screen.findByRole('status')).toHaveTextContent('生成待ち・順番にご案内します')
+    expect(screen.queryByText('工程の進み具合')).not.toBeInTheDocument()
+    expect(screen.getByText('前の生成が終わり次第、自動的に開始します。しばらくお待ちください。')).toBeInTheDocument()
+  })
+
+  it('waiting から generating に変わるとポーリングを継続し、進捗表示へ切り替わる', async () => {
+    localStorage.setItem('generating_episode_id', '100')
+    jest.mocked(fetchEpisode)
+      .mockResolvedValueOnce({ id: 100, status: 'waiting' } as Awaited<ReturnType<typeof fetchEpisode>>)
+      .mockResolvedValue({ id: 100, status: 'generating' } as Awaited<ReturnType<typeof fetchEpisode>>)
+
+    render(<GenerateEpisodeButton />)
+
+    // 最初のfetchEpisode呼び出し（checkAndResume）がwaitingを受け取ってもポーリングは止まらず、
+    // 後続の呼び出しでgeneratingに変わると進捗表示へ遷移する。
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('生成中・音声を準備しています')
+    })
+    expect(jest.mocked(fetchEpisode).mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText('工程の進み具合')).toBeInTheDocument()
+  })
+
   it('再試行可能な生成失敗（status: failed）は失敗バッジと再試行ボタンを表示する', async () => {
     jest.mocked(fetchEpisode).mockResolvedValue({ id: 100, status: 'failed' } as Awaited<ReturnType<typeof fetchEpisode>>)
     const user = userEvent.setup()
