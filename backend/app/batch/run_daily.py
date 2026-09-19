@@ -19,7 +19,9 @@ from app.services.episode_service import EpisodeService   # noqa: E402
 from app.db.connection import get_db_connection         # noqa: E402
 from app.db.migration import ensure_generation_system_owner  # noqa: E402
 from app.services.generation_control import (            # noqa: E402
+    JobClaim,
     enqueue_job,
+    finish_job,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,9 +51,48 @@ def main() -> None:
     claim = enqueue_job(
         owner_id, "daily", f"daily-{episode_date}",
         {"date": episode_date, "news_source": news_source, "tts_engine": batch_tts_engine},
-        episode_date=episode_date, client_ip="cron", dispatch=True,
+        # cronプロセスはenqueue後に終了するため、daemon dispatcherへ任せると
+        # activeジョブを実行する前にワーカーごと消える。active claimはこの
+        # プロセス内で同期実行し、waitingの場合だけ永続キューに残す。
+        episode_date=episode_date, client_ip="cron", dispatch=False,
     )
     logger.info("Daily generation queued: job_id=%d status=%s", claim.job_id, claim.status)
+    if claim.duplicate or claim.status != "active":
+        return
+
+    current_job_id: int | None = claim.job_id
+    current_episode_id: int | None = claim.episode_id
+    try:
+        while current_job_id is not None:
+            promoted = _execute_claimed_job(current_job_id)
+            current_job_id = promoted.job_id if promoted else None
+            current_episode_id = promoted.episode_id if promoted else None
+    except Exception:
+        # 共通実行入口より前の予期せぬ例外でも、cron終了時にactiveを残さない。
+        logger.exception("daily generation execution failed: job_id=%d", current_job_id)
+        if current_episode_id is not None:
+            try:
+                EpisodeService().update_episode_status(current_episode_id, "failed")
+            except Exception:
+                logger.exception("failed to mark daily episode as failed: episode_id=%d", current_episode_id)
+        promoted = finish_job(current_job_id, False, dispatch=False)
+        while promoted is not None:
+            promoted = _execute_claimed_job(promoted.job_id)
+
+
+def _execute_claimed_job(job_id: int) -> JobClaim | None:
+    """コミット済みジョブを読み込み、cronプロセス終了前に実行する。"""
+    with get_db_connection() as conn:
+        job = conn.execute(
+            "SELECT * FROM generation_jobs WHERE id = ? AND status = 'active'", (job_id,)
+        ).fetchone()
+    if job is None:
+        logger.warning("daily generation claim is no longer active: job_id=%d", job_id)
+        return
+
+    # API起点と同じ監査・finish_job・次ジョブ昇格の経路を利用する。
+    from app.api.generate import execute_queued_job
+    return execute_queued_job(job, dispatch=False)
 
 
 def run_daily_job(job) -> bool:

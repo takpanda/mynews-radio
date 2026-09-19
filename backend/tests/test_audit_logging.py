@@ -74,7 +74,7 @@ def test_synthesis_finish_job_failure_is_logged_and_leaves_job_observable(monkey
     monkeypatch.setattr(generate_api, "_stream_synthesize", completed_stream)
     monkeypatch.setattr(
         generate_api, "finish_job",
-        lambda *_args: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked")),
     )
 
     with pytest.raises(sqlite3.OperationalError, match="database is locked"):
