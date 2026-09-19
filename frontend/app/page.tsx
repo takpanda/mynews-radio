@@ -4,6 +4,7 @@ import {
   fetchEpisodeScript,
   buildAudioUrl,
   formatDateWithWeekday,
+  formatGeneratedTime,
   type Episode,
   type PaginatedEpisodesResponse,
 } from './lib/api'
@@ -16,7 +17,9 @@ function toHeroEpisode(episode: Episode): HeroEpisode {
     id: episode.id,
     title: episode.title,
     subtitle: episode.subtitle,
+    date: episode.date,
     dateLabel: formatDateWithWeekday(episode.date),
+    generatedAtLabel: episode.generated_at ? formatGeneratedTime(episode.generated_at) : undefined,
     isCommentary: episode.type === 'commentary',
     sourceUrl: episode.source_url ?? null,
     audioUrl: episode.audio_url ? buildAudioUrl(episode.audio_url) : null,

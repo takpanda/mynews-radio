@@ -22,6 +22,8 @@ export interface EpisodeListItem {
   has_script?: boolean
   /** 保存順のエピソードカテゴリ。未設定の既存データでは省略／空配列。 */
   categories?: string[]
+  /** 生成開始時刻（UTC）。未設定の既存データでは省略／空文字。 */
+  generated_at?: string
 }
 
 export interface Episode {
@@ -205,6 +207,18 @@ export function formatGeneratedAt(dateStr: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+// 生成時刻を時刻のみで表示する（例: 「6:34」）。Asia/Tokyo 固定・時の先頭ゼロなし
+export function formatGeneratedTime(dateStr: string): string {
+  const d = new Date(dateStr)
+  if (Number.isNaN(d.getTime())) return ''
+  return new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d)
 }
 
 /** 原記事の日時を画面表示用に整形する。日付だけの値は時刻を付与しない。 */
