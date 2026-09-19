@@ -106,7 +106,34 @@ class TestEpisodeApiTypeSourceUrl:
 
 
 class TestEpisodeGeneratedAt:
-    """GET /episodes/{id} の generated_at フィールドのテスト"""
+    """各エピソードAPIの generated_at フィールドのテスト"""
+
+    def test_list_generated_at_matches_created_at(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-12-19")
+        created_at = svc.get_episode(eid)["created_at"]
+
+        resp = client.get("/episodes?include_failed=true")
+        assert resp.status_code == 200
+        data = next(ep for ep in resp.json() if ep["id"] == eid)
+        assert data["generated_at"] == created_at
+
+    def test_latest_generated_at_matches_created_at(self, client):
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(
+            episode_date="2099-12-19", audio_path="latest.mp3", status="completed"
+        )
+        created_at = svc.get_episode(eid)["created_at"]
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        _write_audio_file(ep_dir, eid, "latest.mp3")
+
+        resp = client.get("/episodes/latest")
+        assert resp.status_code == 200
+        assert resp.json()["generated_at"] == created_at
 
     def test_detail_episode_contains_generated_at(self, client):
         from app.services.episode_service import EpisodeService

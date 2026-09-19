@@ -242,6 +242,7 @@ def list_episodes(
                 "audio_path": ep.get("audio_path"),
                 "type": ep.get("type", "radio"),
                 "source_url": ep.get("source_url"),
+                "generated_at": ep.get("created_at", ""),
                 "categories": parse_episode_categories(ep.get("categories")),
             }
         )
@@ -331,6 +332,7 @@ def get_latest_episode() -> dict:
             "type": episode.get("type", "radio"),
             "source_url": episode.get("source_url"),
             "audio_path": episode.get("audio_path"),
+            "generated_at": episode.get("created_at", ""),
             "article_count": 0,
             "audio_url": None,
             "articles": [],

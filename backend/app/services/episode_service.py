@@ -214,7 +214,7 @@ class EpisodeService:
     ) -> list[dict[str, Any]]:
         with get_db_connection() as conn:
             query = """
-                SELECT id, episode_date, audio_path, status, type, source_url, categories
+                SELECT id, episode_date, audio_path, status, type, source_url, categories, created_at
                 FROM episodes
                 ORDER BY episode_date DESC, id DESC
             """
