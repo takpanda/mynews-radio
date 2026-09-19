@@ -76,6 +76,19 @@ describe('generateEpisode settings snapshot', () => {
     global.fetch = previousFetch
   })
 
+  it('maxArticlesを省略した場合はデフォルトの5件をリクエストへ含める', async () => {
+    const previousFetch = global.fetch
+    const fetchMock = jest.fn().mockResolvedValue(
+      { ok: true, json: async () => ({ episode_id: 12 }) },
+    )
+    global.fetch = fetchMock as typeof fetch
+    await generateEpisode('2026-07-25')
+
+    const request = JSON.parse((fetchMock.mock.calls[0][1]?.body as string))
+    expect(request.max_articles).toBe(5)
+    global.fetch = previousFetch
+  })
+
   it('指定したIdempotency-Keyをリクエストへ転送する', async () => {
     const previousFetch = global.fetch
     const fetchMock = jest.fn().mockResolvedValue(
