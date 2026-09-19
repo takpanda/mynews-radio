@@ -258,3 +258,45 @@ def test_daily_queued_job_finalizes_audit_before_finish(client, monkeypatch, res
     assert audit["started_at"] is None
     assert audit["ended_at"] is not None
     assert finished == [(claim.job_id, result)]
+
+
+@pytest.mark.parametrize("success", [True, False])
+def test_run_daily_executes_active_claim_before_cron_exit(client, monkeypatch, success):
+    """cronのプロセス終了前にactiveの日次ジョブを同期実行し、終端化する。"""
+    from app.batch import run_daily
+
+    monkeypatch.setenv("BATCH_DATE", "2099-08-01" if success else "2099-08-02")
+    monkeypatch.setattr(run_daily, "setup_daily_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(run_daily, "_write_manifest", lambda **_kwargs: None)
+
+    executed = []
+
+    def fake_run_daily_job(job):
+        executed.append(job["id"])
+        service = run_daily.EpisodeService()
+        service.update_episode_phase(job["episode_id"], "start", "日次生成を開始しました")
+        service.update_episode_status(job["episode_id"], "completed" if success else "failed")
+        return success
+
+    monkeypatch.setattr(run_daily, "run_daily_job", fake_run_daily_job)
+
+    run_daily.main()
+
+    with get_db_connection() as conn:
+        job = conn.execute(
+            "SELECT id, status, episode_id FROM generation_jobs WHERE operation = 'daily'"
+        ).fetchone()
+        episode = conn.execute(
+            "SELECT status, phase FROM episodes WHERE id = ?", (job["episode_id"],)
+        ).fetchone()
+        audit = conn.execute(
+            "SELECT result, ended_at FROM audit_logs WHERE generation_job_id = ? ORDER BY id DESC LIMIT 1",
+            (job["id"],),
+        ).fetchone()
+
+    assert executed == [job["id"]]
+    assert job["status"] == ("completed" if success else "failed")
+    assert episode["status"] == ("completed" if success else "failed")
+    assert episode["phase"] == "start"
+    assert audit["result"] == ("success" if success else "failure")
+    assert audit["ended_at"] is not None
