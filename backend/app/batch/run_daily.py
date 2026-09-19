@@ -60,20 +60,22 @@ def main() -> None:
     if claim.duplicate or claim.status != "active":
         return
 
+    current_job_id: int | None = claim.job_id
+    current_episode_id: int | None = claim.episode_id
     try:
-        job_id: int | None = claim.job_id
-        while job_id is not None:
-            promoted = _execute_claimed_job(job_id)
-            job_id = promoted.job_id if promoted else None
+        while current_job_id is not None:
+            promoted = _execute_claimed_job(current_job_id)
+            current_job_id = promoted.job_id if promoted else None
+            current_episode_id = promoted.episode_id if promoted else None
     except Exception:
         # 共通実行入口より前の予期せぬ例外でも、cron終了時にactiveを残さない。
-        logger.exception("daily generation execution failed: job_id=%d", claim.job_id)
-        if claim.episode_id is not None:
+        logger.exception("daily generation execution failed: job_id=%d", current_job_id)
+        if current_episode_id is not None:
             try:
-                EpisodeService().update_episode_status(claim.episode_id, "failed")
+                EpisodeService().update_episode_status(current_episode_id, "failed")
             except Exception:
-                logger.exception("failed to mark daily episode as failed: episode_id=%d", claim.episode_id)
-        promoted = finish_job(claim.job_id, False, dispatch=False)
+                logger.exception("failed to mark daily episode as failed: episode_id=%d", current_episode_id)
+        promoted = finish_job(current_job_id, False, dispatch=False)
         while promoted is not None:
             promoted = _execute_claimed_job(promoted.job_id)
 

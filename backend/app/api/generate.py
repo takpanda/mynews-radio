@@ -70,9 +70,7 @@ def _active_generation_job_id(episode_id: int) -> int | None:
 
 def _finish_generation_job(job_id: int, success: bool, *, dispatch: bool) -> JobClaim | None:
     """ジョブを終端化し、必要な場合だけdispatcherへ通知する。"""
-    if dispatch:
-        return finish_job(job_id, success)
-    return finish_job(job_id, success, dispatch=False)
+    return finish_job(job_id, success, dispatch=dispatch)
 
 
 def _get_generate_rate_limit() -> str:
