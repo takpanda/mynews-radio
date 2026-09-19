@@ -253,7 +253,7 @@ def promote_next_waiting_job() -> JobClaim | None:
     return promote_next_job()
 
 
-def finish_job(job_id: int, success: bool) -> None:
+def finish_job(job_id: int, success: bool, *, dispatch: bool = True) -> JobClaim | None:
     """activeジョブを終端化し、次の待機ジョブへ処理を渡す。"""
     with get_db_connection() as conn:
         conn.execute(
@@ -262,7 +262,9 @@ def finish_job(job_id: int, success: bool) -> None:
             ("completed" if success else "failed", job_id),
         )
     promoted = promote_next_job()
-    _dispatcher.notify(promoted.job_id if promoted else None)
+    if dispatch:
+        _dispatcher.notify(promoted.job_id if promoted else None)
+    return promoted
 
 
 def bind_episode(job_id: int, episode_id: int) -> None:

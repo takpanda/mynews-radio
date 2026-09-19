@@ -244,7 +244,10 @@ def test_daily_queued_job_finalizes_audit_before_finish(client, monkeypatch, res
         job = conn.execute("SELECT * FROM generation_jobs WHERE id = ?", (claim.job_id,)).fetchone()
     monkeypatch.setattr(run_daily, "run_daily_job", lambda _job: result)
     finished = []
-    monkeypatch.setattr(generate_api, "finish_job", lambda job_id, success: finished.append((job_id, success)))
+    monkeypatch.setattr(
+        generate_api, "finish_job",
+        lambda job_id, success, **_kwargs: finished.append((job_id, success)),
+    )
 
     generate_api.execute_queued_job(job)
 
@@ -258,6 +261,81 @@ def test_daily_queued_job_finalizes_audit_before_finish(client, monkeypatch, res
     assert audit["started_at"] is None
     assert audit["ended_at"] is not None
     assert finished == [(claim.job_id, result)]
+
+
+def test_run_daily_drains_job_promoted_by_finish_before_cron_exit(client, monkeypatch):
+    """日次完了時にpromoteされたAPIジョブもcronプロセス内で完了させる。"""
+    from app.api import generate as generate_api
+    from app.batch import run_daily
+    import app.services.generation_control as control
+
+    monkeypatch.setenv("BATCH_DATE", "2099-08-03")
+    monkeypatch.setattr(run_daily, "setup_daily_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(run_daily, "_write_manifest", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        control._dispatcher, "notify",
+        lambda *_args, **_kwargs: pytest.fail("cron execution must not start an async dispatcher"),
+    )
+
+    executed = []
+
+    def fake_run_daily_job(job):
+        child = control.enqueue_job(
+            1, "generate", "cron-promoted-generate", {"date": "2099-08-04"},
+            episode_date="2099-08-04", dispatch=False,
+        )
+        assert child.status == "waiting"
+        service = run_daily.EpisodeService()
+        service.update_episode_phase(job["episode_id"], "start", "日次生成を開始しました")
+        service.update_episode_status(job["episode_id"], "completed")
+        return True
+
+    def fake_run_generation(episode_id, _body):
+        executed.append(episode_id)
+        service = run_daily.EpisodeService()
+        service.update_episode_phase(episode_id, "start", "API生成を開始しました")
+        service.update_episode_status(episode_id, "completed")
+
+    monkeypatch.setattr(run_daily, "run_daily_job", fake_run_daily_job)
+    monkeypatch.setattr(generate_api, "_run_generation", fake_run_generation)
+
+    run_daily.main()
+
+    with get_db_connection() as conn:
+        jobs = conn.execute(
+            "SELECT operation, status, episode_id FROM generation_jobs ORDER BY id"
+        ).fetchall()
+        episodes = conn.execute("SELECT status FROM episodes ORDER BY id").fetchall()
+
+    assert [job["operation"] for job in jobs] == ["daily", "generate"]
+    assert [job["status"] for job in jobs] == ["completed", "completed"]
+    assert [episode["status"] for episode in episodes] == ["completed", "completed"]
+    assert executed == [jobs[1]["episode_id"]]
+
+
+def test_run_daily_marks_claim_failed_when_execution_entry_raises(client, monkeypatch):
+    """共通実行入口の前段例外でもcronのactive claimを残さない。"""
+    from app.batch import run_daily
+
+    monkeypatch.setenv("BATCH_DATE", "2099-08-05")
+    monkeypatch.setattr(run_daily, "setup_daily_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(run_daily, "_write_manifest", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        run_daily, "_execute_claimed_job",
+        lambda _job_id: (_ for _ in ()).throw(RuntimeError("load failed")),
+    )
+
+    run_daily.main()
+
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT j.status AS job_status, e.status AS episode_status "
+            "FROM generation_jobs j JOIN episodes e ON e.id = j.episode_id "
+            "WHERE j.operation = 'daily'"
+        ).fetchone()
+
+    assert row["job_status"] == "failed"
+    assert row["episode_status"] == "failed"
 
 
 @pytest.mark.parametrize("success", [True, False])

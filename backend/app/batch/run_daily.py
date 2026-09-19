@@ -19,6 +19,7 @@ from app.services.episode_service import EpisodeService   # noqa: E402
 from app.db.connection import get_db_connection         # noqa: E402
 from app.db.migration import ensure_generation_system_owner  # noqa: E402
 from app.services.generation_control import (            # noqa: E402
+    JobClaim,
     enqueue_job,
     finish_job,
 )
@@ -60,7 +61,10 @@ def main() -> None:
         return
 
     try:
-        _execute_claimed_job(claim.job_id)
+        job_id: int | None = claim.job_id
+        while job_id is not None:
+            promoted = _execute_claimed_job(job_id)
+            job_id = promoted.job_id if promoted else None
     except Exception:
         # 共通実行入口より前の予期せぬ例外でも、cron終了時にactiveを残さない。
         logger.exception("daily generation execution failed: job_id=%d", claim.job_id)
@@ -69,11 +73,13 @@ def main() -> None:
                 EpisodeService().update_episode_status(claim.episode_id, "failed")
             except Exception:
                 logger.exception("failed to mark daily episode as failed: episode_id=%d", claim.episode_id)
-        finish_job(claim.job_id, False)
+        promoted = finish_job(claim.job_id, False, dispatch=False)
+        while promoted is not None:
+            promoted = _execute_claimed_job(promoted.job_id)
 
 
-def _execute_claimed_job(job_id: int) -> None:
-    """Load a committed daily job and execute it before the cron process exits."""
+def _execute_claimed_job(job_id: int) -> JobClaim | None:
+    """コミット済みジョブを読み込み、cronプロセス終了前に実行する。"""
     with get_db_connection() as conn:
         job = conn.execute(
             "SELECT * FROM generation_jobs WHERE id = ? AND status = 'active'", (job_id,)
@@ -84,7 +90,7 @@ def _execute_claimed_job(job_id: int) -> None:
 
     # API起点と同じ監査・finish_job・次ジョブ昇格の経路を利用する。
     from app.api.generate import execute_queued_job
-    execute_queued_job(job)
+    return execute_queued_job(job, dispatch=False)
 
 
 def run_daily_job(job) -> bool:

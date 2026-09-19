@@ -33,7 +33,7 @@ from app.services.telegram_notifier import notify_failure, notify_success
 from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_url
 from app.services.settings_service import get_settings_or_default, resolve_tts_speakers, validate_settings
 from app.services.generation_control import (
-    GenerationControlError, bind_episode, claim_job, dispatch_job, finish_job,
+    GenerationControlError, JobClaim, bind_episode, claim_job, dispatch_job, finish_job,
 )
 from app.services.verified_client_ip import get_verified_client_ip
 from app.services.llm_provider import LlmProviderValidationError, validate_provider_model
@@ -66,6 +66,13 @@ def _active_generation_job_id(episode_id: int) -> int | None:
     except Exception:
         logger.exception("generation_job_idの取得に失敗しました episode_id=%d", episode_id)
         return None
+
+
+def _finish_generation_job(job_id: int, success: bool, *, dispatch: bool) -> JobClaim | None:
+    """ジョブを終端化し、必要な場合だけdispatcherへ通知する。"""
+    if dispatch:
+        return finish_job(job_id, success)
+    return finish_job(job_id, success, dispatch=False)
 
 
 def _get_generate_rate_limit() -> str:
@@ -562,7 +569,11 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
     }
 
 
-def _run_pipeline_with_audit(episode_id: int, body: GenerateRequest, pipeline: callable, owner_user_id: int, operation: str, job_id: int) -> None:
+def _run_pipeline_with_audit(
+    episode_id: int, body: GenerateRequest, pipeline: callable, owner_user_id: int,
+    operation: str, job_id: int, *, dispatch: bool = True,
+) -> JobClaim | None:
+    promoted = None
     try:
         pipeline(episode_id, body)
     except Exception:
@@ -577,10 +588,11 @@ def _run_pipeline_with_audit(episode_id: int, body: GenerateRequest, pipeline: c
             logger.exception("failed to finalize audit log for generation job %d", job_id)
             success = False
         finally:
-            finish_job(job_id, success)
+            promoted = _finish_generation_job(job_id, success, dispatch=dispatch)
+    return promoted
 
 
-def execute_queued_job(job) -> None:
+def execute_queued_job(job, *, dispatch: bool = True) -> JobClaim | None:
     """ディスパッチャから呼ばれる、payload復元込みの共通実行入口。"""
     payload = json.loads(job["payload"] or "{}")
     operation = job["operation"]
@@ -590,15 +602,15 @@ def execute_queued_job(job) -> None:
     if operation in {"generate", "commentary"}:
         body = GenerateRequest(**payload)
         pipeline = _run_commentary_generation if operation == "commentary" else _run_generation
-        _run_pipeline_with_audit(episode_id, body, pipeline, owner_user_id, operation, job_id)
-        return
+        return _run_pipeline_with_audit(
+            episode_id, body, pipeline, owner_user_id, operation, job_id, dispatch=dispatch,
+        )
     if operation == "synthesize":
         body_payload = payload.get("body", payload)
         body = SynthesizeRequest(**body_payload)
         for _ in _stream_synthesize(episode_id, body):
             pass
-        _finalize_synthesis_job(job_id, episode_id)
-        return
+        return _finalize_synthesis_job(job_id, episode_id, dispatch=dispatch)
     if operation == "daily":
         from app.batch.run_daily import run_daily_job
         success = False
@@ -617,8 +629,8 @@ def execute_queued_job(job) -> None:
             except Exception:
                 logger.exception("failed to finalize audit log for daily job %d", job_id)
                 success = False
-            finish_job(job_id, success)
-        return
+            promoted = _finish_generation_job(job_id, success, dispatch=dispatch)
+        return promoted
     raise ValueError(f"unsupported generation operation: {operation}")
 
 
@@ -772,7 +784,7 @@ def synthesize_episode_audio(episode_id: int, request: Request, body: Synthesize
     )
 
 
-def _finalize_synthesis_job(job_id: int, episode_id: int) -> None:
+def _finalize_synthesis_job(job_id: int, episode_id: int, *, dispatch: bool = True) -> JobClaim | None:
     """Close the job before emitting a terminal SSE event.
 
     A client can disconnect as soon as it receives ``complete`` or ``error``.
@@ -788,7 +800,7 @@ def _finalize_synthesis_job(job_id: int, episode_id: int) -> None:
         success = False
 
     try:
-        finish_job(job_id, success)
+        promoted = _finish_generation_job(job_id, success, dispatch=dispatch)
     except Exception:
         # This makes an attempted completion distinguishable from a process
         # exit before this point.  Do not include request or credential data.
@@ -796,6 +808,7 @@ def _finalize_synthesis_job(job_id: int, episode_id: int) -> None:
         raise
 
     logger.info("synthesis job finalized: job_id=%d success=%s", job_id, success)
+    return promoted
 
 
 def _is_terminal_synthesis_event(payload: bytes) -> bool:
