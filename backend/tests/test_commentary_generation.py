@@ -273,6 +273,7 @@ class TestRunCommentaryGeneration:
              patch("app.api.generate.review_script", return_value=review_result), \
              patch("app.api.generate.validate_final_script_file", return_value=final_result) as final_check, \
              patch("app.api.generate.synthesize_episode") as mock_synth, \
+             patch("app.api.generate.notify_failure") as notify_failure, \
              patch("shutil.copy"), \
              patch("builtins.open", _make_fake_open(fake_script)):
             mock_row = MagicMock()
@@ -290,6 +291,11 @@ class TestRunCommentaryGeneration:
         assert episode["status"] == "failed"
         assert episode["phase"] == "human_review"
         assert "台本の行構造が不正です" in episode["generation_message"]
+        notify_failure.assert_called_once_with(
+            episode_id=ep_id,
+            phase="human_review",
+            error="最終検証で重大な品質問題が残ったため人間確認待ちです: 台本の行構造が不正です （詳細は final_validation.json を確認してください）",
+        )
 
     def test_commentary_fails_on_script_generation_error(self):
         from app.api.generate import _run_commentary_generation, GenerateRequest
