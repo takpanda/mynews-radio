@@ -203,6 +203,8 @@ def _build_output_issue_example(style: str) -> str:
 # ---------------------------------------------------------------------------
 
 _QUESTION_SUFFIX_RE = _re.compile(r"(?:[?？]|か)[。!！]?\s*$")
+
+
 def _is_question(text: str) -> bool:
     """text が疑問文かどうかを判定する。
 
@@ -448,17 +450,24 @@ def _restore_dialogue_contract(
     )
     missing_question_indices = _missing_discussion_question_indices(repaired)
     if source_discussion_ok and source_pairs and missing_question_indices:
-        source_question_index, source_answer_index = source_pairs[-1]
-        target_question_index = missing_question_indices[-1]
-        repaired[target_question_index] = dict(source_discussion[source_question_index])
-        target_answer_index = target_question_index + 1
-        if (
-            target_answer_index < len(repaired)
-            and repaired[target_answer_index].get("section") == "discussion"
+        replacement_pairs = [
+            source_pairs[min(index, len(source_pairs) - 1)]
+            for index in range(len(missing_question_indices))
+        ]
+        # Insertions can shift later indexes, so repair from the end while
+        # preserving each broken question's surrounding reviewed content.
+        for target_question_index, (source_question_index, source_answer_index) in reversed(
+            list(zip(missing_question_indices, replacement_pairs))
         ):
-            repaired[target_answer_index] = dict(source_discussion[source_answer_index])
-        else:
-            repaired.insert(target_answer_index, dict(source_discussion[source_answer_index]))
+            repaired[target_question_index] = dict(source_discussion[source_question_index])
+            target_answer_index = target_question_index + 1
+            if (
+                target_answer_index < len(repaired)
+                and repaired[target_answer_index].get("section") == "discussion"
+            ):
+                repaired[target_answer_index] = dict(source_discussion[source_answer_index])
+            else:
+                repaired.insert(target_answer_index, dict(source_discussion[source_answer_index]))
         repairs.append("DISCUSSION_CONTRACT_RESTORED")
 
     source_outro = [line for line in source_lines if line.get("section") == "outro"]
