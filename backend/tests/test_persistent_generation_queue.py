@@ -361,6 +361,56 @@ def test_run_daily_marks_current_promoted_claim_failed_on_drain_exception(client
     assert [episode["status"] for episode in episodes] == ["completed", "failed"]
 
 
+def test_run_daily_continues_draining_after_multiple_job_failures(client, monkeypatch):
+    """失敗後にpromoteされた次ジョブの例外でもactiveを残さずFIFOを継続する。"""
+    from app.api import generate as generate_api
+    from app.batch import run_daily
+    import app.services.generation_control as control
+
+    monkeypatch.setenv("BATCH_DATE", "2099-08-08")
+    monkeypatch.setattr(run_daily, "setup_daily_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(run_daily, "_write_manifest", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        control._dispatcher, "notify",
+        lambda *_args, **_kwargs: pytest.fail("cron execution must not start an async dispatcher"),
+    )
+
+    def fake_run_daily_job(job):
+        for index in (1, 2):
+            child = control.enqueue_job(
+                1, "generate", f"cron-promoted-generate-failure-{index}",
+                {"date": f"2099-08-{8 + index:02d}"},
+                episode_date=f"2099-08-{8 + index:02d}", dispatch=False,
+            )
+            assert child.status == "waiting"
+        service = run_daily.EpisodeService()
+        service.update_episode_phase(job["episode_id"], "start", "日次生成を開始しました")
+        service.update_episode_status(job["episode_id"], "completed")
+        return True
+
+    real_execute_queued_job = generate_api.execute_queued_job
+
+    def fail_promoted_jobs(job, **kwargs):
+        if job["operation"] == "generate":
+            raise RuntimeError("promoted job load failed")
+        return real_execute_queued_job(job, **kwargs)
+
+    monkeypatch.setattr(run_daily, "run_daily_job", fake_run_daily_job)
+    monkeypatch.setattr(generate_api, "execute_queued_job", fail_promoted_jobs)
+
+    run_daily.main()
+
+    with get_db_connection() as conn:
+        jobs = conn.execute(
+            "SELECT operation, status FROM generation_jobs ORDER BY id"
+        ).fetchall()
+        episodes = conn.execute("SELECT status FROM episodes ORDER BY id").fetchall()
+
+    assert [job["operation"] for job in jobs] == ["daily", "generate", "generate"]
+    assert [job["status"] for job in jobs] == ["completed", "failed", "failed"]
+    assert [episode["status"] for episode in episodes] == ["completed", "failed", "failed"]
+
+
 def test_run_daily_marks_claim_failed_when_execution_entry_raises(client, monkeypatch):
     """共通実行入口の前段例外でもcronのactive claimを残さない。"""
     from app.batch import run_daily
