@@ -209,15 +209,25 @@ export function formatGeneratedAt(dateStr: string): string {
   })
 }
 
+// episodes.created_at はUTCで保存されるが、タイムゾーン情報を含まない
+// "2026-09-18 21:34:59" 形式（SQLiteのCURRENT_TIMESTAMP）で返る。`new Date()` に
+// そのまま渡すと実行環境のローカルタイムゾーンとして解釈されズレるため、明示的にUTCとして扱う。
+function parseUtcDateTime(dateStr: string): Date {
+  const trimmed = dateStr.trim()
+  const hasTimezone = /(Z|[+-]\d{2}:?\d{2})$/.test(trimmed)
+  const normalized = hasTimezone ? trimmed : `${trimmed.replace(' ', 'T')}Z`
+  return new Date(normalized)
+}
+
 // 生成時刻を時刻のみで表示する（例: 「6:34」）。Asia/Tokyo 固定・時の先頭ゼロなし
 export function formatGeneratedTime(dateStr: string): string {
-  const d = new Date(dateStr)
+  const d = parseUtcDateTime(dateStr)
   if (Number.isNaN(d.getTime())) return ''
   return new Intl.DateTimeFormat('ja-JP', {
     timeZone: 'Asia/Tokyo',
     hour: 'numeric',
     minute: '2-digit',
-    hour12: false,
+    hourCycle: 'h23',
   }).format(d)
 }
 

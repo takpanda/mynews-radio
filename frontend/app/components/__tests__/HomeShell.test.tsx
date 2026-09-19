@@ -249,9 +249,9 @@ describe('HomeShell ヒーローのトピック表示', () => {
 })
 
 describe('HomeShell アーカイブカードの生成時刻表示', () => {
-  it('generated_atがある場合は「月日  時刻 / 再生時間」形式で表示する', () => {
+  it('generated_atがある場合は「月日  時刻 / 再生時間」形式で表示する（実際のバックエンド形式：スペース区切り・タイムゾーンなし）', () => {
     renderArchiveEpisodes([
-      { ...episode(), date: '2026-09-19', duration: 180, generated_at: '2026-09-18T21:34:59Z' },
+      { ...episode(), date: '2026-09-19', duration: 180, generated_at: '2026-09-18 21:34:59' },
     ])
     expect(screen.getByText('9月19日 6:34 / 3分')).not.toBeNull()
   })
