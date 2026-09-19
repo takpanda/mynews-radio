@@ -29,6 +29,7 @@ from app.config import get_settings
 from app.db.connection import get_db_connection
 from app.services.article_service import ArticleService
 from app.services.episode_service import EpisodeService
+from app.services.telegram_notifier import notify_failure, notify_success
 from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_url
 from app.services.settings_service import get_settings_or_default, resolve_tts_speakers, validate_settings
 from app.services.generation_control import (
@@ -231,6 +232,36 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
 def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
     """Background pipeline for URL-based commentary generation."""
     service: EpisodeService | None = None
+    notification_sent = False
+    seq = 0
+    notification_title = f"解説 {body.date}"
+
+    def _notify_failure(phase: str, error: object) -> None:
+        nonlocal notification_sent
+        if notification_sent:
+            return
+        notification_sent = True
+        try:
+            notify_failure(episode_id=episode_id, phase=phase, error=error)
+        except Exception:
+            logger.warning("[%d] Telegram failure notification could not be sent", episode_id)
+
+    def _notify_success(title: str) -> None:
+        nonlocal notification_sent
+        if notification_sent:
+            return
+        notification_sent = True
+        try:
+            notify_success(title=title, episode_id=episode_id, seq=seq)
+        except Exception:
+            logger.warning("[%d] Telegram success notification could not be sent", episode_id)
+
+    def _fail(phase: str, error: object) -> None:
+        """Mark the episode failed and emit at most one best-effort notification."""
+        if service is not None:
+            service.update_episode_status(episode_id, "failed")
+        _notify_failure(phase, error)
+
     try:
         service = EpisodeService()
         episode_date = body.date
@@ -254,8 +285,9 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         article = fetch_article_by_url(body.url)
         if not article.get("text"):
             logger.error("Failed to fetch article from URL: %s", body.url)
-            service.update_episode_status(episode_id, "failed")
+            _fail("fetch_article", "記事の取得に失敗しました")
             return
+        notification_title = str(article.get("title") or notification_title)
 
         # Upsert article to DB to get an article_id
         article_svc = ArticleService()
@@ -279,7 +311,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
                     article_id = row["id"]
         if article_id is None:
             logger.error("Could not resolve article_id for URL: %s", body.url)
-            service.update_episode_status(episode_id, "failed")
+            _fail("fetch_article", "記事IDの取得に失敗しました")
             return
 
         article["id"] = article_id
@@ -292,7 +324,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
                                                 llm_provider=llm.name, llm_model=llm.model)
 
         if line_count <= 0:
-            service.update_episode_status(episode_id, "failed")
+            _fail("generate_commentary", "解説台本を生成できませんでした")
             return
 
         review_result: dict[str, Any] = {"revised": False, "review_count": 0}
@@ -337,6 +369,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
                 reason = human_review_message(final_validation)
                 service.hold_for_human_review(episode_id, reason)
                 logger.error("[%d] commentary final validation requires human review: %s", episode_id, reason)
+                _notify_failure("human_review", reason)
                 return
             for warning in final_validation.get("warnings", []):
                 logger.warning("[%d] commentary final validation warning: %s", episode_id, warning.get("message", warning))
@@ -366,11 +399,11 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             )
         except Exception:
             logger.exception("tts synthesis failed")
-            service.update_episode_status(episode_id, "failed")
+            _fail("synthesize", "音声合成に失敗しました")
             return
 
         if success_count <= 0:
-            service.update_episode_status(episode_id, "failed")
+            _fail("synthesize", "音声ファイルが生成されませんでした")
             return
 
         service.update_episode_mc_voice_name(
@@ -387,7 +420,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         service.update_episode_phase(episode_id, "build", "音声をまとめています…")
         ep_metadata = build_episode(base_dir, episode_id=episode_id, generation_job_id=job_id)
         if not ep_metadata:
-            service.update_episode_status(episode_id, "failed")
+            _fail("build", "音声ファイルの統合に失敗しました")
             return
 
         service.update_episode_audio_path(
@@ -410,10 +443,13 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
                 )
         except Exception:
             logger.exception("failed to persist episode_items")
-            service.update_episode_status(episode_id, "failed")
+            _fail("persist", "番組データの保存に失敗しました")
             return
 
         service.complete_radio_episode_with_notification(episode_id)
+        if script.get("title"):
+            notification_title = str(script["title"])
+        _notify_success(notification_title)
         service.update_episode_phase(episode_id, "complete", "解説の生成が完了しました")
         logger.info("[%d] commentary completed successfully", episode_id)
 
@@ -423,9 +459,10 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             current_status = current["status"] if current else None
             if current_status not in {"completed", "failed"}:
                 logger.exception("[%d] commentary generation failed unexpectedly", episode_id)
-                service.update_episode_status(episode_id, "failed")
+                _fail("unknown", "解説生成に失敗しました")
         else:
             logger.exception("[%d] commentary generation failed before service init", episode_id)
+            _notify_failure("unknown", "解説生成に失敗しました")
 
 
 @router.post("/generate", summary="番組を生成する（バックグラウンド実行）")
