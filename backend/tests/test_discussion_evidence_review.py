@@ -176,8 +176,10 @@ def test_dialogue_review_preserves_contract_lines_and_lints_after_merge(tmp_path
             "lines": [
                 _line("intro", "こんにちは。", "male", None),
                 _line("news", "認証機能です。", "male", 1),
+                _line("discussion", "レビューで追加された前半の分析です。", "male", 1),
                 _line("discussion", "料金はいくらですか？", "female", 1),
                 _line("discussion", "別の話題です。", "female", 1),
+                _line("discussion", "利用条件も確認する必要があります。", "male", 1),
                 _line("outro", "それではまた。", "male", None),
                 _line("outro", "最後にどう感じましたか？", "female", None),
             ],
@@ -206,8 +208,9 @@ def test_dialogue_review_preserves_contract_lines_and_lints_after_merge(tmp_path
         "OUTRO_CONTRACT_RESTORED",
     }
     assert intro["text"].startswith("「朝の番組」の時間です")
-    assert discussion[0]["text"].endswith("？")
-    assert discussion[1]["speaker"] != discussion[0]["speaker"]
+    assert discussion[0]["text"] == "レビューで追加された前半の分析です。"
+    assert discussion[1]["text"].endswith("？")
+    assert discussion[2]["speaker"] != discussion[1]["speaker"]
     assert outro[-1]["text"].endswith("。")
     assert "それではまた" in outro[-1]["text"]
     assert "effective_program_name は「朝の番組」です" in prompts[-1]

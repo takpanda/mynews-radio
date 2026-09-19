@@ -173,6 +173,7 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
                 script_path,
                 reviewed_episode_dir,
                 program_name=program_name,
+                commentary=False,
                 summaries_path=summaries_path,
             )
             logger.info(

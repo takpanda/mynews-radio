@@ -314,6 +314,7 @@ def run_radio_pipeline(
             review_result = review_script(
                 script_path, reviewed_episode_dir,
                 program_name=effective_program_name,
+                commentary=False,
                 llm_provider=llm.name, llm_model=llm.model,
                 summaries_path=summaries_path,
             )

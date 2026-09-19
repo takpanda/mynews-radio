@@ -24,6 +24,7 @@ from app.batch.generate_script import (
     _is_generic_transition_reaction_text,
     lint_script,
 )
+from app.batch.script_contracts import FAREWELL_RE
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
@@ -202,13 +203,6 @@ def _build_output_issue_example(style: str) -> str:
 # ---------------------------------------------------------------------------
 
 _QUESTION_SUFFIX_RE = _re.compile(r"(?:[?？]|か)[。!！]?\s*$")
-_FAREWELL_RE = _re.compile(
-    r"(?:また(?:明日|次回|来週)|それではまた|お会いしましょう|"
-    r"さようなら|お元気で|お届けしました|お聴きいただき|"
-    r"お聞きいただき|番組を終わります|締めくくり)"
-)
-
-
 def _is_question(text: str) -> bool:
     """text が疑問文かどうかを判定する。
 
@@ -335,7 +329,7 @@ def _has_dialogue_outro_contract(lines: list) -> bool:
     ]
     if not outro:
         return False
-    return any(_is_question(text) for text in outro) and bool(_FAREWELL_RE.search(outro[-1]))
+    return any(_is_question(text) for text in outro) and bool(FAREWELL_RE.search(outro[-1]))
 
 
 def _build_contract_preservation_context(
@@ -382,6 +376,40 @@ def _build_contract_preservation_context(
     )
 
 
+def _question_response_pairs(lines: list[dict]) -> list[tuple[int, int]]:
+    """Return question/answer pairs within the same dialogue section."""
+    pairs: list[tuple[int, int]] = []
+    for index, line in enumerate(lines[:-1]):
+        next_line = lines[index + 1]
+        if (
+            line.get("section") == "discussion"
+            and next_line.get("section") == "discussion"
+            and str(line.get("text", "") or "").strip()
+            and _is_question(str(line.get("text", "") or ""))
+            and str(next_line.get("text", "") or "").strip()
+            and line.get("speaker") != next_line.get("speaker")
+        ):
+            pairs.append((index, index + 1))
+    return pairs
+
+
+def _missing_discussion_question_indices(lines: list[dict]) -> list[int]:
+    """Return discussion question indexes that lack an immediate answer."""
+    missing: list[int] = []
+    for index, line in enumerate(lines):
+        if line.get("section") != "discussion" or not _is_question(str(line.get("text", "") or "")):
+            continue
+        next_index = index + 1
+        if (
+            next_index >= len(lines)
+            or lines[next_index].get("section") != "discussion"
+            or not str(lines[next_index].get("text", "") or "").strip()
+            or lines[next_index].get("speaker") == line.get("speaker")
+        ):
+            missing.append(index)
+    return missing
+
+
 def _restore_dialogue_contract(
     source_lines: list[dict], revised_lines: list[dict], *, program_name: str,
 ) -> tuple[list[dict], list[str]]:
@@ -413,21 +441,24 @@ def _restore_dialogue_contract(
         repairs.append("INTRO_CONTRACT_RESTORED")
 
     source_discussion = [line for line in source_lines if line.get("section") == "discussion"]
-    revised_discussion = [line for line in repaired if line.get("section") == "discussion"]
+    source_pairs = _question_response_pairs(source_discussion)
     source_discussion_ok = bool(source_discussion) and not any(
         "[DIRECT_ANSWER_MISSING]" in issue
         for issue in check_question_response_contract(source_discussion)
     )
-    if source_discussion_ok and any(
-        "[DIRECT_ANSWER_MISSING]" in issue
-        for issue in check_question_response_contract(revised_discussion)
-    ):
-        repaired = [line for line in repaired if line.get("section") != "discussion"]
-        outro_index = next(
-            (index for index, line in enumerate(repaired) if line.get("section") == "outro"),
-            len(repaired),
-        )
-        repaired[outro_index:outro_index] = [dict(line) for line in source_discussion]
+    missing_question_indices = _missing_discussion_question_indices(repaired)
+    if source_discussion_ok and source_pairs and missing_question_indices:
+        source_question_index, source_answer_index = source_pairs[-1]
+        target_question_index = missing_question_indices[-1]
+        repaired[target_question_index] = dict(source_discussion[source_question_index])
+        target_answer_index = target_question_index + 1
+        if (
+            target_answer_index < len(repaired)
+            and repaired[target_answer_index].get("section") == "discussion"
+        ):
+            repaired[target_answer_index] = dict(source_discussion[source_answer_index])
+        else:
+            repaired.insert(target_answer_index, dict(source_discussion[source_answer_index]))
         repairs.append("DISCUSSION_CONTRACT_RESTORED")
 
     source_outro = [line for line in source_lines if line.get("section") == "outro"]
@@ -541,6 +572,7 @@ def review_script(
     output_dir: str,
     *,
     program_name: str = "ニュースのとなり",
+    commentary: bool = False,
     llm_provider: str | None = None,
     llm_model: str | None = None,
     summaries_path: str | None = None,
@@ -552,6 +584,8 @@ def review_script(
         source_script_path: Path to the original script.json (read-only).
         output_dir:         Directory for output files (script.json, review.json).
                             The directory must already exist.
+        commentary:        Whether this is the commentary generation path.
+                           Commentary uses the shared lint exclusions.
         summaries_path:     Optional article summaries JSON path. When omitted,
                             summaries.json next to source_script_path is used.
         article:            Optional source article for commentary scripts.
@@ -772,24 +806,11 @@ def review_script(
         program_name=program_name,
         expected_discussion_article_id=source.get("discussion_article_id"),
     )
-    if "style" in source:
-        commentary_ignored_lint_codes = {
-            "INTRO_FORMAT",
-            "INTRO_LINEUP",
-            "OUTRO_LENGTH",
-            "TRANS_VARIATION",
-            "TRANS_CONTEXT",
-            "TRANSITION_LENGTH",
-            "TRANSITION_SOLO",
-            "TRANSITION_REDUNDANT",
-            "DISCUSSION_ARTICLE_POSITION",
-            "DISCUSSION_LENGTH",
-            "DISCUSSION_ARTICLE_DRIFT",
-        }
+    if commentary:
         post_review_lint_issues = [
             issue
             for issue in post_review_lint_issues
-            if not any(f"[{code}]" in issue for code in commentary_ignored_lint_codes)
+            if not any(f"[{code}]" in issue for code in COMMENTARY_IGNORED_LINT_CODES)
         ]
     if post_review_lint_issues:
         logger.warning(

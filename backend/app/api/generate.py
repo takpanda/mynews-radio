@@ -342,6 +342,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             Path(os.path.join(reviewed_episode_dir, "lines")).mkdir(exist_ok=True)
             review_result = review_script(script_path, reviewed_episode_dir,
                                           program_name="ニュースのとなり",
+                                          commentary=True,
                                           llm_provider=llm.name, llm_model=llm.model,
                                           article=article)
             logger.info(
