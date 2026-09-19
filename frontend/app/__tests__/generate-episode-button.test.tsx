@@ -449,7 +449,7 @@ describe('GenerateEpisodeButton — パラメータすり替え防止', () => {
 
     const args = mockGenerateEpisode.mock.calls[0]
     expect(args[0]).toBeDefined()
-    expect(args[1]).toBe(10)
+    expect(args[1]).toBe(5)
     expect(args[2]).toBe('hatena_bookmark')
     expect(args[3]).toBe('fishs2pro')
     expect(args[4]).toBe(false)

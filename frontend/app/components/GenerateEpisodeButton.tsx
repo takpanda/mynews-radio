@@ -336,7 +336,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   const [newsSource, setNewsSource] = useState<'hatena_bookmark' | 'hatena_hotentry_all' | 'yahoo_news'>('hatena_bookmark')
   const [recreateSummary, setRecreateSummary] = useState(false)
   const [ttsEngine, setTtsEngine] = useState<'voicevox' | 'aivispeech' | 'fishs2pro'>('fishs2pro')
-  const [maxArticles, setMaxArticles] = useState(10)
+  const [maxArticles, setMaxArticles] = useState(5)
   const [programSettings, setProgramSettings] = useState<ProgramSettings | null>(null)
   const [appliedSettings, setAppliedSettings] = useState<ProgramSettings | null>(null)
   const [episodeId, setEpisodeId] = useState<number | null>(null)
@@ -803,7 +803,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
             disabled={isLoading}
             onChange={(settings) => {
               setProgramSettings(settings)
-              setMaxArticles(settings.duration_preset === 'short' ? 6 : settings.duration_preset === 'long' ? 14 : 10)
+              setMaxArticles(settings.duration_preset === 'short' ? 6 : settings.duration_preset === 'long' ? 14 : 5)
             }}
           />
           <fieldset className="rounded-xl border border-slate-200 bg-slate-50/70 p-3" disabled={isLoading || llmLoading}>
