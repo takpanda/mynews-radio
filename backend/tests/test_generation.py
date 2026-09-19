@@ -1145,10 +1145,19 @@ class TestRunDailyReviewConsistency:
 class TestOrchestrateArticleDefaults:
     """orchestrate.py の記事数デフォルト値の検証."""
 
-    def test_existing_summaries_use_five_articles_when_env_is_unset(self, monkeypatch):
+    @pytest.mark.parametrize(
+        ("configured_max_articles", "expected_max_articles"),
+        [(None, 5), ("9", 9)],
+    )
+    def test_existing_summaries_respect_max_articles_env(
+        self, monkeypatch, configured_max_articles, expected_max_articles,
+    ):
         from app.batch.orchestrate import run
 
-        monkeypatch.delenv("MAX_SCRIPT_ARTICLES", raising=False)
+        if configured_max_articles is None:
+            monkeypatch.delenv("MAX_SCRIPT_ARTICLES", raising=False)
+        else:
+            monkeypatch.setenv("MAX_SCRIPT_ARTICLES", configured_max_articles)
         fetched_summaries = MagicMock(return_value=[{"id": 1, "summary": "summary"}])
 
         with patch("app.batch.orchestrate._create_episode_record", return_value=(1, 0)), \
@@ -1169,7 +1178,7 @@ class TestOrchestrateArticleDefaults:
             run("2099-12-31")
 
         fetched_summaries.assert_called_once_with(
-            max_articles=5,
+            max_articles=expected_max_articles,
             min_importance_score=3,
             source="hatena_bookmark",
         )

@@ -15,7 +15,7 @@
 - テーマは `technology`, `business`, `society`, `sports`, `entertainment`, `general` のみ。
 - `priority_themes` は最大3件。各配列に重複は許可しない。
 - `priority_themes` と `excluded_themes` の同一テーマは許可しない（422）。
-- `duration_preset` は `short`（6記事・重要度4以上）、`normal`（10記事・3以上）、`long`（14記事・2以上）のいずれか。
+- `duration_preset` は `short`（6記事・重要度4以上）、`normal`（5記事・3以上）、`long`（14記事・2以上）のいずれか。
 - 未設定または初期化後は、両テーマ配列が空、`duration_preset` が `normal`。
 
 ## API
