@@ -24,7 +24,7 @@ from app.batch.generate_script import (
     _is_generic_transition_reaction_text,
     lint_script,
 )
-from app.batch.script_contracts import FAREWELL_RE
+from app.batch.script_contracts import COMMENTARY_IGNORED_LINT_CODES, FAREWELL_RE
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
