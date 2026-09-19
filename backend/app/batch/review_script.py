@@ -463,11 +463,19 @@ def _restore_dialogue_contract(
             target_answer_index = target_question_index + 1
             if (
                 target_answer_index < len(repaired)
-                and repaired[target_answer_index].get("section") == "discussion"
+                and str(repaired[target_answer_index].get("text", "") or "").strip()
             ):
-                repaired[target_answer_index] = dict(source_discussion[source_answer_index])
+                # A non-empty line may be a valid reviewed line rather than a
+                # broken answer slot. Preserve it and insert the contract answer
+                # before it instead of silently deleting reviewed content.
+                repaired.insert(
+                    target_answer_index, dict(source_discussion[source_answer_index])
+                )
             else:
-                repaired.insert(target_answer_index, dict(source_discussion[source_answer_index]))
+                if target_answer_index < len(repaired):
+                    repaired[target_answer_index] = dict(source_discussion[source_answer_index])
+                else:
+                    repaired.insert(target_answer_index, dict(source_discussion[source_answer_index]))
         repairs.append("DISCUSSION_CONTRACT_RESTORED")
 
     source_outro = [line for line in source_lines if line.get("section") == "outro"]
