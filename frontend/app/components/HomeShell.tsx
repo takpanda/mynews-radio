@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import type { EpisodeListItem, PaginatedEpisodesResponse } from '../lib/api'
-import { fetchEpisodes } from '../lib/api'
+import { fetchEpisodes, formatGeneratedTime } from '../lib/api'
 import type { Chapter } from '../lib/chapters'
 import EpisodeAudioPlayer from './EpisodeAudioPlayer'
 import SynthesizeAudioButton from './SynthesizeAudioButton'
@@ -13,7 +13,10 @@ export interface HeroEpisode {
   id: number
   title: string
   subtitle: string
+  date: string
   dateLabel: string
+  /** 生成時刻（JST・時刻のみ、例「6:34」）。未設定の場合は既存表示にフォールバックする。 */
+  generatedAtLabel?: string
   isCommentary: boolean
   sourceUrl: string | null
   audioUrl: string | null
@@ -62,6 +65,27 @@ function dayLabel(dateStr: string): string {
 function durationLabel(seconds: number): string {
   if (!seconds || seconds <= 0) return ''
   return `${Math.max(1, Math.round(seconds / 60))}分`
+}
+
+// アーカイブカードのメタ行。生成時刻がある場合は「月日  時刻 / 再生時間」、ない場合は従来の「月日 ・ 再生時間」にフォールバックする
+function archiveCardMetaLabel(ep: EpisodeListItem): string {
+  const day = dayLabel(ep.date)
+  const duration = durationLabel(ep.duration)
+  if (ep.generated_at) {
+    const time = formatGeneratedTime(ep.generated_at)
+    return duration ? `${day}  ${time} / ${duration}` : `${day}  ${time}`
+  }
+  return duration ? `${day} ・ ${duration}` : day
+}
+
+// ヒーローカードのメタ行。生成時刻がある場合はアーカイブカードと同じ構成、ない場合は従来表示にフォールバックする
+function heroMetaLabel(latest: HeroEpisode): string {
+  if (latest.generatedAtLabel) {
+    const day = dayLabel(latest.date)
+    const duration = durationLabel(latest.durationSeconds)
+    return duration ? `${day}  ${latest.generatedAtLabel} / ${duration}` : `${day}  ${latest.generatedAtLabel}`
+  }
+  return `最新エピソード ・ ${latest.dateLabel}`
 }
 
 const CATEGORY_THUMBNAIL_IMAGE: Record<Exclude<CategoryKey, 'all'>, string> = {
@@ -209,7 +233,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
         </p>
         {latest ? (
           <>
-            <p className="mt-4 text-xs text-slate-400">最新エピソード ・ {latest.dateLabel}</p>
+            <p className="mt-4 text-xs text-slate-400">{heroMetaLabel(latest)}</p>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               <Link
                 href={`/episodes/${latest.id}`}
@@ -376,7 +400,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                         </div>
                         <div className="flex min-h-[174px] flex-col p-4">
                           <div className="flex items-center justify-between gap-2">
-                            <p className="text-xs text-slate-500">{dayLabel(ep.date)}{durationLabel(ep.duration) && ` ・ ${durationLabel(ep.duration)}`}</p>
+                            <p className="text-xs text-slate-500">{archiveCardMetaLabel(ep)}</p>
                             {ep.status === 'generating' && (
                               <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
                                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />生成中

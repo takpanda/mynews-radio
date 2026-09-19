@@ -10,6 +10,7 @@ jest.mock('next/link', () => ({
 }))
 
 jest.mock('../../lib/api', () => ({
+  ...jest.requireActual('../../lib/api'),
   fetchEpisodes: jest.fn(),
 }))
 
@@ -198,6 +199,7 @@ function heroEpisode(overrides: Partial<HeroEpisode> = {}): HeroEpisode {
     id: 1,
     title: '最新エピソードのタイトル',
     subtitle: '最新エピソードの副題',
+    date: '2026-08-13',
     dateLabel: '8月13日(木)',
     isCommentary: false,
     sourceUrl: null,
@@ -243,6 +245,32 @@ describe('HomeShell ヒーローのトピック表示', () => {
     expect(toggle).not.toBeNull()
     const position = player!.compareDocumentPosition(toggle!)
     expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+describe('HomeShell アーカイブカードの生成時刻表示', () => {
+  it('generated_atがある場合は「月日  時刻 / 再生時間」形式で表示する（実際のバックエンド形式：スペース区切り・タイムゾーンなし）', () => {
+    renderArchiveEpisodes([
+      { ...episode(), date: '2026-09-19', duration: 180, generated_at: '2026-09-18 21:34:59' },
+    ])
+    expect(screen.getByText('9月19日 6:34 / 3分')).not.toBeNull()
+  })
+
+  it('generated_atが未定義の場合は従来の「月日 ・ 再生時間」表示にフォールバックする', () => {
+    renderArchiveEpisodes([{ ...episode(), date: '2026-09-19', duration: 180 }])
+    expect(screen.getByText('9月19日 ・ 3分')).not.toBeNull()
+  })
+})
+
+describe('HomeShell ヒーローの生成時刻表示', () => {
+  it('generatedAtLabelがある場合は「月日  時刻 / 再生時間」形式で表示する', () => {
+    renderHero(heroEpisode({ date: '2026-09-19', durationSeconds: 180, generatedAtLabel: '6:34' }))
+    expect(screen.getByText('9月19日 6:34 / 3分')).not.toBeNull()
+  })
+
+  it('generatedAtLabelが未定義の場合は従来の「最新エピソード ・ 月日（曜日）」表示にフォールバックする', () => {
+    renderHero(heroEpisode())
+    expect(screen.getByText('最新エピソード ・ 8月13日(木)')).not.toBeNull()
   })
 })
 

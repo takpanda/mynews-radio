@@ -1,4 +1,31 @@
-import { describeGenerationError, formatGeneratedAt, generateEpisode, GenerationError } from '../api'
+import { describeGenerationError, formatGeneratedAt, formatGeneratedTime, generateEpisode, GenerationError } from '../api'
+
+describe('formatGeneratedTime', () => {
+  it('実際のバックエンド形式（スペース区切り・タイムゾーンなし）のUTC時刻をJSTの時刻のみに変換する', () => {
+    // episodes.created_at は SQLite の CURRENT_TIMESTAMP により
+    // "2026-09-18 21:34:59" のようなタイムゾーン情報を含まないUTC文字列で返る
+    const result = formatGeneratedTime('2026-09-18 21:34:59')
+    expect(result).toBe('6:34')
+  })
+
+  it('ISO 8601（Z付き）形式でも同じ結果になる', () => {
+    const result = formatGeneratedTime('2026-09-18T21:34:59Z')
+    expect(result).toBe('6:34')
+  })
+
+  it('JST 0時台は先頭ゼロなしで表示される', () => {
+    const result = formatGeneratedTime('2026-09-18 15:05:00')
+    expect(result).toBe('0:05')
+  })
+
+  it('空文字の場合は空文字を返す', () => {
+    expect(formatGeneratedTime('')).toBe('')
+  })
+
+  it('不正な日時文字列の場合は空文字を返す', () => {
+    expect(formatGeneratedTime('not-a-date')).toBe('')
+  })
+})
 
 describe('formatGeneratedAt', () => {
   it('UTC 13:00 → JST 22:00 に変換される', () => {
