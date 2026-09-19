@@ -27,6 +27,7 @@ from app.batch.review_script import (
     check_transition_integrity,
 )
 from app.batch.script_structure import check_discussion_layout, normalize_discussion_layout
+from app.batch.script_contracts import COMMENTARY_IGNORED_LINT_CODES, FAREWELL_RE
 from app.services.article_service import titles_are_similar
 
 logger = logging.getLogger(__name__)
@@ -34,28 +35,10 @@ logger = logging.getLogger(__name__)
 FINAL_VALIDATION_PHASE = "final_validation"
 HUMAN_REVIEW_PHASE = "human_review"
 
-_FAREWELL_RE = re.compile(
-    r"(?:また(?:明日|次回|来週)|それではまた|お会いしましょう|"
-    r"さようなら|お元気で|お届けしました|お聴きいただき|"
-    r"お聞きいただき|番組を終わります|締めくくり)",
-)
 _MINOR_LINT_CODES = {
     "TRANS_VARIATION",
     "INTRO_LINEUP",
     "TRUNCATED_TRANS",
-}
-_COMMENTARY_IGNORED_LINT_CODES = {
-    "INTRO_FORMAT",
-    "INTRO_LINEUP",
-    "OUTRO_LENGTH",
-    "TRANS_VARIATION",
-    "TRANS_CONTEXT",
-    "TRANSITION_LENGTH",
-    "TRANSITION_SOLO",
-    "TRANSITION_REDUNDANT",
-    "DISCUSSION_ARTICLE_POSITION",
-    "DISCUSSION_LENGTH",
-    "DISCUSSION_ARTICLE_DRIFT",
 }
 
 
@@ -292,7 +275,7 @@ def _repair_outro_questions(lines: list[dict[str, Any]]) -> tuple[list[dict[str,
     repairs: list[dict[str, Any]] = []
     for index in outro_indices:
         text = str(repaired[index].get("text", "") or "").strip()
-        if _FAREWELL_RE.search(text):
+        if FAREWELL_RE.search(text):
             farewell_started = True
             continue
         if farewell_started and _generate_is_question(text):
@@ -342,7 +325,7 @@ def _outro_issues(
         issues.append(_issue("OUTRO_QUESTION_MISSING", "outroに振り返り・問いがありません"))
 
     farewell_positions = [
-        index for index, text in enumerate(texts) if text and _FAREWELL_RE.search(text)
+        index for index, text in enumerate(texts) if text and FAREWELL_RE.search(text)
     ]
     if not farewell_positions:
         issues.append(_issue("OUTRO_FAREWELL_MISSING", "outroに別れの挨拶がありません"))
@@ -355,7 +338,7 @@ def _outro_issues(
                     "outroの問いは別れの挨拶より前に置く必要があります",
                 )
             )
-        if not _FAREWELL_RE.search(texts[-1]):
+        if not FAREWELL_RE.search(texts[-1]):
             issues.append(
                 _issue(
                     "OUTRO_NOT_TERMINATED",
@@ -364,7 +347,7 @@ def _outro_issues(
                 )
             )
         for index in range(first_farewell + 1, len(texts)):
-            if not _FAREWELL_RE.search(texts[index]):
+            if not FAREWELL_RE.search(texts[index]):
                 issues.append(
                     _issue(
                         "OUTRO_AFTER_FAREWELL",
@@ -410,7 +393,7 @@ def _lint_errors(
         warn_match = re.search(r"\[WARN\]\[([^]]+)\]", error)
         code_match = re.search(r"\[([^]]+)\]", error)
         code = warn_match.group(1) if warn_match else (code_match.group(1) if code_match else "LINT")
-        if code not in _COMMENTARY_IGNORED_LINT_CODES:
+        if code not in COMMENTARY_IGNORED_LINT_CODES:
             filtered.append(error)
     return filtered
 
@@ -515,6 +498,9 @@ def validate_final_script(
         _issue("DIALOGUE_BALANCE", message)
         for message in review_result.get("dialogue_balance_issues", [])
     )
+    # post_review_lint_issues は review.json で correction 直後の診断を保持し、
+    # この関数では同じ台本へ再実行した lint の結果だけを判定に使う。
+    # ここで再加算すると repair 前後の行番号差で重複した human_review 理由になる。
 
     # De-duplicate repeated findings from review and deterministic checks while
     # preserving the first occurrence and its line references.
@@ -630,16 +616,25 @@ def should_run_final_validation(script_path: str, review_result: dict[str, Any])
     """Return whether the final quality gate is needed for this script."""
     if script_file_has_discussion_layout_issues(script_path):
         return True
-    return bool(
-        isinstance(review_result, dict)
-        and review_result.get("revised")
-        and any(
-            key in review_result
-            for key in (
-                "transition_integrity_issues",
-                "question_response_issues",
-                "dialogue_balance_issues",
-            )
+    if not isinstance(review_result, dict):
+        return False
+    if review_result.get("post_review_lint_issues"):
+        return True
+    if review_result.get("revised") and any(
+        key in review_result
+        for key in (
+            "transition_integrity_issues",
+            "question_response_issues",
+            "dialogue_balance_issues",
+        )
+    ):
+        return True
+    return any(
+        review_result.get(key)
+        for key in (
+            "transition_integrity_issues",
+            "question_response_issues",
+            "dialogue_balance_issues",
         )
     )
 
