@@ -1142,6 +1142,48 @@ class TestRunDailyReviewConsistency:
         mock_build.assert_called_once()
 
 
+class TestOrchestrateArticleDefaults:
+    """orchestrate.py の記事数デフォルト値の検証."""
+
+    @pytest.mark.parametrize(
+        ("configured_max_articles", "expected_max_articles"),
+        [(None, 5), ("9", 9)],
+    )
+    def test_existing_summaries_respect_max_articles_env(
+        self, monkeypatch, configured_max_articles, expected_max_articles,
+    ):
+        from app.batch.orchestrate import run
+
+        if configured_max_articles is None:
+            monkeypatch.delenv("MAX_SCRIPT_ARTICLES", raising=False)
+        else:
+            monkeypatch.setenv("MAX_SCRIPT_ARTICLES", configured_max_articles)
+        fetched_summaries = MagicMock(return_value=[{"id": 1, "summary": "summary"}])
+
+        with patch("app.batch.orchestrate._create_episode_record", return_value=(1, 0)), \
+             patch("app.batch.orchestrate._set_episode_status"), \
+             patch("app.batch.orchestrate._update_episode_audio"), \
+             patch("app.batch.orchestrate.import_articles_by_source", return_value=(1, 0)), \
+             patch("app.batch.orchestrate.summarize_articles", return_value=0), \
+             patch("app.batch.orchestrate.ArticleService.fetch_summaries_for_script", fetched_summaries), \
+             patch("app.batch.orchestrate.write_fallback_summaries"), \
+             patch("app.batch.orchestrate.generate_script", return_value=5), \
+             patch("app.batch.orchestrate.review_script", return_value={"revised": False}), \
+             patch("app.batch.orchestrate.synthesize_episode", return_value=1), \
+             patch("app.batch.orchestrate.build_episode", return_value={"duration_seconds": 1}), \
+             patch("app.batch.orchestrate.override_script_title"), \
+             patch("app.batch.orchestrate.Path.mkdir"), \
+             patch("app.batch.orchestrate.EpisodeService.complete_radio_episode_with_notification"), \
+             patch("app.batch.orchestrate.notify_success"):
+            run("2099-12-31")
+
+        fetched_summaries.assert_called_once_with(
+            max_articles=expected_max_articles,
+            min_importance_score=3,
+            source="hatena_bookmark",
+        )
+
+
 class TestOrchestrateReviewConsistency:
     """orchestrate.py の review 結果反映動作の検証 (BEE-375)."""
 
