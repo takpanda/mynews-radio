@@ -140,6 +140,82 @@ def test_review_accepts_rewritten_question_without_inventing_answer(tmp_path):
     assert "要約に答えがない質問には事実を補わないこと" in prompts[-1]
 
 
+def test_dialogue_review_preserves_contract_lines_and_lints_after_merge(tmp_path):
+    """レビュー合成が契約行を壊しても、最小限の復元後に lint される。"""
+    from app.batch.review_script import review_script
+
+    source_lines = [
+        _line("intro", "「朝の番組」の時間です。今日のニュースをお届けします。", "male", None),
+        _line("intro", "本日のラインナップを紹介します。", "female", None),
+        _line("news", "新しい認証機能が発表されました。", "male", 1),
+        _line("news", "登録端末で本人確認を行います。", "female", 1),
+        _line("discussion", "料金について要約では何が説明されていますか？", "female", 1),
+        _line("discussion", "要約には料金の記載がありません。", "male", 1),
+        _line("discussion", "登録端末を使う点は確認できます。", "female", 1),
+        _line("discussion", "利用条件を確認して選ぶ必要があります。", "male", 1),
+        _line("outro", "今日は認証機能について振り返りました。", "male", None),
+        _line("outro", "みなさんはどう感じましたか？", "female", None),
+        _line("outro", "それではまた明日、お会いしましょう。", "male", None),
+    ]
+    source_path = tmp_path / "script.json"
+    source_path.write_text(
+        json.dumps({"style": "dialogue", "lines": source_lines}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "review"
+    output_dir.mkdir()
+
+    prompts = []
+    client = MagicMock()
+
+    def generate(prompt, **_kwargs):
+        prompts.append(prompt)
+        if len(prompts) <= 5:
+            return {"overall_score": 7, "issues": [], "general_feedback": ""}
+        return {
+            "lines": [
+                _line("intro", "こんにちは。", "male", None),
+                _line("news", "認証機能です。", "male", 1),
+                _line("discussion", "料金はいくらですか？", "female", 1),
+                _line("discussion", "別の話題です。", "female", 1),
+                _line("outro", "それではまた。", "male", None),
+                _line("outro", "最後にどう感じましたか？", "female", None),
+            ],
+            "revision_summary": "契約を確認しました。",
+        }
+
+    client.generate_json.side_effect = generate
+    client_factory = MagicMock()
+    client_factory.__enter__.return_value = client
+
+    with patch("app.batch.review_script.OllamaClient", return_value=client_factory):
+        result = review_script(
+            str(source_path), str(output_dir), program_name="朝の番組",
+        )
+
+    revised = json.loads((output_dir / "script.json").read_text(encoding="utf-8"))
+    intro = next(line for line in revised["lines"] if line["section"] == "intro")
+    discussion = [line for line in revised["lines"] if line["section"] == "discussion"]
+    outro = [line for line in revised["lines"] if line["section"] == "outro"]
+
+    assert result["revised"] is True
+    assert result["post_review_lint_issues"] == []
+    assert set(result["contract_repairs"]) == {
+        "INTRO_CONTRACT_RESTORED",
+        "DISCUSSION_CONTRACT_RESTORED",
+        "OUTRO_CONTRACT_RESTORED",
+    }
+    assert intro["text"].startswith("「朝の番組」の時間です")
+    assert discussion[0]["text"].endswith("？")
+    assert discussion[1]["speaker"] != discussion[0]["speaker"]
+    assert outro[-1]["text"].endswith("。")
+    assert "それではまた" in outro[-1]["text"]
+    assert "effective_program_name は「朝の番組」です" in prompts[-1]
+
+    review_json = json.loads((output_dir / "review.json").read_text(encoding="utf-8"))
+    assert review_json["post_review_lint_issues"] == []
+
+
 def test_write_fallback_summaries_normalizes_database_ids(tmp_path):
     from app.services.article_service import write_fallback_summaries
 

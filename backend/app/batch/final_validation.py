@@ -515,6 +515,11 @@ def validate_final_script(
         _issue("DIALOGUE_BALANCE", message)
         for message in review_result.get("dialogue_balance_issues", [])
     )
+    prior_lint_critical, prior_lint_warnings = _classify_lint_errors(
+        review_result.get("post_review_lint_issues", [])
+    )
+    critical.extend(prior_lint_critical)
+    warnings.extend(prior_lint_warnings)
 
     # De-duplicate repeated findings from review and deterministic checks while
     # preserving the first occurrence and its line references.
@@ -630,16 +635,25 @@ def should_run_final_validation(script_path: str, review_result: dict[str, Any])
     """Return whether the final quality gate is needed for this script."""
     if script_file_has_discussion_layout_issues(script_path):
         return True
-    return bool(
-        isinstance(review_result, dict)
-        and review_result.get("revised")
-        and any(
-            key in review_result
-            for key in (
-                "transition_integrity_issues",
-                "question_response_issues",
-                "dialogue_balance_issues",
-            )
+    if not isinstance(review_result, dict):
+        return False
+    if review_result.get("post_review_lint_issues"):
+        return True
+    if review_result.get("revised") and any(
+        key in review_result
+        for key in (
+            "transition_integrity_issues",
+            "question_response_issues",
+            "dialogue_balance_issues",
+        )
+    ):
+        return True
+    return any(
+        review_result.get(key)
+        for key in (
+            "transition_integrity_issues",
+            "question_response_issues",
+            "dialogue_balance_issues",
         )
     )
 
