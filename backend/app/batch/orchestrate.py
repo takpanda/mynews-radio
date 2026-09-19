@@ -130,7 +130,7 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
         logger.info("summarize_articles completed: counted=%d", summarized)
         if summarized == 0:
             article_service = ArticleService()
-            max_articles = int(os.getenv("MAX_SCRIPT_ARTICLES", "10"))
+            max_articles = int(os.getenv("MAX_SCRIPT_ARTICLES", "5"))
             min_score = int(os.getenv("MIN_IMPORTANCE_SCORE", "3"))
             existing_summaries = article_service.fetch_summaries_for_script(
                 max_articles=max_articles,

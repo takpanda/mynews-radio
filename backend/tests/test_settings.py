@@ -29,7 +29,7 @@ def test_validate_settings_enforces_mvp_contract():
 
 @pytest.mark.parametrize(
     ("preset", "max_articles", "min_score"),
-    [("short", 6, 4), ("normal", 10, 3), ("long", 14, 2)],
+    [("short", 6, 4), ("normal", 5, 3), ("long", 14, 2)],
 )
 def test_all_duration_presets_are_generation_contracts(preset, max_articles, min_score):
     value = settings_service.validate_settings([], [], preset)

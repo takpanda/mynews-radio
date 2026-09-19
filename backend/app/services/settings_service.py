@@ -18,7 +18,7 @@ DEFAULT_DURATION_PRESET = "normal"
 # The selection pipeline can consume this contract without knowing the storage format.
 DURATION_LIMITS: dict[str, dict[str, int]] = {
     "short": {"max_articles": 6, "min_importance_score": 4},
-    "normal": {"max_articles": 10, "min_importance_score": 3},
+    "normal": {"max_articles": 5, "min_importance_score": 3},
     "long": {"max_articles": 14, "min_importance_score": 2},
 }
 
