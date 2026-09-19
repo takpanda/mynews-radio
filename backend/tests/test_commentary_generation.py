@@ -135,6 +135,7 @@ class TestRunCommentaryGeneration:
              patch("app.api.generate.generate_commentary_script", return_value=1), \
              patch("app.api.generate.synthesize_episode", return_value=1), \
              patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}), \
+             patch("app.api.generate.notify_success") as notify_success, \
              patch("builtins.open", _make_fake_open(fake_script)):
 
             mock_row = MagicMock()
@@ -148,6 +149,9 @@ class TestRunCommentaryGeneration:
         ep = svc.get_episode(ep_id)
         assert ep["status"] == "completed"
         assert ep["phase"] == "complete"
+        notify_success.assert_called_once_with(
+            title="Test Article", episode_id=ep_id, seq=0
+        )
 
     def test_commentary_fails_on_fetch_error(self):
         from app.api.generate import _run_commentary_generation, GenerateRequest
@@ -163,11 +167,73 @@ class TestRunCommentaryGeneration:
         )
 
         with patch("app.api.generate.fetch_article_by_url",
-                   return_value={"title": "", "url": "https://example.com/article", "text": "", "source": "url_input"}):
+                   return_value={"title": "", "url": "https://example.com/article", "text": "", "source": "url_input"}), \
+             patch("app.api.generate.notify_failure") as notify_failure:
             _run_commentary_generation(ep_id, body)
 
         ep = svc.get_episode(ep_id)
         assert ep["status"] == "failed"
+        notify_failure.assert_called_once_with(
+            episode_id=ep_id,
+            phase="fetch_article",
+            error="記事の取得に失敗しました",
+        )
+
+    def test_commentary_notification_failure_does_not_change_success(self):
+        from app.api.generate import _run_commentary_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode(episode_date="2099-06-01", status="generating")
+        body = GenerateRequest(
+            date="2099-06-01",
+            url="https://example.com/article",
+            style="solo",
+            mc_gender="male",
+        )
+        fake_script = '{"lines": [{"article_id": 1, "text": "This is a commentary"}]}'
+
+        with patch("app.api.generate.fetch_article_by_url",
+                   return_value={"title": "Test Article", "url": body.url, "text": "Article body text here", "source": "url_input"}), \
+             patch("app.api.generate.ArticleService.upsert_article", return_value=True), \
+             patch("app.api.generate.ArticleService.fetch_new_articles", return_value=[]), \
+             patch("app.api.generate.get_db_connection") as mock_conn, \
+             patch("app.api.generate.generate_commentary_script", return_value=1), \
+             patch("app.api.generate.synthesize_episode", return_value=1), \
+             patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}), \
+             patch("app.api.generate.notify_success", side_effect=RuntimeError("notification unavailable")), \
+             patch("builtins.open", _make_fake_open(fake_script)):
+            mock_row = MagicMock()
+            mock_row.__getitem__ = lambda self, key: 123 if key == "id" else None
+            mock_conn_instance = MagicMock()
+            mock_conn_instance.__enter__.return_value.execute.return_value.fetchone.return_value = mock_row
+            mock_conn.return_value = mock_conn_instance
+
+            _run_commentary_generation(ep_id, body)
+
+        ep = svc.get_episode(ep_id)
+        assert ep["status"] == "completed"
+        assert ep["phase"] == "complete"
+
+    def test_commentary_failure_notification_failure_does_not_change_failed_status(self):
+        from app.api.generate import _run_commentary_generation, GenerateRequest
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode(episode_date="2099-06-01", status="generating")
+        body = GenerateRequest(
+            date="2099-06-01",
+            url="https://example.com/article",
+            style="solo",
+            mc_gender="male",
+        )
+
+        with patch("app.api.generate.fetch_article_by_url",
+                   return_value={"title": "", "url": body.url, "text": "", "source": "url_input"}), \
+             patch("app.api.generate.notify_failure", side_effect=RuntimeError("notification unavailable")):
+            _run_commentary_generation(ep_id, body)
+
+        assert svc.get_episode(ep_id)["status"] == "failed"
 
     def test_commentary_stops_before_tts_when_final_validation_requires_human_review(self):
         from app.api.generate import _run_commentary_generation, GenerateRequest
