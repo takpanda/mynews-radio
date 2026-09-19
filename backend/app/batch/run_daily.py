@@ -62,22 +62,24 @@ def main() -> None:
 
     current_job_id: int | None = claim.job_id
     current_episode_id: int | None = claim.episode_id
-    try:
-        while current_job_id is not None:
+    while current_job_id is not None:
+        try:
             promoted = _execute_claimed_job(current_job_id)
-            current_job_id = promoted.job_id if promoted else None
-            current_episode_id = promoted.episode_id if promoted else None
-    except Exception:
-        # 共通実行入口より前の予期せぬ例外でも、cron終了時にactiveを残さない。
-        logger.exception("daily generation execution failed: job_id=%d", current_job_id)
-        if current_episode_id is not None:
+        except Exception:
+            # どの段階のジョブでも、例外対象を終端化してからFIFOを継続する。
+            logger.exception("daily generation execution failed: job_id=%d", current_job_id)
+            if current_episode_id is not None:
+                try:
+                    EpisodeService().update_episode_status(current_episode_id, "failed")
+                except Exception:
+                    logger.exception("failed to mark daily episode as failed: episode_id=%d", current_episode_id)
             try:
-                EpisodeService().update_episode_status(current_episode_id, "failed")
+                promoted = finish_job(current_job_id, False, dispatch=False)
             except Exception:
-                logger.exception("failed to mark daily episode as failed: episode_id=%d", current_episode_id)
-        promoted = finish_job(current_job_id, False, dispatch=False)
-        while promoted is not None:
-            promoted = _execute_claimed_job(promoted.job_id)
+                logger.exception("failed to finish daily generation job: job_id=%d", current_job_id)
+                promoted = None
+        current_job_id = promoted.job_id if promoted else None
+        current_episode_id = promoted.episode_id if promoted else None
 
 
 def _execute_claimed_job(job_id: int) -> JobClaim | None:
