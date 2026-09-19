@@ -122,6 +122,18 @@ def test_final_validation_gate_keeps_revised_contract():
     assert should_run_final_validation("missing-script.json", review_result) is True
 
 
+def test_final_validation_gate_runs_after_review_rejects_transition():
+    from app.batch.final_validation import should_run_final_validation
+
+    review_result = {
+        "revised": False,
+        "review_count": 5,
+        "transition_integrity_issues": ["[TRANSITION_MIXED] transitionが壊れています"],
+    }
+
+    assert should_run_final_validation("missing-script.json", review_result) is True
+
+
 def test_final_validation_gate_runs_for_recorded_discussion_layout_issue(tmp_path):
     from app.batch.final_validation import should_run_final_validation
 

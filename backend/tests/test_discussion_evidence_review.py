@@ -219,6 +219,78 @@ def test_dialogue_review_preserves_contract_lines_and_lints_after_merge(tmp_path
     assert review_json["post_review_lint_issues"] == []
 
 
+def test_dialogue_contract_restores_all_broken_discussion_pairs():
+    from app.batch.review_script import (
+        _restore_dialogue_contract,
+        check_question_response_contract,
+    )
+
+    source_lines = [
+        _line("discussion", "料金について何が説明されていますか？", "female"),
+        _line("discussion", "要約には月額1000円とあります。", "male"),
+        _line("discussion", "利用条件は確認できますか？", "female"),
+        _line("discussion", "登録端末で本人確認を行います。", "male"),
+    ]
+    revised_lines = [
+        _line("discussion", "前半の分析はレビューで改善されました。", "male"),
+        _line("discussion", "料金について何が説明されていますか？", "female"),
+        _line("discussion", "別の話題へ移ります。", "female"),
+        _line("discussion", "利用条件は確認できますか？", "female"),
+        _line("discussion", "確認を続けます。", "female"),
+    ]
+
+    repaired, repairs = _restore_dialogue_contract(
+        source_lines, revised_lines, program_name="ニュースのとなり",
+    )
+
+    assert "DISCUSSION_CONTRACT_RESTORED" in repairs
+    assert not any(
+        "[DIRECT_ANSWER_MISSING]" in issue
+        for issue in check_question_response_contract(repaired)
+    )
+    assert repaired[0]["text"] == "前半の分析はレビューで改善されました。"
+    discussion = [line for line in repaired if line.get("section") == "discussion"]
+    assert [line["speaker"] for line in discussion[1:]] == [
+        "female", "male", "female", "male",
+    ]
+
+
+def test_commentary_review_filters_radio_only_lint_codes(tmp_path):
+    from app.batch.review_script import review_script
+
+    source_lines = [
+        _line("intro", "今日は記事を解説します。", "male", None),
+        _line("news", "登録端末で本人確認を行う機能です。", "male"),
+        _line("outro", "解説は以上です。", "male", None),
+    ]
+    source_path = tmp_path / "script.json"
+    source_path.write_text(
+        json.dumps({"style": "commentary", "lines": source_lines}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "review"
+    output_dir.mkdir()
+
+    client = MagicMock()
+    client.generate_json.side_effect = [
+        {"overall_score": 7, "issues": [], "general_feedback": ""}
+        for _ in range(5)
+    ] + [{"lines": source_lines, "revision_summary": "確認しました。"}]
+    client_factory = MagicMock()
+    client_factory.__enter__.return_value = client
+
+    with patch("app.batch.review_script.OllamaClient", return_value=client_factory):
+        result = review_script(
+            str(source_path), str(output_dir), commentary=True,
+        )
+
+    assert result["revised"] is True
+    assert result["post_review_lint_issues"] == []
+    assert json.loads((output_dir / "review.json").read_text(encoding="utf-8"))[
+        "post_review_lint_issues"
+    ] == []
+
+
 def test_write_fallback_summaries_normalizes_database_ids(tmp_path):
     from app.services.article_service import write_fallback_summaries
 
