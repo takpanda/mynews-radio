@@ -250,8 +250,42 @@ def test_dialogue_contract_restores_all_broken_discussion_pairs():
     )
     assert repaired[0]["text"] == "前半の分析はレビューで改善されました。"
     discussion = [line for line in repaired if line.get("section") == "discussion"]
-    assert [line["speaker"] for line in discussion[1:]] == [
-        "female", "male", "female", "male",
+    assert [line["text"] for line in discussion] == [
+        "前半の分析はレビューで改善されました。",
+        "料金について何が説明されていますか？",
+        "要約には月額1000円とあります。",
+        "別の話題へ移ります。",
+        "利用条件は確認できますか？",
+        "登録端末で本人確認を行います。",
+        "確認を続けます。",
+    ]
+
+
+def test_dialogue_contract_does_not_overwrite_nonempty_reviewed_line():
+    from app.batch.review_script import _restore_dialogue_contract
+
+    source_lines = [
+        _line("discussion", "料金について質問Aですか？", "female"),
+        _line("discussion", "Aの回答です。", "male"),
+        _line("discussion", "利用条件について質問Bですか？", "female"),
+        _line("discussion", "Bの回答です。", "male"),
+    ]
+    revised_lines = [
+        _line("discussion", "質問1ですか？", "female"),
+        _line("discussion", "質問2ですか？", "female"),
+        _line("discussion", "無関係の発言。", "male"),
+    ]
+
+    repaired, repairs = _restore_dialogue_contract(
+        source_lines, revised_lines, program_name="番組",
+    )
+
+    assert "DISCUSSION_CONTRACT_RESTORED" in repairs
+    assert [line["text"] for line in repaired] == [
+        "料金について質問Aですか？",
+        "Aの回答です。",
+        "質問2ですか？",
+        "無関係の発言。",
     ]
 
 
