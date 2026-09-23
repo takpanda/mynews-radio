@@ -433,6 +433,82 @@ class TestRunRadioPipelineCore:
         assert result is PipelineResult.NO_CONTENT
         assert svc.get_episode(ep_id) is None
 
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    def test_summarize_unavailable_uses_existing_summaries_for_content(self, mock_import, tmp_path):
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+        from app.services.article_service import ArticleService
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode("2099-01-06", status="generating")
+        script_path = tmp_path / "episodes" / str(ep_id) / "script.json"
+        generated = {"title": "test", "lines": [{"text": "line"}]}
+
+        with patch.object(
+            ArticleService,
+            "fetch_summaries_for_script",
+            return_value=[{"id": 1, "title": "existing", "summary": "summary", "importance_score": 5}],
+        ), patch("app.batch.radio_pipeline.summarize_articles", side_effect=RuntimeError("summary unavailable")), \
+             patch("app.batch.radio_pipeline.generate_script") as mock_generate, \
+             patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0}), \
+             patch("app.batch.radio_pipeline.synthesize_episode", return_value=1), \
+             patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "episode.mp3"}):
+            def write_script(path, **_kwargs):
+                script_path.parent.mkdir(parents=True, exist_ok=True)
+                script_path.write_text(json.dumps(generated), encoding="utf-8")
+                return 1
+
+            mock_generate.side_effect = write_script
+            result = run_radio_pipeline(
+                ep_id,
+                episode_date="2099-01-06",
+                summarize_provider="ollama",
+                content_provider="codex",
+                default_episodes_dir=str(tmp_path / "episodes"),
+                tts_base_url="http://tts",
+                tts_speaker_male=1,
+                tts_speaker_female=2,
+            )
+
+        assert result is not None
+        mock_generate.assert_called_once()
+        assert mock_generate.call_args.kwargs["llm_provider"] == "codex"
+        assert svc.get_episode(ep_id)["status"] == "completed"
+
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    def test_content_unavailable_does_not_skip_summary(self, mock_import, monkeypatch):
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.services.episode_service import EpisodeService
+        from app.config import get_settings
+
+        svc = EpisodeService()
+        ep_id = svc.create_episode("2099-01-07", status="generating")
+        summary_calls = []
+        monkeypatch.setenv("OLLAMA_MODEL", "summary-model")
+        get_settings.cache_clear()
+
+        def summarize(_path, **kwargs):
+            summary_calls.append(kwargs)
+            return 1
+
+        with patch("app.batch.radio_pipeline.summarize_articles", side_effect=summarize), \
+             patch("app.batch.radio_pipeline.generate_script") as mock_generate:
+            result = run_radio_pipeline(
+                ep_id,
+                episode_date="2099-01-07",
+                summarize_provider="ollama",
+                summarize_model=None,
+                content_provider="unsupported-provider",
+                content_model="content-model",
+            )
+
+        assert result is None
+        assert len(summary_calls) == 1
+        assert summary_calls[0]["llm_provider"] == "ollama"
+        assert summary_calls[0]["llm_model"] == "summary-model"
+        mock_generate.assert_not_called()
+        assert svc.get_episode(ep_id)["status"] == "failed"
+
     @pytest.mark.parametrize("line_count", [0, -1])
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
