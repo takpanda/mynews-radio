@@ -22,16 +22,35 @@ def _response(status_code: int, payload: dict) -> MagicMock:
     return response
 
 
+def _stream_response(status_code: int, *events: str) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    response.iter_lines.side_effect = lambda: iter(events)
+    stream = MagicMock()
+    stream.__enter__.return_value = response
+    return stream
+
+
+def _delta(text: str) -> str:
+    return f"data: {json.dumps({'type': 'response.output_text.delta', 'delta': text})}"
+
+
 def test_responses_request_extracts_json_without_response_format():
     client = CodexClient("https://chatgpt.com/backend-api/codex", "gpt-5.4", "access", "refresh")
-    response = _response(200, {"output": [{"content": [{"type": "output_text", "text": '{"ok": true}'}]}]})
+    stream_response = _stream_response(200, _delta('{"ok":'), _delta(" true}"), "data: [DONE]")
 
-    with patch("app.services.codex_client.httpx.Client.post", return_value=response) as post:
+    with patch("app.services.codex_client.httpx.Client.stream", return_value=stream_response) as stream:
         assert client.generate_json("summarize this") == {"ok": True}
 
-    payload = post.call_args.kwargs["json"]
+    payload = stream.call_args.kwargs["json"]
     assert payload["model"] == "gpt-5.4"
-    assert "JSON" in payload["input"]
+    assert isinstance(payload["input"], list)
+    assert payload["input"][0]["role"] == "user"
+    assert payload["input"][0]["content"][0]["type"] == "input_text"
+    input_text = payload["input"][0]["content"][0]["text"]
+    assert input_text.startswith("summarize this\n\n")
+    assert "JSON" in input_text
+    assert payload["stream"] is True
     assert "response_format" not in payload
 
 
@@ -40,9 +59,11 @@ def test_expiring_access_token_is_refreshed_and_rotated_token_is_used():
     new_access = _jwt(int(time.time()) + 3600)
     client = CodexClient("https://chatgpt.com/backend-api/codex", "gpt-5.4", old_access, "old-refresh")
     refresh = _response(200, {"access_token": new_access, "refresh_token": "new-refresh"})
-    generation = _response(200, {"output": [{"content": [{"text": '{"ok": true}'}]}]})
+    generation = _stream_response(200, _delta('{"ok": true}'))
 
-    with patch("app.services.codex_client.httpx.Client.post", side_effect=[refresh, generation]):
+    with patch("app.services.codex_client.httpx.Client.post", return_value=refresh), patch(
+        "app.services.codex_client.httpx.Client.stream", return_value=generation
+    ):
         assert client.generate_json("prompt") == {"ok": True}
 
     assert client._access_token == new_access
@@ -51,14 +72,17 @@ def test_expiring_access_token_is_refreshed_and_rotated_token_is_used():
 
 def test_401_refreshes_once_and_retries():
     client = CodexClient("https://chatgpt.com/backend-api/codex", "gpt-5.4", "access", "refresh")
-    unauthorized = _response(401, {})
+    unauthorized = _stream_response(401)
     refresh = _response(200, {"access_token": "new-access"})
-    generation = _response(200, {"output": [{"content": [{"text": '{"ok": true}'}]}]})
+    generation = _stream_response(200, _delta('{"ok": true}'))
 
-    with patch("app.services.codex_client.httpx.Client.post", side_effect=[unauthorized, refresh, generation]) as post:
+    with patch("app.services.codex_client.httpx.Client.post", return_value=refresh) as post, patch(
+        "app.services.codex_client.httpx.Client.stream", side_effect=[unauthorized, generation]
+    ) as stream:
         assert client.generate_json("prompt") == {"ok": True}
 
-    assert post.call_count == 3
+    assert post.call_count == 1
+    assert stream.call_count == 2
 
 
 def test_rotated_pair_is_reused_by_a_new_client_from_shared_store(tmp_path):
@@ -73,9 +97,11 @@ def test_rotated_pair_is_reused_by_a_new_client_from_shared_store(tmp_path):
         token_store_path=str(store_path),
     )
     refresh = _response(200, {"access_token": new_access, "refresh_token": "new-refresh"})
-    generation = _response(200, {"output": [{"content": [{"text": '{"ok": true}'}]}]})
+    generation = _stream_response(200, _delta('{"ok": true}'))
 
-    with patch("app.services.codex_client.httpx.Client.post", side_effect=[refresh, generation]):
+    with patch("app.services.codex_client.httpx.Client.post", return_value=refresh), patch(
+        "app.services.codex_client.httpx.Client.stream", return_value=generation
+    ):
         assert first_client.generate_json("prompt") == {"ok": True}
 
     second_client = CodexClient(
@@ -89,16 +115,16 @@ def test_rotated_pair_is_reused_by_a_new_client_from_shared_store(tmp_path):
     assert second_client._refresh_token == "new-refresh"
     assert os.stat(store_path).st_mode & 0o777 == 0o600
 
-    with patch("app.services.codex_client.httpx.Client.post", return_value=generation) as post:
+    with patch("app.services.codex_client.httpx.Client.stream", return_value=generation) as stream:
         assert second_client.generate_json("next phase") == {"ok": True}
-    assert post.call_count == 1
+    assert stream.call_count == 1
 
 
 def test_missing_credentials_does_not_make_request():
     client = CodexClient("https://chatgpt.com/backend-api/codex", "gpt-5.4", "", "")
-    with patch("app.services.codex_client.httpx.Client.post") as post:
+    with patch("app.services.codex_client.httpx.Client.stream") as stream:
         assert client.generate_json("prompt") is None
-    post.assert_not_called()
+    stream.assert_not_called()
 
 
 def test_codex_tokens_are_redacted_from_persistent_log_text(monkeypatch):
