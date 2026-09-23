@@ -186,7 +186,9 @@ class TestRunGenerationPipeline:
             _run_generation(ep_id, body)
 
         mock_import.assert_called_once()
-        assert svc.get_episode(ep_id)["status"] == "failed"
+        # フェーズ別設定では要約障害後もcontentフェーズへ進み、
+        # 要約根拠が無ければNO_CONTENTとしてエピソードを破棄する。
+        assert svc.get_episode(ep_id) is None
 
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     def test_guard_marks_failed_on_unexpected_exception_in_generate_script(self, mock_import):
@@ -419,8 +421,8 @@ class TestRunRadioPipelineCore:
         assert svc.get_episode(ep_id)["status"] == "failed"
 
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
-    def test_summarize_exception_sets_failed(self, mock_import):
-        from app.batch.radio_pipeline import run_radio_pipeline
+    def test_summarize_exception_continues_to_content(self, mock_import):
+        from app.batch.radio_pipeline import PipelineResult, run_radio_pipeline
         from app.services.episode_service import EpisodeService
 
         svc = EpisodeService()
@@ -428,8 +430,8 @@ class TestRunRadioPipelineCore:
         with patch("app.batch.radio_pipeline.summarize_articles", side_effect=RuntimeError("no ollama")):
             result = run_radio_pipeline(ep_id, episode_date="2099-01-02")
 
-        assert result is None
-        assert svc.get_episode(ep_id)["status"] == "failed"
+        assert result is PipelineResult.NO_CONTENT
+        assert svc.get_episode(ep_id) is None
 
     @pytest.mark.parametrize("line_count", [0, -1])
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))

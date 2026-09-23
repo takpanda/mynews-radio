@@ -153,6 +153,10 @@ def run_radio_pipeline(
     progress_callback: ProgressCallback = None,
     llm_provider: str | None = None,
     llm_model: str | None = None,
+    summarize_provider: str | None = None,
+    summarize_model: str | None = None,
+    content_provider: str | None = None,
+    content_model: str | None = None,
     generation_job_id: int | None = None,
 ) -> dict[str, Any] | PipelineResult | None:
     """Run the full radio generation pipeline for an episode.
@@ -163,8 +167,37 @@ def run_radio_pipeline(
     """
     service = EpisodeService()
     profile = program_settings or get_settings_or_default()
-    from app.services.llm_provider import validate_provider_model
-    llm = validate_provider_model(llm_provider, llm_model)
+    from app.services.llm_provider import (
+        resolve_pipeline_llm_selection,
+        validate_provider_model,
+    )
+    llm_selection = resolve_pipeline_llm_selection(
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        summarize_provider=summarize_provider,
+        summarize_model=summarize_model,
+        content_provider=content_provider,
+        content_model=content_model,
+    )
+
+    def _validate_phase_llm(provider: str | None, model: str | None, phase: str):
+        try:
+            return validate_provider_model(provider, model)
+        except Exception:
+            # Phase-specific configuration is intentionally isolated. A local
+            # summary backend failure must not prevent the content backend from
+            # being attempted, and vice versa.
+            if llm_selection.legacy_common:
+                raise
+            logger.warning("%s用LLMを利用できないため、そのフェーズを継続可能な形で処理します", phase, exc_info=True)
+            return None
+
+    summarize_llm = _validate_phase_llm(
+        llm_selection.summarize_provider, llm_selection.summarize_model, "要約"
+    )
+    content_llm = _validate_phase_llm(
+        llm_selection.content_provider, llm_selection.content_model, "台本・レビュー"
+    )
     profile_params = profile.generation_params()
     effective_max_articles = _resolve_max_articles(max_articles, profile_params)
     effective_min_score = profile_params["min_importance_score"]
@@ -224,8 +257,12 @@ def run_radio_pipeline(
         _progress("summarize", "記事を要約しています…")
         try:
             summaries_path = os.path.join(base_dir, "summaries.json")
+            if summarize_llm is None:
+                raise RuntimeError("summary LLM is unavailable")
             summarized = summarize_articles(
-                summaries_path, llm_provider=llm.name, llm_model=llm.model,
+                summaries_path,
+                llm_provider=summarize_llm.name,
+                llm_model=summarize_llm.model,
             )
             logger.info("summarize done: count=%d", summarized)
             if summarized == 0:
@@ -243,14 +280,34 @@ def run_radio_pipeline(
                 )
         except Exception:
             logger.exception("summarize failed")
-            _fail("summarize", "記事の要約に失敗しました")
-            return None
+            if llm_selection.legacy_common:
+                _fail("summarize", "記事の要約に失敗しました")
+                return None
+            # フェーズ別設定では、要約が落ちてもDBに残る既存要約を根拠に
+            # contentフェーズを続行する。完全に新規記事が無い場合は、
+            # generate_script側が0件として安全に終了する。
+            try:
+                summaries_path = os.path.join(base_dir, "summaries.json")
+                existing_summaries = ArticleService().fetch_summaries_for_script(
+                    max_articles=effective_max_articles,
+                    min_importance_score=effective_min_score,
+                    source=news_source,
+                    priority_themes=profile.priority_themes,
+                    excluded_themes=profile.excluded_themes,
+                )
+                write_fallback_summaries(summaries_path, existing_summaries)
+                logger.warning("要約LLM障害後、既存要約%d件でcontentフェーズを継続します", len(existing_summaries))
+            except Exception:
+                logger.exception("fallback summaries failed")
 
         # -- GENERATE SCRIPT --
         old_max = os.environ.get("MAX_SCRIPT_ARTICLES")
         os.environ["MAX_SCRIPT_ARTICLES"] = str(effective_max_articles)
         try:
             _progress("generate_script", "台本を生成しています…")
+            if content_llm is None:
+                _fail("generate_script", "台本生成用LLMを利用できません")
+                return None
             script_path = os.path.join(base_dir, "script.json")
             script_kwargs = dict(
                 program_name=effective_program_name,
@@ -259,7 +316,7 @@ def run_radio_pipeline(
                 max_articles=effective_max_articles,
                 min_importance_score=effective_min_score,
             )
-            script_kwargs.update(llm_provider=llm.name, llm_model=llm.model)
+            script_kwargs.update(llm_provider=content_llm.name, llm_model=content_llm.model)
             line_count = generate_script(script_path, **script_kwargs)
         finally:
             if old_max is None:
@@ -311,13 +368,16 @@ def run_radio_pipeline(
             reviewed_episode_dir = os.path.join(base_dir, "review")
             Path(reviewed_episode_dir).mkdir(parents=True, exist_ok=True)
             Path(os.path.join(reviewed_episode_dir, "lines")).mkdir(exist_ok=True)
-            review_result = review_script(
-                script_path, reviewed_episode_dir,
-                program_name=effective_program_name,
-                commentary=False,
-                llm_provider=llm.name, llm_model=llm.model,
-                summaries_path=summaries_path,
-            )
+            if content_llm is not None:
+                review_result = review_script(
+                    script_path, reviewed_episode_dir,
+                    program_name=effective_program_name,
+                    commentary=False,
+                    llm_provider=content_llm.name, llm_model=content_llm.model,
+                    summaries_path=summaries_path,
+                )
+            else:
+                logger.warning("review skipped because content LLM is unavailable")
             logger.info(
                 "review_script: revised=%s review_count=%d",
                 review_result["revised"],
@@ -416,8 +476,14 @@ def run_radio_pipeline(
         # Keep the exact profile used for this episode available to the result
         # display.  Do not expose the SQLite representation to consumers.
         ep_metadata["applied_settings"] = profile.to_dict()
-        ep_metadata["llm_provider"] = llm.name
-        ep_metadata["llm_model"] = llm.model
+        # 既存のメタデータ項目はcontentフェーズを代表値として維持し、
+        # フェーズ別の実設定も追加する。
+        ep_metadata["llm_provider"] = content_llm.name if content_llm else None
+        ep_metadata["llm_model"] = content_llm.model if content_llm else None
+        ep_metadata["summarize_llm_provider"] = summarize_llm.name if summarize_llm else None
+        ep_metadata["summarize_llm_model"] = summarize_llm.model if summarize_llm else None
+        ep_metadata["content_llm_provider"] = content_llm.name if content_llm else None
+        ep_metadata["content_llm_model"] = content_llm.model if content_llm else None
         with open(os.path.join(base_dir, "metadata.json"), "w", encoding="utf-8") as f:
             json.dump(ep_metadata, f, ensure_ascii=False, indent=2)
 
