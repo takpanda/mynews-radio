@@ -359,7 +359,7 @@ function parseErrorCode(body: string): string | undefined {
   return undefined
 }
 
-export async function generateEpisode(date: string, maxArticles = 5, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', recreateSummary = false, url?: string, style?: 'solo' | 'dialogue', mcGender?: 'male' | 'female', settingsSnapshot?: ProgramSettings, idempotencyKey?: string, llmProvider?: string, llmModel?: string): Promise<GenerateResponse> {
+export async function generateEpisode(date: string, maxArticles = 5, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', recreateSummary = false, url?: string, style?: 'solo' | 'dialogue', mcGender?: 'male' | 'female', settingsSnapshot?: ProgramSettings, idempotencyKey?: string, llmProvider?: string, llmModel?: string, summarizeProvider?: string, summarizeModel?: string, contentProvider?: string, contentModel?: string): Promise<GenerateResponse> {
   const res = await fetch('/api/generate', {
     method: 'POST',
     headers: {
@@ -377,6 +377,8 @@ export async function generateEpisode(date: string, maxArticles = 5, newsSource 
       ...(style === 'solo' && mcGender ? { mc_gender: mcGender } : {}),
       ...(settingsSnapshot ? { settings_snapshot: settingsSnapshot } : {}),
       ...(llmProvider && llmModel ? { llm_provider: llmProvider, llm_model: llmModel } : {}),
+      ...(summarizeProvider && summarizeModel ? { summarize_provider: summarizeProvider, summarize_model: summarizeModel } : {}),
+      ...(contentProvider && contentModel ? { content_provider: contentProvider, content_model: contentModel } : {}),
     }),
   })
   if (!res.ok) {

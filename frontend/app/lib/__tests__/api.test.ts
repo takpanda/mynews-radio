@@ -131,6 +131,55 @@ describe('generateEpisode settings snapshot', () => {
     expect(request).not.toHaveProperty('llm_model')
     global.fetch = previousFetch
   })
+
+  it('選択した要約用/コンテンツ用のLLMプロバイダーとモデルを生成payloadへ含める', async () => {
+    const previousFetch = global.fetch
+    const fetchMock = jest.fn().mockResolvedValue(
+      { ok: true, json: async () => ({ episode_id: 12 }) },
+    )
+    global.fetch = fetchMock as typeof fetch
+    await generateEpisode(
+      '2026-07-25', 6, 'hatena_bookmark', 'aivispeech', false,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined,
+      'ollama', 'qwen3:8b',
+      'lm_studio', 'local-model',
+    )
+
+    const request = JSON.parse((fetchMock.mock.calls[0][1]?.body as string))
+    expect(request.summarize_provider).toBe('ollama')
+    expect(request.summarize_model).toBe('qwen3:8b')
+    expect(request.content_provider).toBe('lm_studio')
+    expect(request.content_model).toBe('local-model')
+    global.fetch = previousFetch
+  })
+
+  it.each([
+    ['要約用プロバイダーのみ', 'ollama', undefined, undefined, undefined],
+    ['要約用モデルのみ', undefined, 'qwen3:8b', undefined, undefined],
+    ['コンテンツ用プロバイダーのみ', undefined, undefined, 'lm_studio', undefined],
+    ['コンテンツ用モデルのみ', undefined, undefined, undefined, 'local-model'],
+  ])('%s指定では該当フェーズのLLM項目を送らない', async (_label, summarizeProvider, summarizeModel, contentProvider, contentModel) => {
+    const previousFetch = global.fetch
+    const fetchMock = jest.fn().mockResolvedValue(
+      { ok: true, json: async () => ({ episode_id: 12 }) },
+    )
+    global.fetch = fetchMock as typeof fetch
+    await generateEpisode(
+      '2026-07-25', 6, 'hatena_bookmark', 'aivispeech', false,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined,
+      summarizeProvider, summarizeModel,
+      contentProvider, contentModel,
+    )
+
+    const request = JSON.parse((fetchMock.mock.calls[0][1]?.body as string))
+    expect(request).not.toHaveProperty('summarize_provider')
+    expect(request).not.toHaveProperty('summarize_model')
+    expect(request).not.toHaveProperty('content_provider')
+    expect(request).not.toHaveProperty('content_model')
+    global.fetch = previousFetch
+  })
 })
 
 describe('生成制御エラー', () => {
