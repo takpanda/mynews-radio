@@ -38,6 +38,7 @@ class ProviderConfig:
     access_token: str = ""
     refresh_token: str = ""
     api_timeout: float = 600.0
+    token_store_path: str = "data/codex_tokens.json"
 
 
 def provider_configs() -> dict[str, ProviderConfig]:
@@ -54,6 +55,7 @@ def provider_configs() -> dict[str, ProviderConfig]:
             access_token=s.codex_access_token,
             refresh_token=s.codex_refresh_token,
             api_timeout=s.codex_api_timeout,
+            token_store_path=s.codex_token_store_path,
         ),
     }
 
@@ -122,6 +124,7 @@ def validate_provider_model(
             config.access_token,
             config.refresh_token,
             config.api_timeout,
+            config.token_store_path,
         )
     # A configured default is an explicit server-side allow-list entry. For a
     # request override, require a successful discovery result (or a recent

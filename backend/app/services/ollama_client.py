@@ -493,6 +493,7 @@ def create_llm_client(provider: str | None = None, model: str | None = None):
             config.access_token,
             config.refresh_token,
             timeout=config.api_timeout,
+            token_store_path=config.token_store_path,
         )
     return (
         OllamaClient(config.base_url, config.model)

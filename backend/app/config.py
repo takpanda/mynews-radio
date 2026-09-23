@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     codex_access_token: str = ""
     codex_refresh_token: str = ""
     codex_api_timeout: float = 600.0
+    codex_token_store_path: str = "data/codex_tokens.json"
     llm_provider: str = "ollama"
     llm_connect_timeout: float = 2.0
     llm_response_timeout: float = 5.0

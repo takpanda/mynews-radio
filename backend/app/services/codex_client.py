@@ -12,6 +12,7 @@ from typing import Any, Optional
 import httpx
 
 from app.services.llm_call_log_service import record_llm_call
+from app.services.codex_token_store import CodexTokenStore
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +46,8 @@ def _jwt_claims(token: str) -> dict[str, Any]:
 class CodexClient:
     """ChatGPT Plus/Pro の Codex OAuth を使う Responses API クライアント。
 
-    refresh後のトークンはこのクライアントインスタンスのメモリにだけ保持する。
-    永続化は起動時envの責務とし、既存のAPI/cronプロセス間で共有しない。
+    OAuth token pairは共有storeから読み込み、refresh後は原子的にstoreへ保存する。
+    APIとcronは同じ``/app/data`` volume上のstoreを参照する。
     """
 
     def __init__(
@@ -56,6 +57,7 @@ class CodexClient:
         access_token: str,
         refresh_token: str,
         timeout: float = 600.0,
+        token_store_path: str | None = None,
     ):
         self._base_url = base_url.rstrip("/")
         self._model = model
@@ -65,6 +67,38 @@ class CodexClient:
         self._provider = "codex"
         self._client: Optional[httpx.Client] = None
         self._refresh_lock = threading.Lock()
+        self._token_store = CodexTokenStore(token_store_path) if token_store_path else None
+        self._load_canonical_tokens()
+
+    def _load_canonical_tokens(self) -> None:
+        if self._token_store is None:
+            return
+        try:
+            tokens = self._token_store.load_or_initialize(self._access_token, self._refresh_token)
+        except Exception:
+            logger.warning("Codex token store could not be read")
+            return
+        if tokens:
+            self._set_tokens(tokens["access_token"], tokens["refresh_token"])
+
+    def _adopt_canonical_tokens(self) -> None:
+        if self._token_store is None:
+            return
+        try:
+            tokens = self._token_store.read()
+        except Exception:
+            logger.warning("Codex token store could not be read")
+            return
+        if tokens and (
+            tokens["access_token"] != self._access_token
+            or tokens["refresh_token"] != self._refresh_token
+        ):
+            self._set_tokens(tokens["access_token"], tokens["refresh_token"])
+
+    def _set_tokens(self, access_token: str, refresh_token: str) -> None:
+        self._access_token = access_token.strip()
+        self._refresh_token = refresh_token.strip()
+        self._sync_request_headers()
 
     @property
     def client(self) -> httpx.Client:
@@ -115,34 +149,49 @@ class CodexClient:
             return False
         with self._refresh_lock:
             try:
-                with httpx.Client(timeout=httpx.Timeout(self._timeout)) as refresh_client:
-                    response = refresh_client.post(
-                        CODEX_OAUTH_TOKEN_URL,
-                        headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"},
-                        data={
-                            "grant_type": "refresh_token",
-                            "refresh_token": self._refresh_token,
-                            "client_id": CODEX_OAUTH_CLIENT_ID,
-                        },
-                    )
-                if response.status_code != 200:
-                    logger.warning("Codex OAuth refresh failed (status=%d)", response.status_code)
-                    return False
-                payload = response.json()
-                next_access = payload.get("access_token") if isinstance(payload, dict) else None
-                if not isinstance(next_access, str) or not next_access.strip():
-                    logger.warning("Codex OAuth refresh returned no access token")
-                    return False
-                next_refresh = payload.get("refresh_token") if isinstance(payload, dict) else None
-                self._access_token = next_access.strip()
-                if isinstance(next_refresh, str) and next_refresh.strip():
-                    self._refresh_token = next_refresh.strip()
-                self._sync_request_headers()
-                return True
+                if self._token_store is not None:
+                    with self._token_store.locked() as stored:
+                        # Another process may have rotated the pair while this
+                        # client was alive. Adopt it instead of replaying the
+                        # now-invalid refresh token.
+                        if stored and (
+                            stored["access_token"] != self._access_token
+                            or stored["refresh_token"] != self._refresh_token
+                        ):
+                            self._set_tokens(stored["access_token"], stored["refresh_token"])
+                            return True
+                        return self._refresh_and_persist_unlocked()
+                return self._refresh_and_persist_unlocked()
             except Exception:
                 # 認証情報やレスポンス本文を例外メッセージへ出さない。
                 logger.warning("Codex OAuth refresh failed")
                 return False
+
+    def _refresh_and_persist_unlocked(self) -> bool:
+        with httpx.Client(timeout=httpx.Timeout(self._timeout)) as refresh_client:
+            response = refresh_client.post(
+                CODEX_OAUTH_TOKEN_URL,
+                headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"},
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": self._refresh_token,
+                    "client_id": CODEX_OAUTH_CLIENT_ID,
+                },
+            )
+        if response.status_code != 200:
+            logger.warning("Codex OAuth refresh failed (status=%d)", response.status_code)
+            return False
+        payload = response.json()
+        next_access = payload.get("access_token") if isinstance(payload, dict) else None
+        if not isinstance(next_access, str) or not next_access.strip():
+            logger.warning("Codex OAuth refresh returned no access token")
+            return False
+        next_refresh = payload.get("refresh_token") if isinstance(payload, dict) else None
+        next_refresh = next_refresh.strip() if isinstance(next_refresh, str) and next_refresh.strip() else self._refresh_token
+        self._set_tokens(next_access, next_refresh)
+        if self._token_store is not None:
+            self._token_store.write_unlocked(self._access_token, self._refresh_token)
+        return True
 
     @staticmethod
     def _response_text(data: Any) -> str:
@@ -163,6 +212,7 @@ class CodexClient:
 
     def generate_json(self, prompt: str) -> Optional[dict[str, Any]]:
         started = time.monotonic()
+        self._adopt_canonical_tokens()
         if not self._access_token:
             logger.error("Codex request skipped because credentials are not configured")
             _record_llm_call(self, attempt=1, status="error", prompt_text=prompt, latency_ms=0)
