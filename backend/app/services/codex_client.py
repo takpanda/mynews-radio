@@ -194,21 +194,29 @@ class CodexClient:
         return True
 
     @staticmethod
-    def _response_text(data: Any) -> str:
+    def _response_text(response: httpx.Response) -> str:
+        """Responses APIのSSEストリームから出力テキストを組み立てる。"""
         chunks: list[str] = []
-        output = data.get("output", []) if isinstance(data, dict) else []
-        if isinstance(output, list):
-            for item in output:
-                content = item.get("content", []) if isinstance(item, dict) else []
-                if not isinstance(content, list):
-                    continue
-                for part in content:
-                    if isinstance(part, dict) and isinstance(part.get("text"), str):
-                        chunks.append(part["text"])
-        if chunks:
-            return "".join(chunks)
-        # Hosted Responses implementations may expose the same text as a convenience field.
-        return data.get("output_text", "") if isinstance(data, dict) and isinstance(data.get("output_text"), str) else ""
+        for line in response.iter_lines():
+            if isinstance(line, bytes):
+                line = line.decode("utf-8", errors="replace")
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].lstrip()
+            if not data or data == "[DONE]":
+                continue
+            try:
+                event = json.loads(data)
+            except json.JSONDecodeError:
+                logger.warning("Codex Responses stream contained invalid SSE data")
+                continue
+            if (
+                isinstance(event, dict)
+                and event.get("type") == "response.output_text.delta"
+                and isinstance(event.get("delta"), str)
+            ):
+                chunks.append(event["delta"])
+        return "".join(chunks)
 
     def generate_json(self, prompt: str) -> Optional[dict[str, Any]]:
         started = time.monotonic()
@@ -224,13 +232,23 @@ class CodexClient:
         payload = {
             "model": self._model,
             "instructions": JSON_INSTRUCTION,
-            "input": f"{prompt}\n\n{JSON_INSTRUCTION}",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": f"{prompt}\n\n{JSON_INSTRUCTION}"}
+                    ],
+                }
+            ],
             "store": False,
+            "stream": True,
         }
         attempt = 1
         try:
-            response = self.client.post("/responses", json=payload)
-            if response.status_code == 401:
+            with self.client.stream("POST", "/responses", json=payload) as response:
+                response_status = response.status_code
+                raw = self._response_text(response) if response_status < 400 else ""
+            if response_status == 401:
                 _record_llm_call(
                     self,
                     attempt=1,
@@ -243,13 +261,14 @@ class CodexClient:
                                      latency_ms=int((time.monotonic() - started) * 1000))
                     return None
                 attempt = 2
-                response = self.client.post("/responses", json=payload)
-            if response.status_code >= 400:
+                with self.client.stream("POST", "/responses", json=payload) as response:
+                    response_status = response.status_code
+                    raw = self._response_text(response) if response_status < 400 else ""
+            if response_status >= 400:
                 _record_llm_call(self, attempt=attempt, status="error",
                                  prompt_text=prompt, latency_ms=int((time.monotonic() - started) * 1000))
                 return None
 
-            raw = self._response_text(response.json())
             from app.services.ollama_client import OllamaClient
 
             # 既存クライアントのJSON抽出・パース規則（コードフェンス、埋め込みJSON、
@@ -273,7 +292,7 @@ class CodexClient:
             # トークン・レスポンス本文・URLをログへ出さず、既存生成フローへはNoneで返す。
             logger.error("Codex Responses request failed")
             _record_llm_call(
-                self, attempt=1, status="error", prompt_text=prompt,
+                self, attempt=attempt, status="error", prompt_text=prompt,
                 latency_ms=int((time.monotonic() - started) * 1000),
             )
             return None
