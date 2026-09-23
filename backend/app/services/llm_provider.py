@@ -102,9 +102,22 @@ def resolve_pipeline_llm_selection(
         default_content_provider = settings.content_llm_provider or "codex"
         default_content_model = settings.content_llm_model or None
 
+    selected_summarize_provider = summarize_provider or default_summarize_provider
+    selected_summarize_model = summarize_model or default_summarize_model
+    # `.env.example` keeps the vLLM provider visible for deployments that use
+    # it, but leaves its model empty so local setup does not require vLLM.
+    # Do not select an unusable vLLM configuration; use the local provider
+    # until either VLLM_MODEL or a phase-specific model is configured.
+    if (
+        selected_summarize_provider == "vllm"
+        and not selected_summarize_model
+        and not settings.vllm_model
+    ):
+        selected_summarize_provider = "ollama"
+
     return PipelineLlmSelection(
-        summarize_provider=summarize_provider or default_summarize_provider,
-        summarize_model=summarize_model or default_summarize_model,
+        summarize_provider=selected_summarize_provider,
+        summarize_model=selected_summarize_model,
         content_provider=content_provider or default_content_provider,
         content_model=content_model or default_content_model,
         legacy_common=legacy_common,

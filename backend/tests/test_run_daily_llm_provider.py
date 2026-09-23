@@ -65,10 +65,12 @@ def test_radio_pipeline_separates_summary_and_content_llm(monkeypatch, tmp_path)
     from app.services.episode_service import EpisodeService
     from app.config import get_settings
 
-    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    # `.env.example`相当: vLLM providerは指定されるが、モデルは未設定。
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.delenv("LLM_MODEL", raising=False)
-    monkeypatch.setenv("SUMMARIZE_LLM_PROVIDER", "ollama")
-    monkeypatch.setenv("SUMMARIZE_LLM_MODEL", "summary-model")
+    monkeypatch.setenv("SUMMARIZE_LLM_PROVIDER", "vllm")
+    monkeypatch.delenv("SUMMARIZE_LLM_MODEL", raising=False)
+    monkeypatch.delenv("VLLM_MODEL", raising=False)
     monkeypatch.setenv("CONTENT_LLM_PROVIDER", "codex")
     monkeypatch.setenv("CONTENT_LLM_MODEL", "content-model")
     monkeypatch.setenv("OLLAMA_MODEL", "summary-model")
@@ -114,3 +116,27 @@ def test_radio_pipeline_separates_summary_and_content_llm(monkeypatch, tmp_path)
         ("generate_script", "codex", "content-model"),
         ("review", "codex", "content-model"),
     ]
+
+
+def test_env_example_vllm_without_model_resolves_to_executable_ollama(monkeypatch):
+    from app.config import get_settings
+    from app.services.llm_provider import (
+        resolve_pipeline_llm_selection,
+        validate_provider_model,
+    )
+
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.setenv("SUMMARIZE_LLM_PROVIDER", "vllm")
+    monkeypatch.delenv("SUMMARIZE_LLM_MODEL", raising=False)
+    monkeypatch.delenv("VLLM_MODEL", raising=False)
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen3.6:27b")
+    get_settings.cache_clear()
+
+    selection = resolve_pipeline_llm_selection()
+    config = validate_provider_model(selection.summarize_provider, selection.summarize_model)
+
+    assert selection.summarize_provider == "ollama"
+    assert selection.summarize_model is None
+    assert config.name == "ollama"
+    assert config.model == "qwen3.6:27b"
