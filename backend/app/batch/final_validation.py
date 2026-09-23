@@ -485,15 +485,9 @@ def validate_final_script(
     warnings.extend(recurrence_issues)
 
     review_result = prior_review_result or {}
-    critical.extend(
-        _issue("DIRECT_ANSWER_MISSING", message)
-        for message in review_result.get("question_response_issues", [])
-        if "DIRECT_ANSWER_MISSING" in str(message)
-    )
-    critical.extend(
-        _issue("TRANSITION_INTEGRITY", message)
-        for message in review_result.get("transition_integrity_issues", [])
-    )
+    # question/transition findings are snapshots from an earlier script. The
+    # checks above rerun against repaired_lines, so carrying those findings
+    # forward would keep a corrected script blocked for a stale error.
     warnings.extend(
         _issue("DIALOGUE_BALANCE", message)
         for message in review_result.get("dialogue_balance_issues", [])
@@ -583,21 +577,19 @@ def validate_final_script_file(
         prior_review_result=prior_review_result,
     )
     if isinstance(script, dict):
-        for recorded_issue in script.get("discussion_layout_issues", []) or []:
-            if not isinstance(recorded_issue, dict):
-                continue
-            result["critical_issues"].append(
-                _issue(
-                    str(recorded_issue.get("code", "DISCUSSION_LAYOUT")),
-                    str(recorded_issue.get("message", "discussionの構造を保証できません")),
-                )
-            )
-            result["can_synthesize"] = False
         if not result["can_synthesize"]:
             result["status"] = HUMAN_REVIEW_PHASE
-    if result["repairs"]:
+    if result["repairs"] or (
+        isinstance(script, dict)
+        and script.get("discussion_layout_issues")
+        and result["can_synthesize"]
+    ):
         repaired_script = dict(script)
         repaired_script["lines"] = result["lines"]
+        # Generation-time layout findings are also snapshots. Once the current
+        # lines pass final validation, remove the obsolete diagnostic metadata.
+        if result["can_synthesize"]:
+            repaired_script.pop("discussion_layout_issues", None)
         path.write_text(json.dumps(repaired_script, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     _write_report(result, output_dir or str(path.parent))
     return result
