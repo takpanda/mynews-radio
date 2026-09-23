@@ -70,12 +70,25 @@ def resolve_pipeline_llm_selection(
         )
         or settings.content_llm_model is not None
     )
-    phase_overrides = summarize_override or content_override
-    # A phase-specific setting wins over a legacy environment setting. The
-    # strict legacy flag is kept only for the exact old common-selection path.
-    legacy_common = legacy_requested and not phase_overrides
+    # Explicit request arguments are the legacy common-selection contract. They
+    # must remain authoritative even when the process environment also carries
+    # phase-specific defaults (for example, the values in .env.example).
+    explicit_common_request = llm_provider is not None or llm_model is not None
+    legacy_common = explicit_common_request and not (
+        summarize_provider is not None
+        or summarize_model is not None
+        or content_provider is not None
+        or content_model is not None
+    )
 
-    if legacy_requested:
+    if explicit_common_request:
+        legacy_provider = llm_provider or os.environ.get("LLM_PROVIDER") or settings.llm_provider
+        legacy_model = llm_model or os.environ.get("LLM_MODEL") or None
+        default_summarize_provider = legacy_provider
+        default_summarize_model = legacy_model
+        default_content_provider = legacy_provider
+        default_content_model = legacy_model
+    elif legacy_requested:
         legacy_provider = llm_provider or os.environ.get("LLM_PROVIDER") or settings.llm_provider
         legacy_model = llm_model or os.environ.get("LLM_MODEL") or None
         default_summarize_provider = (
