@@ -57,6 +57,35 @@ def test_record_llm_call_writes_db_and_episode_jsonl_without_secret(tmp_path, mo
     assert item["response_text"] == '{"ok": true}'
 
 
+def test_phase_specific_provider_and_model_are_persisted_in_db():
+    """実際のログphase名（summarize/arc/script/review）で分離結果を確認する。"""
+    episode_id = _episode()
+    summary_client = OllamaClient("http://ollama.local", "summary-model")
+    content_client = OpenAICompatibleClient(
+        "http://codex.local", "content-model", provider="codex"
+    )
+
+    set_llm_context(summary_client, phase="summarize", episode_id=episode_id)
+    record_llm_call(summary_client, attempt=1, status="success", prompt_text="summary")
+    for phase in ("arc", "script", "review"):
+        set_llm_context(content_client, phase=phase, episode_id=episode_id)
+        record_llm_call(content_client, attempt=1, status="success", prompt_text=phase)
+
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT phase, provider, model FROM llm_call_logs "
+            "WHERE episode_id = ? ORDER BY id",
+            (episode_id,),
+        ).fetchall()
+
+    assert [(row["phase"], row["provider"], row["model"]) for row in rows] == [
+        ("summarize", "ollama", "summary-model"),
+        ("arc", "codex", "content-model"),
+        ("script", "codex", "content-model"),
+        ("review", "codex", "content-model"),
+    ]
+
+
 def test_standalone_call_keeps_episode_null_and_does_not_create_jsonl(tmp_path, monkeypatch):
     monkeypatch.setenv("EPISODES_DIR", str(tmp_path / "custom-episodes"))
     client = OllamaClient("http://ollama.local", "model")

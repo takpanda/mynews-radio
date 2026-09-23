@@ -16,6 +16,56 @@ def _run_daily_job_for_test(date: str, episode_id: int = 99, **payload):
 
 
 class TestGenerateEndpoint:
+    def test_post_generate_legacy_common_llm_selection_overrides_phase_defaults(self, client, monkeypatch):
+        """POST /generateの旧共通指定は.env.exampleのphase既定値より優先される。"""
+        from app.api import generate as generate_api
+        from app.config import get_settings
+        from app.services.llm_provider import resolve_pipeline_llm_selection
+
+        monkeypatch.setenv("LLM_PROVIDER", "ollama")
+        monkeypatch.setenv("SUMMARIZE_LLM_PROVIDER", "vllm")
+        monkeypatch.delenv("SUMMARIZE_LLM_MODEL", raising=False)
+        monkeypatch.delenv("VLLM_MODEL", raising=False)
+        monkeypatch.setenv("CONTENT_LLM_PROVIDER", "codex")
+        monkeypatch.setenv("CONTENT_LLM_MODEL", "content-model")
+        monkeypatch.setenv("OLLAMA_MODEL", "legacy-model")
+        get_settings.cache_clear()
+
+        # 実LLMを起動せず、POSTからworkerへ渡る値を受け取って解決結果を検証する。
+        with patch("app.api.generate._run_generation") as mock_generation:
+            response = client.post(
+                "/generate",
+                json={
+                    "date": "2099-08-05",
+                    "llm_provider": "ollama",
+                    "llm_model": "legacy-model",
+                },
+            )
+
+            deadline = time.monotonic() + 2
+            while not mock_generation.called and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+        assert response.status_code == 200
+        assert mock_generation.called
+        body = mock_generation.call_args.args[1]
+        selection = resolve_pipeline_llm_selection(
+            llm_provider=body.llm_provider,
+            llm_model=body.llm_model,
+            summarize_provider=body.summarize_provider,
+            summarize_model=body.summarize_model,
+            content_provider=body.content_provider,
+            content_model=body.content_model,
+        )
+        assert [("summarize", selection.summarize_provider, selection.summarize_model),
+                ("generate_script", selection.content_provider, selection.content_model),
+                ("review", selection.content_provider, selection.content_model)] == [
+            ("summarize", "ollama", "legacy-model"),
+            ("generate_script", "ollama", "legacy-model"),
+            ("review", "ollama", "legacy-model"),
+        ]
+        get_settings.cache_clear()
+
     @pytest.mark.parametrize(
         ("code", "status_code"),
         [
