@@ -40,10 +40,22 @@ def sanitize_llm_text(value: Any) -> str:
             settings.api_key,
             settings.lm_studio_api_key,
             settings.vllm_api_key,
+            settings.codex_access_token,
+            settings.codex_refresh_token,
             settings.telegram_bot_token,
         ):
             if secret:
                 text = text.replace(secret, "[REDACTED]")
+        # refresh token rotation may make the canonical store newer than the
+        # startup environment. Include the current pair in the redaction set.
+        store_path = Path(settings.codex_token_store_path)
+        if store_path.is_file():
+            from app.services.codex_token_store import CodexTokenStore
+
+            stored_tokens = CodexTokenStore(str(store_path)).read() or {}
+            for secret in (stored_tokens.get("access_token"), stored_tokens.get("refresh_token")):
+                if secret:
+                    text = text.replace(secret, "[REDACTED]")
     except Exception:
         # 設定取得失敗時も、パターンベースのマスクは継続する。
         pass

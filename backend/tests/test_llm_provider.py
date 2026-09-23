@@ -32,6 +32,22 @@ def test_configured_model_is_allowed_when_provider_unreachable(monkeypatch):
     assert result.model == "configured-model"
 
 
+def test_responses_provider_accepts_model_override_without_discovery(monkeypatch):
+    _configs(monkeypatch)
+    codex = ProviderConfig(
+        "codex", "https://chatgpt.com/backend-api/codex", "gpt-5.4",
+        responses_api=True, access_token="access", refresh_token="refresh",
+    )
+    monkeypatch.setattr(llm_provider, "provider_configs", lambda: {"codex": codex})
+    monkeypatch.setattr(llm_provider, "_fetch", lambda _config: (_ for _ in ()).throw(
+        AssertionError("Codex must not use /v1/models discovery")
+    ))
+
+    result = llm_provider.validate_provider_model("codex", "gpt-5.3-codex", preflight=True)
+
+    assert result.model == "gpt-5.3-codex"
+
+
 def test_discovered_override_is_allowed(monkeypatch):
     _configs(monkeypatch)
     monkeypatch.setattr(llm_provider, "_fetch", lambda config: asyncio.sleep(0, result={
