@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     vllm_base_url: str = "http://127.0.0.1:8000"
     vllm_model: str = ""
     vllm_api_key: str = ""
+    codex_base_url: str = "https://chatgpt.com/backend-api/codex"
+    codex_model: str = "gpt-5.4"
+    codex_access_token: str = ""
+    codex_refresh_token: str = ""
+    codex_api_timeout: float = 600.0
     llm_provider: str = "ollama"
     llm_connect_timeout: float = 2.0
     llm_response_timeout: float = 5.0

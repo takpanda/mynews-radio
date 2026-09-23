@@ -484,6 +484,16 @@ class OpenAICompatibleClient:
 def create_llm_client(provider: str | None = None, model: str | None = None):
     from app.services.llm_provider import validate_provider_model
     config = validate_provider_model(provider, model)
+    if config.responses_api:
+        from app.services.codex_client import CodexClient
+
+        return CodexClient(
+            config.base_url,
+            config.model,
+            config.access_token,
+            config.refresh_token,
+            timeout=config.api_timeout,
+        )
     return (
         OllamaClient(config.base_url, config.model)
         if config.native

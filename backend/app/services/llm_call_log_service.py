@@ -40,6 +40,8 @@ def sanitize_llm_text(value: Any) -> str:
             settings.api_key,
             settings.lm_studio_api_key,
             settings.vllm_api_key,
+            settings.codex_access_token,
+            settings.codex_refresh_token,
             settings.telegram_bot_token,
         ):
             if secret:

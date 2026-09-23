@@ -14,7 +14,7 @@ import httpx
 
 from app.config import get_settings
 
-PROVIDERS = ("ollama", "lm_studio", "vllm")
+PROVIDERS = ("ollama", "lm_studio", "vllm", "codex")
 
 
 class LlmProviderValidationError(ValueError):
@@ -34,6 +34,10 @@ class ProviderConfig:
     model: str
     native: bool = False
     api_key: str = ""
+    responses_api: bool = False
+    access_token: str = ""
+    refresh_token: str = ""
+    api_timeout: float = 600.0
 
 
 def provider_configs() -> dict[str, ProviderConfig]:
@@ -42,6 +46,15 @@ def provider_configs() -> dict[str, ProviderConfig]:
         "ollama": ProviderConfig("ollama", s.ollama_base_url, s.ollama_model, True),
         "lm_studio": ProviderConfig("lm_studio", s.lm_studio_base_url, s.lm_studio_model, False, s.lm_studio_api_key),
         "vllm": ProviderConfig("vllm", s.vllm_base_url, s.vllm_model, False, s.vllm_api_key),
+        "codex": ProviderConfig(
+            "codex",
+            s.codex_base_url,
+            s.codex_model,
+            responses_api=True,
+            access_token=s.codex_access_token,
+            refresh_token=s.codex_refresh_token,
+            api_timeout=s.codex_api_timeout,
+        ),
     }
 
 
@@ -95,6 +108,21 @@ def validate_provider_model(
 
     if not selected:
         raise ValueError("llm model is not configured")
+    # Codex exposes the Responses API but not the OpenAI-compatible
+    # /v1/models endpoint. Model overrides are therefore accepted without
+    # discovery, just like the configured default.
+    if config.responses_api:
+        return ProviderConfig(
+            config.name,
+            config.base_url,
+            selected,
+            config.native,
+            config.api_key,
+            config.responses_api,
+            config.access_token,
+            config.refresh_token,
+            config.api_timeout,
+        )
     # A configured default is an explicit server-side allow-list entry. For a
     # request override, require a successful discovery result (or a recent
     # successful result kept for stale operation) before accepting it.
@@ -154,6 +182,13 @@ def _timeout() -> httpx.Timeout:
 
 async def _fetch(config: ProviderConfig) -> dict[str, Any]:
     try:
+        if config.responses_api:
+            return {
+                "provider": config.name,
+                "models": [config.model] if config.model else [],
+                "available": bool(config.access_token and config.model),
+                "error_code": "connection_failed" if not config.access_token else None,
+            }
         headers = {"Authorization": f"Bearer {config.api_key}"} if config.api_key else {}
         async with httpx.AsyncClient(base_url=config.base_url.rstrip("/"), timeout=_timeout(), headers=headers) as client:
             if config.native:
