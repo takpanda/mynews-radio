@@ -39,6 +39,86 @@ def test_final_validation_passes_without_warnings():
     assert result["critical_issues"] == []
 
 
+def test_final_validation_clears_stale_transition_critical_after_script_was_repaired(tmp_path):
+    """ep543: review snapshotで壊れていたtransitionが修正済みなら最終判定を通す。"""
+    from app.batch.final_validation import validate_final_script_file
+
+    script_path = tmp_path / "script.json"
+    script_path.write_text(
+        json.dumps({"lines": _valid_lines()}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    prior_review_result = {
+        "transition_integrity_issues": [
+            "[TRANSITION_MIXED] transition行 2 に前の記事の締め文と次の記事の告知が混在"
+        ]
+    }
+
+    with patch("app.batch.final_validation.lint_script", return_value=[]):
+        result = validate_final_script_file(
+            str(script_path),
+            prior_review_result=prior_review_result,
+        )
+
+    assert result["status"] == "passed"
+    assert result["can_synthesize"] is True
+    assert not any(item["code"] == "TRANSITION_INTEGRITY" for item in result["critical_issues"])
+
+
+def test_final_validation_keeps_broken_transition_as_critical():
+    """BEE-661/BEE-355: 最終scriptにも異常transitionが残る場合は人間確認を止めない。"""
+    from app.batch import final_validation
+
+    lines = [
+        _line("intro", "「ニュースのとなり」の時間です。", article_id=None),
+        _line("news", "海外邦人についての記事です。", article_id=1),
+        _line(
+            "transition",
+            "制度の不備という見えない制約から、人身の自由を奪う見えない組織への恐怖へ。"
+            "海外邦人の窮状は社会構造の歪みを象徴する それでは、"
+            "カンボジアで息子が行方不明になり8ヶ月経ったが、息のニュースをどうぞ。",
+            speaker="female",
+            article_id=2,
+        ),
+        _line("news", "行方不明事案についての記事です。", article_id=2),
+    ]
+
+    with patch.object(final_validation, "lint_script", return_value=[]):
+        result = final_validation.validate_final_script(lines, style="solo")
+
+    assert result["status"] == "human_review"
+    assert result["can_synthesize"] is False
+    assert any(item["code"] == "TRANSITION_INTEGRITY" for item in result["critical_issues"])
+
+
+def test_final_validation_preserves_known_transition_templates():
+    """BEE-664: 既知の通常・Bridgeテンプレートを誤検知・書き換えしない。"""
+    from app.batch import final_validation
+    from app.batch.generate_script import _BRIDGE_TRANSITION_PHRASES, _TRANSITION_PHRASES
+
+    templates = [
+        phrase.format(topic="経済") for phrase in _TRANSITION_PHRASES
+    ] + [
+        phrase.format(bridge="気候変動の影響は経済にも及んでいます", topic="テクノロジー")
+        for phrase in _BRIDGE_TRANSITION_PHRASES
+    ]
+    assert len(_TRANSITION_PHRASES) == 31
+    assert len(_BRIDGE_TRANSITION_PHRASES) == 6
+
+    with patch.object(final_validation, "lint_script", return_value=[]):
+        for text in templates:
+            lines = _valid_lines()
+            lines[2]["text"] = text
+            result = final_validation.validate_final_script(lines)
+
+            assert result["can_synthesize"] is True, text
+            assert not any(
+                item["code"] == "TRANSITION_INTEGRITY"
+                for item in result["critical_issues"]
+            ), text
+            assert result["lines"][2]["text"] == text
+
+
 def test_minor_lint_warning_does_not_stop_synthesis():
     from app.batch import final_validation
 
