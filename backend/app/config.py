@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     codex_api_timeout: float = 600.0
     codex_token_store_path: str = "data/codex_tokens.json"
     llm_provider: str = "ollama"
+    # フェーズ別LLM。未指定時の要約は、設定済みならvLLM、そうでなければ
+    # 既存のローカルLLM(llm_provider)へフォールバックする。
+    summarize_llm_provider: str | None = None
+    summarize_llm_model: str | None = None
+    content_llm_provider: str | None = "codex"
+    content_llm_model: str | None = None
     llm_connect_timeout: float = 2.0
     llm_response_timeout: float = 5.0
     voicevox_base_url: str = "http://192.168.1.102:50021"

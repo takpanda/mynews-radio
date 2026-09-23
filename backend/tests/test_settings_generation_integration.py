@@ -110,8 +110,8 @@ def test_radio_pipeline_persists_applied_settings(monkeypatch, tmp_path):
     assert result["applied_settings"] == expected
     assert [(call["llm_provider"], call["llm_model"]) for call in llm_calls] == [
         ("ollama", "qwen3.6:35b"),
-        ("ollama", "qwen3.6:35b"),
-        ("ollama", "qwen3.6:35b"),
+        ("codex", "gpt-5.4"),
+        ("codex", "gpt-5.4"),
     ]
     with open(episode_dir / "metadata.json", encoding="utf-8") as f:
         assert json.load(f)["applied_settings"] == expected

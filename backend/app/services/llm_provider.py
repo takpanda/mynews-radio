@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -15,6 +16,99 @@ import httpx
 from app.config import get_settings
 
 PROVIDERS = ("ollama", "lm_studio", "vllm", "codex")
+
+
+@dataclass(frozen=True)
+class PipelineLlmSelection:
+    """Pipeline各フェーズへ渡すprovider/modelの選択結果。"""
+
+    summarize_provider: str | None
+    summarize_model: str | None
+    content_provider: str | None
+    content_model: str | None
+    legacy_common: bool = False
+
+
+def resolve_pipeline_llm_selection(
+    *,
+    llm_provider: str | None = None,
+    llm_model: str | None = None,
+    summarize_provider: str | None = None,
+    summarize_model: str | None = None,
+    content_provider: str | None = None,
+    content_model: str | None = None,
+) -> PipelineLlmSelection:
+    """Resolve phase-specific LLM settings while preserving common selection.
+
+    Explicit common arguments (and the legacy environment variables) retain the
+    old behavior and are applied to both phases unless a phase-specific value is
+    supplied. With no legacy override, summary uses a local provider and script
+    generation/review use Codex by default.
+    """
+    settings = get_settings()
+    legacy_requested = (
+        llm_provider is not None
+        or llm_model is not None
+        or "LLM_PROVIDER" in os.environ
+        or "LLM_MODEL" in os.environ
+        or settings.llm_provider != "ollama"
+    )
+    summarize_override = (
+        summarize_provider is not None
+        or summarize_model is not None
+        or settings.summarize_llm_provider is not None
+        or settings.summarize_llm_model is not None
+        or "SUMMARIZE_LLM_PROVIDER" in os.environ
+        or "SUMMARIZE_LLM_MODEL" in os.environ
+    )
+    content_override = (
+        content_provider is not None
+        or content_model is not None
+        or (
+            settings.content_llm_provider not in (None, "codex")
+            or "CONTENT_LLM_PROVIDER" in os.environ
+        )
+        or settings.content_llm_model is not None
+    )
+    phase_overrides = summarize_override or content_override
+    # A phase-specific setting wins over a legacy environment setting. The
+    # strict legacy flag is kept only for the exact old common-selection path.
+    legacy_common = legacy_requested and not phase_overrides
+
+    if legacy_requested:
+        legacy_provider = llm_provider or os.environ.get("LLM_PROVIDER") or settings.llm_provider
+        legacy_model = llm_model or os.environ.get("LLM_MODEL") or None
+        default_summarize_provider = (
+            settings.summarize_llm_provider if summarize_override and settings.summarize_llm_provider else legacy_provider
+        )
+        default_summarize_model = (
+            settings.summarize_llm_model if summarize_override and settings.summarize_llm_model else legacy_model
+        )
+        default_content_provider = (
+            settings.content_llm_provider if content_override and settings.content_llm_provider else legacy_provider
+        )
+        default_content_model = (
+            settings.content_llm_model if content_override and settings.content_llm_model else legacy_model
+        )
+    else:
+        configured_summary_provider = settings.summarize_llm_provider or settings.summarize_llm_model
+        # vLLM is preferred when it is configured; the existing Ollama default
+        # keeps local development usable when VLLM_MODEL is not set.
+        default_summarize_provider = (
+            settings.summarize_llm_provider
+            or ("vllm" if configured_summary_provider else settings.llm_provider)
+        )
+        default_summarize_model = settings.summarize_llm_model or None
+        default_content_provider = settings.content_llm_provider or "codex"
+        default_content_model = settings.content_llm_model or None
+
+    return PipelineLlmSelection(
+        summarize_provider=summarize_provider or default_summarize_provider,
+        summarize_model=summarize_model or default_summarize_model,
+        content_provider=content_provider or default_content_provider,
+        content_model=content_model or default_content_model,
+        legacy_common=legacy_common,
+    )
 
 
 class LlmProviderValidationError(ValueError):

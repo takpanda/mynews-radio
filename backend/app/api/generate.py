@@ -9,7 +9,7 @@ from typing import Any, Generator
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -36,7 +36,11 @@ from app.services.generation_control import (
     GenerationControlError, JobClaim, bind_episode, claim_job, dispatch_job, finish_job,
 )
 from app.services.verified_client_ip import get_verified_client_ip
-from app.services.llm_provider import LlmProviderValidationError, validate_provider_model
+from app.services.llm_provider import (
+    LlmProviderValidationError,
+    resolve_pipeline_llm_selection,
+    validate_provider_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +194,27 @@ class GenerateRequest(BaseModel):
     settings_snapshot: dict[str, Any] | None = Field(default=None, description="生成開始時に適用する番組設定")
     llm_provider: str | None = Field(default=None, description="LLMプロバイダー")
     llm_model: str | None = Field(default=None, description="LLMモデル")
+    summarize_provider: str | None = Field(default=None, description="要約用LLMプロバイダー")
+    summarize_model: str | None = Field(default=None, description="要約用LLMモデル")
+    content_provider: str | None = Field(default=None, description="台本生成・レビュー用LLMプロバイダー")
+    content_model: str | None = Field(default=None, description="台本生成・レビュー用LLMモデル")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_phase_llm_aliases(cls, value: Any) -> Any:
+        """Accept both concise and LLM-prefixed API field names."""
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        for field_name, alias in (
+            ("summarize_provider", "summarize_llm_provider"),
+            ("summarize_model", "summarize_llm_model"),
+            ("content_provider", "content_llm_provider"),
+            ("content_model", "content_llm_model"),
+        ):
+            if field_name not in normalized and alias in normalized:
+                normalized[field_name] = normalized[alias]
+        return normalized
 
 
 def _run_generation(episode_id: int, body: GenerateRequest) -> None:
@@ -200,8 +225,6 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
     seq = ep.get("seq", 0) if ep else 0
 
     news_source = body.news_source if body.news_source in {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news"} else "hatena_bookmark"
-    llm = validate_provider_model(body.llm_provider, body.llm_model)
-
     logger.info("Background generation started: episode_id=%d date=%s seq=%d", episode_id, body.date, seq)
 
     def _progress(phase: str, message: str) -> None:
@@ -221,8 +244,12 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
         tts_engine=_resolve_tts_engine(body.tts_engine, get_settings().default_tts_engine),
         default_episodes_dir=DEFAULT_EPISODES_DIR,
         progress_callback=_progress,
-        llm_provider=llm.name,
-        llm_model=llm.model,
+        llm_provider=body.llm_provider,
+        llm_model=body.llm_model,
+        summarize_provider=body.summarize_provider,
+        summarize_model=body.summarize_model,
+        content_provider=body.content_provider,
+        content_model=body.content_model,
         generation_job_id=_active_generation_job_id(episode_id),
     )
 
@@ -324,9 +351,25 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         # -- GENERATE COMMENTARY SCRIPT --
         service.update_episode_phase(episode_id, "generate_commentary", "解説台本を生成しています…")
         script_path = os.path.join(base_dir, "script.json")
-        llm = validate_provider_model(body.llm_provider, body.llm_model)
+        llm_selection = resolve_pipeline_llm_selection(
+            llm_provider=body.llm_provider,
+            llm_model=body.llm_model,
+            summarize_provider=body.summarize_provider,
+            summarize_model=body.summarize_model,
+            content_provider=body.content_provider,
+            content_model=body.content_model,
+        )
+        try:
+            content_llm = validate_provider_model(
+                llm_selection.content_provider,
+                llm_selection.content_model,
+            )
+        except Exception:
+            logger.exception("commentary content LLM is unavailable")
+            _fail("generate_commentary", "解説台本生成用LLMを利用できません")
+            return
         line_count = generate_commentary_script(script_path, article, style=style, mc_gender=mc_gender,
-                                                llm_provider=llm.name, llm_model=llm.model)
+                                                llm_provider=content_llm.name, llm_model=content_llm.model)
 
         if line_count <= 0:
             _fail("generate_commentary", "解説台本を生成できませんでした")
@@ -343,7 +386,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             review_result = review_script(script_path, reviewed_episode_dir,
                                           program_name="ニュースのとなり",
                                           commentary=True,
-                                          llm_provider=llm.name, llm_model=llm.model,
+                                          llm_provider=content_llm.name, llm_model=content_llm.model,
                                           article=article)
             logger.info(
                 "review_script: revised=%s review_count=%d",
@@ -487,17 +530,37 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=f"invalid settings_snapshot: {exc}") from exc
 
-    try:
-        validate_provider_model(body.llm_provider, body.llm_model, preflight=True)
-    except LlmProviderValidationError as exc:
-        # Keep FastAPI's existing string ``detail`` contract for the UI and
-        # expose a stable machine-readable code for provider-specific handling.
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"detail": exc.message, "error_code": exc.code},
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=f"invalid llm selection: {exc}") from exc
+    llm_selection = resolve_pipeline_llm_selection(
+        llm_provider=body.llm_provider,
+        llm_model=body.llm_model,
+        summarize_provider=body.summarize_provider,
+        summarize_model=body.summarize_model,
+        content_provider=body.content_provider,
+        content_model=body.content_model,
+    )
+    if llm_selection.legacy_common:
+        try:
+            validate_provider_model(body.llm_provider, body.llm_model, preflight=True)
+        except LlmProviderValidationError as exc:
+            # Keep the existing common-selection contract for the UI.
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.message, "error_code": exc.code},
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"invalid llm selection: {exc}") from exc
+    else:
+        # Phase-specific preflight is isolated. An unavailable provider is
+        # recorded and handled by the corresponding pipeline phase, while the
+        # other provider may still run.
+        for phase, provider, model in (
+            ("summarize", llm_selection.summarize_provider, llm_selection.summarize_model),
+            ("content", llm_selection.content_provider, llm_selection.content_model),
+        ):
+            try:
+                validate_provider_model(provider, model, preflight=True)
+            except Exception:
+                logger.warning("%s用LLMのpreflightに失敗しました。もう一方のフェーズは継続します", phase, exc_info=True)
 
     # Validate: url 指定時は style をチェック → SSRFチェック
     if body.url:
@@ -523,7 +586,10 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
         claim = claim_job(
             owner_user_id, operation, idempotency_key or "",
             ({k: v for k, v in (body.model_dump() if hasattr(body, "model_dump") else body.dict()).items()
-              if not (k in {"llm_provider", "llm_model"} and v is None)}),
+              if not (k in {
+                  "llm_provider", "llm_model", "summarize_provider", "summarize_model",
+                  "content_provider", "content_model",
+              } and v is None)}),
             episode_date=body.date, episode_type=episode_type, source_url=body.url,
             client_ip=_client_ip(request), dispatch=False,
         )
