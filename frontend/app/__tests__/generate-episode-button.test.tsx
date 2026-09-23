@@ -287,6 +287,105 @@ describe('GenerateEpisodeButton — LLMプロバイダー・モデルの既定�
   })
 })
 
+describe('GenerateEpisodeButton — 要約用/台本生成・レビュー用LLMの個別指定', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGenerateEpisode.mockResolvedValue({ episode_id: 100 })
+    mockFetchLlmProviders.mockResolvedValue({ providers: [
+      { provider: 'ollama', models: ['qwen3:8b', 'llama3.2'], available: true },
+      { provider: 'lm_studio', models: ['local-model'], available: true },
+    ] })
+    localStorage.clear()
+  })
+
+  const openPhasePanel = async (user: ReturnType<typeof userEvent.setup>) => {
+    await waitFor(() => expect(screen.getByLabelText('LLMプロバイダー')).toHaveValue('ollama'))
+    await user.click(screen.getByRole('button', { name: /要約用・台本生成\/レビュー用を個別に指定する/ }))
+  }
+
+  it('未操作のまま生成すると、要約用/コンテンツ用のいずれも送信しない', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+    await openPhasePanel(user)
+
+    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    expect(mockGenerateEpisode.mock.calls[0][12]).toBeUndefined()
+    expect(mockGenerateEpisode.mock.calls[0][13]).toBeUndefined()
+    expect(mockGenerateEpisode.mock.calls[0][14]).toBeUndefined()
+    expect(mockGenerateEpisode.mock.calls[0][15]).toBeUndefined()
+  })
+
+  it('要約用プロバイダー・モデルを選択すると、要約用フィールドのみ送信する', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+    await openPhasePanel(user)
+
+    await user.selectOptions(screen.getByLabelText('要約用LLMプロバイダー'), 'lm_studio')
+    await waitFor(() => expect(screen.getByLabelText('要約用LLMモデル')).toHaveValue('local-model'))
+
+    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    expect(mockGenerateEpisode.mock.calls[0][12]).toBe('lm_studio')
+    expect(mockGenerateEpisode.mock.calls[0][13]).toBe('local-model')
+    expect(mockGenerateEpisode.mock.calls[0][14]).toBeUndefined()
+    expect(mockGenerateEpisode.mock.calls[0][15]).toBeUndefined()
+  })
+
+  it('台本生成・レビュー用プロバイダー・モデルを選択すると、コンテンツ用フィールドのみ送信する', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+    await openPhasePanel(user)
+
+    await user.selectOptions(screen.getByLabelText('コンテンツ用LLMプロバイダー'), 'lm_studio')
+    await waitFor(() => expect(screen.getByLabelText('コンテンツ用LLMモデル')).toHaveValue('local-model'))
+
+    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    expect(mockGenerateEpisode.mock.calls[0][12]).toBeUndefined()
+    expect(mockGenerateEpisode.mock.calls[0][13]).toBeUndefined()
+    expect(mockGenerateEpisode.mock.calls[0][14]).toBe('lm_studio')
+    expect(mockGenerateEpisode.mock.calls[0][15]).toBe('local-model')
+  })
+
+  it('要約用/コンテンツ用を両方選択すると両方のフィールドを送信する', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+    await openPhasePanel(user)
+
+    await user.selectOptions(screen.getByLabelText('要約用LLMプロバイダー'), 'ollama')
+    await user.selectOptions(screen.getByLabelText('要約用LLMモデル'), 'llama3.2')
+    await user.selectOptions(screen.getByLabelText('コンテンツ用LLMプロバイダー'), 'lm_studio')
+
+    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    expect(mockGenerateEpisode.mock.calls[0][12]).toBe('ollama')
+    expect(mockGenerateEpisode.mock.calls[0][13]).toBe('llama3.2')
+    expect(mockGenerateEpisode.mock.calls[0][14]).toBe('lm_studio')
+    expect(mockGenerateEpisode.mock.calls[0][15]).toBe('local-model')
+  })
+
+  it('プロバイダーを「未指定」へ戻すと、そのフェーズのフィールドを送信しない', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+    await openPhasePanel(user)
+
+    await user.selectOptions(screen.getByLabelText('要約用LLMプロバイダー'), 'lm_studio')
+    await waitFor(() => expect(screen.getByLabelText('要約用LLMモデル')).toHaveValue('local-model'))
+    await user.selectOptions(screen.getByLabelText('要約用LLMプロバイダー'), '')
+
+    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    expect(mockGenerateEpisode.mock.calls[0][12]).toBeUndefined()
+    expect(mockGenerateEpisode.mock.calls[0][13]).toBeUndefined()
+  })
+})
+
 describe('GenerateEpisodeButton — パラメータすり替え防止', () => {
   beforeEach(() => {
     jest.clearAllMocks()

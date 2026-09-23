@@ -318,6 +318,12 @@ interface GenerationParams {
   llmProvider: string
   llmModel: string
   llmTouched: boolean
+  summarizeProvider: string
+  summarizeModel: string
+  summarizeTouched: boolean
+  contentProvider: string
+  contentModel: string
+  contentTouched: boolean
 }
 
 const STORAGE_KEY = 'generating_episode_id'
@@ -353,6 +359,13 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   // discovery APIが返す一覧の先頭を初期表示用に補完しているだけで、利用者が明示的に選んだ値ではない。
   // 未操作のまま生成した場合はこのプレースホルダー値を送らず、バックエンドの既定モデルに委ねる。
   const [llmTouched, setLlmTouched] = useState(false)
+  const [showPhaseLlm, setShowPhaseLlm] = useState(false)
+  const [summarizeProvider, setSummarizeProvider] = useState('')
+  const [summarizeModel, setSummarizeModel] = useState('')
+  const [summarizeTouched, setSummarizeTouched] = useState(false)
+  const [contentProvider, setContentProvider] = useState('')
+  const [contentModel, setContentModel] = useState('')
+  const [contentTouched, setContentTouched] = useState(false)
   const [urlError, setUrlError] = useState<string | null>(null)
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false)
   const [duplicateDialog, setDuplicateDialog] = useState<{
@@ -582,6 +595,12 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
     const llmWasTouched = params ? params.llmTouched : llmTouched
     const selectedLlmProvider = llmWasTouched ? (params ? params.llmProvider : llmProvider) : undefined
     const selectedLlmModel = llmWasTouched ? (params ? params.llmModel : llmModel) : undefined
+    const summarizeWasTouched = params ? params.summarizeTouched : summarizeTouched
+    const selectedSummarizeProvider = summarizeWasTouched ? (params ? params.summarizeProvider : summarizeProvider) : undefined
+    const selectedSummarizeModel = summarizeWasTouched ? (params ? params.summarizeModel : summarizeModel) : undefined
+    const contentWasTouched = params ? params.contentTouched : contentTouched
+    const selectedContentProvider = contentWasTouched ? (params ? params.contentProvider : contentProvider) : undefined
+    const selectedContentModel = contentWasTouched ? (params ? params.contentModel : contentModel) : undefined
 
     setIsLoading(true)
     setProgress([{ phase: 'start', message: '番組の生成を準備しています…', updatedAt: Date.now() }])
@@ -611,7 +630,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
         : undefined)
       setAppliedSettings(settingsSnapshot ?? null)
       if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID()
-      const { episode_id } = await generateEpisode(today, articles, source, engine, recreate, url, url ? style : undefined, url && style === 'solo' ? gender : undefined, settingsSnapshot, idempotencyKeyRef.current, selectedLlmProvider || undefined, selectedLlmModel || undefined)
+      const { episode_id } = await generateEpisode(today, articles, source, engine, recreate, url, url ? style : undefined, url && style === 'solo' ? gender : undefined, settingsSnapshot, idempotencyKeyRef.current, selectedLlmProvider || undefined, selectedLlmModel || undefined, selectedSummarizeProvider || undefined, selectedSummarizeModel || undefined, selectedContentProvider || undefined, selectedContentModel || undefined)
       idempotencyKeyRef.current = null
       localStorage.setItem(STORAGE_KEY, String(episode_id))
       setEpisodeId(episode_id)
@@ -646,6 +665,12 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
       llmProvider,
       llmModel,
       llmTouched,
+      summarizeProvider,
+      summarizeModel,
+      summarizeTouched,
+      contentProvider,
+      contentModel,
+      contentTouched,
     }
     setIsCheckingDuplicate(true)
     setDuplicateDialog(null)
@@ -712,6 +737,8 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
         ? 'border-slate-200 bg-slate-100 text-slate-600'
       : 'border-sky-200 bg-sky-50 text-sky-800'
   const selectedProvider = llmProviders.find((item) => item.provider === llmProvider)
+  const summarizeProviderObj = llmProviders.find((item) => item.provider === summarizeProvider)
+  const contentProviderObj = llmProviders.find((item) => item.provider === contentProvider)
   const unavailableReason = (errorCode: LlmProvider['error_code']): string => {
     switch (errorCode) {
       case 'timeout': return '応答がタイムアウトしました'
@@ -872,6 +899,128 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
                     ))}
                   </div>
                 )}
+                <div className="mt-3 border-t border-slate-200 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowPhaseLlm((current) => !current)}
+                    className="flex w-full items-center justify-between gap-3 text-xs font-medium text-slate-600 transition hover:text-slate-900"
+                    aria-expanded={showPhaseLlm}
+                  >
+                    <span>要約用・台本生成/レビュー用を個別に指定する</span>
+                    <span>{showPhaseLlm ? '閉じる' : '開く'}</span>
+                  </button>
+                  {showPhaseLlm && (
+                    <div className="mt-3 space-y-4">
+                      <p className="text-xs leading-5 text-slate-500">
+                        未指定のままにすると、上のプロバイダー・モデル（未操作の場合はバックエンドの既定値: 要約=ローカル、台本生成・レビュー=codex）が使われます。
+                      </p>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-700">要約用</p>
+                        <div className="mt-1.5 grid gap-3 sm:grid-cols-2">
+                          <label className="text-xs font-medium text-slate-700">
+                            プロバイダー
+                            <select
+                              aria-label="要約用LLMプロバイダー"
+                              value={summarizeProvider}
+                              onChange={(event) => {
+                                const nextProvider = event.target.value
+                                if (!nextProvider) {
+                                  setSummarizeProvider('')
+                                  setSummarizeModel('')
+                                  setSummarizeTouched(false)
+                                  return
+                                }
+                                const next = llmProviders.find((item) => item.provider === nextProvider)
+                                setSummarizeProvider(nextProvider)
+                                setSummarizeModel(next?.models[0] ?? '')
+                                setSummarizeTouched(true)
+                              }}
+                              className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                            >
+                              <option value="">未指定（既定値を使用）</option>
+                              {llmProviders.map((item) => (
+                                <option key={item.provider} value={item.provider} disabled={!item.available || item.models.length === 0}>
+                                  {item.provider}{!item.available ? `（${unavailableReason(item.error_code)}）` : item.models.length === 0 ? '（モデルなし）' : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="text-xs font-medium text-slate-700">
+                            モデル
+                            <select
+                              aria-label="要約用LLMモデル"
+                              value={summarizeModel}
+                              onChange={(event) => {
+                                setSummarizeModel(event.target.value)
+                                setSummarizeTouched(true)
+                              }}
+                              disabled={!summarizeProvider}
+                              className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-50"
+                            >
+                              {summarizeProvider
+                                ? summarizeProviderObj?.models.map((model) => (
+                                  <option key={model} value={model}>{model}</option>
+                                ))
+                                : <option value="">-</option>}
+                            </select>
+                          </label>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-700">台本生成・レビュー用</p>
+                        <div className="mt-1.5 grid gap-3 sm:grid-cols-2">
+                          <label className="text-xs font-medium text-slate-700">
+                            プロバイダー
+                            <select
+                              aria-label="コンテンツ用LLMプロバイダー"
+                              value={contentProvider}
+                              onChange={(event) => {
+                                const nextProvider = event.target.value
+                                if (!nextProvider) {
+                                  setContentProvider('')
+                                  setContentModel('')
+                                  setContentTouched(false)
+                                  return
+                                }
+                                const next = llmProviders.find((item) => item.provider === nextProvider)
+                                setContentProvider(nextProvider)
+                                setContentModel(next?.models[0] ?? '')
+                                setContentTouched(true)
+                              }}
+                              className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                            >
+                              <option value="">未指定（既定値を使用）</option>
+                              {llmProviders.map((item) => (
+                                <option key={item.provider} value={item.provider} disabled={!item.available || item.models.length === 0}>
+                                  {item.provider}{!item.available ? `（${unavailableReason(item.error_code)}）` : item.models.length === 0 ? '（モデルなし）' : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="text-xs font-medium text-slate-700">
+                            モデル
+                            <select
+                              aria-label="コンテンツ用LLMモデル"
+                              value={contentModel}
+                              onChange={(event) => {
+                                setContentModel(event.target.value)
+                                setContentTouched(true)
+                              }}
+                              disabled={!contentProvider}
+                              className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-50"
+                            >
+                              {contentProvider
+                                ? contentProviderObj?.models.map((model) => (
+                                  <option key={model} value={model}>{model}</option>
+                                ))
+                                : <option value="">-</option>}
+                            </select>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </fieldset>
