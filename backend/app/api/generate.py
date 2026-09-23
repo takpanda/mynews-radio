@@ -550,17 +550,22 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=f"invalid llm selection: {exc}") from exc
     else:
-        # Phase-specific preflight is isolated. An unavailable provider is
-        # recorded and handled by the corresponding pipeline phase, while the
-        # other provider may still run.
+        # Validate both phase-specific selections before reserving an episode.
+        # An invalid selection must be reported to the caller instead of being
+        # deferred to the background pipeline.
         for phase, provider, model in (
             ("summarize", llm_selection.summarize_provider, llm_selection.summarize_model),
             ("content", llm_selection.content_provider, llm_selection.content_model),
         ):
             try:
                 validate_provider_model(provider, model, preflight=True)
-            except Exception:
-                logger.warning("%s用LLMのpreflightに失敗しました。もう一方のフェーズは継続します", phase, exc_info=True)
+            except LlmProviderValidationError as exc:
+                return JSONResponse(
+                    status_code=exc.status_code,
+                    content={"detail": exc.message, "error_code": exc.code},
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=f"invalid {phase} llm selection: {exc}") from exc
 
     # Validate: url 指定時は style をチェック → SSRFチェック
     if body.url:

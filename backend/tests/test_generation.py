@@ -44,6 +44,68 @@ class TestGenerateEndpoint:
         }
         claim_job.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("phase_field", "phase_label"),
+        [("summarize_provider", "summarize"), ("content_provider", "content")],
+    )
+    def test_phase_specific_invalid_provider_does_not_start_generation(
+        self, client, phase_field, phase_label
+    ):
+        target = "unsupported-provider"
+
+        def validate(provider, model, *, preflight):
+            if provider == target:
+                raise ValueError("unsupported llm provider")
+
+        with patch("app.api.generate.validate_provider_model", side_effect=validate), \
+             patch("app.api.generate.claim_job") as claim_job:
+            response = client.post(
+                "/generate",
+                json={"date": "2099-01-01", phase_field: target},
+            )
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": f"invalid {phase_label} llm selection: unsupported llm provider",
+        }
+        claim_job.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("phase_field", "phase_label", "code", "status_code"),
+        [
+            ("summarize_provider", "summarize", "llm_provider_unavailable", 503),
+            ("content_provider", "content", "llm_provider_unavailable", 503),
+            ("summarize_model", "summarize", "llm_model_not_found", 422),
+            ("content_model", "content", "llm_model_not_found", 422),
+        ],
+    )
+    def test_phase_specific_preflight_error_does_not_start_generation(
+        self, client, phase_field, phase_label, code, status_code
+    ):
+        from app.services.llm_provider import LlmProviderValidationError
+
+        target = "invalid-selection"
+
+        def validate(provider, model, *, preflight):
+            if provider == target or model == target:
+                raise LlmProviderValidationError(
+                    code, f"display message for {code}", status_code
+                )
+
+        with patch("app.api.generate.validate_provider_model", side_effect=validate), \
+             patch("app.api.generate.claim_job") as claim_job:
+            response = client.post(
+                "/generate",
+                json={"date": "2099-01-01", phase_field: target},
+            )
+
+        assert response.status_code == status_code
+        assert response.json() == {
+            "detail": f"display message for {code}",
+            "error_code": code,
+        }
+        claim_job.assert_not_called()
+
     def test_post_generate_returns_json_not_sse(self, client):
         resp = client.post("/generate", json={
             "date": "2099-01-01",
