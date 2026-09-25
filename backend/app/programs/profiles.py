@@ -70,16 +70,31 @@ def validate_program_profile(profile: ProgramProfile) -> None:
         errors.append(f"unsupported program kind: {profile.kind!r}")
 
     cast_keys = [member.key for member in profile.cast]
+    if not cast_keys:
+        errors.append("program profile must include at least one cast member")
     if any(not key for key in cast_keys):
         errors.append("cast speaker keys must not be empty")
     if len(cast_keys) != len(set(cast_keys)):
         errors.append("cast speaker keys must be unique")
+    if profile.kind == "commentary":
+        if profile.options.style not in {None, "solo", "dialogue"}:
+            errors.append(f"unsupported commentary style in profile: {profile.options.style!r}")
+        if profile.options.style == "solo" and len(cast_keys) != 1:
+            errors.append("commentary solo profiles must have exactly one cast member")
+        if profile.options.style == "dialogue" and len(cast_keys) < 2:
+            errors.append("commentary dialogue profiles must have at least two cast members")
+        if profile.options.mc_gender and profile.options.mc_gender not in set(cast_keys):
+            errors.append("commentary mc_gender must match a cast speaker key")
 
     segment_ids = [segment.id for segment in profile.segments]
     if any(not segment_id for segment_id in segment_ids):
         errors.append("segment ids must not be empty")
     if len(segment_ids) != len(set(segment_ids)):
         errors.append("segment ids must be unique")
+
+    segment_kinds = [segment.kind for segment in profile.segments]
+    if len(segment_kinds) != len(set(segment_kinds)):
+        errors.append("segment kinds must be unique within a program profile")
 
     orders = [segment.order for segment in profile.segments]
     if len(orders) != len(set(orders)):

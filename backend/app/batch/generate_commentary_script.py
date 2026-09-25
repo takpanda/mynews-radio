@@ -10,7 +10,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
-from app.programs.profiles import ProgramProfile, get_default_profile
+from app.programs.profiles import (
+    ProgramProfile,
+    get_default_profile,
+    validate_program_profile,
+)
 from app.programs.prompt_builder import PromptBuilder
 
 logger = logging.getLogger(__name__)
@@ -126,8 +130,8 @@ def _strip_dialogue_only_sections(text: str) -> str:
 def generate_commentary_script(
     output_path: str,
     article: dict,
-    style: str = "solo",
-    mc_gender: str = "male",
+    style: str | None = None,
+    mc_gender: str | None = None,
     llm_provider: str | None = None,
     llm_model: str | None = None,
     program_profile: ProgramProfile | None = None,
@@ -143,12 +147,22 @@ def generate_commentary_script(
         Number of lines generated (0 on failure).
     """
     settings = get_settings()
-    profile = program_profile or get_default_profile(
-        kind="commentary", style=style, mc_gender=mc_gender
-    )
+    if program_profile is not None:
+        profile = program_profile
+        if profile.kind != "commentary":
+            raise ValueError("program_profile must have kind='commentary'")
+        validate_program_profile(profile)
+        style = profile.options.style or ("solo" if len(profile.cast) == 1 else "dialogue")
+        if style not in {"solo", "dialogue"}:
+            raise ValueError(f"unsupported commentary style in program_profile: {style!r}")
+        mc_gender = profile.options.mc_gender or profile.cast[0].key
+        if style == "solo" and mc_gender not in profile.speaker_keys:
+            raise ValueError("program_profile options.mc_gender must match its solo cast key")
+    else:
+        style = "solo" if style is None else style
+        mc_gender = "male" if mc_gender is None else mc_gender
+        profile = get_default_profile(kind="commentary", style=style, mc_gender=mc_gender)
     prompt_builder = PromptBuilder(profile)
-    if not profile.cast:
-        raise ValueError(f"program profile {profile.id!r} must define at least one cast member")
     template = _load_prompt_template(style) if prompt_builder.uses_legacy_prompt else None
 
     text_length = len(article.get("text", "") or "")

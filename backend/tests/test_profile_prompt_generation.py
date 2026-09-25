@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from app.programs.profiles import (
     COMMENTARY_ONE_PERSON,
+    COMMENTARY_TWO_PERSON,
     RADIO_TWO_PERSON,
     ProgramCastMember,
 )
@@ -92,6 +93,11 @@ def test_commentary_generation_inserts_profile_json_after_template_formatting(tm
         COMMENTARY_ONE_PERSON,
         id="commentary_custom",
         cast=(ProgramCastMember("analyst", "カスタム解説者", "専門家"),),
+        options=replace(COMMENTARY_ONE_PERSON.options, mc_gender="analyst"),
+        segments=tuple(
+            replace(segment, speaker_keys=("analyst",))
+            for segment in COMMENTARY_ONE_PERSON.segments
+        ),
     )
     client = _FakeClient({
         "title": "記事タイトル",
@@ -114,4 +120,33 @@ def test_commentary_generation_inserts_profile_json_after_template_formatting(tm
     assert '"lines"' in client.prompts[0]
     assert '"speaker": "analyst"' in client.prompts[0]
     script = json.loads((tmp_path / "commentary.json").read_text(encoding="utf-8"))
+    assert script["style"] == "solo"
+    assert script["mc_gender"] == "analyst"
     assert script["lines"][0]["speaker"] == "analyst"
+
+
+def test_commentary_style_defaults_from_explicit_dialogue_profile(tmp_path):
+    from app.batch import generate_commentary_script as generation
+
+    client = _FakeClient({
+        "title": "記事タイトル",
+        "lines": [
+            {"speaker": "male", "text": "事実は42です。", "article_id": 7, "section": "news"},
+            {"speaker": "female", "text": "生活への影響が気になります。", "article_id": 7, "section": "news"},
+        ],
+    })
+
+    with patch.object(generation, "create_llm_client", return_value=client):
+        count = generation.generate_commentary_script(
+            str(tmp_path / "dialogue.json"),
+            {"id": 7, "title": "記事タイトル", "text": "本文42です。"},
+            program_profile=COMMENTARY_TWO_PERSON,
+            llm_provider="test",
+            llm_model="test-model",
+        )
+
+    assert count == 2
+    assert "スタイルパラメータ: dialogue" in client.prompts[0]
+    script = json.loads((tmp_path / "dialogue.json").read_text(encoding="utf-8"))
+    assert script["style"] == "dialogue"
+    assert {line["speaker"] for line in script["lines"]} == {"male", "female"}

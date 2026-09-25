@@ -14,6 +14,10 @@ def test_one_person_profile_gets_solo_rules_and_single_line_transitions():
         RADIO_TWO_PERSON,
         id="radio_solo",
         cast=(ProgramCastMember("host", "司会", "進行"),),
+        segments=tuple(
+            replace(segment, speaker_keys=("host",))
+            for segment in RADIO_TWO_PERSON.segments
+        ),
     )
     builder = PromptBuilder(profile)
 

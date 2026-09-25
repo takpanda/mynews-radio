@@ -10,6 +10,7 @@ from app.programs.profiles import (
     RADIO_TWO_PERSON,
     ProgramProfile,
     get_default_profile,
+    validate_program_profile,
 )
 
 
@@ -17,6 +18,7 @@ class PromptBuilder:
     """Render the cast, structure, and example portions of a program prompt."""
 
     def __init__(self, profile: ProgramProfile):
+        validate_program_profile(profile)
         self.profile = profile
 
     @property
