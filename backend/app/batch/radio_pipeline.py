@@ -33,6 +33,7 @@ from app.services.settings_service import (
     resolve_tts_speakers,
 )
 from app.services.telegram_notifier import notify_failure, notify_success, notify_review_needed
+from app.services.script_review_service import move_episode_to_awaiting_review
 
 
 def _extract_key_points(script: dict, summaries_path: str) -> list[str]:
@@ -97,6 +98,7 @@ class PipelineResult(Enum):
     """パイプラインの完了結果（通常の成功 metadata 以外）。"""
 
     NO_CONTENT = "no_content"
+    REVIEW_REQUIRED = "review_required"
 
 
 def _resolve_max_articles(max_articles: int | None, settings_params: dict[str, Any]) -> int:
@@ -427,24 +429,23 @@ def run_radio_pipeline(
                 )
         except Exception:
             logger.exception("[%d] failed to persist generated script revision", episode_id)
+            service.update_episode_status(episode_id, "failed")
+            service.update_episode_phase(episode_id, "failed", "生成台本の保存に失敗しました")
+            _notify_failure("script_revision", "生成台本の保存に失敗しました")
+            return None
 
         has_validation_errors = bool(final_validation and not final_validation["can_synthesize"])
         next_review_state = _review_state(review_mode, not has_validation_errors)
         if next_review_state == "awaiting_review":
             reason = human_review_message(final_validation) if has_validation_errors else "管理者による台本確認が必要です"
-            service.update_episode_phase(episode_id, "awaiting_review", reason)
-            with get_db_connection() as conn:
-                conn.execute("UPDATE episodes SET status='awaiting_review', phase='awaiting_review', generation_message=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (reason, episode_id))
-                payload = json.dumps({"url": f"/admin/episodes/{episode_id}/review", "title": "台本の確認待ちがあります", "body": "確認待ちの台本があります"}, ensure_ascii=False)
-                conn.execute("INSERT OR IGNORE INTO notification_outbox(event_type, episode_id, payload) VALUES ('script_awaiting_review', ?, ?)", (episode_id, payload))
-                outbox = conn.execute("SELECT id FROM notification_outbox WHERE event_type='script_awaiting_review' AND episode_id=?", (episode_id,)).fetchone()
-                conn.execute("INSERT OR IGNORE INTO notification_deliveries(outbox_id, subscription_id) SELECT ?, id FROM push_subscriptions WHERE is_active=1 AND admin_user_id IS NOT NULL", (outbox["id"],))
-            try:
-                notify_review_needed(episode_id=episode_id)
-            except Exception:
-                logger.warning("[%d] Telegram review notification could not be sent", episode_id)
+            transitioned = move_episode_to_awaiting_review(episode_id, reason)
+            if transitioned:
+                try:
+                    notify_review_needed(episode_id=episode_id)
+                except Exception:
+                    logger.warning("[%d] Telegram review notification could not be sent", episode_id)
             logger.info("[%d] awaiting administrator script review", episode_id)
-            return None
+            return PipelineResult.REVIEW_REQUIRED
         if next_review_state == "failed":
             reason = human_review_message(final_validation)
             service.update_episode_status(episode_id, "failed")

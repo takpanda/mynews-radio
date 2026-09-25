@@ -33,7 +33,9 @@ def test_register_is_idempotent_and_does_not_expose_subscription(client):
     from app.db.connection import get_db_connection
     with get_db_connection() as conn:
         assert conn.execute("SELECT COUNT(*) FROM push_subscriptions").fetchone()[0] == 1
-        assert conn.execute("SELECT is_active FROM push_subscriptions").fetchone()[0] == 1
+        subscription = conn.execute("SELECT is_active, admin_user_id FROM push_subscriptions").fetchone()
+        assert subscription["is_active"] == 1
+        assert subscription["admin_user_id"] is not None
 
 
 def test_unregister_is_idempotent_and_uses_opaque_identifier(client):

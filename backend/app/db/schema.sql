@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS episodes (
     categories TEXT NOT NULL DEFAULT '[]',
     mc_voice_name TEXT,
     review_mode TEXT NOT NULL DEFAULT 'on_failure',
+    review_cycle INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

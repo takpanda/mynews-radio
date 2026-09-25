@@ -1324,6 +1324,13 @@ class TestOrchestrateArticleDefaults:
         )
 
 
+def _write_generated_script(path, **_kwargs):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as script_file:
+        json.dump({"style": "solo", "lines": [{"text": "生成された台本"}]}, script_file)
+    return 5
+
+
 class TestOrchestrateReviewConsistency:
     """orchestrate.py の review 結果反映動作の検証 (BEE-375)."""
 
@@ -1337,6 +1344,7 @@ class TestOrchestrateReviewConsistency:
     ):
         """orchestrate.py: revised=True の場合、review/script.json が本番script.jsonにコピーされること。"""
         from app.batch.orchestrate import run
+        mock_gen.side_effect = _write_generated_script
 
         with patch("app.batch.orchestrate._create_episode_record", return_value=(1, 0)), \
              patch("app.batch.orchestrate._set_episode_status"), \
@@ -1368,6 +1376,7 @@ class TestOrchestrateReviewConsistency:
     ):
         """orchestrate.py: revised=False の場合、コピーが発生せず通常フローが継続されること。"""
         from app.batch.orchestrate import run
+        mock_gen.side_effect = _write_generated_script
 
         with patch("app.batch.orchestrate._create_episode_record", return_value=(1, 0)), \
              patch("app.batch.orchestrate._set_episode_status"), \
@@ -1395,6 +1404,7 @@ class TestOrchestrateReviewConsistency:
     ):
         """orchestrate.py: review の例外は non-fatal で、synthesize/build は継続されること。"""
         from app.batch.orchestrate import run
+        mock_gen.side_effect = _write_generated_script
 
         with patch("app.batch.orchestrate._create_episode_record", return_value=(1, 0)), \
              patch("app.batch.orchestrate._set_episode_status"), \

@@ -103,7 +103,12 @@ def test_orchestrate_success_keeps_completed_when_notification_raises(monkeypatc
     monkeypatch.setattr(orchestrate, "notify_success", success)
     monkeypatch.setattr(orchestrate, "import_articles_by_source", Mock(return_value=(1, 0)))
     monkeypatch.setattr(orchestrate, "summarize_articles", Mock(return_value=1))
-    monkeypatch.setattr(orchestrate, "generate_script", Mock(return_value=1))
+    def write_script(path, **_kwargs):
+        from pathlib import Path
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text('{"style":"solo","lines":[{"text":"生成台本"}]}', encoding="utf-8")
+        return 1
+    monkeypatch.setattr(orchestrate, "generate_script", write_script)
     monkeypatch.setattr(orchestrate, "override_script_title", Mock())
     monkeypatch.setattr(orchestrate, "review_script", Mock(return_value={"revised": False, "review_count": 0}))
     monkeypatch.setattr(orchestrate, "synthesize_episode", Mock(return_value=1))

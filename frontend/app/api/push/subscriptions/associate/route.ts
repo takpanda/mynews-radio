@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const adminSession = request.cookies.get("admin_session")?.value
-    const upstream = await fetch(`${API_BASE}/push/subscriptions`, {
+    const upstream = await fetch(`${API_BASE}/push/subscriptions/associate`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -23,13 +23,9 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify(body),
     })
-    const data = await upstream.text()
-    return new Response(data, {
-      status: upstream.status,
-      headers: { "Content-Type": "application/json" },
-    })
+    return new Response(null, { status: upstream.status })
   } catch (err) {
-    console.error("push/subscriptions upstream error:", err)
+    console.error("push/subscriptions association upstream error:", err)
     return new Response(JSON.stringify({ error: "upstream error" }), {
       status: 504,
       headers: { "Content-Type": "application/json" },

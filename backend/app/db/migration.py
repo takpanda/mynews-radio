@@ -166,6 +166,8 @@ def migrate_script_revisions(conn: sqlite3.Connection) -> bool:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(episodes)").fetchall()}
     if "review_mode" not in columns:
         conn.execute("ALTER TABLE episodes ADD COLUMN review_mode TEXT NOT NULL DEFAULT 'on_failure'")
+    if "review_cycle" not in columns:
+        conn.execute("ALTER TABLE episodes ADD COLUMN review_cycle INTEGER NOT NULL DEFAULT 0")
     has_push_subscriptions = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='push_subscriptions'"
     ).fetchone()

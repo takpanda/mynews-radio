@@ -35,6 +35,7 @@ from app.services.episode_service import EpisodeService, retry_on_busy, override
 from app.services.settings_service import resolve_tts_speakers
 from app.config import get_settings
 from app.services.telegram_notifier import notify_failure, notify_success, notify_review_needed
+from app.services.script_review_service import move_episode_to_awaiting_review
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +57,8 @@ def _set_episode_status(episode_id: int, status: str) -> None:
         )
 
 
-def _hold_episode_for_human_review(episode_id: int, reason: str) -> None:
-    with get_db_connection() as conn:
-        conn.execute(
-            "UPDATE episodes SET status = 'awaiting_review', phase = 'awaiting_review', "
-            "generation_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (reason, episode_id),
-        )
+def _hold_episode_for_human_review(episode_id: int, reason: str) -> bool:
+    return move_episode_to_awaiting_review(episode_id, reason)
 
 
 def _episode_review_mode(episode_id: int) -> str:
@@ -83,27 +79,6 @@ def _record_script_revision(episode_id: int, script_path: str, source: str) -> N
             "INSERT INTO script_revisions(episode_id, revision, script_json, source) VALUES (?, ?, ?, ?)",
             (episode_id, revision, encoded, source),
         )
-
-
-def _notify_review_waiting(episode_id: int) -> None:
-    with get_db_connection() as conn:
-        payload = __import__("json").dumps({
-            "url": f"/admin/episodes/{episode_id}/review",
-            "title": "台本の確認待ちがあります",
-            "body": "確認待ちの台本があります",
-        }, ensure_ascii=False)
-        conn.execute(
-            "INSERT OR IGNORE INTO notification_outbox(event_type, episode_id, payload) VALUES ('script_awaiting_review', ?, ?)",
-            (episode_id, payload),
-        )
-        outbox = conn.execute(
-            "SELECT id FROM notification_outbox WHERE event_type='script_awaiting_review' AND episode_id=?", (episode_id,),
-        ).fetchone()
-        conn.execute(
-            "INSERT OR IGNORE INTO notification_deliveries(outbox_id, subscription_id) "
-            "SELECT ?, id FROM push_subscriptions WHERE is_active=1 AND admin_user_id IS NOT NULL", (outbox["id"],),
-        )
-    notify_review_needed(episode_id=episode_id)
 
 
 @retry_on_busy()
@@ -246,6 +221,9 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
             _record_script_revision(episode_id, script_path, "reviewed" if review_result.get("revised") else "generated")
         except Exception:
             logger.exception("[%d] failed to persist generated script revision", episode_id)
+            _set_episode_status(episode_id, "failed")
+            _notify_failure("script_revision", "生成台本の保存に失敗しました")
+            return
 
         has_errors = bool(final_validation and not final_validation["can_synthesize"])
         if review_mode == "always" or (review_mode == "on_failure" and has_errors):
@@ -253,11 +231,11 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
                 reason = human_review_message(final_validation)
             else:
                 reason = "管理者による台本確認が必要です"
-            _hold_episode_for_human_review(episode_id, reason)
-            try:
-                _notify_review_waiting(episode_id)
-            except Exception:
-                logger.warning("[%d] review notification could not be sent", episode_id)
+            if _hold_episode_for_human_review(episode_id, reason):
+                try:
+                    notify_review_needed(episode_id=episode_id)
+                except Exception:
+                    logger.warning("[%d] review notification could not be sent", episode_id)
             logger.info("[%d] awaiting administrator script review", episode_id)
             return
         if review_mode == "auto" and has_errors:

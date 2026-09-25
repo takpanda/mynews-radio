@@ -347,3 +347,19 @@ def test_explicit_legacy_common_selection_overrides_phase_environment(monkeypatc
     assert selection.legacy_common is True
     assert (selection.summarize_provider, selection.summarize_model) == ("ollama", "legacy-model")
     assert (selection.content_provider, selection.content_model) == ("ollama", "legacy-model")
+
+
+def test_review_required_daily_result_is_successful_and_manifested(monkeypatch, tmp_path):
+    from app.batch import radio_pipeline, run_daily
+    from app.services.episode_service import EpisodeService
+
+    episode_id = EpisodeService().create_episode("2099-08-03", status="generating")
+    monkeypatch.setattr(run_daily, "cleanup_episodes", lambda: {})
+    monkeypatch.setattr(run_daily, "run_radio_pipeline", lambda *_args, **_kwargs: radio_pipeline.PipelineResult.REVIEW_REQUIRED)
+    manifest = {}
+    monkeypatch.setattr(run_daily, "_write_manifest", lambda **kwargs: manifest.update(kwargs))
+
+    success = run_daily.run_daily_job({"episode_id": episode_id, "payload": '{"date":"2099-08-03"}'})
+
+    assert success is True
+    assert manifest == {"status": "awaiting_review"}

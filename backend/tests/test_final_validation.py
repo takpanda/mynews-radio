@@ -1,6 +1,7 @@
 """レビュー後の音声化前最終検証のテスト。"""
 
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 
@@ -226,7 +227,7 @@ def test_final_validation_gate_runs_for_recorded_discussion_layout_issue(tmp_pat
     assert should_run_final_validation(str(script_path), {"revised": False, "review_count": 5}) is True
 
 
-def test_radio_pipeline_stops_before_tts_when_final_validation_is_unresolved():
+def test_radio_pipeline_stops_before_tts_when_final_validation_is_unresolved(tmp_path):
     from app.batch import radio_pipeline
     from app.services.episode_service import EpisodeService
 
@@ -248,9 +249,14 @@ def test_radio_pipeline_stops_before_tts_when_final_validation_is_unresolved():
         "lines": [],
     }
 
+    def write_script(path, **_kwargs):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text(json.dumps({"style": "solo", "lines": [{"text": "台本"}]}), encoding="utf-8")
+        return 1
+
     with patch.object(radio_pipeline, "import_articles_by_source", return_value=(1, 0)), \
          patch.object(radio_pipeline, "summarize_articles", return_value=1), \
-         patch.object(radio_pipeline, "generate_script", return_value=1), \
+         patch.object(radio_pipeline, "generate_script", side_effect=write_script), \
          patch.object(radio_pipeline, "override_script_title"), \
          patch.object(radio_pipeline, "review_script", return_value=review_result), \
          patch.object(radio_pipeline, "validate_final_script_file", return_value=final_result) as final_check, \
@@ -260,10 +266,11 @@ def test_radio_pipeline_stops_before_tts_when_final_validation_is_unresolved():
         result = radio_pipeline.run_radio_pipeline(
             episode_id,
             episode_date="2099-01-02",
-            default_episodes_dir="episodes",
+            default_episodes_dir=str(tmp_path / "episodes"),
         )
 
-    assert result is None
+    from app.batch.radio_pipeline import PipelineResult
+    assert result is PipelineResult.REVIEW_REQUIRED
     final_check.assert_called_once()
     notify_review_needed.assert_called_once_with(episode_id=episode_id)
     synth.assert_not_called()
@@ -271,6 +278,64 @@ def test_radio_pipeline_stops_before_tts_when_final_validation_is_unresolved():
     assert episode["status"] == "awaiting_review"
     assert episode["phase"] == "awaiting_review"
     assert "回答なし" in episode["generation_message"]
+
+
+def test_revision_persistence_failure_marks_episode_failed_before_review(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from app.batch import radio_pipeline
+    from app.db.connection import get_db_connection as real_get_db_connection
+    from app.services.episode_service import EpisodeService
+
+    episode_id = EpisodeService().create_episode("2099-01-03", status="generating")
+    old_script = {"style": "solo", "lines": [{"text": "古い台本"}]}
+    with real_get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO script_revisions(episode_id, revision, script_json, source) VALUES (?, 1, ?, 'generated')",
+            (episode_id, json.dumps(old_script, ensure_ascii=False)),
+        )
+
+    output_dir = tmp_path / "episodes"
+    script_path = output_dir / str(episode_id) / "script.json"
+    new_script = {"style": "solo", "lines": [{"text": "新しい台本"}]}
+
+    def generate(path, **_kwargs):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text(json.dumps(new_script, ensure_ascii=False), encoding="utf-8")
+        return 1
+
+    @contextmanager
+    def fail_revision_insert():
+        with real_get_db_connection() as conn:
+            class ConnectionProxy:
+                def execute(self, sql, params=()):
+                    if sql.lstrip().upper().startswith("INSERT INTO SCRIPT_REVISIONS"):
+                        raise RuntimeError("simulated revision persistence failure")
+                    return conn.execute(sql, params)
+
+            yield ConnectionProxy()
+
+    monkeypatch.setattr(radio_pipeline, "get_db_connection", fail_revision_insert)
+    with patch.object(radio_pipeline, "import_articles_by_source", return_value=(1, 0)), \
+         patch.object(radio_pipeline, "summarize_articles", return_value=1), \
+         patch.object(radio_pipeline, "generate_script", side_effect=generate), \
+         patch.object(radio_pipeline, "review_script", return_value={"revised": False, "review_count": 0}), \
+         patch.object(radio_pipeline, "validate_final_script_file", return_value={"can_synthesize": False, "critical_issues": []}), \
+         patch.object(radio_pipeline, "notify_review_needed") as notify_review:
+        result = radio_pipeline.run_radio_pipeline(
+            episode_id,
+            episode_date="2099-01-03",
+            default_episodes_dir=str(output_dir),
+        )
+
+    assert result is None
+    assert EpisodeService().get_episode(episode_id)["status"] == "failed"
+    with real_get_db_connection() as conn:
+        saved = conn.execute(
+            "SELECT script_json FROM script_revisions WHERE episode_id=? ORDER BY revision DESC LIMIT 1",
+            (episode_id,),
+        ).fetchone()
+    assert json.loads(saved["script_json"]) == old_script
+    notify_review.assert_not_called()
 
 
 def test_review_mode_and_final_check_state_matrix():

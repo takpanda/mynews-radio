@@ -7,10 +7,10 @@ import re
 import secrets
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from app.config import get_settings
-from app.auth import get_admin_user_id_by_session
+from app.auth import get_admin_user_id_by_session, require_owner_session
 from app.api.generate import limiter
 from app.db.connection import get_db_connection
 
@@ -61,6 +61,10 @@ class PushSubscriptionResponse(BaseModel):
     subscription_id: str
 
 
+class PushSubscriptionAssociationRequest(BaseModel):
+    subscription_id: str = Field(min_length=1, max_length=128)
+
+
 def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -93,7 +97,9 @@ def register_subscription(request: Request, body: PushSubscriptionRequest) -> Pu
         if row:
             # 再購読時は鍵を最新化し、旧識別子を無効化する。
             conn.execute(
-                "UPDATE push_subscriptions SET subscription_id_hash = ?, p256dh = ?, auth = ?, admin_user_id = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE endpoint_hash = ?",
+                "UPDATE push_subscriptions SET subscription_id_hash = ?, p256dh = ?, auth = ?, "
+                "admin_user_id = COALESCE(?, admin_user_id), is_active = 1, updated_at = CURRENT_TIMESTAMP "
+                "WHERE endpoint_hash = ?",
                 (subscription_id_hash, body.keys.p256dh, body.keys.auth, admin_user_id, endpoint_hash),
             )
         else:
@@ -102,6 +108,24 @@ def register_subscription(request: Request, body: PushSubscriptionRequest) -> Pu
                 (subscription_id_hash, endpoint_hash, body.endpoint, body.keys.p256dh, body.keys.auth, admin_user_id),
             )
     return PushSubscriptionResponse(subscription_id=subscription_id)
+
+
+@router.post("/subscriptions/associate", status_code=204)
+@limiter.limit(_rate_limit)
+def associate_subscription(
+    request: Request,
+    body: PushSubscriptionAssociationRequest,
+    admin_user_id: int = Depends(require_owner_session),
+) -> None:
+    """既存ブラウザー購読をログイン中管理者へ再紐付けする。"""
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE push_subscriptions SET admin_user_id=?, updated_at=CURRENT_TIMESTAMP "
+            "WHERE subscription_id_hash=? AND is_active=1",
+            (admin_user_id, _hash(body.subscription_id)),
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Push subscription not found")
 
 
 @router.delete("/subscriptions/{subscription_id}", status_code=204)
