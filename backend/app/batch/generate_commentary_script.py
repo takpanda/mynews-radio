@@ -10,6 +10,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
+from app.programs.profiles import get_default_profile
+from app.programs.prompt_builder import PromptBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +142,12 @@ def generate_commentary_script(
         Number of lines generated (0 on failure).
     """
     settings = get_settings()
+    profile = get_default_profile(kind="commentary", style=style, mc_gender=mc_gender)
+    prompt_builder = PromptBuilder(profile)
     template = _load_prompt_template(style)
+    extra_sections = prompt_builder.supplemental_sections()
+    if extra_sections:
+        template = template.replace("# スタイル設定", extra_sections + "\n# スタイル設定", 1)
 
     text_length = len(article.get("text", "") or "")
     suggested_lines = _calc_suggested_lines(text_length, style)
@@ -202,6 +209,7 @@ def generate_commentary_script(
             "speaker": speaker,
             "text": text,
             "article_id": line.get("article_id"),
+            "segment": prompt_builder.segment_for_section(section),
             "section": section,
             "delivery": line.get("delivery", "neutral"),
         })

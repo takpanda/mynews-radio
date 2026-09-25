@@ -11,6 +11,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.batch.script_structure import normalize_discussion_layout
 from app.config import get_settings
+from app.programs.profiles import get_default_profile
+from app.programs.prompt_builder import PromptBuilder
 from app.services.article_service import ArticleService
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
@@ -1336,6 +1338,11 @@ def generate_script(
         logger.warning("No summaries to generate script from")
         return 0
 
+    prompt_profile = get_default_profile(
+        kind="radio", program_name=program_name, news_source=news_source
+    )
+    prompt_builder = PromptBuilder(prompt_profile)
+
     article_urls = ", ".join(
         f"{article['id']}:{article.get('url', '<no-url>')}" for article in summaries
     )
@@ -1348,9 +1355,11 @@ def generate_script(
     with client_factory() as client:
 
         # --- Step 1: Architect — Narrative Arc 生成 ---
-        logger.info("=== Script Step 1/2: Narrative Arc (Architect) ===")
-        set_llm_context(client, phase="arc", episode_id=infer_episode_id(output_path))
-        arc = _generate_arc(client, summaries)
+        arc = None
+        if prompt_profile.options.narrative_arc:
+            logger.info("=== Script Step 1/2: Narrative Arc (Architect) ===")
+            set_llm_context(client, phase="arc", episode_id=infer_episode_id(output_path))
+            arc = _generate_arc(client, summaries)
 
         # Arc に基づいて記事の順序を確定
         if arc and arc.get("article_order"):
@@ -1362,6 +1371,10 @@ def generate_script(
         # --- Step 2: Writer — 台本生成 + Auto-Lint 再生成ループ ---
         logger.info("=== Script Step 2/2: Script generation (Writer) ===")
         template = _load_prompt_template()
+        extra_sections = prompt_builder.supplemental_sections()
+        if extra_sections:
+            extra_sections = extra_sections.replace("{", "{{").replace("}", "}}")
+            template = template.replace("{narrative_arc_section}", "{narrative_arc_section}" + extra_sections, 1)
         if program_name != "ニュースのとなり":
             template = template.replace("ニュースのとなり", program_name)
         summaries_json = json.dumps(ordered_summaries, ensure_ascii=False, indent=2)
@@ -1437,6 +1450,7 @@ def generate_script(
                 "speaker": speaker,
                 "text": text,
                 "article_id": line.get("article_id"),
+                "segment": prompt_builder.segment_for_section(section),
                 "section": section,
                 "delivery": line.get("delivery", "neutral"),
             }
