@@ -914,6 +914,11 @@ def _build_revised_script(
 
     style = source.get("style") if is_commentary else None
     mc_gender = source.get("mc_gender") if is_commentary else None
+    program_profile = program_profile or get_profile_by_id(
+        str(source.get("program_profile_id", "")),
+        style=str(style or "solo"),
+        mc_gender=str(mc_gender or "male"),
+    )
     allowed_speakers = (
         program_profile.speaker_keys
         if program_profile is not None
@@ -939,6 +944,11 @@ def _build_revised_script(
         script["mc_gender"] = mc_gender
 
     valid_sections = {"intro", "news", "transition", "discussion", "outro"}
+    profile_segment_ids = (
+        {segment.kind: segment.id for segment in program_profile.segments}
+        if program_profile is not None
+        else {}
+    )
 
     for line in response["lines"]:
         if not isinstance(line, dict):
@@ -954,15 +964,17 @@ def _build_revised_script(
         section = str(line.get("section", "news"))
         if section not in valid_sections:
             section = "news"
-        script["lines"].append(
-            {
-                "speaker": speaker,
-                "text": str(line.get("text", "")).strip(),
-                "article_id": line.get("article_id"),
-                "section": section,
-                "delivery": line.get("delivery", "neutral"),
-            }
-        )
+        revised_line = {
+            "speaker": speaker,
+            "text": str(line.get("text", "")).strip(),
+            "article_id": line.get("article_id"),
+            "section": section,
+            "delivery": line.get("delivery", "neutral"),
+        }
+        segment_id = profile_segment_ids.get(section, line.get("segment"))
+        if segment_id is not None:
+            revised_line["segment"] = segment_id
+        script["lines"].append(revised_line)
 
     return script
 

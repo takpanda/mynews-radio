@@ -170,11 +170,17 @@ class ScriptValidator:
         code_match = re.search(r"\[([^]]+)\]", message)
         code = warn.group(1) if warn else (code_match.group(1) if code_match else "LINT")
         line_indices = ScriptValidator._line_indices_from_message(message)
+        dialogue_warning = code == "QA_RELAY" or code.endswith("_QUESTION_ONLY")
+        nonfatal_contract_warning = code == "EXPLANATION_REPEAT"
         return {
             "code": code,
             "message": message,
             "line_indices": line_indices,
-            "severity": "warning" if warn or message.startswith("[WARN]") else "error",
+            "severity": (
+                "warning"
+                if warn or message.startswith("[WARN]") or dialogue_warning or nonfatal_contract_warning
+                else "error"
+            ),
         }
 
     @staticmethod

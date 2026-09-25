@@ -139,7 +139,56 @@ def test_structured_validate_includes_dialogue_and_question_response_findings():
     codes = [finding["code"] for finding in findings]
     assert "HOST_QUESTION_ONLY" in codes
     assert "QA_RELAY" in codes
+    severities = {finding["code"]: finding["severity"] for finding in findings}
+    assert severities["HOST_QUESTION_ONLY"] == "warning"
+    assert severities["QA_RELAY"] == "warning"
     assert all({"code", "message", "line_indices", "severity"} <= finding.keys() for finding in findings)
+
+
+def test_structured_validate_marks_dialogue_findings_as_warnings_and_missing_answer_as_error():
+    validator = ScriptValidator(COMMENTARY_TWO_PERSON)
+    lines = [
+        {"speaker": "female", "section": "news", "text": "なぜでしょうか？"},
+    ]
+
+    findings = validator.validate(lines)
+    severities = {finding["code"]: finding["severity"] for finding in findings}
+    assert severities["FEMALE_QUESTION_ONLY"] == "warning"
+    assert severities["DIRECT_ANSWER_MISSING"] == "error"
+
+
+def test_reviewed_script_restores_profile_segment_ids_for_structure_validation():
+    from app.batch.review_script import _build_revised_script
+
+    profile = replace(
+        COMMENTARY_ONE_PERSON,
+        segments=(
+            ProgramSegment("intro", "intro", 0, 1, 1, ("male",)),
+            ProgramSegment("news", "news", 1, 1, 1, ("male",)),
+            ProgramSegment("outro", "outro", 2, 1, 1, ("male",)),
+        ),
+    )
+    source = {
+        "program_profile_id": profile.id,
+        "date": "2026-09-26",
+        "title": "元台本",
+        "subtitle": "",
+        "style": "solo",
+        "mc_gender": "male",
+    }
+    response = {
+        "lines": [
+            {"section": "intro", "text": "導入です。"},
+            {"section": "news", "text": "記事を説明します。"},
+            {"section": "outro", "text": "解説を終わります。"},
+        ]
+    }
+
+    revised = _build_revised_script(source, response, program_profile=profile)
+
+    assert [line["segment"] for line in revised["lines"]] == ["intro", "news", "outro"]
+    findings = ScriptValidator(profile).validate_structure(revised["lines"])
+    assert not any(finding["code"].startswith("SEGMENT_") for finding in findings)
 
 
 def test_legacy_messages_extract_single_list_range_and_joined_line_indexes():
