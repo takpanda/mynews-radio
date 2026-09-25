@@ -12,6 +12,7 @@ from app.batch.generate_commentary_script import (
 )
 from app.batch.generate_script import _load_prompt_template as load_radio_template
 from app.batch.generate_script import lint_script
+from app.programs.profiles import COMMENTARY_ONE_PERSON, COMMENTARY_TWO_PERSON, RADIO_TWO_PERSON
 
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "program_profile_baselines.json"
@@ -81,13 +82,21 @@ def _build_prompt_baselines() -> dict[str, str]:
 def _build_checker_baselines() -> dict:
     return {
         "radio_two_person": lint_script(
-            RADIO_CHECK_LINES, program_name="ニュースのとなり"
+            RADIO_CHECK_LINES,
+            program_name="ニュースのとなり",
+            program_profile=RADIO_TWO_PERSON,
         ),
         "commentary_solo": validate_final_script(
-            COMMENTARY_SOLO_CHECK_LINES, commentary=True, style="solo"
+            COMMENTARY_SOLO_CHECK_LINES,
+            commentary=True,
+            style="solo",
+            program_profile=COMMENTARY_ONE_PERSON,
         ),
         "commentary_dialogue": validate_final_script(
-            COMMENTARY_DIALOGUE_CHECK_LINES, commentary=True, style="dialogue"
+            COMMENTARY_DIALOGUE_CHECK_LINES,
+            commentary=True,
+            style="dialogue",
+            program_profile=COMMENTARY_TWO_PERSON,
         ),
     }
 

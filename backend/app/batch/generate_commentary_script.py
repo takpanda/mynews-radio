@@ -216,6 +216,7 @@ def generate_commentary_script(
         "subtitle": str(response.get("subtitle", "")),
         "style": style,
         "mc_gender": mc_gender,
+        "program_profile_id": profile.id,
         "lines": [],
     }
     allowed_speakers = profile.speaker_keys

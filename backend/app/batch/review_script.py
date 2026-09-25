@@ -25,6 +25,8 @@ from app.batch.generate_script import (
     lint_script,
 )
 from app.batch.script_contracts import COMMENTARY_IGNORED_LINT_CODES, FAREWELL_RE
+from app.batch.script_validator import ScriptValidator
+from app.programs.profiles import ProgramProfile, get_profile_by_id
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
@@ -594,6 +596,7 @@ def review_script(
     llm_model: str | None = None,
     summaries_path: str | None = None,
     article: dict | None = None,
+    program_profile: ProgramProfile | None = None,
 ) -> dict:
     """Review *source_script_path* with 5 directors and write a revised script.
 
@@ -661,6 +664,12 @@ def review_script(
     script_json_str = json.dumps(source, ensure_ascii=False, indent=2)
     review_evidence = _load_review_evidence(source_script_path, summaries_path, article)
     article_summaries_json = _format_review_evidence(review_evidence)
+    profile = program_profile or get_profile_by_id(
+        str(source.get("program_profile_id", "")),
+        style=str(source.get("style", "solo")),
+        mc_gender=str(source.get("mc_gender", "male")),
+    )
+    validator = ScriptValidator(profile) if profile is not None else None
 
     reviews: dict[str, dict] = {}
     review_count = 0
@@ -674,7 +683,7 @@ def review_script(
     with client_factory() as client:
 
         # --- Step 1: collect individual director reviews ---
-        style = source.get("style", "")  # "solo", "dialogue", or "" (radio)
+        style = source.get("style", "")
 
         for key in _DIRECTOR_KEYS:
             try:
@@ -736,8 +745,8 @@ def review_script(
             synth_response = client.generate_json(synth_prompt)
 
             if synth_response and isinstance(synth_response.get("lines"), list) and synth_response["lines"]:
-                revised_script = _build_revised_script(source, synth_response)
-                if source.get("style", "dialogue") != "solo":
+                revised_script = _build_revised_script(source, synth_response, program_profile=profile)
+                if (len(profile.cast) > 1 if profile is not None else style != "solo"):
                     revised_script["lines"], contract_repairs = _restore_dialogue_contract(
                         source.get("lines", []),
                         revised_script["lines"],
@@ -768,9 +777,14 @@ def review_script(
     # 連続を検査する。solo（一人喋り）は対話が成立しないため対象外。
     dialogue_balance_issues: list[str] = []
     question_response_issues: list[str] = []
-    if style != "solo":
+    has_dialogue = len(profile.cast) > 1 if profile is not None else style != "solo"
+    if has_dialogue:
         dialogue_check_lines = revised_script["lines"] if (revised and revised_script) else source.get("lines", [])
-        dialogue_balance_issues = check_dialogue_balance(dialogue_check_lines)
+        dialogue_balance_issues = (
+            validator.dialogue_issues(dialogue_check_lines)
+            if validator is not None
+            else check_dialogue_balance(dialogue_check_lines)
+        )
         question_response_issues = check_question_response_contract(dialogue_check_lines)
         if dialogue_balance_issues:
             logger.warning(
@@ -822,6 +836,7 @@ def review_script(
         post_review_lint_lines,
         program_name=program_name,
         expected_discussion_article_id=source.get("discussion_article_id"),
+        program_profile=profile,
     )
     if commentary:
         post_review_lint_issues = [
@@ -882,7 +897,12 @@ def review_script(
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _build_revised_script(source: dict, response: dict) -> dict:
+def _build_revised_script(
+    source: dict,
+    response: dict,
+    *,
+    program_profile: ProgramProfile | None = None,
+) -> dict:
     """Construct the final script dict from the LLM synthesis response."""
     is_commentary = "style" in source
     if is_commentary:
@@ -894,6 +914,16 @@ def _build_revised_script(source: dict, response: dict) -> dict:
 
     style = source.get("style") if is_commentary else None
     mc_gender = source.get("mc_gender") if is_commentary else None
+    program_profile = program_profile or get_profile_by_id(
+        str(source.get("program_profile_id", "")),
+        style=str(style or "solo"),
+        mc_gender=str(mc_gender or "male"),
+    )
+    allowed_speakers = (
+        program_profile.speaker_keys
+        if program_profile is not None
+        else frozenset({"male", "female"})
+    )
 
     script: dict = {
         "date": source.get("date", ""),
@@ -901,6 +931,11 @@ def _build_revised_script(source: dict, response: dict) -> dict:
         "subtitle": subtitle,
         "lines": [],
     }
+    profile_id = source.get("program_profile_id") or (
+        program_profile.id if program_profile is not None else None
+    )
+    if profile_id:
+        script["program_profile_id"] = profile_id
     if source.get("discussion_article_id") is not None:
         script["discussion_article_id"] = source["discussion_article_id"]
     if style:
@@ -909,28 +944,37 @@ def _build_revised_script(source: dict, response: dict) -> dict:
         script["mc_gender"] = mc_gender
 
     valid_sections = {"intro", "news", "transition", "discussion", "outro"}
+    profile_segment_ids = (
+        {segment.kind: segment.id for segment in program_profile.segments}
+        if program_profile is not None
+        else {}
+    )
 
     for line in response["lines"]:
         if not isinstance(line, dict):
             continue
         speaker = str(line.get("speaker", "male"))
-        if style == "solo" and mc_gender:
+        if program_profile is not None and len(program_profile.cast) == 1:
+            speaker = program_profile.cast[0].key
+        elif style == "solo" and mc_gender:
             speaker = mc_gender
         else:
-            if speaker not in {"male", "female"}:
-                speaker = "male"
+            if speaker not in allowed_speakers:
+                speaker = program_profile.cast[0].key if program_profile else "male"
         section = str(line.get("section", "news"))
-        if section not in valid_sections:
+        if program_profile is None and section not in valid_sections:
             section = "news"
-        script["lines"].append(
-            {
-                "speaker": speaker,
-                "text": str(line.get("text", "")).strip(),
-                "article_id": line.get("article_id"),
-                "section": section,
-                "delivery": line.get("delivery", "neutral"),
-            }
-        )
+        revised_line = {
+            "speaker": speaker,
+            "text": str(line.get("text", "")).strip(),
+            "article_id": line.get("article_id"),
+            "section": section,
+            "delivery": line.get("delivery", "neutral"),
+        }
+        segment_id = profile_segment_ids.get(section, line.get("segment"))
+        if segment_id is not None:
+            revised_line["segment"] = segment_id
+        script["lines"].append(revised_line)
 
     return script
 

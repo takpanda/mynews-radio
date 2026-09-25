@@ -13,6 +13,7 @@ from app.batch.script_structure import normalize_discussion_layout
 from app.config import get_settings
 from app.programs.profiles import ProgramProfile, get_default_profile
 from app.programs.prompt_builder import PromptBuilder
+from app.batch.script_validator import ScriptValidator
 from app.services.article_service import ArticleService
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
@@ -932,6 +933,27 @@ def lint_script(
     program_name: str = "ニュースのとなり",
     bridges: list[dict] | None = None,
     expected_discussion_article_id=None,
+    program_profile: ProgramProfile | None = None,
+) -> list[str]:
+    if program_profile is not None:
+        return ScriptValidator(program_profile).lint_messages(
+            lines,
+            bridges=bridges,
+            expected_discussion_article_id=expected_discussion_article_id,
+        )
+    return _lint_script_legacy(
+        lines,
+        program_name=program_name,
+        bridges=bridges,
+        expected_discussion_article_id=expected_discussion_article_id,
+    )
+
+
+def _lint_script_legacy(
+    lines: list,
+    program_name: str = "ニュースのとなり",
+    bridges: list[dict] | None = None,
+    expected_discussion_article_id=None,
 ) -> list[str]:
     """生成済み lines に対して品質チェックを行い、問題点のリストを返す。
     返値が空リストなら合格。
@@ -1433,6 +1455,9 @@ def generate_script(
                 program_name=program_name,
                 bridges=arc.get("bridges", []) if arc else None,
                 expected_discussion_article_id=arc.get("discussion_article_id") if arc else None,
+                # The historical built-in prompt contract has its own lint
+                # baselines; profile structure rules apply to newly defined profiles.
+                program_profile=None if prompt_builder.uses_legacy_prompt else prompt_profile,
             )
             if not lint_errors:
                 logger.info("Auto-Lint PASSED (attempt=%d)", lint_attempt)
@@ -1457,6 +1482,7 @@ def generate_script(
         "date": str(date.today()),
         "title": str(response.get("title", program_name)),
         "subtitle": str(response.get("subtitle", "")),
+        "program_profile_id": prompt_profile.id,
         "lines": [],
     }
 

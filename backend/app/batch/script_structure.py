@@ -4,11 +4,22 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.programs.profiles import ProgramProfile
+
 _CONTENT_SECTIONS = {"news", "discussion"}
 
 
 def _issue(code: str, message: str) -> dict[str, Any]:
     return {"code": code, "message": message, "line_indices": []}
+
+
+def check_profile_structure(
+    lines: list[dict[str, Any]], profile: ProgramProfile,
+) -> list[dict[str, Any]]:
+    """Expose profile-specific structural checks alongside layout checks."""
+    from app.batch.script_validator import ScriptValidator
+
+    return ScriptValidator(profile).validate_structure(lines)
 
 
 def _content_segments(lines: list[dict[str, Any]], start: int, end: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:

@@ -26,8 +26,9 @@ from app.batch.review_script import (
     check_question_response_contract,
     check_transition_integrity,
 )
-from app.batch.script_structure import check_discussion_layout, normalize_discussion_layout
+from app.batch.script_structure import check_discussion_layout, check_profile_structure, normalize_discussion_layout
 from app.batch.script_contracts import COMMENTARY_IGNORED_LINT_CODES, FAREWELL_RE
+from app.programs.profiles import ProgramProfile, get_profile_by_id
 from app.services.article_service import titles_are_similar
 
 logger = logging.getLogger(__name__)
@@ -379,12 +380,22 @@ def _classify_lint_errors(errors: list[str]) -> tuple[list[dict[str, Any]], list
 def _lint_errors(
     lines: list[dict[str, Any]], *, program_name: str, commentary: bool,
     expected_discussion_article_id: Any = None,
+    program_profile: ProgramProfile | None = None,
 ) -> list[str]:
-    errors = lint_script(
-        lines,
-        program_name=program_name,
-        expected_discussion_article_id=expected_discussion_article_id,
-    )
+    if program_profile is None:
+        errors = lint_script(
+            lines,
+            program_name=program_name,
+            expected_discussion_article_id=expected_discussion_article_id,
+        )
+    else:
+        from app.batch.generate_script import _lint_script_legacy
+
+        errors = _lint_script_legacy(
+            lines,
+            program_name=program_profile.name,
+            expected_discussion_article_id=expected_discussion_article_id,
+        )
     if not commentary:
         return errors
 
@@ -407,6 +418,7 @@ def validate_final_script(
     expected_discussion_article_id: Any = None,
     prior_review_result: dict[str, Any] | None = None,
     commentary: bool = False,
+    program_profile: ProgramProfile | None = None,
 ) -> dict[str, Any]:
     """Validate the post-review script and return a synthesis decision.
 
@@ -435,10 +447,12 @@ def validate_final_script(
                 line_indices=malformed_indices,
             )
         )
+    profile = program_profile
+    allowed_speakers = profile.speaker_keys if profile is not None else {"male", "female"}
     invalid_line_indices = [
         index
         for index, line in enumerate(repaired_lines)
-        if line.get("speaker") not in {"male", "female"}
+        if line.get("speaker") not in allowed_speakers
         or line.get("section") not in {"intro", "news", "transition", "discussion", "outro"}
         or not str(line.get("text", "") or "").strip()
     ]
@@ -451,7 +465,7 @@ def validate_final_script(
             )
         )
 
-    if style != "solo":
+    if len(profile.cast) > 1 if profile is not None else style != "solo":
         critical.extend(
             _issue("DIRECT_ANSWER_MISSING", message)
             for message in check_question_response_contract(repaired_lines)
@@ -464,10 +478,24 @@ def validate_final_script(
             program_name=program_name,
             commentary=commentary,
             expected_discussion_article_id=expected_discussion_article_id,
+            program_profile=profile,
         )
     )
     critical.extend(lint_critical)
     warnings.extend(lint_warnings)
+
+    if profile is not None:
+        profile_findings = check_profile_structure(repaired_lines, profile)
+        for finding in profile_findings:
+            item = _issue(
+                finding["code"],
+                finding["message"],
+                line_indices=finding["line_indices"],
+            )
+            if finding["severity"] == "warning":
+                warnings.append(item)
+            else:
+                critical.append(item)
 
     transition_issues = check_transition_integrity(repaired_lines)
     critical.extend(_issue("TRANSITION_INTEGRITY", message) for message in transition_issues)
@@ -535,6 +563,7 @@ def validate_final_script_file(
     article: dict[str, Any] | None = None,
     commentary: bool = False,
     prior_review_result: dict[str, Any] | None = None,
+    program_profile: ProgramProfile | None = None,
 ) -> dict[str, Any]:
     """Read, validate, and persist the final-validation report."""
     path = Path(script_path)
@@ -563,6 +592,17 @@ def validate_final_script_file(
     if not summaries and isinstance(article, dict):
         summaries = [dict(article)]
 
+    profile_id = script.get("program_profile_id") if isinstance(script, dict) else None
+    resolved_profile = program_profile or (
+        get_profile_by_id(
+            str(profile_id),
+            style=str(script.get("style", "solo")) if isinstance(script, dict) else "solo",
+            mc_gender=str(script.get("mc_gender", "male")) if isinstance(script, dict) else "male",
+        )
+        if profile_id
+        else None
+    )
+
     result = validate_final_script(
         script.get("lines", []) if isinstance(script, dict) else [],
         summaries=summaries,
@@ -575,6 +615,7 @@ def validate_final_script_file(
         ),
         commentary=commentary,
         prior_review_result=prior_review_result,
+        program_profile=resolved_profile,
     )
     if isinstance(script, dict):
         if not result["can_synthesize"]:
