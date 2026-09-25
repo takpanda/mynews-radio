@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from app.batch.script_structure import normalize_discussion_layout
 from app.config import get_settings
 from app.programs.profiles import get_default_profile
+from app.programs.profiles import ProgramProfile
 from app.programs.prompt_builder import PromptBuilder
 from app.services.article_service import ArticleService
 from app.services.ollama_client import OllamaClient, create_llm_client
@@ -1312,6 +1313,7 @@ def generate_script(
     min_importance_score: int | None = None,
     llm_provider: str | None = None,
     llm_model: str | None = None,
+    program_profile: ProgramProfile | None = None,
 ) -> int:
     settings = get_settings()
     profile = program_settings or get_settings_or_default()
@@ -1338,7 +1340,7 @@ def generate_script(
         logger.warning("No summaries to generate script from")
         return 0
 
-    prompt_profile = get_default_profile(
+    prompt_profile = program_profile or get_default_profile(
         kind="radio", program_name=program_name, news_source=news_source
     )
     prompt_builder = PromptBuilder(prompt_profile)
@@ -1372,9 +1374,6 @@ def generate_script(
         logger.info("=== Script Step 2/2: Script generation (Writer) ===")
         template = _load_prompt_template()
         extra_sections = prompt_builder.supplemental_sections()
-        if extra_sections:
-            extra_sections = extra_sections.replace("{", "{{").replace("}", "}}")
-            template = template.replace("{narrative_arc_section}", "{narrative_arc_section}" + extra_sections, 1)
         if program_name != "ニュースのとなり":
             template = template.replace("ニュースのとなり", program_name)
         summaries_json = json.dumps(ordered_summaries, ensure_ascii=False, indent=2)
@@ -1382,6 +1381,12 @@ def generate_script(
             narrative_arc_section=narrative_arc_section,
             summaries_json=summaries_json,
         )
+        if extra_sections:
+            base_prompt = base_prompt.replace(
+                "# MCキャラクター設定と役割の厳格定義",
+                extra_sections + "\n# MCキャラクター設定と役割の厳格定義",
+                1,
+            )
 
         _MAX_LINT_RETRIES = int(os.getenv("SCRIPT_LINT_RETRIES", "3"))
         current_prompt = base_prompt
@@ -1458,6 +1463,9 @@ def generate_script(
 
     # LLM が transition を省略した場合に備えてプログラム側で補完する
     script["lines"] = _ensure_transitions(script["lines"], ordered_summaries, arc=arc)
+    # _ensure_transitions() が追加した行も含め、最終行すべてにprofileのsegmentを付与する。
+    for line in script["lines"]:
+        line["segment"] = prompt_builder.segment_for_section(line["section"])
 
     # Arcで選定した記事IDをレビュー後も引き継ぎ、レビューLLMが順序を
     # 崩した場合にも最終検証で同じ対象を使えるようにする。

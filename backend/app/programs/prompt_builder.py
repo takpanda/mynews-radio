@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import json
 
-from app.programs.profiles import ProgramProfile
+from app.programs.profiles import (
+    COMMENTARY_ONE_PERSON,
+    COMMENTARY_TWO_PERSON,
+    RADIO_TWO_PERSON,
+    ProgramProfile,
+    get_default_profile,
+)
 
 
 class PromptBuilder:
@@ -63,10 +69,20 @@ class PromptBuilder:
 
     def supplemental_sections(self) -> str:
         """Return generated sections for a non-legacy cast; legacy prompts stay byte-identical."""
-        if self.profile.id in {
-            "radio_news_neighbor", "radio_tech_news",
-            "commentary_solo", "commentary_dialogue",
-        }:
+        legacy_profiles = (
+            RADIO_TWO_PERSON,
+            get_default_profile(kind="radio", program_name="テックニュース"),
+            COMMENTARY_ONE_PERSON,
+            get_default_profile(kind="commentary", style="solo", mc_gender="female"),
+            COMMENTARY_TWO_PERSON,
+        )
+        if any(
+            self.profile.kind == legacy.kind
+            and self.profile.cast == legacy.cast
+            and self.profile.segments == legacy.segments
+            and self.profile.options == legacy.options
+            for legacy in legacy_profiles
+        ):
             return ""
         return "\n".join((self.cast_section, self.structure_section, self.output_example)) + "\n"
 
