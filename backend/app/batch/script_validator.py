@@ -141,15 +141,29 @@ class ScriptValidator:
     ) -> list[dict[str, Any]]:
         """Adapt the established string linter output to the structured issue shape."""
         from app.batch.generate_script import _lint_script_legacy
+        from app.programs.prompt_builder import PromptBuilder
 
         legacy = _lint_script_legacy(
             lines,
             program_name=self.profile.name,
             **legacy_options,
         )
+        if not PromptBuilder(self.profile).uses_legacy_prompt:
+            legacy = [message for message in legacy if not self._is_legacy_discussion_layout_issue(message)]
         issues = [self.from_legacy_message(message) for message in legacy]
         issues.extend(self.validate_structure(lines))
         return self._dedupe(issues)
+
+    @staticmethod
+    def _is_legacy_discussion_layout_issue(message: str) -> bool:
+        """Skip fixed discussion placement and length rules for custom profiles."""
+        if message.startswith("discussion が全 news より前に挿入されています"):
+            return True
+        code_match = re.search(r"\[([^]]+)\]", message)
+        return bool(code_match and code_match.group(1) in {
+            "DISCUSSION_ARTICLE_POSITION",
+            "DISCUSSION_LENGTH",
+        })
 
     def validate(self, lines: list[Any], **legacy_options: Any) -> list[dict[str, Any]]:
         """Return machine-readable issues suitable for API and persisted reports."""

@@ -78,7 +78,7 @@ def test_custom_headline_corner_layout_is_validated_in_profile_order():
         for (section, segment_id), text in zip(
             sections_and_ids,
             [
-                "番組を始めます。",
+                "「ニュースのとなり」の時間です。本日のニュースをお伝えします。",
                 "記事に移ります。",
                 "記事の背景を整理します。",
                 "記事の内容です。",
@@ -90,12 +90,12 @@ def test_custom_headline_corner_layout_is_validated_in_profile_order():
         )
     ]
 
-    with patch("app.batch.final_validation._lint_errors", return_value=[]):
-        result = validate_final_script(lines, program_profile=profile)
+    result = validate_final_script(lines, program_profile=profile)
 
     codes = {finding["code"] for finding in result["critical_issues"]}
     assert "DISCUSSION_LAYOUT" not in codes
     assert "DISCUSSION_POSITION" not in codes
+    assert "DISCUSSION_LENGTH" not in codes
     assert "OUTRO_POSITION" not in codes
     assert "SEGMENT_ORDER" not in codes
     assert result["can_synthesize"] is True

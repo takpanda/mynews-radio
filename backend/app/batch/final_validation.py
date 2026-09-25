@@ -391,12 +391,11 @@ def _lint_errors(
             expected_discussion_article_id=expected_discussion_article_id,
         )
     else:
-        from app.batch.generate_script import _lint_script_legacy
-
-        errors = _lint_script_legacy(
+        errors = lint_script(
             lines,
             program_name=program_profile.name,
             expected_discussion_article_id=expected_discussion_article_id,
+            program_profile=program_profile,
         )
     if not commentary:
         return errors
