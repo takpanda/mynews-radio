@@ -228,5 +228,26 @@ def get_default_profile(
     raise ValueError(f"unsupported program kind: {kind!r}")
 
 
+def get_profile_by_id(
+    profile_id: str,
+    *,
+    style: str | None = None,
+    mc_gender: str = "male",
+) -> ProgramProfile | None:
+    """Return a registered default profile by its stable identifier."""
+    if profile_id == "commentary_solo":
+        return get_default_profile(
+            kind="commentary",
+            style="solo" if style in (None, "") else style,
+            mc_gender=mc_gender,
+        )
+    for profile in DEFAULT_PROFILES:
+        if profile.id == profile_id:
+            return profile
+    if profile_id == "radio_tech_news":
+        return get_default_profile(kind="radio", program_name="テックニュース")
+    return None
+
+
 for _profile in DEFAULT_PROFILES:
     validate_program_profile(_profile)

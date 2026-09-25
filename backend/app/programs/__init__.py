@@ -8,6 +8,7 @@ from app.programs.profiles import (
     ProgramSegment,
     ProfileValidationError,
     get_default_profile,
+    get_profile_by_id,
     validate_program_profile,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "ProgramSegment",
     "ProfileValidationError",
     "get_default_profile",
+    "get_profile_by_id",
     "validate_program_profile",
 ]
