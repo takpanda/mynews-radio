@@ -147,9 +147,9 @@ COMMENTARY_ONE_PERSON = ProgramProfile(
     kind="commentary",
     cast=(ProgramCastMember("male", "", "解説者"),),
     segments=(
-        _segment("intro", "intro", 0, 1, 1, ("male",)),
-        _segment("news", "news", 1, 6, 9, ("male",)),
-        _segment("outro", "outro", 2, 1, 1, ("male",)),
+        _segment("intro", "intro", 0, 1, 2, ("male",)),
+        _segment("news", "news", 1, 3, 12, ("male",)),
+        _segment("outro", "outro", 2, 1, 2, ("male",)),
     ),
     options=ProgramOptions(style="solo", mc_gender="male"),
 )
@@ -160,8 +160,8 @@ COMMENTARY_TWO_PERSON = ProgramProfile(
     kind="commentary",
     cast=_COMMENTARY_DIALOGUE_CAST,
     segments=(
-        _segment("intro", "intro", 0, 2, 2, ("male", "female")),
-        _segment("news", "news", 1, 6, 9, ("male", "female")),
+        _segment("intro", "intro", 0, 1, 3, ("male", "female")),
+        _segment("news", "news", 1, 3, 12, ("male", "female")),
         _segment("outro", "outro", 2, 2, 2, ("male", "female")),
     ),
     options=ProgramOptions(style="dialogue"),
@@ -188,7 +188,11 @@ def get_default_profile(
     commentary retains its ``style`` / ``mc_gender`` arguments.
     """
     if kind == "radio":
-        if program_name == "テックニュース":
+        if program_name:
+            is_tech_news = program_name == "テックニュース"
+        else:
+            is_tech_news = news_source == "hatena_bookmark"
+        if is_tech_news:
             return replace(RADIO_TWO_PERSON, id="radio_tech_news", name="テックニュース")
         return RADIO_TWO_PERSON
     if kind == "commentary":

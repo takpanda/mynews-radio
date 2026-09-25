@@ -25,7 +25,13 @@ from app.programs.profiles import (
             ("intro", "transition", "news", "discussion", "outro"),
         ),
         (
-            {"kind": "radio", "program_name": "テックニュース"},
+            {"kind": "radio", "program_name": "テックニュース", "news_source": "yahoo_news"},
+            "radio_tech_news",
+            ("male", "female"),
+            ("intro", "transition", "news", "discussion", "outro"),
+        ),
+        (
+            {"kind": "radio", "news_source": "hatena_bookmark"},
             "radio_tech_news",
             ("male", "female"),
             ("intro", "transition", "news", "discussion", "outro"),
@@ -65,6 +71,30 @@ def test_default_profiles_cover_three_existing_program_modes():
         COMMENTARY_ONE_PERSON.id,
         COMMENTARY_TWO_PERSON.id,
     )
+
+
+def test_commentary_line_ranges_cover_current_prompt_conditions():
+    solo = get_default_profile(kind="commentary", style="solo")
+    dialogue = get_default_profile(kind="commentary", style="dialogue")
+
+    def bounds(profile):
+        return {
+            segment.kind: (segment.min_lines, segment.max_lines)
+            for segment in profile.segments
+        }
+
+    assert bounds(solo) == {"intro": (1, 2), "news": (3, 12), "outro": (1, 2)}
+    assert bounds(dialogue) == {"intro": (1, 3), "news": (3, 12), "outro": (2, 2)}
+
+
+def test_explicit_radio_program_name_takes_precedence_over_news_source():
+    profile = get_default_profile(
+        kind="radio",
+        program_name="ニュースのとなり",
+        news_source="hatena_bookmark",
+    )
+
+    assert profile.id == "radio_news_neighbor"
 
 
 @pytest.mark.parametrize(

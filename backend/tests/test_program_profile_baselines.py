@@ -25,6 +25,30 @@ FIXED_SUMMARIES = [{
     "title": "固定条件のニュース",
     "summary": "固定条件でプロンプトを再現するための要約です。",
 }]
+RADIO_CHECK_LINES = [
+    {"speaker": "male", "text": "「ニュースのとなり」の時間です。今日もニュースをお届けします。", "article_id": None, "section": "intro", "delivery": "neutral"},
+    {"speaker": "female", "text": "今日の話題を順番に見ていきましょう。", "article_id": None, "section": "intro", "delivery": "neutral"},
+    {"speaker": "male", "text": "固定ニュースについてお伝えします。", "article_id": 123, "section": "news", "delivery": "neutral"},
+    {"speaker": "female", "text": "記事には具体的な数字の123が示されています。", "article_id": 123, "section": "news", "delivery": "questioning"},
+    {"speaker": "male", "text": "今日は固定ニュースを取り上げました。", "article_id": None, "section": "outro", "delivery": "warm"},
+    {"speaker": "female", "text": "それではまた次回お会いしましょう。", "article_id": None, "section": "outro", "delivery": "warm"},
+]
+COMMENTARY_SOLO_CHECK_LINES = [
+    {"speaker": "male", "text": "記事の概要を説明します。", "article_id": 321, "section": "intro", "delivery": "neutral"},
+    {"speaker": "male", "text": "記事には123件の結果が記されています。", "article_id": 321, "section": "news", "delivery": "neutral"},
+    {"speaker": "male", "text": "この結果から背景を読み取れます。", "article_id": 321, "section": "news", "delivery": "thoughtful"},
+    {"speaker": "male", "text": "今後の動きも注目されます。", "article_id": None, "section": "outro", "delivery": "warm"},
+]
+COMMENTARY_DIALOGUE_CHECK_LINES = [
+    {"speaker": "male", "text": "記事の概要を説明します。", "article_id": 321, "section": "intro", "delivery": "neutral"},
+    {"speaker": "female", "text": "どの点が注目されていますか？", "article_id": 321, "section": "intro", "delivery": "questioning"},
+    {"speaker": "male", "text": "記事には123件の結果が記されています。", "article_id": 321, "section": "news", "delivery": "neutral"},
+    {"speaker": "female", "text": "利用する人への影響が気になります。", "article_id": 321, "section": "news", "delivery": "thoughtful"},
+    {"speaker": "male", "text": "条件を確認する必要があります。", "article_id": 321, "section": "news", "delivery": "thoughtful"},
+    {"speaker": "female", "text": "情報を確かめて判断したいですね。", "article_id": 321, "section": "news", "delivery": "warm"},
+    {"speaker": "female", "text": "記事の要点を振り返りました。", "article_id": None, "section": "outro", "delivery": "warm"},
+    {"speaker": "male", "text": "また次回もお聞きください。", "article_id": None, "section": "outro", "delivery": "warm"},
+]
 
 
 def _build_prompt_baselines() -> dict[str, str]:
@@ -56,12 +80,14 @@ def _build_prompt_baselines() -> dict[str, str]:
 
 def _build_checker_baselines() -> dict:
     return {
-        "radio_two_person": lint_script([], program_name="ニュースのとなり"),
+        "radio_two_person": lint_script(
+            RADIO_CHECK_LINES, program_name="ニュースのとなり"
+        ),
         "commentary_solo": validate_final_script(
-            [], commentary=True, style="solo"
+            COMMENTARY_SOLO_CHECK_LINES, commentary=True, style="solo"
         ),
         "commentary_dialogue": validate_final_script(
-            [], commentary=True, style="dialogue"
+            COMMENTARY_DIALOGUE_CHECK_LINES, commentary=True, style="dialogue"
         ),
     }
 
