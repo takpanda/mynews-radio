@@ -19,7 +19,7 @@ from app.batch.final_validation import (
     human_review_message,
     validate_final_script_file,
 )
-from app.batch.radio_pipeline import run_radio_pipeline
+from app.batch.radio_pipeline import PipelineResult, run_radio_pipeline
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.batch.build_episode import build_episode
 from app.batch.review_script import review_script
@@ -217,7 +217,7 @@ class GenerateRequest(BaseModel):
         return normalized
 
 
-def _run_generation(episode_id: int, body: GenerateRequest) -> None:
+def _run_generation(episode_id: int, body: GenerateRequest) -> dict[str, Any] | PipelineResult | None:
     """Background pipeline that delegates to the shared radio pipeline."""
 
     service = EpisodeService()
@@ -255,6 +255,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> None:
 
     if result is None:
         logger.warning("[%d] radio pipeline returned None", episode_id)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -645,13 +646,16 @@ def _run_pipeline_with_audit(
     operation: str, job_id: int, *, dispatch: bool = True,
 ) -> JobClaim | None:
     promoted = None
+    pipeline_result = None
     try:
-        pipeline(episode_id, body)
+        pipeline_result = pipeline(episode_id, body)
     except Exception:
         logger.exception("generation pipeline failed for episode %d", episode_id)
     finally:
         status = (EpisodeService().get_episode(episode_id) or {}).get("status")
-        success = status == "completed"
+        success = status == "completed" or (
+            status == "awaiting_review" and pipeline_result is PipelineResult.REVIEW_REQUIRED
+        )
         try:
             finalize_audit_log(job_id, "success" if success else "failure", episode_id)
         except Exception:
