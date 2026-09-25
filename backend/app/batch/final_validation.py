@@ -449,11 +449,18 @@ def validate_final_script(
         )
     profile = program_profile
     allowed_speakers = profile.speaker_keys if profile is not None else {"male", "female"}
+    allowed_sections = (
+        {segment.kind for segment in profile.segments}
+        if profile is not None
+        else {"intro", "news", "transition", "discussion", "outro"}
+    )
     invalid_line_indices = [
         index
         for index, line in enumerate(repaired_lines)
-        if line.get("speaker") not in allowed_speakers
-        or line.get("section") not in {"intro", "news", "transition", "discussion", "outro"}
+        if not isinstance(line.get("speaker"), str)
+        or line.get("speaker") not in allowed_speakers
+        or not isinstance(line.get("section"), str)
+        or line.get("section") not in allowed_sections
         or not str(line.get("text", "") or "").strip()
     ]
     if invalid_line_indices:

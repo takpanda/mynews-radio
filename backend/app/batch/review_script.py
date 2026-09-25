@@ -943,12 +943,12 @@ def _build_revised_script(
     if mc_gender:
         script["mc_gender"] = mc_gender
 
-    valid_sections = {"intro", "news", "transition", "discussion", "outro"}
-    profile_segment_ids = (
-        {segment.kind: segment.id for segment in program_profile.segments}
-        if program_profile is not None
-        else {}
-    )
+    profile_segments_by_kind: dict[str, list] = {}
+    profile_segments_by_id = {}
+    if program_profile is not None:
+        for segment in program_profile.segments:
+            profile_segments_by_kind.setdefault(segment.kind, []).append(segment)
+            profile_segments_by_id[segment.id] = segment
 
     for line in response["lines"]:
         if not isinstance(line, dict):
@@ -961,9 +961,15 @@ def _build_revised_script(
         else:
             if speaker not in allowed_speakers:
                 speaker = program_profile.cast[0].key if program_profile else "male"
-        section = str(line.get("section", "news"))
-        if program_profile is None and section not in valid_sections:
-            section = "news"
+        requested_segment = line.get("segment")
+        requested_segment_obj = (
+            profile_segments_by_id.get(requested_segment)
+            if isinstance(requested_segment, str) else None
+        )
+        section_value = line.get("section")
+        if section_value is None and requested_segment_obj is not None:
+            section_value = requested_segment_obj.kind
+        section = str(section_value if section_value is not None else "news")
         revised_line = {
             "speaker": speaker,
             "text": str(line.get("text", "")).strip(),
@@ -971,7 +977,10 @@ def _build_revised_script(
             "section": section,
             "delivery": line.get("delivery", "neutral"),
         }
-        segment_id = profile_segment_ids.get(section, line.get("segment"))
+        matches = profile_segments_by_kind.get(section, [])
+        segment_id = requested_segment if requested_segment is not None else (
+            matches[0].id if len(matches) == 1 else None
+        )
         if segment_id is not None:
             revised_line["segment"] = segment_id
         script["lines"].append(revised_line)

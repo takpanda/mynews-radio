@@ -110,11 +110,6 @@ def test_explicit_radio_program_name_takes_precedence_over_news_source():
         ),
         replace(
             RADIO_TWO_PERSON,
-            segments=RADIO_TWO_PERSON.segments
-            + (ProgramSegment("news_followup", "news", 5, 1, 1),),
-        ),
-        replace(
-            RADIO_TWO_PERSON,
             segments=(replace(RADIO_TWO_PERSON.segments[0], kind="unknown"),)
             + RADIO_TWO_PERSON.segments[1:],
         ),

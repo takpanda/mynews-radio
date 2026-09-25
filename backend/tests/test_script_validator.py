@@ -66,6 +66,77 @@ def test_validator_detects_segment_line_count_overflow():
     assert overflow["line_indices"] == [1, 2]
 
 
+def test_validator_uses_ids_for_repeated_kinds_and_added_section_kinds():
+    from app.programs.profiles import validate_program_profile
+
+    profile = replace(
+        COMMENTARY_TWO_PERSON,
+        segments=(
+            ProgramSegment("intro", "intro", 0, 1, 1, ("male",)),
+            ProgramSegment("headline_open", "headline", 1, 1, 1, ("male",)),
+            ProgramSegment("news", "news", 2, 1, 1, ("male", "female")),
+            ProgramSegment("headline_wrap", "headline", 3, 1, 1, ("female",)),
+            ProgramSegment("daily_corner", "corner", 4, 1, 1, ("male",)),
+            ProgramSegment("outro", "outro", 5, 1, 1, ("female",)),
+        ),
+    )
+    validate_program_profile(profile)
+    lines = [
+        {"speaker": "male", "section": "intro", "segment": "intro"},
+        {"speaker": "male", "section": "headline", "segment": "headline_open"},
+        {"speaker": "male", "section": "news", "segment": "news"},
+        {"speaker": "female", "section": "headline", "segment": "headline_wrap"},
+        {"speaker": "male", "section": "corner", "segment": "daily_corner"},
+        {"speaker": "female", "section": "outro", "segment": "outro"},
+    ]
+
+    assert ScriptValidator(profile).validate_structure(lines) == []
+
+
+def test_validator_reports_ambiguous_missing_and_unknown_segment_ids():
+    profile = replace(
+        COMMENTARY_ONE_PERSON,
+        segments=(
+            ProgramSegment("headline_open", "headline", 0, 1, 1, ("male",)),
+            ProgramSegment("headline_wrap", "headline", 1, 1, 1, ("male",)),
+        ),
+    )
+
+    findings = ScriptValidator(profile).validate_structure([
+        {"speaker": "male", "section": "headline", "segment": "unregistered"},
+        {"speaker": "male", "section": "headline"},
+    ])
+
+    codes = [finding["code"] for finding in findings]
+    assert "UNKNOWN_SEGMENT" in codes
+    missing = [finding for finding in findings if finding["code"] == "SEGMENT_MISSING"]
+    assert len(missing) == 1
+    assert missing[0]["line_indices"] == [1]
+    assert all(finding["line_indices"] != [0] for finding in findings if finding["code"] == "SEGMENT_LINE_COUNT")
+
+
+def test_validator_checks_order_line_counts_and_speakers_per_segment_id():
+    profile = replace(
+        COMMENTARY_TWO_PERSON,
+        segments=(
+            ProgramSegment("headline_open", "headline", 0, 1, 1, ("male",)),
+            ProgramSegment("headline_wrap", "headline", 1, 2, 2, ("female",)),
+        ),
+    )
+    findings = ScriptValidator(profile).validate_structure([
+        {"speaker": "male", "section": "headline", "segment": "headline_wrap"},
+        {"speaker": "male", "section": "headline", "segment": "headline_open"},
+    ])
+
+    codes = [finding["code"] for finding in findings]
+    assert "SEGMENT_SPEAKER" in codes
+    assert "SEGMENT_ORDER" in codes
+    count_findings = [finding for finding in findings if finding["code"] == "SEGMENT_LINE_COUNT"]
+    assert len(count_findings) == 1
+    assert count_findings[0]["line_indices"] == [0]
+    assert "headline_wrap" in count_findings[0]["message"]
+
+
 def test_missing_segment_id_is_reported_and_section_fallback_keeps_structure_checks():
     profile = replace(
         COMMENTARY_ONE_PERSON,
@@ -216,6 +287,32 @@ def test_reviewed_script_preserves_and_reports_section_missing_from_profile():
     findings = ScriptValidator(profile).validate_structure(revised["lines"])
     unknown = next(finding for finding in findings if finding["code"] == "UNKNOWN_SECTION")
     assert unknown["line_indices"] == [0]
+
+
+def test_review_postprocessing_preserves_explicit_ids_and_does_not_guess_repeated_kind():
+    from app.batch.review_script import _build_revised_script
+
+    profile = replace(
+        COMMENTARY_ONE_PERSON,
+        segments=(
+            ProgramSegment("headline_open", "headline", 0, 1, 1, ("male",)),
+            ProgramSegment("headline_wrap", "headline", 1, 1, 1, ("male",)),
+        ),
+    )
+    revised = _build_revised_script(
+        {"program_profile_id": profile.id},
+        {"lines": [
+            {"segment": "headline_wrap", "text": "締めの見出しです。"},
+            {"section": "headline", "text": "識別できない見出しです。"},
+        ]},
+        program_profile=profile,
+    )
+
+    assert revised["lines"][0]["section"] == "headline"
+    assert revised["lines"][0]["segment"] == "headline_wrap"
+    assert "segment" not in revised["lines"][1]
+    findings = ScriptValidator(profile).validate_structure(revised["lines"])
+    assert any(finding["code"] == "SEGMENT_MISSING" for finding in findings)
 
 
 def test_legacy_messages_extract_single_list_range_and_joined_line_indexes():

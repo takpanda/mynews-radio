@@ -8,8 +8,8 @@ from typing import Literal
 
 ProgramKind = Literal["radio", "commentary"]
 _SEGMENT_KINDS = {
-    "radio": {"intro", "transition", "news", "discussion", "outro"},
-    "commentary": {"intro", "news", "outro"},
+    "radio": {"intro", "transition", "headline", "news", "discussion", "corner", "outro"},
+    "commentary": {"intro", "headline", "news", "corner", "outro"},
 }
 
 
@@ -91,10 +91,6 @@ def validate_program_profile(profile: ProgramProfile) -> None:
         errors.append("segment ids must not be empty")
     if len(segment_ids) != len(set(segment_ids)):
         errors.append("segment ids must be unique")
-
-    segment_kinds = [segment.kind for segment in profile.segments]
-    if len(segment_kinds) != len(set(segment_kinds)):
-        errors.append("segment kinds must be unique within a program profile")
 
     orders = [segment.order for segment in profile.segments]
     if len(orders) != len(set(orders)):

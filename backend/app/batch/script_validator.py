@@ -19,16 +19,20 @@ class ScriptValidator:
         """Check allowed speakers, segment order and configured line bounds."""
         issues: list[dict[str, Any]] = []
         allowed = self.profile.speaker_keys
-        section_to_segment = {segment.kind: segment for segment in self.profile.segments}
+        segments_by_kind: dict[str, list[Any]] = {}
+        for item in self.profile.segments:
+            segments_by_kind.setdefault(item.kind, []).append(item)
         segment_by_id = {segment.id: segment for segment in self.profile.segments}
+        has_repeated_kinds = any(len(matches) > 1 for matches in segments_by_kind.values())
         has_any_profile_segments = any(
             isinstance(line, dict) and "segment" in line for line in lines
         )
         # Old fixed baselines have no segment metadata at all. Once a script
         # opts into segment IDs, validate every row and infer missing IDs from
         # section so partial metadata cannot disable the structural checks.
-        has_profile_segments = not lines or has_any_profile_segments
-        blocks: list[tuple[str, list[int]]] = []
+        has_profile_segments = not lines or has_any_profile_segments or has_repeated_kinds
+        blocks: list[tuple[str, str, list[int]]] = []
+        current_segment_id: str | None = None
         current_kind: str | None = None
         current_indices: list[int] = []
         primary_orders: list[int] = []
@@ -37,7 +41,7 @@ class ScriptValidator:
             if not isinstance(line, dict):
                 continue
             speaker = line.get("speaker")
-            if speaker not in allowed:
+            if not isinstance(speaker, str) or speaker not in allowed:
                 issues.append(self._issue(
                     "UNKNOWN_SPEAKER",
                     f"話者 {speaker!r} は番組「{self.profile.name}」に登録されていません",
@@ -46,20 +50,27 @@ class ScriptValidator:
 
             section = line.get("section")
             segment_id = line.get("segment")
-            if section is not None and section not in section_to_segment:
+            if section is not None and (not isinstance(section, str) or section not in segments_by_kind):
                 issues.append(self._issue(
                     "UNKNOWN_SECTION",
                     f"section {section!r} は番組「{self.profile.name}」に定義されていません",
                     [index],
                 ))
             if has_profile_segments and segment_id is not None:
-                segment = segment_by_id.get(segment_id)
+                segment = segment_by_id.get(segment_id) if isinstance(segment_id, str) else None
             else:
-                segment = section_to_segment.get(section)
-                if has_profile_segments and has_any_profile_segments and section in section_to_segment:
+                matches = segments_by_kind.get(section, []) if isinstance(section, str) else []
+                segment = matches[0] if len(matches) == 1 else None
+                if has_profile_segments and has_any_profile_segments and matches:
                     issues.append(self._issue(
                         "SEGMENT_MISSING",
                         f"{section}行 {index} に番組「{self.profile.name}」のsegment IDがありません",
+                        [index],
+                    ))
+                elif has_profile_segments and has_repeated_kinds and len(matches) > 1:
+                    issues.append(self._issue(
+                        "SEGMENT_MISSING",
+                        f"{section}行 {index} は同じ種別の複数セグメントに該当するためsegment IDが必要です",
                         [index],
                     ))
             if has_profile_segments and segment_id is not None and segment is None:
@@ -68,7 +79,8 @@ class ScriptValidator:
                     f"セグメント {segment_id!r} は番組「{self.profile.name}」に定義されていません",
                     [index],
                 ))
-                segment = section_to_segment.get(section)
+                matches = segments_by_kind.get(section, []) if isinstance(section, str) else []
+                segment = matches[0] if len(matches) == 1 else None
             if segment is not None and segment.kind != section:
                 issues.append(self._issue(
                     "SEGMENT_SECTION_MISMATCH",
@@ -77,64 +89,48 @@ class ScriptValidator:
                 ))
             if segment is None:
                 continue
-            if segment.speaker_keys and speaker not in segment.speaker_keys and speaker in allowed:
+            if (
+                segment.speaker_keys
+                and speaker not in segment.speaker_keys
+                and isinstance(speaker, str)
+                and speaker in allowed
+            ):
                 issues.append(self._issue(
                     "SEGMENT_SPEAKER",
                     f"{segment.kind}セグメントに話者 {speaker!r} は指定されていません",
                     [index],
                 ))
-            if current_kind != segment.kind:
+            if current_segment_id != segment.id:
                 if current_kind is not None:
-                    blocks.append((current_kind, current_indices))
-                current_kind, current_indices = segment.kind, []
+                    blocks.append((current_segment_id or "", current_kind, current_indices))
+                current_segment_id, current_kind, current_indices = segment.id, segment.kind, []
             current_indices.append(index)
-            if segment.kind != "transition":
-                primary_orders.append(segment.order)
+            primary_orders.append(segment.order)
 
         if current_kind is not None:
-            blocks.append((current_kind, current_indices))
+            blocks.append((current_segment_id or "", current_kind, current_indices))
 
         if has_profile_segments and primary_orders != sorted(primary_orders):
-            indexes = [index for _, block_indices in blocks for index in block_indices]
+            indexes = [index for _, _, block_indices in blocks for index in block_indices]
             issues.append(self._issue(
                 "SEGMENT_ORDER",
                 f"番組「{self.profile.name}」のセグメント順序が定義と一致しません",
                 indexes,
             ))
 
-        if has_profile_segments and "transition" in section_to_segment:
-            intro_indices = [
-                i for i, line in enumerate(lines)
-                if isinstance(line, dict) and line.get("section") == "intro"
-            ]
-            outro_indices = [
-                i for i, line in enumerate(lines)
-                if isinstance(line, dict) and line.get("section") == "outro"
-            ]
-            for kind, indexes in blocks:
-                if kind != "transition":
-                    continue
-                if (
-                    (intro_indices and indexes[0] < intro_indices[0])
-                    or (outro_indices and indexes[-1] > outro_indices[0])
-                ):
-                    issues.append(self._issue(
-                        "SEGMENT_ORDER",
-                        f"番組「{self.profile.name}」のtransitionはintro後、outro前に配置してください",
-                        indexes,
-                    ))
-
         for segment in self.profile.segments if has_profile_segments else ():
-            matching_blocks = [indices for kind, indices in blocks if kind == segment.kind]
-            for indices in matching_blocks or [[]]:
-                count = len(indices)
-                if segment.min_lines <= count <= segment.max_lines:
-                    continue
-                issues.append(self._issue(
-                    "SEGMENT_LINE_COUNT",
-                    f"{segment.kind}セグメントが{count}行です（{segment.min_lines}〜{segment.max_lines}行である必要があります）",
-                    indices,
-                ))
+            indices = [
+                index for block_id, _, block_indices in blocks
+                if block_id == segment.id for index in block_indices
+            ]
+            count = len(indices)
+            if segment.min_lines <= count <= segment.max_lines:
+                continue
+            issues.append(self._issue(
+                "SEGMENT_LINE_COUNT",
+                f"{segment.id}（{segment.kind}）セグメントが{count}行です（{segment.min_lines}〜{segment.max_lines}行である必要があります）",
+                indices,
+            ))
 
         if len(self.profile.cast) == 1:
             issues.extend(self._solo_style_issues(lines))

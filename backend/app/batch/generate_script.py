@@ -1489,8 +1489,15 @@ def generate_script(
     for line in response["lines"]:
         if not isinstance(line, dict):
             continue
-        section = str(line.get("section", "news"))
-        if section not in {"intro", "news", "transition", "discussion", "outro"}:
+        requested_segment = line.get("segment")
+        requested_segment_obj = next(
+            (item for item in prompt_profile.segments if item.id == requested_segment), None
+        )
+        section_value = line.get("section")
+        if section_value is None and requested_segment_obj is not None:
+            section_value = requested_segment_obj.kind
+        section = str(section_value if section_value is not None else "news")
+        if prompt_builder.uses_legacy_prompt and section not in {"intro", "news", "transition", "discussion", "outro"}:
             section = "news"
 
         # transitionの話者欠落は _ensure_transitions() で補正する。
@@ -1501,26 +1508,36 @@ def generate_script(
         text = str(line.get("text", "")).strip()
         text = _re.sub(r"〔[^〕]*〕", "", text).strip()
 
-        script["lines"].append(
-            {
-                "speaker": speaker,
-                "text": text,
-                "article_id": line.get("article_id"),
-                "segment": prompt_builder.segment_for_section(section),
-                "section": section,
-                "delivery": line.get("delivery", "neutral"),
-            }
-        )
+        output_line = {
+            "speaker": speaker,
+            "text": text,
+            "article_id": line.get("article_id"),
+            "section": section,
+            "delivery": line.get("delivery", "neutral"),
+        }
+        segment_id = prompt_builder.segment_id_for_output(section, requested_segment)
+        if segment_id is not None:
+            output_line["segment"] = segment_id
+        script["lines"].append(output_line)
 
-    # LLM が transition を省略した場合に備えてプログラム側で補完する
-    script["lines"] = _ensure_transitions(
-        script["lines"], ordered_summaries, arc=arc, speaker_keys=speaker_keys
-    )
+    # Keep transition repair only when the profile defines one unambiguous
+    # transition segment; otherwise insertion would create an undefined or
+    # ambiguous segment ID.
+    transition_segments = [
+        segment for segment in prompt_profile.segments if segment.kind == "transition"
+    ]
+    if len(transition_segments) == 1:
+        script["lines"] = _ensure_transitions(
+            script["lines"], ordered_summaries, arc=arc, speaker_keys=speaker_keys
+        )
     # _ensure_transitions() が追加した行も含め、最終行すべてにprofileのsegmentを付与する。
     for line in script["lines"]:
         if line.get("speaker") not in speaker_keys:
             line["speaker"] = speaker_keys[0]
-        line["segment"] = prompt_builder.segment_for_section(line["section"])
+        if "segment" not in line:
+            segment_id = prompt_builder.segment_id_for_output(line["section"])
+            if segment_id is not None:
+                line["segment"] = segment_id
 
     # Arcで選定した記事IDをレビュー後も引き継ぎ、レビューLLMが順序を
     # 崩した場合にも最終検証で同じ対象を使えるようにする。
