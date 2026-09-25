@@ -161,6 +161,43 @@ def migrate_llm_call_logs(conn: sqlite3.Connection) -> bool:
     return True
 
 
+def migrate_script_revisions(conn: sqlite3.Connection) -> bool:
+    """台本レビュー用の状態列と改訂履歴を追加する。既存episode状態は変更しない。"""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(episodes)").fetchall()}
+    if "review_mode" not in columns:
+        conn.execute("ALTER TABLE episodes ADD COLUMN review_mode TEXT NOT NULL DEFAULT 'on_failure'")
+    has_push_subscriptions = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='push_subscriptions'"
+    ).fetchone()
+    subscription_columns = {row["name"] for row in conn.execute("PRAGMA table_info(push_subscriptions)").fetchall()}
+    if has_push_subscriptions and "admin_user_id" not in subscription_columns:
+        conn.execute("ALTER TABLE push_subscriptions ADD COLUMN admin_user_id INTEGER REFERENCES admin_users(id) ON DELETE SET NULL")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS script_revisions ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, episode_id INTEGER NOT NULL, "
+        "revision INTEGER NOT NULL, script_json TEXT NOT NULL, "
+        "source TEXT NOT NULL CHECK (source IN ('generated', 'reviewed', 'human')), "
+        "actor_user_id INTEGER, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "UNIQUE(episode_id, revision), "
+        "FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE, "
+        "FOREIGN KEY (actor_user_id) REFERENCES admin_users(id) ON DELETE SET NULL)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_script_revisions_episode_revision "
+        "ON script_revisions(episode_id, revision DESC)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS script_preview_rate_limits ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, admin_user_id INTEGER NOT NULL, episode_id INTEGER NOT NULL, "
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "FOREIGN KEY (admin_user_id) REFERENCES admin_users(id) ON DELETE CASCADE, "
+        "FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_script_preview_admin_created ON script_preview_rate_limits(admin_user_id, created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_script_preview_episode_created ON script_preview_rate_limits(episode_id, created_at)")
+    return True
+
+
 def migrate_audit_logs(conn: sqlite3.Connection) -> bool:
     """旧監査ログ（rejected 非対応）を拡張スキーマへ移行する。"""
     row = conn.execute(

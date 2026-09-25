@@ -24,9 +24,38 @@ CREATE TABLE IF NOT EXISTS episodes (
     source_url TEXT,
     categories TEXT NOT NULL DEFAULT '[]',
     mc_voice_name TEXT,
+    review_mode TEXT NOT NULL DEFAULT 'on_failure',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS script_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    episode_id INTEGER NOT NULL,
+    revision INTEGER NOT NULL,
+    script_json TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('generated', 'reviewed', 'human')),
+    actor_user_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(episode_id, revision),
+    FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE,
+    FOREIGN KEY (actor_user_id) REFERENCES admin_users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_script_revisions_episode_revision
+    ON script_revisions(episode_id, revision DESC);
+
+CREATE TABLE IF NOT EXISTS script_preview_rate_limits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    admin_user_id INTEGER NOT NULL,
+    episode_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (admin_user_id) REFERENCES admin_users(id) ON DELETE CASCADE,
+    FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_script_preview_admin_created
+    ON script_preview_rate_limits(admin_user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_script_preview_episode_created
+    ON script_preview_rate_limits(episode_id, created_at);
 
 CREATE TABLE IF NOT EXISTS episode_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -186,9 +215,11 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     endpoint TEXT NOT NULL,
     p256dh TEXT NOT NULL,
     auth TEXT NOT NULL,
+    admin_user_id INTEGER,
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (admin_user_id) REFERENCES admin_users(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_active ON push_subscriptions(is_active);
 

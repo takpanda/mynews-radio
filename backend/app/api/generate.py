@@ -737,7 +737,7 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
         tts_engine_label = "VOICEVOX"
     tts_speaker_male, tts_speaker_female = resolve_tts_speakers(tts_engine)
 
-    service.update_episode_status(episode_id, "generating")
+    service.update_episode_status(episode_id, "synthesizing")
 
     yield _format_sse("progress", _build_progress_payload("synthesize", f"音声を合成しています... ({tts_engine_label})", engine=tts_engine))
     job_id = _active_generation_job_id(episode_id)

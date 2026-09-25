@@ -254,7 +254,7 @@ def test_radio_pipeline_stops_before_tts_when_final_validation_is_unresolved():
          patch.object(radio_pipeline, "override_script_title"), \
          patch.object(radio_pipeline, "review_script", return_value=review_result), \
          patch.object(radio_pipeline, "validate_final_script_file", return_value=final_result) as final_check, \
-         patch.object(radio_pipeline, "notify_failure") as notify_failure, \
+         patch.object(radio_pipeline, "notify_review_needed") as notify_review_needed, \
          patch.object(radio_pipeline, "synthesize_episode") as synth, \
          patch("shutil.copy"):
         result = radio_pipeline.run_radio_pipeline(
@@ -265,14 +265,23 @@ def test_radio_pipeline_stops_before_tts_when_final_validation_is_unresolved():
 
     assert result is None
     final_check.assert_called_once()
-    notify_failure.assert_called_once()
-    assert notify_failure.call_args.kwargs["episode_id"] == episode_id
-    assert notify_failure.call_args.kwargs["phase"] == "human_review"
+    notify_review_needed.assert_called_once_with(episode_id=episode_id)
     synth.assert_not_called()
     episode = service.get_episode(episode_id)
-    assert episode["status"] == "failed"
-    assert episode["phase"] == "human_review"
+    assert episode["status"] == "awaiting_review"
+    assert episode["phase"] == "awaiting_review"
     assert "回答なし" in episode["generation_message"]
+
+
+def test_review_mode_and_final_check_state_matrix():
+    from app.batch.radio_pipeline import _review_state
+
+    assert _review_state("auto", True) == "synthesizing"
+    assert _review_state("auto", False) == "failed"
+    assert _review_state("on_failure", True) == "synthesizing"
+    assert _review_state("on_failure", False) == "awaiting_review"
+    assert _review_state("always", True) == "awaiting_review"
+    assert _review_state("always", False) == "awaiting_review"
 
 
 def test_commentary_shape_does_not_require_radio_outro_contract():
