@@ -10,6 +10,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
+from app.programs.profiles import (
+    ProgramProfile,
+    get_default_profile,
+    validate_program_profile,
+)
+from app.programs.prompt_builder import PromptBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -124,10 +130,11 @@ def _strip_dialogue_only_sections(text: str) -> str:
 def generate_commentary_script(
     output_path: str,
     article: dict,
-    style: str = "solo",
-    mc_gender: str = "male",
+    style: str | None = None,
+    mc_gender: str | None = None,
     llm_provider: str | None = None,
     llm_model: str | None = None,
+    program_profile: ProgramProfile | None = None,
 ) -> int:
     """Generate a commentary script for a single article.
 
@@ -140,7 +147,23 @@ def generate_commentary_script(
         Number of lines generated (0 on failure).
     """
     settings = get_settings()
-    template = _load_prompt_template(style)
+    if program_profile is not None:
+        profile = program_profile
+        if profile.kind != "commentary":
+            raise ValueError("program_profile must have kind='commentary'")
+        validate_program_profile(profile)
+        style = profile.options.style or ("solo" if len(profile.cast) == 1 else "dialogue")
+        if style not in {"solo", "dialogue"}:
+            raise ValueError(f"unsupported commentary style in program_profile: {style!r}")
+        mc_gender = profile.options.mc_gender or profile.cast[0].key
+        if style == "solo" and mc_gender not in profile.speaker_keys:
+            raise ValueError("program_profile options.mc_gender must match its solo cast key")
+    else:
+        style = "solo" if style is None else style
+        mc_gender = "male" if mc_gender is None else mc_gender
+        profile = get_default_profile(kind="commentary", style=style, mc_gender=mc_gender)
+    prompt_builder = PromptBuilder(profile)
+    template = _load_prompt_template(style) if prompt_builder.uses_legacy_prompt else None
 
     text_length = len(article.get("text", "") or "")
     suggested_lines = _calc_suggested_lines(text_length, style)
@@ -152,15 +175,29 @@ def generate_commentary_script(
         "text": article.get("text", ""),
     }, ensure_ascii=False, indent=2)
 
-    prompt = template.format(
-        style=style,
-        mc_gender=mc_gender,
-        article_id=article.get("id"),
-        article_title=article.get("title", ""),
-        suggested_lines_count=suggested_lines,
-        section_details=section_details,
-        article_json=article_json,
-    )
+    if template is not None:
+        prompt = template.format(
+            style=style,
+            mc_gender=mc_gender,
+            article_id=article.get("id"),
+            article_title=article.get("title", ""),
+            suggested_lines_count=suggested_lines,
+            section_details=section_details,
+            article_json=article_json,
+        )
+    else:
+        prompt = prompt_builder.build_profile_prompt(
+            task_description=(
+                f"与えられた1記事の本文から、プロフィールで定義された「{profile.name}」の"
+                "音声台本を日本語で作成してください。"
+            ),
+            input_description=f"# 入力記事\n{article_json}",
+            additional_instructions=(
+                f"- title は入力記事のタイトル「{article.get('title', '')}」と完全一致させる。\n"
+                f"- 台詞は {suggested_lines} 行程度を目安にする。\n"
+                f"- セクションごとの行数目安:\n{section_details}"
+            ),
+        )
 
     response = None
 
@@ -181,17 +218,15 @@ def generate_commentary_script(
         "mc_gender": mc_gender,
         "lines": [],
     }
+    allowed_speakers = profile.speaker_keys
+    default_speaker = profile.cast[0].key if profile.cast else "male"
 
     for line in response["lines"]:
         if not isinstance(line, dict):
             continue
-        speaker = str(line.get("speaker", "male"))
-        if style == "solo":
-            if speaker != mc_gender:
-                speaker = mc_gender
-        else:
-            if speaker not in {"male", "female"}:
-                speaker = "male"
+        speaker = str(line.get("speaker", default_speaker))
+        if speaker not in allowed_speakers:
+            speaker = default_speaker
         section = str(line.get("section", "news"))
         if section not in {"intro", "news", "outro"}:
             section = "news"
@@ -202,6 +237,7 @@ def generate_commentary_script(
             "speaker": speaker,
             "text": text,
             "article_id": line.get("article_id"),
+            "segment": prompt_builder.segment_for_section(section),
             "section": section,
             "delivery": line.get("delivery", "neutral"),
         })

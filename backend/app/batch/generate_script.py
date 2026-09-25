@@ -11,6 +11,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.batch.script_structure import normalize_discussion_layout
 from app.config import get_settings
+from app.programs.profiles import ProgramProfile, get_default_profile
+from app.programs.prompt_builder import PromptBuilder
 from app.services.article_service import ArticleService
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
@@ -151,7 +153,11 @@ def _pick_phrase(phrases: list, used_indices: dict):
     return phrases[chosen]
 
 
-def _pick_speaker(result: list, section: str):
+def _pick_speaker(
+    result: list,
+    section: str,
+    speaker_keys: tuple[str, ...] = ("male", "female"),
+):
     """遷移行の話者を選ぶ。
 
     直前の news / discussion のみを取り出し、以下のルールで決定：
@@ -159,8 +165,12 @@ def _pick_speaker(result: list, section: str):
     - 同じ article_id 内のコンテンツ行の話者パターンがあればそれと交互に
     - それ以外は直前の最後の話者と交互
     """
-    if not result:
+    if not speaker_keys:
         return "male"
+    if len(speaker_keys) == 1:
+        return speaker_keys[0]
+    if not result:
+        return speaker_keys[0]
 
     # transition は除く（自分の挿入結果に引っ張られないよう）
     content_speakers = [
@@ -170,10 +180,11 @@ def _pick_speaker(result: list, section: str):
     ][:3]
 
     if not content_speakers:
-        return "male"
+        return speaker_keys[0]
 
     last_spk = content_speakers[0]
-    alternate = "female" if last_spk == "male" else "male"
+    last_index = speaker_keys.index(last_spk) if last_spk in speaker_keys else -1
+    alternate = speaker_keys[(last_index + 1) % len(speaker_keys)]
 
     # 直前のコンテンツ行（news/discussionのみ）が同じ話者で2回以上連続している場合
     run = 1
@@ -187,12 +198,13 @@ def _pick_speaker(result: list, section: str):
 
     # 前後のセクション内容を見る：直前の news が female ばかりのときは male を選ぶ等
     # content_speakers の内訳を見て、バランスが偏っている場合は少数側を選ぶ
-    male_count = sum(1 for s in content_speakers if s == "male")
-    female_count = len(content_speakers) - male_count
-    if male_count > female_count + 1:
-        return "female"
-    if female_count > male_count + 1:
-        return "male"
+    if speaker_keys == ("male", "female"):
+        male_count = sum(1 for s in content_speakers if s == "male")
+        female_count = len(content_speakers) - male_count
+        if male_count > female_count + 1:
+            return "female"
+        if female_count > male_count + 1:
+            return "male"
 
     # news 遷移：直前のコンテンツと交互（バランスも考慮済みなので自然に）
     if section == "news":
@@ -617,7 +629,8 @@ def _is_generic_transition_reaction_text(text: str) -> bool:
 
 
 def _is_valid_news_transition_block(
-    block: list[dict], article_id, *, check_broken_text: bool, sensitive: bool
+    block: list[dict], article_id, *, check_broken_text: bool, sensitive: bool,
+    speaker_keys: tuple[str, ...] = ("male", "female"),
 ) -> bool:
     """記事境界のLLM transitionが既存の検証契約を満たすか判定する。
 
@@ -630,7 +643,7 @@ def _is_valid_news_transition_block(
 
     speakers: list[str] = []
     for line in block:
-        if "speaker" not in line or line.get("speaker") not in {"male", "female"}:
+        if "speaker" not in line or line.get("speaker") not in speaker_keys:
             return False
         if not str(line.get("text", "") or "").strip():
             return False
@@ -650,7 +663,9 @@ def _is_valid_news_transition_block(
     return not _is_generic_transition_reaction_text(block[1].get("text", ""))
 
 
-def _coerce_discussion_transition_speakers(result: list[dict]) -> None:
+def _coerce_discussion_transition_speakers(
+    result: list[dict], speaker_keys: tuple[str, ...] = ("male", "female")
+) -> None:
     """discussion直前のtransitionに安全なspeaker値を設定する。
 
     discussion直前は既存契約上1行transitionを許容するため、記事境界(news)
@@ -660,9 +675,9 @@ def _coerce_discussion_transition_speakers(result: list[dict]) -> None:
     index = len(result) - 1
     while index >= 0 and result[index].get("section") == "transition":
         line = result[index]
-        if line.get("speaker") not in {"male", "female"}:
+        if line.get("speaker") not in speaker_keys:
             replacement = dict(line)
-            replacement["speaker"] = "male"
+            replacement["speaker"] = speaker_keys[0] if speaker_keys else "male"
             result[index] = replacement
             logger.debug(
                 "discussion直前のtransition話者を安全値へ補正: article_id=%s",
@@ -671,7 +686,12 @@ def _coerce_discussion_transition_speakers(result: list[dict]) -> None:
         index -= 1
 
 
-def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -> list:
+def _ensure_transitions(
+    lines: list,
+    summaries: list,
+    arc: dict | None = None,
+    speaker_keys: tuple[str, ...] = ("male", "female"),
+) -> list:
     """LLM が生成した lines を後処理し、article_id 切り替わり境界に
     transition 行を確実に挿入して返す。LLM が既に挿入した transition は保持する。
 
@@ -737,7 +757,7 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
             # article_id不一致処理だけを適用する。記事境界(news)は下でブロック全体を
             # 検証し、不正時だけ安全な2行へ置き換える。
             if prev_is_transition and section != "news":
-                _coerce_discussion_transition_speakers(result)
+                _coerce_discussion_transition_speakers(result, speaker_keys)
                 llm_trans_aid = result[-1].get("article_id")
                 if llm_trans_aid is not None and llm_trans_aid != article_id:
                     removed = result.pop()
@@ -769,6 +789,7 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
                     article_id,
                     check_broken_text=last_content_aid is not None,
                     sensitive=article_id in sensitive_article_ids,
+                    speaker_keys=speaker_keys,
                 ):
                     removed = result[block_start:]
                     del result[block_start:]
@@ -789,7 +810,7 @@ def _ensure_transitions(lines: list, summaries: list, arc: dict | None = None) -
             )
             needs_transition = article_id != last_content_aid or discussion_starts_here
             if not prev_is_transition and needs_transition:
-                speaker = _pick_speaker(result, section)
+                speaker = _pick_speaker(result, section, speaker_keys)
                 topic = _topic(article_id)
                 # トピック抽出がフォールバックした場合、通常テンプレートの固定
                 # 接尾辞（「の話題」「のニュース」）と結合すると重複表現になる
@@ -1310,6 +1331,7 @@ def generate_script(
     min_importance_score: int | None = None,
     llm_provider: str | None = None,
     llm_model: str | None = None,
+    program_profile: ProgramProfile | None = None,
 ) -> int:
     settings = get_settings()
     profile = program_settings or get_settings_or_default()
@@ -1336,6 +1358,16 @@ def generate_script(
         logger.warning("No summaries to generate script from")
         return 0
 
+    prompt_profile = program_profile or get_default_profile(
+        kind="radio", program_name=program_name, news_source=news_source
+    )
+    if program_profile is not None and program_name == "ニュースのとなり":
+        program_name = prompt_profile.name
+    prompt_builder = PromptBuilder(prompt_profile)
+    speaker_keys = tuple(member.key for member in prompt_profile.cast)
+    if not speaker_keys:
+        raise ValueError(f"program profile {prompt_profile.id!r} must define at least one cast member")
+
     article_urls = ", ".join(
         f"{article['id']}:{article.get('url', '<no-url>')}" for article in summaries
     )
@@ -1348,9 +1380,11 @@ def generate_script(
     with client_factory() as client:
 
         # --- Step 1: Architect — Narrative Arc 生成 ---
-        logger.info("=== Script Step 1/2: Narrative Arc (Architect) ===")
-        set_llm_context(client, phase="arc", episode_id=infer_episode_id(output_path))
-        arc = _generate_arc(client, summaries)
+        arc = None
+        if prompt_profile.options.narrative_arc:
+            logger.info("=== Script Step 1/2: Narrative Arc (Architect) ===")
+            set_llm_context(client, phase="arc", episode_id=infer_episode_id(output_path))
+            arc = _generate_arc(client, summaries)
 
         # Arc に基づいて記事の順序を確定
         if arc and arc.get("article_order"):
@@ -1361,14 +1395,24 @@ def generate_script(
 
         # --- Step 2: Writer — 台本生成 + Auto-Lint 再生成ループ ---
         logger.info("=== Script Step 2/2: Script generation (Writer) ===")
-        template = _load_prompt_template()
-        if program_name != "ニュースのとなり":
-            template = template.replace("ニュースのとなり", program_name)
         summaries_json = json.dumps(ordered_summaries, ensure_ascii=False, indent=2)
-        base_prompt = template.format(
-            narrative_arc_section=narrative_arc_section,
-            summaries_json=summaries_json,
-        )
+        if prompt_builder.uses_legacy_prompt:
+            template = _load_prompt_template()
+            if program_name != "ニュースのとなり":
+                template = template.replace("ニュースのとなり", program_name)
+            base_prompt = template.format(
+                narrative_arc_section=narrative_arc_section,
+                summaries_json=summaries_json,
+            )
+        else:
+            base_prompt = prompt_builder.build_profile_prompt(
+                task_description=(
+                    f"与えられたニュース要約一覧から、番組「{prompt_profile.name}」の"
+                    "ラジオ台本を日本語で作成してください。"
+                ),
+                input_description=f"# ニュース要約一覧\n{summaries_json}",
+                additional_instructions=narrative_arc_section,
+            )
 
         _MAX_LINT_RETRIES = int(os.getenv("SCRIPT_LINT_RETRIES", "3"))
         current_prompt = base_prompt
@@ -1423,11 +1467,10 @@ def generate_script(
         if section not in {"intro", "news", "transition", "discussion", "outro"}:
             section = "news"
 
-        # transitionの話者欠落は _ensure_transitions() の検証で不正生成として
-        # 扱う。その他のセクションは従来どおり male を既定値にする。
-        speaker = str(line.get("speaker", "" if section == "transition" else "male"))
-        if speaker not in {"male", "female"} and section != "transition":
-            speaker = "male"
+        # transitionの話者欠落は _ensure_transitions() で補正する。
+        speaker = str(line.get("speaker", "" if section == "transition" else speaker_keys[0]))
+        if speaker not in speaker_keys and section != "transition":
+            speaker = speaker_keys[0]
         
         text = str(line.get("text", "")).strip()
         text = _re.sub(r"〔[^〕]*〕", "", text).strip()
@@ -1437,13 +1480,21 @@ def generate_script(
                 "speaker": speaker,
                 "text": text,
                 "article_id": line.get("article_id"),
+                "segment": prompt_builder.segment_for_section(section),
                 "section": section,
                 "delivery": line.get("delivery", "neutral"),
             }
         )
 
     # LLM が transition を省略した場合に備えてプログラム側で補完する
-    script["lines"] = _ensure_transitions(script["lines"], ordered_summaries, arc=arc)
+    script["lines"] = _ensure_transitions(
+        script["lines"], ordered_summaries, arc=arc, speaker_keys=speaker_keys
+    )
+    # _ensure_transitions() が追加した行も含め、最終行すべてにprofileのsegmentを付与する。
+    for line in script["lines"]:
+        if line.get("speaker") not in speaker_keys:
+            line["speaker"] = speaker_keys[0]
+        line["segment"] = prompt_builder.segment_for_section(line["section"])
 
     # Arcで選定した記事IDをレビュー後も引き継ぎ、レビューLLMが順序を
     # 崩した場合にも最終検証で同じ対象を使えるようにする。
