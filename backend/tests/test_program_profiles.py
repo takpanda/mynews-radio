@@ -8,6 +8,7 @@ from app.programs.profiles import (
     DEFAULT_PROFILES,
     RADIO_TWO_PERSON,
     ProgramCastMember,
+    ProgramOptions,
     ProgramSegment,
     ProfileValidationError,
     get_default_profile,
@@ -71,6 +72,36 @@ def test_default_profiles_cover_three_existing_program_modes():
         COMMENTARY_ONE_PERSON.id,
         COMMENTARY_TWO_PERSON.id,
     )
+
+
+def test_program_profile_accepts_six_segments_and_rejects_seven():
+    six_segments = RADIO_TWO_PERSON.segments + (
+        ProgramSegment("headline-a", "headline", 5, 0, 2),
+    )
+    validate_program_profile(replace(RADIO_TWO_PERSON, segments=six_segments))
+
+    seven_segments = six_segments + (
+        ProgramSegment("headline-b", "headline", 6, 0, 2),
+    )
+    with pytest.raises(ProfileValidationError, match="at most 6 segments"):
+        validate_program_profile(replace(RADIO_TWO_PERSON, segments=seven_segments))
+
+
+def test_narrative_arc_is_supported_for_radio_only():
+    validate_program_profile(replace(
+        RADIO_TWO_PERSON,
+        options=ProgramOptions(narrative_arc=True),
+    ))
+    validate_program_profile(replace(
+        RADIO_TWO_PERSON,
+        options=ProgramOptions(narrative_arc=False),
+    ))
+
+    with pytest.raises(ProfileValidationError, match="commentary profiles do not support narrative_arc"):
+        validate_program_profile(replace(
+            COMMENTARY_ONE_PERSON,
+            options=replace(COMMENTARY_ONE_PERSON.options, narrative_arc=True),
+        ))
 
 
 def test_commentary_line_ranges_cover_current_prompt_conditions():
