@@ -69,6 +69,13 @@ class PromptBuilder:
 
     def supplemental_sections(self) -> str:
         """Return generated sections for a non-legacy cast; legacy prompts stay byte-identical."""
+        if self.uses_legacy_prompt:
+            return ""
+        return "\n".join((self.cast_section, self.structure_section, self.output_example)) + "\n"
+
+    @property
+    def uses_legacy_prompt(self) -> bool:
+        """Whether an existing hand-authored prompt exactly represents this profile."""
         legacy_profiles = (
             RADIO_TWO_PERSON,
             get_default_profile(kind="radio", program_name="テックニュース"),
@@ -76,15 +83,44 @@ class PromptBuilder:
             get_default_profile(kind="commentary", style="solo", mc_gender="female"),
             COMMENTARY_TWO_PERSON,
         )
-        if any(
+        return any(
             self.profile.kind == legacy.kind
             and self.profile.cast == legacy.cast
             and self.profile.segments == legacy.segments
             and self.profile.options == legacy.options
             for legacy in legacy_profiles
-        ):
-            return ""
-        return "\n".join((self.cast_section, self.structure_section, self.output_example)) + "\n"
+        )
+
+    def build_profile_prompt(
+        self,
+        *,
+        task_description: str,
+        input_description: str,
+        additional_instructions: str = "",
+    ) -> str:
+        """Build a self-contained prompt without conflicting legacy cast rules."""
+        allowed_speakers = ", ".join(member.key for member in self.profile.cast)
+        sections = ", ".join(segment.kind for segment in self.profile.segments)
+        requirements = [
+            "- 各行に speaker / text / article_id / segment / section / delivery を含める。",
+            f"- speaker はプロフィールで定義されたキー（{allowed_speakers}）だけを使う。",
+            f"- section はプロフィールのセクション（{sections}）だけを使う。",
+            "- segment は対応する section のプロフィール上の segment id を使う。",
+        ]
+        content = [
+            task_description,
+            "必ず JSON のみを返してください。",
+            self.cast_section,
+            self.structure_section,
+            "# 出力例（形式を守ること）",
+            self.output_example,
+            "# 出力ルール",
+            *requirements,
+        ]
+        if additional_instructions:
+            content.extend(("# 追加指示", additional_instructions))
+        content.extend((input_description,))
+        return "\n\n".join(content)
 
     def segment_for_section(self, section: str) -> str:
         """Resolve an output section to its profile segment id."""

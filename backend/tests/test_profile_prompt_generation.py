@@ -31,20 +31,21 @@ def test_radio_generation_uses_custom_profile_and_segments_added_transitions(tmp
     profile = replace(
         RADIO_TWO_PERSON,
         id="radio_solo_custom",
-        cast=(ProgramCastMember("male", "司会", "一人語り"),),
+        name="一人語りラジオ",
+        cast=(ProgramCastMember("host", "司会", "一人語り"),),
         options=replace(RADIO_TWO_PERSON.options, narrative_arc=False),
         segments=tuple(
-            replace(segment, speaker_keys=("male",))
+            replace(segment, speaker_keys=("host",))
             for segment in RADIO_TWO_PERSON.segments
         ),
     )
     client = _FakeClient({
         "title": "テスト",
         "lines": [
-            {"speaker": "male", "text": "冒頭です。", "section": "intro"},
-            {"speaker": "male", "text": "一つ目の記事です。", "article_id": 1, "section": "news"},
-            {"speaker": "male", "text": "二つ目の記事です。", "article_id": 2, "section": "news"},
-            {"speaker": "male", "text": "以上です。", "section": "outro"},
+            {"speaker": "host", "text": "冒頭です。", "section": "intro"},
+            {"speaker": "host", "text": "一つ目の記事です。", "article_id": 1, "section": "news"},
+            {"speaker": "host", "text": "二つ目の記事です。", "article_id": 2, "section": "news"},
+            {"speaker": "host", "text": "以上です。", "section": "outro"},
         ],
     })
 
@@ -67,6 +68,13 @@ def test_radio_generation_uses_custom_profile_and_segments_added_transitions(tmp
     prompt = client.prompts[0]
     assert "一人語り" in prompt
     assert "記事間のtransitionは、各記事の間に独立した1行" in prompt
+    assert "2人のMC" not in prompt
+    assert "交互" not in prompt
+    assert 'speaker は "male" または "female" のみ' not in prompt
+    assert '"male"' not in prompt
+    assert '"female"' not in prompt
+    assert "田村" not in prompt
+    assert "山口" not in prompt
 
     script = json.loads((tmp_path / "script.json").read_text(encoding="utf-8"))
     transitions = [line for line in script["lines"] if line["section"] == "transition"]
@@ -74,6 +82,7 @@ def test_radio_generation_uses_custom_profile_and_segments_added_transitions(tmp
     assert len(between_articles) == 1
     assert between_articles[0]["segment"] == "transition"
     assert all(line.get("segment") for line in script["lines"])
+    assert {line["speaker"] for line in script["lines"]} == {"host"}
 
 
 def test_commentary_generation_inserts_profile_json_after_template_formatting(tmp_path):
@@ -82,12 +91,12 @@ def test_commentary_generation_inserts_profile_json_after_template_formatting(tm
     profile = replace(
         COMMENTARY_ONE_PERSON,
         id="commentary_custom",
-        cast=(ProgramCastMember("male", "カスタム解説者", "専門家"),),
+        cast=(ProgramCastMember("analyst", "カスタム解説者", "専門家"),),
     )
     client = _FakeClient({
         "title": "記事タイトル",
         "lines": [
-            {"speaker": "male", "text": "数字は42です。", "article_id": 7, "section": "news"},
+            {"speaker": "analyst", "text": "数字は42です。", "article_id": 7, "section": "news"},
         ],
     })
 
@@ -103,3 +112,6 @@ def test_commentary_generation_inserts_profile_json_after_template_formatting(tm
     assert count == 1
     assert "カスタム解説者" in client.prompts[0]
     assert '"lines"' in client.prompts[0]
+    assert '"speaker": "analyst"' in client.prompts[0]
+    script = json.loads((tmp_path / "commentary.json").read_text(encoding="utf-8"))
+    assert script["lines"][0]["speaker"] == "analyst"

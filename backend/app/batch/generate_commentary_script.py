@@ -143,10 +143,13 @@ def generate_commentary_script(
         Number of lines generated (0 on failure).
     """
     settings = get_settings()
-    profile = program_profile or get_default_profile(kind="commentary", style=style, mc_gender=mc_gender)
+    profile = program_profile or get_default_profile(
+        kind="commentary", style=style, mc_gender=mc_gender
+    )
     prompt_builder = PromptBuilder(profile)
-    template = _load_prompt_template(style)
-    extra_sections = prompt_builder.supplemental_sections()
+    if not profile.cast:
+        raise ValueError(f"program profile {profile.id!r} must define at least one cast member")
+    template = _load_prompt_template(style) if prompt_builder.uses_legacy_prompt else None
 
     text_length = len(article.get("text", "") or "")
     suggested_lines = _calc_suggested_lines(text_length, style)
@@ -158,20 +161,28 @@ def generate_commentary_script(
         "text": article.get("text", ""),
     }, ensure_ascii=False, indent=2)
 
-    prompt = template.format(
-        style=style,
-        mc_gender=mc_gender,
-        article_id=article.get("id"),
-        article_title=article.get("title", ""),
-        suggested_lines_count=suggested_lines,
-        section_details=section_details,
-        article_json=article_json,
-    )
-    if extra_sections:
-        prompt = prompt.replace(
-            "# スタイル設定",
-            extra_sections + "\n# スタイル設定",
-            1,
+    if template is not None:
+        prompt = template.format(
+            style=style,
+            mc_gender=mc_gender,
+            article_id=article.get("id"),
+            article_title=article.get("title", ""),
+            suggested_lines_count=suggested_lines,
+            section_details=section_details,
+            article_json=article_json,
+        )
+    else:
+        prompt = prompt_builder.build_profile_prompt(
+            task_description=(
+                f"与えられた1記事の本文から、プロフィールで定義された「{profile.name}」の"
+                "音声台本を日本語で作成してください。"
+            ),
+            input_description=f"# 入力記事\n{article_json}",
+            additional_instructions=(
+                f"- title は入力記事のタイトル「{article.get('title', '')}」と完全一致させる。\n"
+                f"- 台詞は {suggested_lines} 行程度を目安にする。\n"
+                f"- セクションごとの行数目安:\n{section_details}"
+            ),
         )
 
     response = None
@@ -193,17 +204,15 @@ def generate_commentary_script(
         "mc_gender": mc_gender,
         "lines": [],
     }
+    allowed_speakers = profile.speaker_keys
+    default_speaker = profile.cast[0].key if profile.cast else "male"
 
     for line in response["lines"]:
         if not isinstance(line, dict):
             continue
-        speaker = str(line.get("speaker", "male"))
-        if style == "solo":
-            if speaker != mc_gender:
-                speaker = mc_gender
-        else:
-            if speaker not in {"male", "female"}:
-                speaker = "male"
+        speaker = str(line.get("speaker", default_speaker))
+        if speaker not in allowed_speakers:
+            speaker = default_speaker
         section = str(line.get("section", "news"))
         if section not in {"intro", "news", "outro"}:
             section = "news"
