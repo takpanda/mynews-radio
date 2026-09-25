@@ -46,6 +46,12 @@ class ScriptValidator:
 
             section = line.get("section")
             segment_id = line.get("segment")
+            if section is not None and section not in section_to_segment:
+                issues.append(self._issue(
+                    "UNKNOWN_SECTION",
+                    f"section {section!r} は番組「{self.profile.name}」に定義されていません",
+                    [index],
+                ))
             if has_profile_segments and segment_id is not None:
                 segment = segment_by_id.get(segment_id)
             else:

@@ -962,7 +962,7 @@ def _build_revised_script(
             if speaker not in allowed_speakers:
                 speaker = program_profile.cast[0].key if program_profile else "male"
         section = str(line.get("section", "news"))
-        if section not in valid_sections:
+        if program_profile is None and section not in valid_sections:
             section = "news"
         revised_line = {
             "speaker": speaker,

@@ -191,6 +191,33 @@ def test_reviewed_script_restores_profile_segment_ids_for_structure_validation()
     assert not any(finding["code"].startswith("SEGMENT_") for finding in findings)
 
 
+def test_reviewed_script_preserves_and_reports_section_missing_from_profile():
+    from app.batch.review_script import _build_revised_script
+
+    profile = replace(
+        COMMENTARY_ONE_PERSON,
+        segments=(
+            ProgramSegment("intro", "intro", 0, 1, 1, ("male",)),
+            ProgramSegment("news", "news", 1, 1, 1, ("male",)),
+            ProgramSegment("outro", "outro", 2, 1, 1, ("male",)),
+        ),
+    )
+    source = {
+        "program_profile_id": profile.id,
+        "style": "solo",
+        "mc_gender": "male",
+    }
+    response = {"lines": [{"section": "discussion", "text": "対話形式の行です。"}]}
+
+    revised = _build_revised_script(source, response, program_profile=profile)
+
+    assert revised["lines"][0]["section"] == "discussion"
+    assert "segment" not in revised["lines"][0]
+    findings = ScriptValidator(profile).validate_structure(revised["lines"])
+    unknown = next(finding for finding in findings if finding["code"] == "UNKNOWN_SECTION")
+    assert unknown["line_indices"] == [0]
+
+
 def test_legacy_messages_extract_single_list_range_and_joined_line_indexes():
     parse = ScriptValidator.from_legacy_message
 
