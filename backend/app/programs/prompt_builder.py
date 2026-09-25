@@ -43,8 +43,10 @@ class PromptBuilder:
     def structure_section(self) -> str:
         lines = ["# 番組構成"]
         for segment in self.profile.segments:
+            speakers = "、".join(segment.speaker_keys) or "出演者全員"
             lines.append(
-                f"- {segment.id}（{segment.kind}）: {segment.min_lines}〜{segment.max_lines}行"
+                f"- segment `{segment.id}`（section: `{segment.kind}`）: "
+                f"{segment.min_lines}〜{segment.max_lines}行、話者: {speakers}"
             )
         if len(self.profile.cast) == 1 and self.profile.kind == "radio":
             lines.append("- 記事間のtransitionは、各記事の間に独立した1行を入れる。")
@@ -102,12 +104,14 @@ class PromptBuilder:
     ) -> str:
         """Build a self-contained prompt without conflicting legacy cast rules."""
         allowed_speakers = ", ".join(member.key for member in self.profile.cast)
-        sections = ", ".join(segment.kind for segment in self.profile.segments)
+        sections = ", ".join(dict.fromkeys(segment.kind for segment in self.profile.segments))
+        segment_ids = ", ".join(segment.id for segment in self.profile.segments)
         requirements = [
             "- 各行に speaker / text / article_id / segment / section / delivery を含める。",
             f"- speaker はプロフィールで定義されたキー（{allowed_speakers}）だけを使う。",
-            f"- section はプロフィールのセクション（{sections}）だけを使う。",
-            "- segment は対応する section のプロフィール上の segment id を使う。",
+            f"- section はプロフィールのセクション種別（{sections}）だけを使う。",
+            f"- segment は定義済みID（{segment_ids}）から選び、対応する section にはその kind を設定する。",
+            "- 同じ kind のセグメントが複数ある場合も、構成上の位置に対応する segment ID を各行に指定する。",
         ]
         content = [
             task_description,
@@ -126,7 +130,18 @@ class PromptBuilder:
 
     def segment_for_section(self, section: str) -> str:
         """Resolve an output section to its profile segment id."""
-        segment = next((item for item in self.profile.segments if item.kind == section), None)
-        if segment is None:
+        matches = [item for item in self.profile.segments if item.kind == section]
+        if not matches:
             raise ValueError(f"profile {self.profile.id!r} has no segment for section {section!r}")
-        return segment.id
+        if len(matches) > 1:
+            raise ValueError(
+                f"profile {self.profile.id!r} has multiple segments for section {section!r}; segment ID is required"
+            )
+        return matches[0].id
+
+    def segment_id_for_output(self, section: str, segment_id: object = None) -> object | None:
+        """Keep an explicit model ID, or resolve only unambiguous section kinds."""
+        if segment_id is not None:
+            return segment_id
+        matches = [item for item in self.profile.segments if item.kind == section]
+        return matches[0].id if len(matches) == 1 else None

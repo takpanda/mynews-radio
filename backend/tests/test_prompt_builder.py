@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+import pytest
 
 from app.programs.profiles import (
     COMMENTARY_ONE_PERSON,
@@ -39,3 +40,31 @@ def test_example_uses_a_defined_segment_and_its_section_kind():
     segment = next(item for item in COMMENTARY_ONE_PERSON.segments if item.id == line["segment"])
     assert line["section"] == segment.kind
     assert builder.segment_for_section(line["section"]) == line["segment"]
+
+
+def test_custom_prompt_lists_ordered_segment_ids_kinds_counts_and_speakers():
+    from app.programs.profiles import ProgramSegment
+
+    profile = replace(
+        COMMENTARY_ONE_PERSON,
+        segments=(
+            ProgramSegment("headline_open", "headline", 0, 1, 2, ("male",)),
+            ProgramSegment("headline_wrap", "headline", 1, 2, 3, ("male",)),
+            ProgramSegment("daily_corner", "corner", 2, 1, 1, ("male",)),
+        ),
+    )
+    builder = PromptBuilder(profile)
+    prompt = builder.build_profile_prompt(
+        task_description="台本を作成してください。",
+        input_description="記事本文",
+    )
+
+    assert prompt.index("headline_open") < prompt.index("headline_wrap") < prompt.index("daily_corner")
+    assert "section: `headline`" in prompt
+    assert "1〜2行、話者: male" in prompt
+    assert "2〜3行、話者: male" in prompt
+    assert "同じ kind のセグメントが複数ある場合" in prompt
+    assert builder.segment_id_for_output("headline") is None
+    assert builder.segment_id_for_output("headline", "headline_wrap") == "headline_wrap"
+    with pytest.raises(ValueError, match="multiple segments"):
+        builder.segment_for_section("headline")

@@ -228,20 +228,30 @@ def generate_commentary_script(
         speaker = str(line.get("speaker", default_speaker))
         if speaker not in allowed_speakers:
             speaker = default_speaker
-        section = str(line.get("section", "news"))
-        if section not in {"intro", "news", "outro"}:
+        requested_segment = line.get("segment")
+        requested_segment_obj = next(
+            (item for item in profile.segments if item.id == requested_segment), None
+        )
+        section_value = line.get("section")
+        if section_value is None and requested_segment_obj is not None:
+            section_value = requested_segment_obj.kind
+        section = str(section_value if section_value is not None else "news")
+        if prompt_builder.uses_legacy_prompt and section not in {"intro", "news", "outro"}:
             section = "news"
 
         text = str(line.get("text", "")).strip()
 
-        script["lines"].append({
+        output_line = {
             "speaker": speaker,
             "text": text,
             "article_id": line.get("article_id"),
-            "segment": prompt_builder.segment_for_section(section),
             "section": section,
             "delivery": line.get("delivery", "neutral"),
-        })
+        }
+        segment_id = prompt_builder.segment_id_for_output(section, requested_segment)
+        if segment_id is not None:
+            output_line["segment"] = segment_id
+        script["lines"].append(output_line)
 
     _check_concrete_data(script["lines"], style)
 
