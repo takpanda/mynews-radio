@@ -27,6 +27,7 @@ from app.batch.generate_script import (
 from app.batch.script_contracts import COMMENTARY_IGNORED_LINT_CODES, FAREWELL_RE
 from app.batch.script_validator import ScriptValidator
 from app.programs.profiles import ProgramProfile, get_profile_by_id
+from app.programs.prompt_builder import PromptBuilder
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
@@ -505,17 +506,25 @@ def _restore_dialogue_contract(
 # レビューサイクルでの修正に委ねる。
 # ---------------------------------------------------------------------------
 
-def check_transition_integrity(lines: list) -> list[str]:
+def check_transition_integrity(
+    lines: list,
+    *,
+    program_profile: ProgramProfile | None = None,
+) -> list[str]:
     """記事境界のtransition行に、前の記事の締め文と次の記事の告知が混在した
     壊れた文が残っていないかを検査する。
 
     lint_script（app/batch/generate_script.py）の [TRANSITION_SOLO] と同様に
     連続するtransition行をブロック単位でまとめ、直後がnews行であるブロック
     （＝記事境界のtransition）のみを対象とする。discussion直前のtransitionは
-    複文スタイルが正常なため対象外。
+    複文スタイルが正常なため対象外。カスタムprofileではdiscussionの順序・記事
+    対応をprofile構造検査に委ねる。
     """
     issues: list[str] = []
     sections = [line.get("section") for line in lines]
+    uses_legacy_layout = (
+        program_profile is None or PromptBuilder(program_profile).uses_legacy_prompt
+    )
 
     blocks: list[list[int]] = []
     current: list[int] = []
@@ -530,7 +539,7 @@ def check_transition_integrity(lines: list) -> list[str]:
 
     news_indices = [i for i, section in enumerate(sections) if section == "news"]
     discussion_indices = [i for i, section in enumerate(sections) if section == "discussion"]
-    if news_indices and discussion_indices:
+    if uses_legacy_layout and news_indices and discussion_indices:
         last_news = max(news_indices)
         first_discussion = min(discussion_indices)
         if first_discussion < last_news:
@@ -813,7 +822,10 @@ def review_script(
     # 落とし、呼び出し元に生成工程が既に安全化済みの script.json（_ensure_transitions()
     # 適用済み）を維持させる。output_dir/script.json 自体は診断用にそのまま残す。
     transition_check_lines = revised_script["lines"] if (revised and revised_script) else source.get("lines", [])
-    transition_integrity_issues = check_transition_integrity(transition_check_lines)
+    transition_integrity_issues = check_transition_integrity(
+        transition_check_lines,
+        program_profile=profile,
+    )
     if transition_integrity_issues:
         logger.warning(
             "review_script: transition integrity check found %d issue(s):\n%s",

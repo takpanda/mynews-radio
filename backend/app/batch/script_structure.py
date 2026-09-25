@@ -13,6 +13,14 @@ def _issue(code: str, message: str) -> dict[str, Any]:
     return {"code": code, "message": message, "line_indices": []}
 
 
+def _uses_legacy_layout(profile: ProgramProfile | None) -> bool:
+    if profile is None:
+        return True
+    from app.programs.prompt_builder import PromptBuilder
+
+    return PromptBuilder(profile).uses_legacy_prompt
+
+
 def check_profile_structure(
     lines: list[dict[str, Any]], profile: ProgramProfile,
 ) -> list[dict[str, Any]]:
@@ -81,8 +89,32 @@ def check_discussion_layout(
     lines: list[dict[str, Any]],
     *,
     expected_discussion_article_id: Any = None,
+    program_profile: ProgramProfile | None = None,
 ) -> list[dict[str, Any]]:
-    """Return critical findings for the discussion placement invariant."""
+    """Check legacy placement rules or custom-profile article identity."""
+    if not _uses_legacy_layout(program_profile):
+        discussion_indices = [i for i, line in enumerate(lines) if line.get("section") == "discussion"]
+        if not discussion_indices:
+            return []
+        discussion_ids = {lines[i].get("article_id") for i in discussion_indices}
+        issues: list[dict[str, Any]] = []
+        if len(discussion_ids) != 1:
+            issues.append(
+                _issue(
+                    "DISCUSSION_ARTICLE_DRIFT",
+                    f"discussion内でarticle_idが複数、または未指定です: {sorted(str(value) for value in discussion_ids)}",
+                )
+            )
+        elif expected_discussion_article_id is not None and next(iter(discussion_ids)) != expected_discussion_article_id:
+            discussion_id = next(iter(discussion_ids))
+            issues.append(
+                _issue(
+                    "DISCUSSION_ARTICLE_DRIFT",
+                    f"discussionのarticle_id={discussion_id}が選定記事(article_id={expected_discussion_article_id})と一致しません",
+                )
+            )
+        return issues
+
     news_indices = [i for i, line in enumerate(lines) if line.get("section") == "news"]
     discussion_indices = [i for i, line in enumerate(lines) if line.get("section") == "discussion"]
     if not discussion_indices:
@@ -253,4 +285,5 @@ def normalize_discussion_layout(
     return repaired, repairs, check_discussion_layout(
         repaired,
         expected_discussion_article_id=expected_discussion_article_id,
+        program_profile=program_profile,
     )

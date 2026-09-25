@@ -50,22 +50,22 @@ def test_custom_headline_corner_layout_is_validated_in_profile_order():
         segments=(
             ProgramSegment("intro", "intro", 0, 1, 1, ("male", "female")),
             ProgramSegment("transition", "transition", 1, 1, 1, ("male", "female")),
-            ProgramSegment("news", "news", 2, 1, 1, ("male", "female")),
-            ProgramSegment("headline", "headline", 3, 1, 1, ("male", "female")),
-            ProgramSegment("discussion", "discussion", 4, 1, 1, ("male", "female")),
-            ProgramSegment("corner", "corner", 5, 1, 1, ("male", "female")),
-            ProgramSegment("outro", "outro", 6, 2, 2, ("male", "female")),
+            ProgramSegment("discussion", "discussion", 2, 1, 1, ("male", "female")),
+            ProgramSegment("news", "news", 3, 1, 1, ("male", "female")),
+            ProgramSegment("headline", "headline", 4, 1, 1, ("male", "female")),
+            ProgramSegment("outro", "outro", 5, 2, 2, ("male", "female")),
+            ProgramSegment("corner", "corner", 6, 1, 1, ("male", "female")),
         ),
     )
     sections_and_ids = [
         ("intro", "intro"),
         ("transition", "transition"),
+        ("discussion", "discussion"),
         ("news", "news"),
         ("headline", "headline"),
-        ("discussion", "discussion"),
+        ("outro", "outro"),
+        ("outro", "outro"),
         ("corner", "corner"),
-        ("outro", "outro"),
-        ("outro", "outro"),
     ]
     lines = [
         {
@@ -80,12 +80,12 @@ def test_custom_headline_corner_layout_is_validated_in_profile_order():
             [
                 "番組を始めます。",
                 "記事に移ります。",
+                "記事の背景を整理します。",
                 "記事の内容です。",
                 "見出しを紹介します。",
-                "記事の背景を整理します。",
-                "今日のコーナーです。",
                 "今日は何が気になりましたか？",
                 "それではまた次回お会いしましょう。",
+                "今日のコーナーです。",
             ],
         )
     ]
@@ -96,7 +96,9 @@ def test_custom_headline_corner_layout_is_validated_in_profile_order():
     codes = {finding["code"] for finding in result["critical_issues"]}
     assert "DISCUSSION_LAYOUT" not in codes
     assert "DISCUSSION_POSITION" not in codes
+    assert "OUTRO_POSITION" not in codes
     assert "SEGMENT_ORDER" not in codes
+    assert result["can_synthesize"] is True
     assert [line["section"] for line in result["lines"]] == [section for section, _ in sections_and_ids]
 
 
