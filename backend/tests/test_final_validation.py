@@ -49,7 +49,7 @@ def test_custom_headline_corner_layout_is_validated_in_profile_order():
         id="radio_with_features",
         segments=(
             ProgramSegment("intro", "intro", 0, 1, 1, ("male", "female")),
-            ProgramSegment("transition", "transition", 1, 1, 1, ("male", "female")),
+            ProgramSegment("discussion", "discussion", 1, 1, 1, ("male", "female")),
             ProgramSegment("news", "news", 2, 1, 1, ("male", "female")),
             ProgramSegment("headline", "headline", 3, 1, 1, ("male", "female")),
             ProgramSegment("outro", "outro", 4, 2, 2, ("male", "female")),
@@ -58,7 +58,7 @@ def test_custom_headline_corner_layout_is_validated_in_profile_order():
     )
     sections_and_ids = [
         ("intro", "intro"),
-        ("transition", "transition"),
+        ("discussion", "discussion"),
         ("news", "news"),
         ("headline", "headline"),
         ("outro", "outro"),
@@ -77,7 +77,7 @@ def test_custom_headline_corner_layout_is_validated_in_profile_order():
             sections_and_ids,
             [
                 "「ニュースのとなり」の時間です。本日のニュースをお伝えします。",
-                "記事に移ります。",
+                "記事の背景を整理します。",
                 "記事の内容です。",
                 "見出しを紹介します。",
                 "今日は何が気になりましたか？",
