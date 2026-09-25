@@ -84,7 +84,8 @@ def test_commentary_line_ranges_cover_current_prompt_conditions():
         }
 
     assert bounds(solo) == {"intro": (1, 2), "news": (3, 12), "outro": (1, 2)}
-    assert bounds(dialogue) == {"intro": (1, 3), "news": (3, 12), "outro": (2, 2)}
+    assert bounds(dialogue) == {"intro": (1, 3), "news": (3, 12), "outro": (1, 2)}
+    assert bounds(dialogue)["outro"][0] == 1
 
 
 def test_explicit_radio_program_name_takes_precedence_over_news_source():

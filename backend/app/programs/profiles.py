@@ -162,7 +162,7 @@ COMMENTARY_TWO_PERSON = ProgramProfile(
     segments=(
         _segment("intro", "intro", 0, 1, 3, ("male", "female")),
         _segment("news", "news", 1, 3, 12, ("male", "female")),
-        _segment("outro", "outro", 2, 2, 2, ("male", "female")),
+        _segment("outro", "outro", 2, 1, 2, ("male", "female")),
     ),
     options=ProgramOptions(style="dialogue"),
 )
