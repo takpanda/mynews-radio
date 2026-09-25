@@ -135,14 +135,25 @@ def normalize_discussion_layout(
     lines: list[dict[str, Any]],
     *,
     expected_discussion_article_id: Any = None,
+    program_profile: ProgramProfile | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Move the selected article and discussion to their canonical positions.
 
     Only existing, transition-prefixed blocks are moved. If the selected
     article cannot be moved without losing a boundary transition, the caller
     receives a critical finding and must not synthesize the script.
+
+    Custom profiles own their section order. The legacy article-block repair
+    only understands the built-in radio layout, so custom profiles are returned
+    unchanged and checked against their declared segment order instead.
     """
     repaired = [dict(line) for line in lines]
+    if program_profile is not None:
+        from app.programs.prompt_builder import PromptBuilder
+
+        if not PromptBuilder(program_profile).uses_legacy_prompt:
+            return repaired, [], []
+
     discussion_indices = [i for i, line in enumerate(repaired) if line.get("section") == "discussion"]
     if not discussion_indices:
         return repaired, [], []

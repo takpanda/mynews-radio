@@ -427,12 +427,14 @@ def validate_final_script(
     """
     source_lines = [line for line in lines if isinstance(line, dict)]
     repaired_lines, repairs = _repair_outro_questions(source_lines)
+    profile = program_profile
     critical: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = list(repairs)
 
     repaired_lines, layout_repairs, layout_repair_issues = normalize_discussion_layout(
         repaired_lines,
         expected_discussion_article_id=expected_discussion_article_id,
+        program_profile=profile,
     )
     repairs.extend(layout_repairs)
     warnings.extend(layout_repairs)
@@ -447,7 +449,6 @@ def validate_final_script(
                 line_indices=malformed_indices,
             )
         )
-    profile = program_profile
     allowed_speakers = profile.speaker_keys if profile is not None else {"male", "female"}
     allowed_sections = (
         {segment.kind for segment in profile.segments}

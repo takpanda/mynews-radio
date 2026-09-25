@@ -289,7 +289,7 @@ def test_reviewed_script_preserves_and_reports_section_missing_from_profile():
     assert unknown["line_indices"] == [0]
 
 
-def test_review_postprocessing_preserves_explicit_ids_and_does_not_guess_repeated_kind():
+def test_review_postprocessing_preserves_explicit_ids_mismatches_and_ambiguous_rows():
     from app.batch.review_script import _build_revised_script
 
     profile = replace(
@@ -297,6 +297,7 @@ def test_review_postprocessing_preserves_explicit_ids_and_does_not_guess_repeate
         segments=(
             ProgramSegment("headline_open", "headline", 0, 1, 1, ("male",)),
             ProgramSegment("headline_wrap", "headline", 1, 1, 1, ("male",)),
+            ProgramSegment("daily_corner", "corner", 2, 1, 1, ("male",)),
         ),
     )
     revised = _build_revised_script(
@@ -304,6 +305,7 @@ def test_review_postprocessing_preserves_explicit_ids_and_does_not_guess_repeate
         {"lines": [
             {"segment": "headline_wrap", "text": "締めの見出しです。"},
             {"section": "headline", "text": "識別できない見出しです。"},
+            {"section": "headline", "segment": "daily_corner", "text": "IDと種別が不一致です。"},
         ]},
         program_profile=profile,
     )
@@ -311,8 +313,24 @@ def test_review_postprocessing_preserves_explicit_ids_and_does_not_guess_repeate
     assert revised["lines"][0]["section"] == "headline"
     assert revised["lines"][0]["segment"] == "headline_wrap"
     assert "segment" not in revised["lines"][1]
+    assert revised["lines"][2]["section"] == "headline"
+    assert revised["lines"][2]["segment"] == "daily_corner"
     findings = ScriptValidator(profile).validate_structure(revised["lines"])
     assert any(finding["code"] == "SEGMENT_MISSING" for finding in findings)
+    mismatch = next(finding for finding in findings if finding["code"] == "SEGMENT_SECTION_MISMATCH")
+    assert mismatch["line_indices"] == [2]
+    from app.batch.final_validation import validate_final_script
+
+    final_result = validate_final_script(
+        revised["lines"],
+        program_profile=profile,
+        commentary=True,
+        style="solo",
+    )
+    assert any(
+        finding["code"] == "SEGMENT_SECTION_MISMATCH"
+        for finding in final_result["critical_issues"]
+    )
 
 
 def test_legacy_messages_extract_single_list_range_and_joined_line_indexes():

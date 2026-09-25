@@ -1551,6 +1551,7 @@ def generate_script(
     script["lines"], repairs, layout_issues = normalize_discussion_layout(
         script["lines"],
         expected_discussion_article_id=expected_discussion_article_id,
+        program_profile=prompt_profile,
     )
     for repair in repairs:
         logger.warning("discussion layout repaired: %s", repair["message"])
