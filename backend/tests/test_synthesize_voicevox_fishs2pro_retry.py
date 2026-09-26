@@ -43,7 +43,7 @@ def test_fishs2pro_first_attempt_success_does_not_retry(tmp_path):
     call_count = {"n": 0}
 
     class FakeFishClient:
-        def __init__(self, base_url, voice_male=None, voice_female=None):
+        def __init__(self, base_url, voice_male=None, voice_female=None, voice_overrides=None):
             pass
 
         def synthesize_line(self, text, speaker, output_path, delivery="neutral"):
@@ -79,7 +79,7 @@ def test_fishs2pro_retries_failed_line_and_saves_one_file_on_success(tmp_path, c
     attempts = {"line1": 0, "line2": 0}
 
     class FakeFishClient:
-        def __init__(self, base_url, voice_male=None, voice_female=None):
+        def __init__(self, base_url, voice_male=None, voice_female=None, voice_overrides=None):
             pass
 
         def synthesize_line(self, text, speaker, output_path, delivery="neutral"):
@@ -126,7 +126,7 @@ def test_fishs2pro_gives_up_after_max_retries(tmp_path, caplog):
     attempts = {"fail": 0}
 
     class FakeFishClient:
-        def __init__(self, base_url, voice_male=None, voice_female=None):
+        def __init__(self, base_url, voice_male=None, voice_female=None, voice_overrides=None):
             pass
 
         def synthesize_line(self, text, speaker, output_path, delivery="neutral"):

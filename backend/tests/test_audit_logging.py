@@ -117,7 +117,8 @@ def test_generation_audit_contains_hashes_and_rejection_reason(client):
     assert started["input_hash"] == hash_input({"date": "2099-06-01", "max_articles": None,
                                                  "duration_minutes": None, "news_source": "hatena_bookmark",
                                                  "tts_engine": None, "url": None, "style": "solo",
-                                                 "mc_gender": "male", "settings_snapshot": None})
+                                                 "mc_gender": "male", "settings_snapshot": None,
+                                                 "program_id": None})
     assert started["started_at"]
     assert rejected["accepted"] == 0
     assert rejected["rejection_reason"] == "idempotency_key_input_mismatch"
@@ -289,7 +290,7 @@ def test_finalize_audit_failure_marks_job_failed(monkeypatch):
 def test_episode_creation_failure_closes_started_audit(monkeypatch):
     from app.services import generation_control
 
-    monkeypatch.setattr(generation_control, "_insert_episode", lambda *args: (_ for _ in ()).throw(RuntimeError("insert failed")))
+    monkeypatch.setattr(generation_control, "_insert_episode", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("insert failed")))
     try:
         generation_control.claim_job(
             1, "generate", "episode-create-failure", {"date": "2099-06-06"},
