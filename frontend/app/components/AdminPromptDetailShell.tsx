@@ -23,6 +23,7 @@ interface Props {
   programName: string | null
   programKind: ProgramKind | null
   radioPrograms: { id: string; name: string }[]
+  radioProgramsError?: boolean
   requiredVariables: string[]
   allowedVariables: string[]
   initialVersions: PromptVersionDetail[]
@@ -40,10 +41,12 @@ interface PreviewRowState {
   loading: boolean
   error: string | null
   prompt: string | null
+  resultEpisodeId: number | null
   prodLoading: boolean
   prodError: string | null
   prodVersionId: number | null
   prodPrompt: string | null
+  prodResultEpisodeId: number | null
 }
 
 const EMPTY_PREVIEW: PreviewRowState = {
@@ -51,10 +54,12 @@ const EMPTY_PREVIEW: PreviewRowState = {
   loading: false,
   error: null,
   prompt: null,
+  resultEpisodeId: null,
   prodLoading: false,
   prodError: null,
   prodVersionId: null,
   prodPrompt: null,
+  prodResultEpisodeId: null,
 }
 
 interface ActionState {
@@ -78,6 +83,7 @@ export default function AdminPromptDetailShell({
   programName,
   programKind,
   radioPrograms,
+  radioProgramsError = false,
   requiredVariables,
   allowedVariables,
   initialVersions,
@@ -136,20 +142,35 @@ export default function AdminPromptDetailShell({
     }
   }
 
+  const handleEpisodeIdChange = (versionId: number, value: string) => {
+    // 入力中のIDと表示中の結果が食い違って別回の結果を取り違えないよう、ID変更時は前回の結果を破棄する。
+    updatePreview(versionId, {
+      episodeId: value,
+      prompt: null,
+      error: null,
+      resultEpisodeId: null,
+      prodPrompt: null,
+      prodError: null,
+      prodVersionId: null,
+      prodResultEpisodeId: null,
+    })
+  }
+
   const runRenderPreview = async (versionId: number) => {
     const episodeId = parseEpisodeId(getPreview(versionId).episodeId)
     if (episodeId === null) {
-      updatePreview(versionId, { error: '過去回IDは1以上の整数で入力してください。', prompt: null })
+      updatePreview(versionId, { error: '過去回IDは1以上の整数で入力してください。', prompt: null, resultEpisodeId: null })
       return
     }
     updatePreview(versionId, { loading: true, error: null })
     try {
       const result = await renderPromptVersion(versionId, episodeId)
-      updatePreview(versionId, { loading: false, prompt: result.prompt })
+      updatePreview(versionId, { loading: false, prompt: result.prompt, resultEpisodeId: episodeId })
     } catch (err) {
       updatePreview(versionId, {
         loading: false,
         prompt: null,
+        resultEpisodeId: null,
         error: err instanceof Error ? err.message : '展開プレビューの取得に失敗しました。',
       })
     }
@@ -159,17 +180,27 @@ export default function AdminPromptDetailShell({
     if (!programId) return
     const episodeId = parseEpisodeId(getPreview(versionId).episodeId)
     if (episodeId === null) {
-      updatePreview(versionId, { prodError: '過去回IDは1以上の整数で入力してください。', prodPrompt: null })
+      updatePreview(versionId, {
+        prodError: '過去回IDは1以上の整数で入力してください。',
+        prodPrompt: null,
+        prodResultEpisodeId: null,
+      })
       return
     }
     updatePreview(versionId, { prodLoading: true, prodError: null })
     try {
       const result = await previewProgramPrompt(programId, templateKey, episodeId)
-      updatePreview(versionId, { prodLoading: false, prodVersionId: result.version_id, prodPrompt: result.prompt })
+      updatePreview(versionId, {
+        prodLoading: false,
+        prodVersionId: result.version_id,
+        prodPrompt: result.prompt,
+        prodResultEpisodeId: episodeId,
+      })
     } catch (err) {
       updatePreview(versionId, {
         prodLoading: false,
         prodPrompt: null,
+        prodResultEpisodeId: null,
         prodError: err instanceof Error ? err.message : '対象番組の運用結果の取得に失敗しました。',
       })
     }
@@ -396,7 +427,7 @@ export default function AdminPromptDetailShell({
                       type="number"
                       min={1}
                       value={preview.episodeId}
-                      onChange={(e) => updatePreview(version.id, { episodeId: e.target.value })}
+                      onChange={(e) => handleEpisodeIdChange(version.id, e.target.value)}
                       aria-label={`v${version.version}の展開プレビュー用過去回ID`}
                       className="w-28 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900"
                     />
@@ -421,14 +452,19 @@ export default function AdminPromptDetailShell({
                   </div>
                   {preview.error && <p className="mt-2 text-xs text-red-700">{preview.error}</p>}
                   {preview.prompt !== null && (
-                    <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-xs text-slate-700">
-                      {preview.prompt}
-                    </pre>
+                    <div className="mt-2">
+                      <p className="text-xs text-slate-500">対象の過去回ID: {preview.resultEpisodeId}</p>
+                      <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-xs text-slate-700">
+                        {preview.prompt}
+                      </pre>
+                    </div>
                   )}
                   {preview.prodError && <p className="mt-2 text-xs text-red-700">{preview.prodError}</p>}
                   {preview.prodPrompt !== null && (
                     <div className="mt-2">
-                      <p className="text-xs text-slate-500">運用中の版: v{preview.prodVersionId}</p>
+                      <p className="text-xs text-slate-500">
+                        対象の過去回ID: {preview.prodResultEpisodeId} ・ 運用中の版: v{preview.prodVersionId}
+                      </p>
                       <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-xs text-slate-700">
                         {preview.prodPrompt}
                       </pre>
@@ -444,6 +480,12 @@ export default function AdminPromptDetailShell({
                       </p>
                     ) : programId && programKind !== 'radio' ? (
                       <p className="text-xs text-slate-400">対象番組がradioではないためテスト生成できません</p>
+                    ) : !programId && radioProgramsError ? (
+                      <p className="text-xs text-red-700">
+                        対象番組一覧の取得に失敗しました。画面を再読み込みしてください。
+                      </p>
+                    ) : !programId && radioPrograms.length === 0 ? (
+                      <p className="text-xs text-slate-400">テスト生成に使えるradio番組が登録されていません</p>
                     ) : (
                       <div className="flex flex-wrap items-center gap-2">
                         {!programId && (

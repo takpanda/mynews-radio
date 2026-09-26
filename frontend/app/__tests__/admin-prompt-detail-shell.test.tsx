@@ -274,6 +274,37 @@ describe('AdminPromptDetailShell', () => {
       expect.objectContaining({ method: 'POST', body: JSON.stringify({ episode_id: 5 }) }),
     )
     expect(await screen.findByText('展開後の本文')).toBeInTheDocument()
+    expect(screen.getByText('対象の過去回ID: 5')).toBeInTheDocument()
+  })
+
+  it('過去回IDを変更すると表示中の展開プレビュー結果が破棄される', async () => {
+    ;(global.fetch as jest.Mock).mockResolvedValueOnce(
+      jsonResponse(200, { version_id: 9, episode_id: 5, template_key: 'category', prompt: '展開後の本文' }),
+    )
+    const user = userEvent.setup()
+    render(
+      <AdminPromptDetailShell
+        promptId={1}
+        templateKey="category"
+        programId={null}
+        programName={null}
+        programKind={null}
+        radioPrograms={[]}
+        requiredVariables={['categories', 'source']}
+        allowedVariables={['categories', 'source']}
+        initialVersions={initialVersions}
+      />,
+    )
+
+    const inputs = screen.getAllByLabelText(/の展開プレビュー用過去回ID/)
+    await user.type(inputs[1], '5')
+    await user.click(screen.getAllByRole('button', { name: 'この版で展開プレビューを実行' })[1])
+    expect(await screen.findByText('展開後の本文')).toBeInTheDocument()
+
+    // 表示中の結果と入力中のIDが食い違って別回の結果を取り違えないよう、ID変更時は前回の結果を破棄する
+    await user.type(inputs[1], '6')
+    expect(screen.queryByText('展開後の本文')).not.toBeInTheDocument()
+    expect(screen.queryByText(/対象の過去回ID/)).not.toBeInTheDocument()
   })
 
   it('番組固有テンプレートでは対象番組の現在の運用結果も確認できる', async () => {
@@ -303,7 +334,7 @@ describe('AdminPromptDetailShell', () => {
       '/api/admin/programs/radio-test/preview-prompt',
       expect.objectContaining({ method: 'POST', body: JSON.stringify({ template_key: 'category', episode_id: 5 }) }),
     )
-    expect(await screen.findByText('運用中の版: v10')).toBeInTheDocument()
+    expect(await screen.findByText('対象の過去回ID: 5 ・ 運用中の版: v10')).toBeInTheDocument()
     expect(await screen.findByText('運用中の本文')).toBeInTheDocument()
   })
 
@@ -376,6 +407,51 @@ describe('AdminPromptDetailShell', () => {
     await user.selectOptions(screen.getByLabelText('テスト生成の対象番組'), 'radio-a')
     const link = screen.getByRole('link', { name: 'テスト生成・比較テスト画面へ' })
     expect(link).toHaveAttribute('href', '/admin/programs/radio-a/dry-run?draft_prompt_version_id=40')
+  })
+
+  it('対象番組一覧の取得に失敗した場合は選択UIではなく取得失敗を表示する', () => {
+    const draftOnly: PromptVersionDetail[] = [
+      { id: 40, version: 1, content: 'draft body', status: 'draft', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+    ]
+    render(
+      <AdminPromptDetailShell
+        promptId={1}
+        templateKey="generate_radio_script"
+        programId={null}
+        programName={null}
+        programKind={null}
+        radioPrograms={[]}
+        radioProgramsError
+        requiredVariables={['summaries_json']}
+        allowedVariables={['summaries_json']}
+        initialVersions={draftOnly}
+      />,
+    )
+
+    expect(screen.getByText('対象番組一覧の取得に失敗しました。画面を再読み込みしてください。')).toBeInTheDocument()
+    expect(screen.queryByLabelText('テスト生成の対象番組')).not.toBeInTheDocument()
+  })
+
+  it('テスト生成に使えるradio番組が0件の場合は取得失敗と区別して案内する', () => {
+    const draftOnly: PromptVersionDetail[] = [
+      { id: 40, version: 1, content: 'draft body', status: 'draft', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+    ]
+    render(
+      <AdminPromptDetailShell
+        promptId={1}
+        templateKey="generate_radio_script"
+        programId={null}
+        programName={null}
+        programKind={null}
+        radioPrograms={[]}
+        requiredVariables={['summaries_json']}
+        allowedVariables={['summaries_json']}
+        initialVersions={draftOnly}
+      />,
+    )
+
+    expect(screen.getByText('テスト生成に使えるradio番組が登録されていません')).toBeInTheDocument()
+    expect(screen.queryByLabelText('テスト生成の対象番組')).not.toBeInTheDocument()
   })
 
   it('本番適用・ロールバックのボタンはPCのみ表示するクラス構成になっている', () => {

@@ -15,6 +15,7 @@ export default async function AdminPromptDetailPage({ params }: { params: Promis
   let programName: string | null = null
   let programKind: ProgramKind | null = null
   let radioPrograms: { id: string; name: string }[] = []
+  let radioProgramsError = false
 
   if (!Number.isInteger(promptId) || promptId <= 0) {
     error = 'プロンプトが見つかりませんでした。'
@@ -39,6 +40,7 @@ export default async function AdminPromptDetailPage({ params }: { params: Promis
           radioPrograms = programs.filter((p) => p.kind === 'radio').map((p) => ({ id: p.id, name: p.name }))
         } catch {
           radioPrograms = []
+          radioProgramsError = true
         }
       }
     } catch (err) {
@@ -61,6 +63,7 @@ export default async function AdminPromptDetailPage({ params }: { params: Promis
           programName={programName}
           programKind={programKind}
           radioPrograms={radioPrograms}
+          radioProgramsError={radioProgramsError}
           requiredVariables={template.required_variables}
           allowedVariables={template.allowed_variables}
           initialVersions={versionsData.versions}
