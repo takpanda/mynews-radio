@@ -56,6 +56,20 @@ describe('AdminDryRunShell', () => {
     expect(global.fetch).not.toHaveBeenCalled()
   })
 
+  it('initialPromptVersionIdが渡されると下書きプロンプト版IDを初期表示する', () => {
+    render(
+      <AdminDryRunShell
+        programId="p1"
+        programKind="radio"
+        currentDefinition={baseDefinition()}
+        initialDryRunId={null}
+        initialPromptVersionId={30}
+      />,
+    )
+
+    expect(screen.getByLabelText('下書きプロンプト版ID')).toHaveValue(30)
+  })
+
   it('下書き番組定義に不正なJSONを入力すると送信せずエラーを表示する', async () => {
     const user = userEvent.setup()
     render(<AdminDryRunShell programId="p1" programKind="radio" currentDefinition={baseDefinition()} initialDryRunId={null} />)

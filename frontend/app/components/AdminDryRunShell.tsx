@@ -20,6 +20,7 @@ interface Props {
   programKind: ProgramKind
   currentDefinition: ProgramDefinitionValue
   initialDryRunId: number | null
+  initialPromptVersionId?: number | null
 }
 
 const STATUS_LABEL: Record<DryRunStatus, string> = {
@@ -40,13 +41,21 @@ const VARIANT_LABEL: Record<DryRunVariant, string> = { current: '現在版', dra
 
 const POLL_INTERVAL_MS = 3000
 
-export default function AdminDryRunShell({ programId, programKind, currentDefinition, initialDryRunId }: Props) {
+export default function AdminDryRunShell({
+  programId,
+  programKind,
+  currentDefinition,
+  initialDryRunId,
+  initialPromptVersionId,
+}: Props) {
   const router = useRouter()
   const pathname = usePathname()
   const disabled = programKind !== 'radio'
 
   const [draftText, setDraftText] = useState('')
-  const [promptVersionText, setPromptVersionText] = useState('')
+  const [promptVersionText, setPromptVersionText] = useState(
+    initialPromptVersionId != null ? String(initialPromptVersionId) : '',
+  )
   const [episodeText, setEpisodeText] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
