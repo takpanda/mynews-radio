@@ -455,7 +455,9 @@ describe('AdminProgramFormShell', () => {
       const user = userEvent.setup()
       await renderShell({ mode: 'edit', initialProgram: baseProgram(1), initialIsActive: true, mcs: [] })
 
-      expect(await screen.findByText('処理に失敗しました（status: 500）')).toBeInTheDocument()
+      expect(
+        await screen.findByText('ボイス一覧を取得できませんでした（処理に失敗しました（status: 500））'),
+      ).toBeInTheDocument()
       const select = screen.getByLabelText('Fish S2 Pro（1人目）') as HTMLSelectElement
       expect(select).not.toBeDisabled()
 
@@ -485,7 +487,7 @@ describe('AdminProgramFormShell', () => {
       const user = userEvent.setup()
       await renderShell({ mode: 'edit', initialProgram: baseProgram(1), initialIsActive: true, mcs: [] })
 
-      expect(await screen.findByText('network error')).toBeInTheDocument()
+      expect(await screen.findByText('ボイス一覧を取得できませんでした（network error）')).toBeInTheDocument()
       const select = screen.getByLabelText('Fish S2 Pro（1人目）') as HTMLSelectElement
       expect(select).not.toBeDisabled()
 

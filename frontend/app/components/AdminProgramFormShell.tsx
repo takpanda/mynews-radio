@@ -115,7 +115,8 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
       })
       .catch((err) => {
         if (cancelled) return
-        setVoiceOptionsError(err instanceof Error ? err.message : FISHS2PRO_FETCH_ERROR)
+        const detail = err instanceof Error ? err.message : String(err)
+        setVoiceOptionsError(detail ? `${FISHS2PRO_FETCH_ERROR}（${detail}）` : FISHS2PRO_FETCH_ERROR)
       })
       .finally(() => {
         if (!cancelled) setVoiceOptionsLoading(false)
