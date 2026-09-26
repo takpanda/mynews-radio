@@ -58,4 +58,13 @@ describe('AdminProgramsShell', () => {
     render(<AdminProgramsShell initialPrograms={[activeProgram]} initialIncludeInactive={false} />)
     expect(screen.getByRole('link', { name: '詳細' })).toHaveAttribute('href', '/admin/programs/radio_news_neighbor')
   })
+
+  it('「番組を新規作成」はスマホ幅（375px相当）では非表示になるクラスを持つ', () => {
+    // jsdomはメディアクエリを評価しないため、実際の375px非表示はPlaywright等の実ブラウザ確認が必要。
+    // ここでは責務分割用のTailwindクラス（hidden / md:inline-flex）が外れていないことを回帰的に検知する。
+    render(<AdminProgramsShell initialPrograms={[activeProgram]} initialIncludeInactive={false} />)
+    const link = screen.getByRole('link', { name: '番組を新規作成' })
+    expect(link).toHaveClass('hidden')
+    expect(link).toHaveClass('md:inline-flex')
+  })
 })

@@ -61,4 +61,17 @@ describe('AdminMcsShell', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(await screen.findByText('田村（改）')).toBeInTheDocument()
   })
+
+  it('「MCを追加」ボタンと操作列はスマホ幅（375px相当）では非表示になるクラスを持つ', () => {
+    // jsdomはメディアクエリを評価しないため、実際の375px非表示はPlaywright等の実ブラウザ確認が必要。
+    // ここでは責務分割用のTailwindクラス（hidden / md:inline-flex, md:table-cell）が外れていないことを回帰的に検知する。
+    render(<AdminMcsShell initialMcs={[activeMc]} initialIncludeInactive={false} />)
+    const addButton = screen.getByRole('button', { name: 'MCを追加' })
+    expect(addButton).toHaveClass('hidden')
+    expect(addButton).toHaveClass('md:inline-flex')
+
+    const editButton = screen.getByRole('button', { name: '編集' })
+    expect(editButton.closest('td')).toHaveClass('hidden')
+    expect(editButton.closest('td')).toHaveClass('md:table-cell')
+  })
 })

@@ -136,6 +136,21 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
     )
   }
 
+  const handleKindChange = (nextKind: ProgramKind) => {
+    setKind(nextKind)
+    // commentaryはnarrative_arcを受け付けない（validate_program_profile）。
+    // チェックボックスはradioのときしか表示できないため、切り替え時に自動で落とす。
+    if (nextKind === 'commentary') {
+      setOptions((prev) => (prev.narrative_arc ? { ...prev, narrative_arc: false } : prev))
+    }
+    // 新しい種別で使えないセグメント種類（例: radioのtransition/discussion）が
+    // 残ると保存時に422になるため、許可された種類へ置き換える。
+    const allowed = SEGMENT_KINDS_BY_PROGRAM_KIND[nextKind]
+    setSegments((prev) =>
+      prev.map((segment) => (allowed.includes(segment.kind) ? segment : { ...segment, kind: allowed[0] })),
+    )
+  }
+
   const buildPayload = (): ProgramDefinitionValue => ({
     id: id.trim(),
     name: name.trim(),
@@ -207,7 +222,7 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
   return (
     <div className="space-y-5">
       {/* モバイル: 閲覧専用サマリー */}
-      <div className="space-y-5 md:hidden">
+      <div className="space-y-5 md:hidden" data-testid="program-mobile-summary">
         <ReadOnlySummary
           id={id}
           name={name}
@@ -220,7 +235,7 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
       </div>
 
       {/* PC: 編集フォーム */}
-      <div className="hidden space-y-5 md:block">
+      <div className="hidden space-y-5 md:block" data-testid="program-edit-form">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <h1 className="text-lg font-semibold text-slate-900">{isEdit ? '番組を編集' : '番組を新規作成'}</h1>
           {isEdit && (
@@ -257,7 +272,7 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
               <label className="mb-1 block text-xs font-medium text-slate-500">種別</label>
               <select
                 value={kind}
-                onChange={(e) => setKind(e.target.value as ProgramKind)}
+                onChange={(e) => handleKindChange(e.target.value as ProgramKind)}
                 className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100"
               >
                 {(['radio', 'commentary'] as ProgramKind[]).map((k) => (
