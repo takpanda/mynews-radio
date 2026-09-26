@@ -42,6 +42,51 @@ def test_script_edit_uses_revision_compare_and_swap_and_audit(client):
     assert any(row["operation"] == "script_update" for row in audits)
 
 
+def test_get_script_returns_snapshot_cast_in_order_and_keeps_snapshot_names(client):
+    from app.db.connection import get_db_connection
+
+    episode_id, script = _episode_with_script()
+    snapshot_cast = [
+        {"key": "host_a", "name": "保存時の名前 A", "role": "進行", "mc_id": "mc-a"},
+        {"key": "host_b", "name": "保存時の名前 B", "role": "解説", "mc_id": "mc-b"},
+    ]
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO mc_profiles(id, name, role) VALUES ('mc-a', '現在の名前 A', '現在の役割 A'), ('mc-b', '現在の名前 B', '現在の役割 B')"
+        )
+        conn.execute(
+            "UPDATE episodes SET program_snapshot=? WHERE id=?",
+            (json.dumps({"name": "番組名", "cast": snapshot_cast}, ensure_ascii=False), episode_id),
+        )
+
+    response = client.get(f"/admin/episodes/{episode_id}/script")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "episode_id": episode_id,
+        "revision": 1,
+        "script": script,
+        "cast": [
+            {"key": "host_a", "name": "保存時の名前 A", "role": "進行"},
+            {"key": "host_b", "name": "保存時の名前 B", "role": "解説"},
+        ],
+    }
+
+
+def test_get_script_returns_null_cast_for_episode_without_snapshot(client):
+    episode_id, script = _episode_with_script()
+
+    response = client.get(f"/admin/episodes/{episode_id}/script")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "episode_id": episode_id,
+        "revision": 1,
+        "script": script,
+        "cast": None,
+    }
+
+
 def test_approve_is_idempotent_and_registers_one_audio_job(client):
     from app.db.connection import get_db_connection
 
