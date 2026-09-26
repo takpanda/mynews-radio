@@ -29,6 +29,8 @@ yarn-error.log*
 
 # Next.js
 .next/
+frontend/test-results/
+frontend/playwright-report/
 out/
 .vercel/
 *.tsbuildinfo
