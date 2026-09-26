@@ -1,7 +1,74 @@
 import sqlite3
+import json
+from dataclasses import replace
 
 
 SYSTEM_OWNER_USERNAME = "__generation_queue_system__"
+
+
+def migrate_program_profiles(conn: sqlite3.Connection) -> bool:
+    """番組・MC定義を追加し、現行の4番組を未登録時のみ初期投入する。"""
+    from app.programs.profiles import get_default_profile
+    from app.programs.serialization import program_profile_to_definition
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS mc_profiles ("
+        "id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '', "
+        "voice_fishs2pro TEXT, voice_aivispeech INTEGER, voice_voicevox INTEGER, "
+        "is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)), "
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS programs ("
+        "id TEXT PRIMARY KEY, name TEXT NOT NULL, "
+        "kind TEXT NOT NULL CHECK (kind IN ('radio', 'commentary')), "
+        "definition TEXT NOT NULL, is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)), "
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+    )
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(episodes)").fetchall()}
+    if "program_id" not in columns:
+        conn.execute(
+            "ALTER TABLE episodes ADD COLUMN program_id TEXT "
+            "REFERENCES programs(id) ON DELETE SET NULL"
+        )
+    if "program_snapshot" not in columns:
+        conn.execute("ALTER TABLE episodes ADD COLUMN program_snapshot TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_episodes_program_id ON episodes(program_id)")
+
+    mc_profiles = (
+        ("radio_male", "田村", "メインMC"),
+        ("radio_female", "山口", "パートナーMC"),
+        ("commentary_male", "", "解説者"),
+        ("commentary_female", "", "聞き手"),
+    )
+    conn.executemany(
+        "INSERT OR IGNORE INTO mc_profiles (id, name, role) VALUES (?, ?, ?)",
+        mc_profiles,
+    )
+    profiles = (
+        get_default_profile(kind="radio"),
+        get_default_profile(kind="radio", news_source="hatena_bookmark"),
+        get_default_profile(kind="commentary", style="solo"),
+        get_default_profile(kind="commentary", style="dialogue"),
+    )
+    for profile in profiles:
+        if profile.id in {"commentary_solo", "commentary_dialogue"}:
+            profile = replace(
+                profile,
+                name="解説 solo" if profile.id == "commentary_solo" else "解説 dialogue",
+            )
+        conn.execute(
+            "INSERT OR IGNORE INTO programs (id, name, kind, definition) VALUES (?, ?, ?, ?)",
+            (
+                profile.id,
+                profile.name,
+                profile.kind,
+                json.dumps(program_profile_to_definition(profile), ensure_ascii=False),
+            ),
+        )
+    return True
 
 
 def migrate_generation_jobs(conn: sqlite3.Connection) -> bool:
