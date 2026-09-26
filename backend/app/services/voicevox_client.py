@@ -40,10 +40,14 @@ DELIVERY_PARAMS: Dict[str, Dict[str, float]] = {
 class VoicevoxClient:
     """VOICEVOX Engineとの通信を扱うクライアント"""
 
-    def __init__(self, base_url: str, speaker_male: int = 0, speaker_female: int = 1):
+    def __init__(
+        self, base_url: str, speaker_male: int = 0, speaker_female: int = 1,
+        speaker_overrides: Dict[str, int] | None = None,
+    ):
         self._base_url = base_url.rstrip("/")
         self.speaker_male = speaker_male
         self.speaker_female = speaker_female
+        self.speaker_overrides = dict(speaker_overrides or {})
         self._client: Optional[httpx.Client] = None
 
     @property
@@ -61,6 +65,8 @@ class VoicevoxClient:
 
     def get_speaker_id(self, speaker: str) -> int:
         """speaker名話者IDを返す"""
+        if speaker in self.speaker_overrides:
+            return self.speaker_overrides[speaker]
         if speaker == "male":
             return self.speaker_male
         elif speaker == "female":

@@ -42,7 +42,7 @@ from app.services.llm_provider import (
     resolve_pipeline_llm_selection,
     validate_provider_model,
 )
-from app.programs.profiles import ProgramProfile, get_default_profile
+from app.programs.profiles import ProgramProfile, get_default_profile, profile_voice_overrides
 from app.programs.serialization import (
     load_program_profile,
     program_profile_from_definition,
@@ -128,6 +128,10 @@ def require_admin_key(authorization: str | None = Header(None)) -> None:
 
 DEFAULT_EPISODES_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
 VALID_GENDERS = {"male", "female"}
+RADIO_PROGRAM_NEWS_SOURCES = {
+    "radio_tech_news": "hatena_bookmark",
+    "radio_news_neighbor": "hatena_hotentry_all",
+}
 
 PHASE_SEQUENCE = {
     "start": {"step_index": 0, "step_total": 6, "step_label": "開始"},
@@ -322,8 +326,12 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> dict[str, Any] | 
     ep = service.get_episode(episode_id)
     seq = ep.get("seq", 0) if ep else 0
 
-    news_source = body.news_source if body.news_source in {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news"} else "hatena_bookmark"
     program_profile = _episode_program_profile(episode_id)
+    if body.program_id is not None and program_profile is not None:
+        # Explicit seeded radio programs carry their legacy source selection by ID.
+        news_source = RADIO_PROGRAM_NEWS_SOURCES.get(program_profile.id, "hatena_hotentry_all")
+    else:
+        news_source = body.news_source if body.news_source in {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news"} else "hatena_bookmark"
     logger.info("Background generation started: episode_id=%d date=%s seq=%d", episode_id, body.date, seq)
 
     def _progress(phase: str, message: str) -> None:
@@ -540,6 +548,13 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             settings.voicevox_base_url
         )
         tts_speaker_male, tts_speaker_female = resolve_tts_speakers(tts_engine)
+        speaker_overrides = (
+            profile_voice_overrides(program_profile, tts_engine)
+            if program_profile is not None else None
+        )
+        if speaker_overrides:
+            tts_speaker_male = speaker_overrides.get("male", tts_speaker_male)
+            tts_speaker_female = speaker_overrides.get("female", tts_speaker_female)
 
         # -- SYNTHESIZE TTS --
         service.update_episode_phase(episode_id, "synthesize", "音声を合成しています…")
@@ -553,6 +568,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
                 tts_engine=tts_engine,
                 episode_id=episode_id,
                 generation_job_id=job_id,
+                speaker_overrides=speaker_overrides,
             )
         except Exception:
             logger.exception("tts synthesis failed")

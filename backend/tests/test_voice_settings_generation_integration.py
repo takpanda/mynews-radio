@@ -103,6 +103,41 @@ class TestRadioPipelineUsesSavedVoiceSettings:
         assert kwargs["speaker_male"] == 111
         assert kwargs["speaker_female"] == 222
 
+    @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
+    @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
+    @patch("app.batch.radio_pipeline.generate_script", return_value=5)
+    @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
+    @patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "ep.mp3"})
+    def test_program_cast_voice_overrides_global_voice_settings(
+        self, mock_build, mock_review, mock_gen, mock_sum, mock_import,
+    ):
+        from dataclasses import replace
+
+        from app.batch.radio_pipeline import run_radio_pipeline
+        from app.programs.profiles import get_default_profile
+        from app.services.episode_service import EpisodeService
+
+        _save_voice_settings()
+        profile = get_default_profile(kind="radio", news_source="hatena_bookmark")
+        cast = (
+            replace(profile.cast[0], voice_voicevox=9101),
+            replace(profile.cast[1], voice_voicevox=9102),
+        )
+        profile = replace(profile, cast=cast)
+        ep_id, _ = EpisodeService().create_radio_episode("2099-08-07")
+
+        with patch("app.batch.radio_pipeline.synthesize_episode", return_value=3) as mock_synth, \
+             patch("builtins.open", _make_fake_open('{"lines": [{"speaker": "male", "text": "hello"}]}')):
+            run_radio_pipeline(
+                ep_id, episode_date="2099-08-07", tts_engine="voicevox",
+                program_profile=profile,
+            )
+
+        kwargs = mock_synth.call_args.kwargs
+        assert kwargs["speaker_male"] == 9101
+        assert kwargs["speaker_female"] == 9102
+        assert kwargs["speaker_overrides"] == {"male": 9101, "female": 9102}
+
 
 class TestCommentaryGenerationUsesSavedVoiceSettings:
     def test_commentary_generation_passes_saved_speakers_to_synthesize(self):

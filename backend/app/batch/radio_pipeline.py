@@ -34,7 +34,7 @@ from app.services.settings_service import (
 )
 from app.services.telegram_notifier import notify_failure, notify_success, notify_review_needed
 from app.services.script_review_service import move_episode_to_awaiting_review
-from app.programs.profiles import ProgramProfile
+from app.programs.profiles import ProgramProfile, profile_voice_overrides
 
 
 def _extract_key_points(script: dict, summaries_path: str) -> list[str]:
@@ -376,6 +376,13 @@ def run_radio_pipeline(
             effective_tts_base_url = tts_config["base_url"]
             effective_tts_male = tts_config["speaker_male"]
             effective_tts_female = tts_config["speaker_female"]
+        speaker_overrides = (
+            profile_voice_overrides(program_profile, tts_config["tts_engine"])
+            if program_profile is not None else None
+        )
+        if speaker_overrides:
+            effective_tts_male = speaker_overrides.get("male", effective_tts_male)
+            effective_tts_female = speaker_overrides.get("female", effective_tts_female)
 
         review_result: dict[str, Any] = {"revised": False, "review_count": 0}
 
@@ -495,6 +502,7 @@ def run_radio_pipeline(
                 tts_engine=tts_config["tts_engine"],
                 episode_id=episode_id,
                 generation_job_id=generation_job_id,
+                speaker_overrides=speaker_overrides,
             )
         except Exception:
             logger.exception("tts synthesis failed")
