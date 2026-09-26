@@ -271,6 +271,19 @@ export function initialSpeakerKey(
   return collectSpeakerKeys(lines)[0] ?? 'male'
 }
 
+/**
+ * speakerがcastのどのkeyとも一致しないか判定する。
+ * castが1人で選択UIが表示されない場合でも、この行だけは元のkeyを読み取り専用で表示する必要があるため、
+ * 選択UIの表示要否（shouldShowSpeakerSelect）とは別に行単位で判定する。
+ */
+export function isSpeakerOutsideCast(
+  cast: AdminScriptReviewCastMember[] | null | undefined,
+  speaker: string,
+): boolean {
+  if (!cast || cast.length === 0) return false
+  return !cast.some((member) => member.key === speaker)
+}
+
 export type ScriptDiffOp =
   | { kind: 'same'; line: AdminScriptReviewLine }
   | { kind: 'local-only'; line: AdminScriptReviewLine }

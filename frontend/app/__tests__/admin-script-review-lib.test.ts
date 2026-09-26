@@ -4,6 +4,7 @@ import {
   collectSpeakerKeys,
   diffScriptLines,
   initialSpeakerKey,
+  isSpeakerOutsideCast,
   loadDraftFromStorage,
   previewAudioClient,
   saveDraftToStorage,
@@ -95,6 +96,23 @@ describe('initialSpeakerKey', () => {
   it('castが無ければ既存動作（登場済みの先頭、無ければmale）', () => {
     expect(initialSpeakerKey(null, [line({ speaker: 'female' })])).toBe('female')
     expect(initialSpeakerKey(null, [])).toBe('male')
+  })
+})
+
+describe('isSpeakerOutsideCast', () => {
+  it('castのどのkeyとも一致しなければtrue', () => {
+    const members = cast([{ key: 'mc-a' }])
+    expect(isSpeakerOutsideCast(members, 'legacy-key')).toBe(true)
+  })
+
+  it('castのkeyと一致すればfalse', () => {
+    const members = cast([{ key: 'mc-a' }])
+    expect(isSpeakerOutsideCast(members, 'mc-a')).toBe(false)
+  })
+
+  it('castが無い/空の場合は常にfalse（過去回の既存動作に影響しない）', () => {
+    expect(isSpeakerOutsideCast(null, 'male')).toBe(false)
+    expect(isSpeakerOutsideCast([], 'male')).toBe(false)
   })
 })
 

@@ -10,6 +10,7 @@ import {
   diffScriptLines,
   fetchScriptClient,
   initialSpeakerKey,
+  isSpeakerOutsideCast,
   loadDraftFromStorage,
   previewAudioClient,
   rejectScriptClient,
@@ -532,6 +533,10 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
                         </option>
                       ))}
                     </select>
+                  ) : isSpeakerOutsideCast(initialCast, line.speaker) ? (
+                    <span className="text-xs text-slate-500">
+                      行{index + 1}（話者: {line.speaker}）
+                    </span>
                   ) : (
                     <span className="text-xs text-slate-400">行{index + 1}</span>
                   )}

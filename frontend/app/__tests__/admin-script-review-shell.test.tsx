@@ -94,6 +94,28 @@ describe('AdminScriptReviewShell cast基準の話者選択', () => {
     expect(screen.queryByLabelText(/の話者/)).not.toBeInTheDocument()
   })
 
+  it('castが1人でcast外のspeaker keyを持つ行は、選択UIを表示せず元のkeyを読み取り専用で表示する', () => {
+    const script = baseScript({
+      lines: [
+        { speaker: 'mc-a', section: 'intro', text: 'A' },
+        { speaker: 'legacy-key', section: 'news', text: 'B' },
+      ],
+    })
+    render(
+      <AdminScriptReviewShell
+        episodeId={1}
+        initialRevision={1}
+        initialScript={script}
+        initialCast={[{ key: 'mc-a', name: '田中' }]}
+      />,
+    )
+    expect(screen.queryByLabelText(/の話者/)).not.toBeInTheDocument()
+    // cast内のkeyと一致する行は通常の行番号表示のまま
+    expect(screen.getByText('行1')).toBeInTheDocument()
+    // cast外のkeyを持つ行は、別の出演者に見えないよう元のkeyが分かる表示にする
+    expect(screen.getByText(/legacy-key/)).toBeInTheDocument()
+  })
+
   it('cast外のspeaker keyを持つ行は現在値が元のkeyで分かり、勝手に書き換わらない', () => {
     const script = baseScript({
       lines: [
@@ -129,6 +151,35 @@ describe('AdminScriptReviewShell cast基準の話者選択', () => {
     await user.click(screen.getByText('+ 行を追加'))
     const selects = screen.getAllByLabelText(/の話者/) as HTMLSelectElement[]
     expect(selects[selects.length - 1].value).toBe('mc-a')
+  })
+
+  it('cast外のspeaker keyを持つ行は、他のフィールドを編集して保存しても値が維持される', async () => {
+    const user = userEvent.setup()
+    const script = baseScript({
+      lines: [
+        { speaker: 'mc-a', section: 'intro', text: 'A' },
+        { speaker: 'legacy-key', section: 'news', text: 'B' },
+      ],
+    })
+    let submittedScript: AdminScriptReviewScript | null = null
+    global.fetch = jest.fn().mockImplementation((_url: string, options?: RequestInit) => {
+      if (options?.method === 'PUT') {
+        submittedScript = (JSON.parse(options.body as string) as { script: AdminScriptReviewScript }).script
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ episode_id: 1, revision: 2, script: submittedScript }),
+        })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ episode_id: 1, revision: 2, script }) })
+    }) as unknown as typeof fetch
+
+    render(<AdminScriptReviewShell episodeId={1} initialRevision={1} initialScript={script} initialCast={twoCast} />)
+    await user.type(screen.getAllByLabelText(/の本文/)[0], '追記')
+    await user.click(screen.getByText('保存する'))
+
+    await waitFor(() => expect(submittedScript).not.toBeNull())
+    expect(submittedScript!.lines[1].speaker).toBe('legacy-key')
   })
 })
 
