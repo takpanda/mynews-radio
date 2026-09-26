@@ -112,10 +112,23 @@ def list_admin_episodes(
 @router.get("/admin/episodes/{episode_id}/script")
 def get_script(episode_id: int, _: Annotated[int, Depends(require_owner_session)]) -> dict:
     with get_db_connection() as conn:
-        if not conn.execute("SELECT 1 FROM episodes WHERE id=?", (episode_id,)).fetchone():
+        episode = conn.execute(
+            "SELECT program_snapshot FROM episodes WHERE id=?", (episode_id,),
+        ).fetchone()
+        if not episode:
             raise HTTPException(status_code=404, detail="Episode not found")
         row = _ensure_initial_revision(conn, episode_id)
-        return {"episode_id": episode_id, "revision": row["revision"], "script": json.loads(row["script_json"])}
+        snapshot = json.loads(episode["program_snapshot"]) if episode["program_snapshot"] else None
+        cast = [
+            {key: member[key] for key in ("key", "name", "role")}
+            for member in snapshot["cast"]
+        ] if snapshot is not None else None
+        return {
+            "episode_id": episode_id,
+            "revision": row["revision"],
+            "script": json.loads(row["script_json"]),
+            "cast": cast,
+        }
 
 
 @router.put("/admin/episodes/{episode_id}/script")
