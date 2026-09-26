@@ -292,6 +292,27 @@ def migrate_prompt_templates(conn: sqlite3.Connection) -> bool:
     return True
 
 
+def migrate_prompt_version_audit_events(conn: sqlite3.Connection) -> bool:
+    """プロンプト版切替・ロールバックの追跡可能な監査関係を追加する。"""
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS prompt_version_audit_events ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, audit_log_id INTEGER NOT NULL UNIQUE, "
+        "template_id INTEGER NOT NULL, action TEXT NOT NULL CHECK (action IN ('activate', 'rollback')), "
+        "source_version_id INTEGER, previous_active_version_id INTEGER, new_version_id INTEGER NOT NULL, "
+        "change_note TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "FOREIGN KEY (audit_log_id) REFERENCES audit_logs(id) ON DELETE CASCADE, "
+        "FOREIGN KEY (template_id) REFERENCES prompt_templates(id) ON DELETE CASCADE, "
+        "FOREIGN KEY (source_version_id) REFERENCES prompt_versions(id) ON DELETE SET NULL, "
+        "FOREIGN KEY (previous_active_version_id) REFERENCES prompt_versions(id) ON DELETE SET NULL, "
+        "FOREIGN KEY (new_version_id) REFERENCES prompt_versions(id) ON DELETE CASCADE)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_prompt_version_audit_template_created "
+        "ON prompt_version_audit_events(template_id, created_at DESC)"
+    )
+    return True
+
+
 def migrate_script_revisions(conn: sqlite3.Connection) -> bool:
     """台本レビュー用の状態列と改訂履歴を追加する。既存episode状態は変更しない。"""
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(episodes)").fetchall()}

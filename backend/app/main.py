@@ -31,6 +31,7 @@ from app.api.admin_script_review import router as admin_script_review_router
 from app.api.dictionary_sync import router as dictionary_sync_router
 from app.api.llm import router as llm_router
 from app.api.admin_programs import router as admin_programs_router
+from app.api.admin_prompts import router as admin_prompts_router
 from app.services.episode_service import EpisodeService
 settings = get_settings()
 app = FastAPI(title="MyNews Radio API", version="0.1.0")
@@ -150,6 +151,8 @@ def _apply_db_migrations() -> None:
         # 初回は既存プロンプトファイルを共通active版として登録する。
         from app.db.migration import migrate_prompt_templates
         migrate_prompt_templates(conn)
+        from app.db.migration import migrate_prompt_version_audit_events
+        migrate_prompt_version_audit_events(conn)
 
         # 生成監査ログの拡張（既存DBにも安全に適用）
         for column, definition in (
@@ -364,6 +367,7 @@ app.include_router(admin_script_review_router)
 app.include_router(dictionary_sync_router)
 app.include_router(llm_router)
 app.include_router(admin_programs_router)
+app.include_router(admin_prompts_router)
 
 
 # -- Audio file serving --
