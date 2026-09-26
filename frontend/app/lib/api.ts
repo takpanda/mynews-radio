@@ -85,13 +85,23 @@ export interface Script {
   title: string
   date?: string
   lines: ScriptLine[]
+  /** 生成時点の出演者・セグメント構成。旧台本には存在しない。 */
+  segments?: ScriptSegment[]
+}
+
+export interface ScriptSegment {
+  id: string
+  label: string
 }
 
 export interface ScriptLine {
-  speaker: 'male' | 'female'
+  /** 'male' / 'female' に加え、可変の出演者構成に対応する未知のキーも取り得る。 */
+  speaker: string
   text: string
   article_id: number | null
   section: string
+  /** このセリフが属するセグメントID。旧台本には存在しない。 */
+  segment?: string
   start_time?: number
 }
 

@@ -273,4 +273,37 @@ describe('ScriptViewer', () => {
       expect(seekButtons.length).toBe(2)
     })
   })
+
+  describe('未知のspeaker keyへの対応', () => {
+    const unknownSpeakerLines: ScriptLine[] = [
+      { speaker: 'host', text: '未知の話者の発言です', article_id: null, section: 'intro', start_time: 0 },
+      { speaker: 'male', text: '既知の話者の発言です', article_id: null, section: 'news', start_time: 10 },
+    ]
+
+    it('例外を出さずに表示され、表示名が無いためkeyがそのまま表示される', () => {
+      expect(() => render(<ScriptViewer lines={unknownSpeakerLines} />)).not.toThrow()
+      expect(screen.getByText('host')).toBeInTheDocument()
+      expect(screen.getByText('未知の話者の発言です')).toBeInTheDocument()
+    })
+
+    it('中立色のアイコン相当表示（画像ではなくkey頭文字）を使う', () => {
+      const { container } = render(<ScriptViewer lines={unknownSpeakerLines} />)
+      const images = Array.from(container.querySelectorAll('img'))
+      // 未知話者用のimg要素は追加されない（実写画像を持たないため）
+      expect(images.length).toBe(1)
+      expect(screen.getByText('h')).toBeInTheDocument()
+    })
+
+    it('再生位置へ移動するためのラベルが表示される', () => {
+      const onSeek = jest.fn()
+      render(<ScriptViewer lines={unknownSpeakerLines} currentTime={5} onSeek={onSeek} />)
+      const seekButton = screen.getByRole('button', { name: /host.*の位置に移動/ })
+      expect(seekButton).toBeInTheDocument()
+    })
+
+    it('未知の話者でも従来の男女表示には影響しない', () => {
+      render(<ScriptViewer lines={unknownSpeakerLines} />)
+      expect(screen.getByText('MC（男性）')).toBeInTheDocument()
+    })
+  })
 })
