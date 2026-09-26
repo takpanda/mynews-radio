@@ -800,6 +800,21 @@ def execute_queued_job(job, *, dispatch: bool = True) -> JobClaim | None:
     episode_id = job["episode_id"]
     owner_user_id = job["owner_user_id"]
     job_id = job["id"]
+    if operation == "dry_run":
+        from app.api.admin_dry_runs import execute_dry_run
+        success = False
+        try:
+            success = execute_dry_run(job_id, payload)
+        except Exception:
+            logger.exception("dry-run generation failed: job_id=%d", job_id)
+        finally:
+            try:
+                finalize_audit_log(job_id, "success" if success else "failure", None)
+            except Exception:
+                logger.exception("failed to finalize dry-run audit log: job_id=%d", job_id)
+                success = False
+            promoted = _finish_generation_job(job_id, success, dispatch=dispatch)
+        return promoted
     if operation in {"generate", "commentary"}:
         body = GenerateRequest(**payload)
         pipeline = _run_commentary_generation if operation == "commentary" else _run_generation

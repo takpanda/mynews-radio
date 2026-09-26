@@ -500,15 +500,20 @@ class ArticleService:
             )
             return cursor.rowcount > 0
 
-    def fetch_new_articles(self) -> list[dict[str, Any]]:
+    def fetch_new_articles(self, source: str | None = None) -> list[dict[str, Any]]:
+        where = "status = 'new'"
+        params = ()
+        if source is not None:
+            where += " AND source = ?"
+            params = (source,)
         with get_db_connection() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT id, title, source, url, text, published_at
                 FROM articles
-                WHERE status = 'new'
+                WHERE {where}
                 ORDER BY published_at DESC, id ASC
-                """
+                """, params
             ).fetchall()
             return [dict(row) for row in rows]
 
