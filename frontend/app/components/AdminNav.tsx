@@ -56,7 +56,7 @@ export default function AdminNav() {
       <div className="flex items-center gap-4 px-4 py-3">
         <span className="font-semibold">管理</span>
 
-        <div className="hidden items-center gap-4 md:flex">
+        <div className="hidden items-center gap-4 lg:flex">
           {NAV_LINKS.map((link) => (
             <Link key={link.href} href={link.href} className="flex items-center gap-1.5">
               {link.label}
@@ -79,7 +79,7 @@ export default function AdminNav() {
           aria-expanded={menuOpen}
           aria-controls="admin-nav-mobile-menu"
           aria-label={menuOpen ? 'メニューを閉じる' : 'メニューを開く'}
-          className="relative ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white md:hidden"
+          className="relative ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white lg:hidden"
         >
           {awaitingReviewCount !== null && awaitingReviewCount > 0 && !menuOpen && (
             <span className="absolute right-2.5 top-2.5">
@@ -101,7 +101,7 @@ export default function AdminNav() {
       </div>
 
       {menuOpen && (
-        <div id="admin-nav-mobile-menu" className="space-y-1 border-t border-white/10 px-2 pb-3 pt-2 md:hidden">
+        <div id="admin-nav-mobile-menu" className="space-y-1 border-t border-white/10 px-2 pb-3 pt-2 lg:hidden">
           {NAV_LINKS.map((link) => (
             <Link
               key={link.href}

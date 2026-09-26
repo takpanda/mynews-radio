@@ -68,13 +68,35 @@ export default function AdminPromptDetailShell({
     }
     setSaving(true)
     setSaveError(null)
+
+    let created
     try {
-      const created = await createPromptVersion(promptId, content)
-      const refreshed = await fetchPromptVersions(promptId)
-      setVersions(refreshed.versions)
-      toast.success(`下書き（v${created.version}）を保存しました`)
+      created = await createPromptVersion(promptId, content)
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : '保存に失敗しました')
+      setSaving(false)
+      return
+    }
+
+    // ここから下は下書きの作成自体は成功済み。再取得の失敗を保存失敗として表示すると、
+    // 利用者が「保存できていない」と誤解して再送信し、重複した下書き版を作ってしまう。
+    toast.success(`下書き（v${created.version}）を保存しました`)
+    try {
+      const refreshed = await fetchPromptVersions(promptId)
+      setVersions(refreshed.versions)
+    } catch {
+      setVersions((prev) => [
+        {
+          id: created.id,
+          version: created.version,
+          content: created.content,
+          status: created.status,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        ...prev,
+      ])
+      toast.error('下書きは保存されましたが、版履歴の再取得に失敗しました。画面を再読み込みして確認してください。')
     } finally {
       setSaving(false)
     }

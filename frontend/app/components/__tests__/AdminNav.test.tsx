@@ -71,4 +71,19 @@ describe('AdminNav', () => {
     expect(mockPush).toHaveBeenCalledWith('/admin/login')
     expect(mockRefresh).toHaveBeenCalled()
   })
+
+  it('リンク追加で1行表示が窮屈にならないよう、横並び表示の開始幅はlg（1024px）にしている', async () => {
+    ;(global.fetch as jest.Mock).mockReturnValue(jsonResponse([]))
+    const { container } = render(<AdminNav />)
+
+    const desktopLinks = container.querySelector('.hidden.items-center.gap-4')
+    expect(desktopLinks).not.toBeNull()
+    expect(desktopLinks).toHaveClass('hidden')
+    expect(desktopLinks).toHaveClass('lg:flex')
+    expect(desktopLinks).not.toHaveClass('md:flex')
+
+    const hamburgerToggle = screen.getByRole('button', { name: 'メニューを開く' })
+    expect(hamburgerToggle).toHaveClass('lg:hidden')
+    expect(hamburgerToggle).not.toHaveClass('md:hidden')
+  })
 })

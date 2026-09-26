@@ -126,6 +126,36 @@ describe('AdminPromptDetailShell', () => {
     expect(textarea.value).toBe('new draft content')
   })
 
+  it('版作成が成功し履歴の再取得だけが失敗しても、保存失敗とは表示せず作成済みの版を一覧へ反映する', async () => {
+    ;(global.fetch as jest.Mock)
+      .mockResolvedValueOnce(jsonResponse(201, { id: 11, template_id: 1, version: 3, content: 'new draft content', status: 'draft' }))
+      .mockResolvedValueOnce({ ok: false, status: 500, text: () => Promise.resolve('') })
+    const user = userEvent.setup()
+    render(
+      <AdminPromptDetailShell
+        promptId={1}
+        templateKey="category"
+        programId={null}
+        programName={null}
+        requiredVariables={['categories', 'source']}
+        allowedVariables={['categories', 'source']}
+        initialVersions={initialVersions}
+      />,
+    )
+
+    const textarea = screen.getByLabelText('プロンプト本文') as HTMLTextAreaElement
+    await user.clear(textarea)
+    await user.type(textarea, 'new draft content')
+    await user.click(screen.getByRole('button', { name: '下書きとして保存' }))
+
+    // 版の作成(POST)自体は成功しているため、履歴の再取得(GET)失敗を保存失敗として表示しない。
+    // 再送信による重複した下書き版の作成を避けるため、作成済みの版を一覧へ反映する。
+    expect(await screen.findByText('v3')).toBeInTheDocument()
+    expect(screen.queryByText('保存に失敗しました')).not.toBeInTheDocument()
+    expect(textarea.value).toBe('new draft content')
+    expect(screen.getByRole('button', { name: '下書きとして保存' })).not.toBeDisabled()
+  })
+
   it('422応答時はエラーを表示し、入力した本文を失わない', async () => {
     ;(global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: false,
