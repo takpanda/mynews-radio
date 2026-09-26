@@ -194,6 +194,11 @@ def test_preview_renders_saved_generation_context_for_target_templates(client):
             "INSERT INTO episode_items(episode_id, article_id, item_order, segment_text) VALUES (72, ?, 1, '台本本文')",
             (article_id,),
         )
+    (episode_dir / "article_input.json").write_text(json.dumps({
+        "id": article_id, "title": "記事タイトル", "source": "媒体",
+        "url": "https://example.test/a", "text": "本文" + "1" * 200,
+        "published_at": "2026-09-01",
+    }, ensure_ascii=False), encoding="utf-8")
     (episode_dir / "summaries.json").write_text(json.dumps([
         {"article_id": article_id, "title": "記事タイトル", "summary": "要約本文",
          "category": "technology", "importance_score": 5, "difficulty": 2},
@@ -242,6 +247,7 @@ def test_preview_renders_saved_generation_context_for_target_templates(client):
         elif template_key == "generate_commentary_script":
             assert "記事タイトル" in rendered.json()["prompt"]
             assert "本文" in rendered.json()["prompt"]
+            assert rendered.json()["prompt"] == previewed.json()["prompt"]
         elif template_key == "category":
             assert "最終版本文" in rendered.json()["prompt"]
         elif template_key in review_templates:
@@ -258,9 +264,19 @@ def test_commentary_review_uses_source_article_for_all_review_templates(client):
     (episode_dir / "summaries.json").unlink()
     with get_db_connection() as conn:
         article_id = conn.execute(
-            "INSERT INTO articles(title, source, url, text, published_at) VALUES (?, ?, ?, ?, ?)",
-            ("Commentary article", "Source outlet", "https://example.test/commentary", "Original article body", "2026-09-02"),
+            "INSERT INTO articles(title, source, url, text, published_at, summary, category, importance_score, difficulty) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("STALE DB title", "STALE DB source", "https://example.test/commentary", "STALE DB body",
+             "2020-01-01", "STALE DB summary", "stale-category", 1, 9),
         ).lastrowid
+    article_input = {
+        "id": article_id, "title": "Fetched commentary title", "source": "Fetched publisher",
+        "url": "https://example.test/commentary", "text": "Freshly fetched article body",
+        "published_at": "2026-09-02",
+    }
+    (episode_dir / "article_input.json").write_text(
+        json.dumps(article_input, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     commentary_script = {
         "style": "dialogue", "mc_gender": "male",
         "lines": [{"article_id": article_id, "text": "commentary final script"}],
@@ -286,15 +302,77 @@ def test_commentary_review_uses_source_article_for_all_review_templates(client):
         rendered = client.post(f"/admin/prompts/versions/{version_id}/render", json={"episode_id": 74})
         assert rendered.status_code == 200, (template_key, rendered.text)
         prompt = rendered.json()["prompt"]
-        assert "Commentary article" in prompt
-        assert "Original article body" in prompt
+        assert "Fetched commentary title" in prompt
+        assert "Freshly fetched article body" in prompt
+        assert "STALE DB title" not in prompt
+        assert "STALE DB body" not in prompt
+        assert "STALE DB summary" not in prompt
+        assert "stale-category" not in prompt
         assert "commentary original script" in prompt
         assert "commentary final script" not in prompt
+        if template_key.startswith("review_"):
+            for field, value in article_input.items():
+                assert f'"{field}": {json.dumps(value, ensure_ascii=False)}' in prompt
         preview = client.post("/admin/programs/commentary-review-test/preview-prompt", json={
             "template_key": template_key, "episode_id": 74,
         })
         assert preview.status_code == 200, (template_key, preview.text)
         assert preview.json()["prompt"] == prompt
+
+    template_key = "generate_commentary_script"
+    template_id = _template_id(template_key)
+    with get_db_connection() as conn:
+        version_id = conn.execute(
+            "SELECT id FROM prompt_versions WHERE template_id = ? AND status = 'active'", (template_id,),
+        ).fetchone()[0]
+    rendered = client.post(f"/admin/prompts/versions/{version_id}/render", json={"episode_id": 74})
+    preview = client.post("/admin/programs/commentary-review-test/preview-prompt", json={
+        "template_key": template_key, "episode_id": 74,
+    })
+    assert rendered.status_code == preview.status_code == 200
+    assert rendered.json()["prompt"] == preview.json()["prompt"]
+    for value in ("Fetched commentary title", "Freshly fetched article body"):
+        assert value in rendered.json()["prompt"]
+    assert "STALE DB" not in rendered.json()["prompt"]
+
+
+def test_old_commentary_without_saved_article_input_is_rejected(client):
+    _episode(episode_id=77, program_id="old-commentary-test", kind="commentary")
+    from app.api import admin_prompts
+    episode_dir = admin_prompts.EPISODES_DIR / "77"
+    (episode_dir / "summaries.json").unlink()
+    with get_db_connection() as conn:
+        article_id = conn.execute(
+            "INSERT INTO articles(title, source, url, text) VALUES (?, ?, ?, ?)",
+            ("Only DB article", "Old source", "https://example.test/old-commentary", "Only DB body"),
+        ).lastrowid
+    (episode_dir / "script.json").write_text(json.dumps({
+        "style": "solo", "mc_gender": "female",
+        "lines": [{"article_id": article_id, "text": "old commentary"}],
+    }), encoding="utf-8")
+    review_dir = episode_dir / "review"
+    review_dir.mkdir()
+    (review_dir / "original_script.json").write_text(json.dumps({
+        "style": "solo", "mc_gender": "female",
+        "lines": [{"article_id": article_id, "text": "old commentary"}],
+    }), encoding="utf-8")
+    (review_dir / "review.json").write_text(json.dumps({"reviews": {
+        "beginner": {}, "genius": {}, "worried": {}, "positive": {}, "radio": {},
+    }}), encoding="utf-8")
+
+    for template_key in ("generate_commentary_script", "review_synthesize"):
+        template_id = _template_id(template_key)
+        with get_db_connection() as conn:
+            version_id = conn.execute(
+                "SELECT id FROM prompt_versions WHERE template_id = ? AND status = 'active'", (template_id,),
+            ).fetchone()[0]
+        render = client.post(f"/admin/prompts/versions/{version_id}/render", json={"episode_id": 77})
+        preview = client.post("/admin/programs/old-commentary-test/preview-prompt", json={
+            "template_key": template_key, "episode_id": 77,
+        })
+        assert render.status_code == 422, (template_key, render.text)
+        assert preview.status_code == 422, (template_key, preview.text)
+        assert "article_input.json" in render.json()["detail"]
 
 
 def test_prompt_preview_reports_missing_required_inputs(client):
@@ -335,6 +413,10 @@ def test_prompt_preview_rejects_missing_review_category_and_article_inputs(clien
         ).lastrowid
     (review_dir / "original_script.json").write_text(json.dumps({
         "lines": [{"article_id": evidence_article_id, "text": "review source"}],
+    }), encoding="utf-8")
+    (episode_dir / "article_input.json").write_text(json.dumps({
+        "id": evidence_article_id, "title": "Evidence article", "source": "Source",
+        "url": "https://example.test/evidence", "text": "Evidence text", "published_at": "2026-09-03",
     }), encoding="utf-8")
     for template_key in ("review_synthesize", "category"):
         template_id = _template_id(template_key)

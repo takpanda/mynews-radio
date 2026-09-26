@@ -432,6 +432,7 @@ class TestNonEmptyTextValidation:
 
         import json
         script = json.loads(output.read_text(encoding="utf-8"))
+        assert json.loads(output.with_name("article_input.json").read_text(encoding="utf-8")) == article
         non_empty = [l for l in script["lines"] if l["text"].strip()]
         assert result == 5, "all lines including empty should be counted"
         assert len(non_empty) == 3, "empty/whitespace-only lines should be stripped to empty"
