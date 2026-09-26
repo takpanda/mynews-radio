@@ -165,6 +165,8 @@ def generate_commentary_script(
         mc_gender = "male" if mc_gender is None else mc_gender
         profile = get_default_profile(kind="commentary", style=style, mc_gender=mc_gender)
     prompt_builder = PromptBuilder(profile)
+    episode_id = infer_episode_id(output_path)
+    prompt_program_id = profile.id if episode_id is not None else None
 
     text_length = len(article.get("text", "") or "")
     suggested_lines = _calc_suggested_lines(text_length, style)
@@ -188,7 +190,7 @@ def generate_commentary_script(
                 "section_details": section_details,
                 "article_json": article_json,
             },
-            program_id=profile.id,
+            program_id=prompt_program_id,
         )
         prompt = rendered.text
         if style != "dialogue":
@@ -215,7 +217,7 @@ def generate_commentary_script(
         set_llm_context(
             client,
             phase="script",
-            episode_id=infer_episode_id(output_path),
+            episode_id=episode_id,
             prompt_version_id=rendered.version_id if rendered else None,
         )
         response = client.generate_json(prompt)

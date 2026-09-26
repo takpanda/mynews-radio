@@ -1406,6 +1406,8 @@ def generate_script(
 
     response = None
     ordered_summaries = summaries  # デフォルトは元の順序
+    episode_id = infer_episode_id(output_path)
+    prompt_program_id = prompt_profile.id if episode_id is not None else None
 
     client_factory = (lambda: create_llm_client(llm_provider, llm_model)) if (llm_provider or llm_model) else (lambda: OllamaClient(settings.ollama_base_url, settings.ollama_model))
     with client_factory() as client:
@@ -1417,8 +1419,8 @@ def generate_script(
             arc = _generate_arc(
                 client,
                 summaries,
-                program_id=prompt_profile.id,
-                episode_id=infer_episode_id(output_path),
+                program_id=prompt_program_id,
+                episode_id=episode_id,
             )
 
         # Arc に基づいて記事の順序を確定
@@ -1435,7 +1437,7 @@ def generate_script(
             rendered_script_prompt = render_prompt(
                 "generate_radio_script",
                 {"narrative_arc_section": narrative_arc_section, "summaries_json": summaries_json},
-                program_id=prompt_profile.id,
+                program_id=prompt_program_id,
             )
             base_prompt = rendered_script_prompt.text
             if program_name != "ニュースのとなり":
@@ -1458,7 +1460,7 @@ def generate_script(
             set_llm_context(
                 client,
                 phase="script" if lint_attempt == 1 else "correction",
-                episode_id=infer_episode_id(output_path),
+                episode_id=episode_id,
                 prompt_version_id=rendered_script_prompt.version_id if rendered_script_prompt else None,
             )
             response = client.generate_json(current_prompt)
