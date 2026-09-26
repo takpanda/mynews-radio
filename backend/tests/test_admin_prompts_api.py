@@ -141,10 +141,18 @@ def test_render_and_preview_use_selected_prompt_versions_and_require_admin(clien
     assert client.post(
         f"/admin/prompts/versions/{category_version_id}/render", json={"episode_id": 71}
     ).status_code == 422
+    with get_db_connection() as conn:
+        preview_audit_count = conn.execute(
+            "SELECT COUNT(*) FROM audit_logs WHERE operation = 'admin_prompt_preview' AND result = 'success'"
+        ).fetchone()[0]
     assert client.post(
         "/admin/programs/radio-test/preview-prompt",
         json={"template_key": "category", "episode_id": 71},
     ).status_code == 422
+    with get_db_connection() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM audit_logs WHERE operation = 'admin_prompt_preview' AND result = 'success'"
+        ).fetchone()[0] == preview_audit_count
     radio_template_id = _template_id("generate_radio_script")
     radio_version_id = client.get(f"/admin/prompts/{radio_template_id}/versions").json()["versions"][0]["id"]
     assert client.post(

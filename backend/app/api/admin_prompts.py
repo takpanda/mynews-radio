@@ -314,9 +314,11 @@ def preview_prompt(program_id: str, body: PreviewInput, admin: AdminContext) -> 
         ).fetchone()
         if version is None:
             raise HTTPException(status_code=404, detail="Active prompt version not found")
+    prompt = _render(version, definition, summaries)
+    with get_db_connection() as conn:
         _admin_audit(conn, "admin_prompt_preview", admin[0],
                      {"program_id": program_id, "template_key": body.template_key,
                       "episode_id": body.episode_id, "version_id": version["id"]})
     return {"program_id": program_id, "episode_id": body.episode_id,
             "template_key": body.template_key, "version_id": version["id"],
-            "prompt": _render(version, definition, summaries)}
+            "prompt": prompt}
