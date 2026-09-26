@@ -174,3 +174,18 @@ def test_json_braces_are_not_variables_and_missing_render_values_are_rejected():
             required_variables=("source",),
             allowed_variables=("source",),
         )
+
+
+def test_escaped_known_and_unknown_variable_names_remain_literal():
+    content = "{{source}} {{unknown}} {source}"
+    variables = {"source": "replacement"}
+
+    rendered = service.render_prompt_template(
+        content,
+        variables,
+        required_variables=("source",),
+        allowed_variables=("source",),
+    )
+
+    assert rendered == "{source} {unknown} replacement"
+    assert rendered == _legacy_format(content, variables)

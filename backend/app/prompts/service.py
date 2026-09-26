@@ -15,7 +15,7 @@ from app.prompts.definitions import PROMPT_TEMPLATE_DEFINITIONS
 
 logger = logging.getLogger(__name__)
 
-_VARIABLE_PATTERN = re.compile(r"(?<!\{)\{([A-Za-z_][A-Za-z0-9_]*)\}(?!\})")
+_TOKEN_PATTERN = re.compile(r"\{\{|\}\}|\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _PROMPTS_DIR = Path(__file__).resolve().parent
 
 
@@ -41,7 +41,7 @@ class RenderedPrompt:
 
 def extract_prompt_variables(content: str) -> set[str]:
     """波かっこ内の許可形式 `{variable}` だけを変数として認識する。"""
-    return set(_VARIABLE_PATTERN.findall(content))
+    return {match.group(1) for match in _TOKEN_PATTERN.finditer(content) if match.group(1)}
 
 
 def validate_prompt_template(
@@ -84,10 +84,22 @@ def render_prompt_template(
     unknown_values = variables.keys() - set(allowed_variables)
     if unknown_values:
         raise PromptTemplateError(f"unknown render values: {', '.join(sorted(unknown_values))}")
-    # 既存ファイルは旧 str.format 用にリテラル波かっこを二重化している。
-    # この表記だけを戻し、その他の波かっこは解釈せずに保持する。
-    content = content.replace("{{", "{").replace("}}", "}")
-    return _VARIABLE_PATTERN.sub(lambda match: str(variables[match.group(1)]), content)
+    # エスケープ波かっこは一度の走査で出力し、展開後の文字列を再解釈しない。
+    rendered: list[str] = []
+    cursor = 0
+    for match in _TOKEN_PATTERN.finditer(content):
+        rendered.append(content[cursor:match.start()])
+        token = match.group(0)
+        variable = match.group(1)
+        if token in {"{{", "}}"}:
+            rendered.append(token[0])
+        elif variable in variables:
+            rendered.append(str(variables[variable]))
+        else:
+            rendered.append(token)
+        cursor = match.end()
+    rendered.append(content[cursor:])
+    return "".join(rendered)
 
 
 def _validate_template_key(template_key: str) -> dict[str, Any]:
