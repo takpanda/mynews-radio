@@ -315,6 +315,44 @@ describe('AdminScriptReviewShell 試し聴き', () => {
 
     await waitFor(() => expect(screen.getByText(/上限に達しました/)).toBeInTheDocument())
   })
+
+  it('502エラー時は音声生成失敗メッセージを表示する', async () => {
+    const user = userEvent.setup()
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 502 }) as unknown as typeof fetch
+
+    render(<AdminScriptReviewShell episodeId={1} initialRevision={1} initialScript={baseScript()} />)
+    await user.click(screen.getByLabelText('行1を試し聴き'))
+
+    await waitFor(() => expect(screen.getByText('音声の生成に失敗しました。もう一度お試しください。')).toBeInTheDocument())
+    expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
+  })
+})
+
+describe('AdminScriptReviewShell 行ごと・全体の指摘', () => {
+  it('行に紐づく指摘は該当行を強調し、行番号なしの指摘は全体欄に表示する', async () => {
+    const user = userEvent.setup()
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        can_approve: false,
+        results: [
+          { code: 'LINE', message: '1行目の指摘', line_indices: [0], severity: 'error' },
+          { code: 'GLOBAL', message: '台本全体の指摘', line_indices: [], severity: 'warning' },
+        ],
+      }),
+    }) as unknown as typeof fetch
+
+    render(<AdminScriptReviewShell episodeId={1} initialRevision={1} initialScript={baseScript()} />)
+    await user.click(screen.getByText('再チェック'))
+
+    const firstLine = screen.getByLabelText('行1の本文').closest('div.rounded-2xl')
+    const secondLine = screen.getByLabelText('行2の本文').closest('div.rounded-2xl')
+    await waitFor(() => expect(screen.getByText('[エラー] 1行目の指摘')).toBeInTheDocument())
+    expect(firstLine).toHaveClass('border-red-300', 'bg-red-50')
+    expect(secondLine).toHaveClass('border-slate-200', 'bg-white')
+    expect(screen.getByText('台本全体に関する指摘').parentElement).toHaveTextContent('[警告] 台本全体の指摘')
+  })
 })
 
 describe('AdminScriptReviewShell 再チェック中の編集と古い検査結果', () => {
