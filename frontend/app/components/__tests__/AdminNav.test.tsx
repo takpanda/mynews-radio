@@ -57,6 +57,7 @@ describe('AdminNav', () => {
     const menu = container.querySelector('#admin-nav-mobile-menu')
     expect(menu).not.toBeNull()
     expect(menu).toHaveTextContent('確認待ち一覧')
+    expect(menu).toHaveTextContent('番組・MC管理')
     expect(menu).toHaveTextContent('辞書管理')
     expect(menu).toHaveTextContent('読み間違い報告')
     expect(menu).toHaveTextContent('ボイス設定')

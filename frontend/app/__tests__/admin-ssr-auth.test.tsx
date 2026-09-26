@@ -17,6 +17,11 @@ jest.mock('../lib/admin-episodes', () => ({
   ...jest.requireActual('../lib/admin-episodes'),
   fetchAwaitingReviewEpisodes: jest.fn(),
 }))
+jest.mock('../lib/admin-programs', () => ({
+  fetchPrograms: jest.fn(),
+  fetchProgram: jest.fn(),
+  fetchMcs: jest.fn(),
+}))
 
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
@@ -25,7 +30,12 @@ import AdminMisreadingReportsPage from '../admin/misreading-reports/page'
 import AdminEpisodeLogsPage from '../admin/episodes/[id]/logs/page'
 import AdminVoiceSettingsPage from '../admin/settings/voice/page'
 import AdminAwaitingReviewEpisodesPage from '../admin/episodes/page'
+import AdminProgramsPage from '../admin/programs/page'
+import AdminNewProgramPage from '../admin/programs/new/page'
+import AdminEditProgramPage from '../admin/programs/[id]/page'
+import AdminMcsPage from '../admin/mcs/page'
 import { fetchAwaitingReviewEpisodes } from '../lib/admin-episodes'
+import { fetchPrograms, fetchProgram, fetchMcs } from '../lib/admin-programs'
 
 describe('管理画面SSRの認証境界', () => {
   beforeEach(() => jest.clearAllMocks())
@@ -100,6 +110,37 @@ describe('管理画面SSRの認証境界', () => {
     await expect(AdminAwaitingReviewEpisodesPage()).rejects.toThrow('NEXT_REDIRECT')
     expect(redirect).toHaveBeenCalledWith('/admin/login')
     expect(fetchAwaitingReviewEpisodes).not.toHaveBeenCalled()
+  })
+
+  it('番組管理ページはCookieなしでログインへリダイレクトし、一覧取得を行わない', async () => {
+    await expect(AdminProgramsPage()).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirect).toHaveBeenCalledWith('/admin/login')
+    expect(fetchPrograms).not.toHaveBeenCalled()
+  })
+
+  it('番組新規作成ページはCookieなしでログインへリダイレクトし、MC取得を行わない', async () => {
+    await expect(AdminNewProgramPage()).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirect).toHaveBeenCalledWith('/admin/login')
+    expect(fetchMcs).not.toHaveBeenCalled()
+  })
+
+  it('番組編集ページはCookieなしでログインへリダイレクトし、番組取得を行わない', async () => {
+    await expect(AdminEditProgramPage({ params: Promise.resolve({ id: 'p1' }) })).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirect).toHaveBeenCalledWith('/admin/login')
+    expect(fetchProgram).not.toHaveBeenCalled()
+  })
+
+  it('MC管理ページはCookieなしでログインへリダイレクトし、一覧取得を行わない', async () => {
+    await expect(AdminMcsPage()).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirect).toHaveBeenCalledWith('/admin/login')
+    expect(fetchMcs).not.toHaveBeenCalled()
+  })
+
+  it('番組管理ページは無効Cookieを/admin/meで検証しログインへリダイレクトする', async () => {
+    ;(cookies as jest.Mock).mockReturnValue({ get: () => ({ value: 'invalid-token' }) })
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401 })
+    await expect(AdminProgramsPage()).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirect).toHaveBeenCalledWith('/admin/login')
   })
 
   it('確認待ち一覧ページは無効Cookieを/admin/meで検証しログインへリダイレクトする', async () => {
