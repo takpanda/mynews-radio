@@ -43,6 +43,27 @@ def test_prompt_version_draft_validation_activation_conflict_and_rollback(client
         active_id = conn.execute(
             "SELECT id FROM prompt_versions WHERE template_id = ? AND status = 'active'", (prompt_id,)
         ).fetchone()[0]
+        before_versions = [tuple(row) for row in conn.execute(
+            "SELECT id, version, status FROM prompt_versions WHERE template_id = ? ORDER BY id", (prompt_id,)
+        )]
+        before_rollbacks = conn.execute(
+            "SELECT COUNT(*) FROM prompt_version_audit_events WHERE action = 'rollback'"
+        ).fetchone()[0]
+
+    invalid_rollback = client.post(
+        f"/admin/prompts/versions/{first_id}/rollback",
+        json={"change_note": "draft is not rollback source", "expected_active_version_id": active_id},
+    )
+    assert invalid_rollback.status_code == 409
+    with get_db_connection() as conn:
+        after_versions = [tuple(row) for row in conn.execute(
+            "SELECT id, version, status FROM prompt_versions WHERE template_id = ? ORDER BY id", (prompt_id,)
+        )]
+        after_rollbacks = conn.execute(
+            "SELECT COUNT(*) FROM prompt_version_audit_events WHERE action = 'rollback'"
+        ).fetchone()[0]
+    assert after_versions == before_versions
+    assert after_rollbacks == before_rollbacks
 
     conflict = client.post(
         f"/admin/prompts/versions/{first_id}/activate",
@@ -114,6 +135,21 @@ def test_render_and_preview_use_selected_prompt_versions_and_require_admin(clien
     )
     assert rendered.status_code == 200
     assert rendered.json()["version_id"] == common_id
+
+    # テンプレート変数が要約だけで構成されない場合、不完全なプロンプトを成功応答しない。
+    category_version_id = client.get(f"/admin/prompts/{_template_id('category')}/versions").json()["versions"][0]["id"]
+    assert client.post(
+        f"/admin/prompts/versions/{category_version_id}/render", json={"episode_id": 71}
+    ).status_code == 422
+    assert client.post(
+        "/admin/programs/radio-test/preview-prompt",
+        json={"template_key": "category", "episode_id": 71},
+    ).status_code == 422
+    radio_template_id = _template_id("generate_radio_script")
+    radio_version_id = client.get(f"/admin/prompts/{radio_template_id}/versions").json()["versions"][0]["id"]
+    assert client.post(
+        f"/admin/prompts/versions/{radio_version_id}/render", json={"episode_id": 71}
+    ).status_code == 422
 
     from fastapi.testclient import TestClient
     from app.main import app

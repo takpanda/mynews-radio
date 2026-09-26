@@ -100,10 +100,15 @@ def _episode_summaries(episode_id: int):
 
 
 def _render(version, definition: dict, summaries) -> str:
-    variables = {
-        name: json.dumps(summaries, ensure_ascii=False, indent=2) if name == "summaries_json" else ""
-        for name in definition["allowed_variables"]
-    }
+    supported_variables = {"summaries_json"}
+    unavailable = set(definition["required_variables"]) - supported_variables
+    if unavailable:
+        names = ", ".join(sorted(unavailable))
+        raise HTTPException(
+            status_code=422,
+            detail=f"Prompt preview does not support variables without generation context: {names}",
+        )
+    variables = {"summaries_json": json.dumps(summaries, ensure_ascii=False, indent=2)}
     try:
         return render_prompt_template(
             version["content"], variables,
@@ -264,7 +269,7 @@ def rollback_prompt_version(version_id: int, body: RollbackInput, admin: AdminCo
         active_id = active["id"] if active else None
         if active_id != body.expected_active_version_id:
             raise HTTPException(status_code=409, detail="Active prompt version has changed")
-        if source["status"] == "active":
+        if source["status"] != "archived":
             raise HTTPException(status_code=409, detail="Rollback source must be an archived version")
         next_version = conn.execute(
             "SELECT COALESCE(MAX(version), 0) + 1 FROM prompt_versions WHERE template_id = ?",
