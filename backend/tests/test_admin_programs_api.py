@@ -39,6 +39,12 @@ def test_program_and_mc_crud_and_inactive_filters(client):
     replaced = _program_payload(name="更新済み番組", is_active=False)
     assert client.put("/admin/programs/custom-radio", json=replaced).status_code == 200
     assert client.get("/admin/programs/custom-radio").json()["is_active"] is False
+    omitted_active = {**replaced, "name": "状態維持を確認"}
+    omitted_active.pop("is_active")
+    assert client.put("/admin/programs/custom-radio", json=omitted_active).status_code == 422
+    unchanged = client.get("/admin/programs/custom-radio").json()
+    assert unchanged["is_active"] is False
+    assert unchanged["name"] == "更新済み番組"
     assert all(item["id"] != "custom-radio" for item in client.get("/admin/programs").json())
     assert any(item["id"] == "custom-radio" for item in client.get(
         "/admin/programs?include_inactive=true"

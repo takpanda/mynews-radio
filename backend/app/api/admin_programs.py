@@ -55,14 +55,21 @@ class ProgramOptionsInput(StrictModel):
     review_mode: str = "on_failure"
 
 
-class ProgramInput(StrictModel):
+class ProgramFields(StrictModel):
     id: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=200)
     kind: Literal["radio", "commentary"]
     cast: list[ProgramCastInput]
     segments: list[ProgramSegmentInput]
     options: ProgramOptionsInput
+
+
+class ProgramInput(ProgramFields):
     is_active: bool = True
+
+
+class ProgramReplaceInput(ProgramFields):
+    is_active: bool
 
 
 class McInput(StrictModel):
@@ -75,7 +82,7 @@ class McInput(StrictModel):
     is_active: bool = True
 
 
-def _profile(body: ProgramInput) -> ProgramProfile:
+def _profile(body: ProgramFields) -> ProgramProfile:
     profile = ProgramProfile(
         id=body.id,
         name=body.name,
@@ -176,7 +183,7 @@ def get_program(program_id: str, _: AdminContext) -> dict:
 
 
 @router.put("/programs/{program_id}")
-def replace_program(program_id: str, body: ProgramInput, admin: AdminContext) -> dict:
+def replace_program(program_id: str, body: ProgramReplaceInput, admin: AdminContext) -> dict:
     profile = _profile(body)
     if body.id != program_id:
         raise HTTPException(status_code=422, detail="Program id must match path id")
