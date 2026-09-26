@@ -23,6 +23,7 @@ from app.services.generation_control import (            # noqa: E402
     enqueue_job,
     finish_job,
 )
+from app.programs.serialization import program_profile_to_definition  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,20 @@ def main() -> None:
 
     news_source = os.environ.get("BATCH_NEWS_SOURCE", "hatena_bookmark")
     episode_date = os.environ.get("BATCH_DATE") or dt.date.today().isoformat()
+    program_id = os.environ.get("BATCH_PROGRAM_ID")
+    program_profile = None
+    program_snapshot = None
+    if program_id is not None:
+        # APIと同じ検証を使い、未登録・無効な番組やDB障害を
+        # enqueue前に失敗させる。明示指定を既定番組へフォールバックしない。
+        from app.api.generate import GenerateRequest, _resolve_program_profile
+
+        program_profile = _resolve_program_profile(
+            GenerateRequest(date=episode_date, program_id=program_id, news_source=news_source)
+        )
+        program_snapshot = json.dumps(
+            program_profile_to_definition(program_profile), ensure_ascii=False
+        )
 
     # 定期ニュース生成はエンジン未指定時、API/UIとは別に batch_default_tts_engine
     # (既定 fishs2pro) を使う。POST /generate 等の未指定時は従来どおり
@@ -48,13 +63,18 @@ def main() -> None:
 
     with get_db_connection() as conn:
         owner_id = ensure_generation_system_owner(conn)
+    payload = {"date": episode_date, "news_source": news_source, "tts_engine": batch_tts_engine}
+    if program_id is not None:
+        payload["program_id"] = program_id
     claim = enqueue_job(
         owner_id, "daily", f"daily-{episode_date}",
-        {"date": episode_date, "news_source": news_source, "tts_engine": batch_tts_engine},
+        payload,
         # cronプロセスはenqueue後に終了するため、daemon dispatcherへ任せると
         # activeジョブを実行する前にワーカーごと消える。active claimはこの
         # プロセス内で同期実行し、waitingの場合だけ永続キューに残す。
         episode_date=episode_date, client_ip="cron", dispatch=False,
+        program_id=program_profile.id if program_profile is not None else None,
+        program_snapshot=program_snapshot,
     )
     logger.info("Daily generation queued: job_id=%d status=%s", claim.job_id, claim.status)
     if claim.duplicate or claim.status != "active":
@@ -107,13 +127,24 @@ def run_daily_job(job) -> bool:
         return False
     cleanup_result = cleanup_episodes()
     logger.info("=== daily retention cleanup complete: %s ===", cleanup_result)
+    program_profile = None
+    if payload.get("program_id") is not None:
+        from app.api.generate import RADIO_PROGRAM_NEWS_SOURCES, _episode_program_profile
+
+        program_profile = _episode_program_profile(episode_id)
+        if program_profile is None or program_profile.id != payload["program_id"]:
+            raise RuntimeError("指定番組のsnapshotをepisodeから取得できません")
+        news_source = RADIO_PROGRAM_NEWS_SOURCES.get(program_profile.id, "hatena_hotentry_all")
+    else:
+        news_source = payload.get("news_source", "hatena_bookmark")
     metadata = run_radio_pipeline(
         episode_id,
         episode_date=payload["date"],
-        news_source=payload.get("news_source", "hatena_bookmark"),
+        news_source=news_source,
         seq=episode.get("seq", 0),
         tts_engine=payload.get("tts_engine"),
         default_episodes_dir="data/episodes",
+        program_profile=program_profile,
     )
     if metadata is PipelineResult.NO_CONTENT:
         logger.info("=== daily batch complete - no new articles ===")
