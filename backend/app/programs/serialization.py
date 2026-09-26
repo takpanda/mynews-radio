@@ -109,6 +109,8 @@ def load_program_profile(conn, program_id: str) -> ProgramProfile | None:
     for member in profile.cast:
         mc = mc_by_id.get(member.mc_id)
         if mc is None:
+            if member.mc_id is not None:
+                return None
             cast.append(member)
             continue
         values = {

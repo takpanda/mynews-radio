@@ -54,6 +54,18 @@ def test_program_profile_migration_preserves_existing_episode_values_and_allows_
     assert conn.execute("PRAGMA foreign_key_list(episodes)").fetchall()
 
 
+def test_program_profile_cannot_load_when_referenced_mc_is_inactive_or_missing():
+    for unavailable_mc in ("inactive", "missing"):
+        conn = _conn()
+        migrate_program_profiles(conn)
+        if unavailable_mc == "inactive":
+            conn.execute("UPDATE mc_profiles SET is_active = 0 WHERE id = 'radio_male'")
+        else:
+            conn.execute("DELETE FROM mc_profiles WHERE id = 'radio_male'")
+
+        assert load_program_profile(conn, "radio_news_neighbor") is None
+
+
 def test_program_profile_serialization_keeps_mc_voice_and_review_mode_fields():
     profile = get_default_profile(kind="commentary", style="solo")
     cast = profile.cast[0]
