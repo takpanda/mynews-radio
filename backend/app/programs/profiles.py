@@ -8,8 +8,8 @@ from typing import Literal
 
 ProgramKind = Literal["radio", "commentary"]
 _SEGMENT_KINDS = {
-    "radio": {"intro", "transition", "news", "discussion", "outro"},
-    "commentary": {"intro", "news", "outro"},
+    "radio": {"intro", "transition", "headline", "news", "discussion", "corner", "outro"},
+    "commentary": {"intro", "headline", "news", "corner", "outro"},
 }
 
 
@@ -77,6 +77,8 @@ def validate_program_profile(profile: ProgramProfile) -> None:
     if len(cast_keys) != len(set(cast_keys)):
         errors.append("cast speaker keys must be unique")
     if profile.kind == "commentary":
+        if profile.options.narrative_arc:
+            errors.append("commentary profiles do not support narrative_arc")
         if profile.options.style not in {None, "solo", "dialogue"}:
             errors.append(f"unsupported commentary style in profile: {profile.options.style!r}")
         if profile.options.style == "solo" and len(cast_keys) != 1:
@@ -86,15 +88,14 @@ def validate_program_profile(profile: ProgramProfile) -> None:
         if profile.options.mc_gender and profile.options.mc_gender not in set(cast_keys):
             errors.append("commentary mc_gender must match a cast speaker key")
 
+    if len(profile.segments) > 6:
+        errors.append("program profiles may define at most 6 segments")
+
     segment_ids = [segment.id for segment in profile.segments]
     if any(not segment_id for segment_id in segment_ids):
         errors.append("segment ids must not be empty")
     if len(segment_ids) != len(set(segment_ids)):
         errors.append("segment ids must be unique")
-
-    segment_kinds = [segment.kind for segment in profile.segments]
-    if len(segment_kinds) != len(set(segment_kinds)):
-        errors.append("segment kinds must be unique within a program profile")
 
     orders = [segment.order for segment in profile.segments]
     if len(orders) != len(set(orders)):

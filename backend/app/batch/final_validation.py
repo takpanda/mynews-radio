@@ -29,6 +29,7 @@ from app.batch.review_script import (
 from app.batch.script_structure import check_discussion_layout, check_profile_structure, normalize_discussion_layout
 from app.batch.script_contracts import COMMENTARY_IGNORED_LINT_CODES, FAREWELL_RE
 from app.programs.profiles import ProgramProfile, get_profile_by_id
+from app.programs.prompt_builder import PromptBuilder
 from app.services.article_service import titles_are_similar
 
 logger = logging.getLogger(__name__)
@@ -296,12 +297,13 @@ def _repair_outro_questions(lines: list[dict[str, Any]]) -> tuple[list[dict[str,
 
 def _outro_issues(
     lines: list[dict[str, Any]], *, commentary: bool = False,
+    require_final_position: bool = True,
 ) -> list[dict[str, Any]]:
     outro_indices = [i for i, line in enumerate(lines) if line.get("section") == "outro"]
     if not outro_indices:
         return [_issue("OUTRO_STRUCTURE", "outroセクションがありません")]
 
-    if outro_indices[-1] != len(lines) - 1:
+    if require_final_position and outro_indices[-1] != len(lines) - 1:
         issues = [
             _issue(
                 "OUTRO_POSITION",
@@ -389,12 +391,11 @@ def _lint_errors(
             expected_discussion_article_id=expected_discussion_article_id,
         )
     else:
-        from app.batch.generate_script import _lint_script_legacy
-
-        errors = _lint_script_legacy(
+        errors = lint_script(
             lines,
             program_name=program_profile.name,
             expected_discussion_article_id=expected_discussion_article_id,
+            program_profile=program_profile,
         )
     if not commentary:
         return errors
@@ -427,12 +428,15 @@ def validate_final_script(
     """
     source_lines = [line for line in lines if isinstance(line, dict)]
     repaired_lines, repairs = _repair_outro_questions(source_lines)
+    profile = program_profile
+    uses_legacy_layout = profile is None or PromptBuilder(profile).uses_legacy_prompt
     critical: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = list(repairs)
 
     repaired_lines, layout_repairs, layout_repair_issues = normalize_discussion_layout(
         repaired_lines,
         expected_discussion_article_id=expected_discussion_article_id,
+        program_profile=profile,
     )
     repairs.extend(layout_repairs)
     warnings.extend(layout_repairs)
@@ -447,13 +451,19 @@ def validate_final_script(
                 line_indices=malformed_indices,
             )
         )
-    profile = program_profile
     allowed_speakers = profile.speaker_keys if profile is not None else {"male", "female"}
+    allowed_sections = (
+        {segment.kind for segment in profile.segments}
+        if profile is not None
+        else {"intro", "news", "transition", "discussion", "outro"}
+    )
     invalid_line_indices = [
         index
         for index, line in enumerate(repaired_lines)
-        if line.get("speaker") not in allowed_speakers
-        or line.get("section") not in {"intro", "news", "transition", "discussion", "outro"}
+        if not isinstance(line.get("speaker"), str)
+        or line.get("speaker") not in allowed_speakers
+        or not isinstance(line.get("section"), str)
+        or line.get("section") not in allowed_sections
         or not str(line.get("text", "") or "").strip()
     ]
     if invalid_line_indices:
@@ -497,15 +507,29 @@ def validate_final_script(
             else:
                 critical.append(item)
 
-    transition_issues = check_transition_integrity(repaired_lines)
+    transition_issues = check_transition_integrity(
+        repaired_lines,
+        program_profile=profile,
+    )
     critical.extend(_issue("TRANSITION_INTEGRITY", message) for message in transition_issues)
     critical.extend(
         check_discussion_layout(
             repaired_lines,
             expected_discussion_article_id=expected_discussion_article_id,
+            program_profile=profile,
         )
     )
-    critical.extend(_outro_issues(repaired_lines, commentary=commentary))
+    profile_has_outro = profile is None or any(
+        segment.kind == "outro" for segment in profile.segments
+    )
+    if profile_has_outro:
+        critical.extend(
+            _outro_issues(
+                repaired_lines,
+                commentary=commentary,
+                require_final_position=uses_legacy_layout,
+            )
+        )
     critical.extend(_transition_reaction_issues(repaired_lines, summaries or []))
     recurrence_issues = article_recurrence_issues(repaired_lines, summaries or [])
     # 再登場は根拠不足のまま記事を削除・書き換えしてはならないため、

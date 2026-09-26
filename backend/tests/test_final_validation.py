@@ -1,6 +1,7 @@
 """レビュー後の音声化前最終検証のテスト。"""
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -38,6 +39,65 @@ def test_final_validation_passes_without_warnings():
     assert result["status"] == "passed"
     assert result["can_synthesize"] is True
     assert result["critical_issues"] == []
+
+
+def test_custom_headline_corner_layout_is_validated_in_profile_order():
+    from app.batch.final_validation import validate_final_script
+    from app.programs.profiles import ProgramSegment, RADIO_TWO_PERSON
+
+    profile = replace(
+        RADIO_TWO_PERSON,
+        id="radio_with_features",
+        segments=(
+            ProgramSegment("intro", "intro", 0, 1, 1, ("male", "female")),
+            ProgramSegment("discussion", "discussion", 1, 1, 1, ("male", "female")),
+            ProgramSegment("news", "news", 2, 1, 1, ("male", "female")),
+            ProgramSegment("headline", "headline", 3, 1, 1, ("male", "female")),
+            ProgramSegment("outro", "outro", 4, 2, 2, ("male", "female")),
+            ProgramSegment("corner", "corner", 5, 1, 1, ("male", "female")),
+        ),
+    )
+    sections_and_ids = [
+        ("intro", "intro"),
+        ("discussion", "discussion"),
+        ("news", "news"),
+        ("headline", "headline"),
+        ("outro", "outro"),
+        ("outro", "outro"),
+        ("corner", "corner"),
+    ]
+    lines = [
+        {
+            "speaker": "male",
+            "section": section,
+            "segment": segment_id,
+            "text": text,
+            "article_id": None if section in {"intro", "outro"} else 1,
+        }
+        for (section, segment_id), text in zip(
+            sections_and_ids,
+            [
+                "「ニュースのとなり」の時間です。本日のニュースをお伝えします。",
+                "記事の背景を整理します。",
+                "記事の内容です。",
+                "見出しを紹介します。",
+                "今日は何が気になりましたか？",
+                "それではまた次回お会いしましょう。",
+                "今日のコーナーです。",
+            ],
+        )
+    ]
+
+    result = validate_final_script(lines, program_profile=profile)
+
+    codes = {finding["code"] for finding in result["critical_issues"]}
+    assert "DISCUSSION_LAYOUT" not in codes
+    assert "DISCUSSION_POSITION" not in codes
+    assert "DISCUSSION_LENGTH" not in codes
+    assert "OUTRO_POSITION" not in codes
+    assert "SEGMENT_ORDER" not in codes
+    assert result["can_synthesize"] is True
+    assert [line["section"] for line in result["lines"]] == [section for section, _ in sections_and_ids]
 
 
 def test_final_validation_clears_stale_transition_critical_after_script_was_repaired(tmp_path):
