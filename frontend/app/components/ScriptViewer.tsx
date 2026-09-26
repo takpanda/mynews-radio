@@ -52,9 +52,11 @@ const SPEAKER_META: Record<string, SpeakerMeta> = {
 }
 
 // 未知の speaker key（可変の出演者構成）向けの中立色フォールバック。表示名が無いため key をそのまま表示する。
+// `constructor` 等の継承キーを既知話者と誤認しないよう、自オブジェクトのプロパティかを明示的に確認する。
 function getSpeakerMeta(speaker: string): SpeakerMeta {
-  const known = SPEAKER_META[speaker]
-  if (known) return known
+  if (Object.prototype.hasOwnProperty.call(SPEAKER_META, speaker)) {
+    return SPEAKER_META[speaker]
+  }
   return {
     label: speaker,
     align: 'justify-start',

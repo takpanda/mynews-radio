@@ -222,6 +222,19 @@ describe('ScriptViewer', () => {
       expect(femaleImages[0].parentElement).toHaveClass('rounded-md')
     })
 
+    it('既存の男性/女性の吹き出し色と配置（左右）を維持する', () => {
+      render(<ScriptViewer lines={lines} />)
+      const maleBubble = screen.getByText('最初の行です').parentElement!
+      const femaleBubble = screen.getByText('二番目の行です').parentElement!
+      expect(maleBubble).toHaveClass('bg-sky-50')
+      expect(femaleBubble).toHaveClass('bg-rose-50')
+
+      const maleRow = maleBubble.parentElement!
+      const femaleRow = femaleBubble.parentElement!
+      expect(maleRow).not.toHaveClass('flex-row-reverse')
+      expect(femaleRow).toHaveClass('flex-row-reverse')
+    })
+
     it('再生中の行はaria-currentと「再生中」の文言で識別できる', () => {
       render(<ScriptViewer lines={lines} currentTime={10} onSeek={jest.fn()} />)
       const activeBubble = screen.getByRole('button', { name: /（再生中）/ })
@@ -304,6 +317,19 @@ describe('ScriptViewer', () => {
     it('未知の話者でも従来の男女表示には影響しない', () => {
       render(<ScriptViewer lines={unknownSpeakerLines} />)
       expect(screen.getByText('MC（男性）')).toBeInTheDocument()
+    })
+
+    it('Object.prototype由来のキー（constructor等）を話者に指定しても例外にならず未知話者として扱う', () => {
+      const prototypeKeyLines: ScriptLine[] = [
+        { speaker: 'constructor', text: 'constructorという名前の話者の発言', article_id: null, section: 'intro', start_time: 0 },
+        { speaker: 'toString', text: 'toStringという名前の話者の発言', article_id: null, section: 'news', start_time: 5 },
+        { speaker: '__proto__', text: '__proto__という名前の話者の発言', article_id: null, section: 'outro', start_time: 10 },
+      ]
+
+      expect(() => render(<ScriptViewer lines={prototypeKeyLines} />)).not.toThrow()
+      expect(screen.getByText('constructor')).toBeInTheDocument()
+      expect(screen.getByText('toString')).toBeInTheDocument()
+      expect(screen.getByText('__proto__')).toBeInTheDocument()
     })
   })
 })
