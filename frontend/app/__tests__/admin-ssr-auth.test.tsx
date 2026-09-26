@@ -13,6 +13,10 @@ jest.mock('../lib/admin-voice-settings', () => ({
   fetchVoiceSettings: jest.fn(),
   fetchVoiceOptions: jest.fn(),
 }))
+jest.mock('../lib/admin-episodes', () => ({
+  ...jest.requireActual('../lib/admin-episodes'),
+  fetchAwaitingReviewEpisodes: jest.fn(),
+}))
 
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
@@ -20,6 +24,8 @@ import AdminDictionaryPage from '../admin/dictionary/page'
 import AdminMisreadingReportsPage from '../admin/misreading-reports/page'
 import AdminEpisodeLogsPage from '../admin/episodes/[id]/logs/page'
 import AdminVoiceSettingsPage from '../admin/settings/voice/page'
+import AdminAwaitingReviewEpisodesPage from '../admin/episodes/page'
+import { fetchAwaitingReviewEpisodes } from '../lib/admin-episodes'
 
 describe('管理画面SSRの認証境界', () => {
   beforeEach(() => jest.clearAllMocks())
@@ -83,6 +89,23 @@ describe('管理画面SSRの認証境界', () => {
     ;(cookies as jest.Mock).mockReturnValue({ get: () => ({ value: 'invalid-token' }) })
     global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401 })
     await expect(AdminVoiceSettingsPage()).rejects.toThrow('NEXT_REDIRECT')
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/admin/me'),
+      expect.objectContaining({ headers: { Cookie: 'admin_session=invalid-token' } }),
+    )
+    expect(redirect).toHaveBeenCalledWith('/admin/login')
+  })
+
+  it('確認待ち一覧ページはCookieなしでログインへリダイレクトし、一覧取得を行わない', async () => {
+    await expect(AdminAwaitingReviewEpisodesPage()).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirect).toHaveBeenCalledWith('/admin/login')
+    expect(fetchAwaitingReviewEpisodes).not.toHaveBeenCalled()
+  })
+
+  it('確認待ち一覧ページは無効Cookieを/admin/meで検証しログインへリダイレクトする', async () => {
+    ;(cookies as jest.Mock).mockReturnValue({ get: () => ({ value: 'invalid-token' }) })
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401 })
+    await expect(AdminAwaitingReviewEpisodesPage()).rejects.toThrow('NEXT_REDIRECT')
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining('/admin/me'),
       expect.objectContaining({ headers: { Cookie: 'admin_session=invalid-token' } }),
