@@ -237,6 +237,25 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_versions_one_active
     ON prompt_versions(template_id) WHERE status = 'active';
 
+CREATE TABLE IF NOT EXISTS prompt_version_audit_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    audit_log_id INTEGER NOT NULL UNIQUE,
+    template_id INTEGER NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('activate', 'rollback')),
+    source_version_id INTEGER,
+    previous_active_version_id INTEGER,
+    new_version_id INTEGER NOT NULL,
+    change_note TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (audit_log_id) REFERENCES audit_logs(id) ON DELETE CASCADE,
+    FOREIGN KEY (template_id) REFERENCES prompt_templates(id) ON DELETE CASCADE,
+    FOREIGN KEY (source_version_id) REFERENCES prompt_versions(id) ON DELETE SET NULL,
+    FOREIGN KEY (previous_active_version_id) REFERENCES prompt_versions(id) ON DELETE SET NULL,
+    FOREIGN KEY (new_version_id) REFERENCES prompt_versions(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_prompt_version_audit_template_created
+    ON prompt_version_audit_events(template_id, created_at DESC);
+
 -- LLMの試行単位ログ。本文を含むため管理者API経由でのみ参照する。
 CREATE TABLE IF NOT EXISTS llm_call_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
