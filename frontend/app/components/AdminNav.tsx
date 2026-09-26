@@ -8,6 +8,7 @@ import { AWAITING_REVIEW_LIST_LIMIT, fetchAwaitingReviewEpisodesClient } from '.
 const NAV_LINKS: Array<{ href: string; label: string; badge?: boolean }> = [
   { href: '/admin/episodes', label: '確認待ち一覧', badge: true },
   { href: '/admin/programs', label: '番組・MC管理' },
+  { href: '/admin/prompts', label: 'プロンプト管理' },
   { href: '/admin/dictionary', label: '辞書管理' },
   { href: '/admin/misreading-reports', label: '読み間違い報告' },
   { href: '/admin/settings/voice', label: 'ボイス設定' },
