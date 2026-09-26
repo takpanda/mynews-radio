@@ -44,6 +44,50 @@ export interface PromptVersionCreateResult {
   status: PromptVersionStatus
 }
 
+export interface PromptRenderResult {
+  version_id: number
+  episode_id: number
+  template_key: string
+  prompt: string
+}
+
+export interface PromptPreviewResult {
+  program_id: string
+  episode_id: number
+  template_key: string
+  version_id: number
+  prompt: string
+}
+
+export interface PromptActivateResult {
+  id: number
+  status: 'active'
+  previous_active_version_id: number | null
+}
+
+export interface PromptRollbackResult {
+  id: number
+  version: number
+  status: 'active'
+  rollback_from_version_id: number
+  previous_active_version_id: number | null
+}
+
+export interface ChangeInput {
+  change_note: string
+  expected_active_version_id: number | null
+}
+
+export class PromptApiError extends Error {
+  status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'PromptApiError'
+    this.status = status
+  }
+}
+
 const SERVER_API_BASE = process.env.API_BASE ?? 'http://api:8010'
 
 function toQueryString(params: Record<string, string | undefined>): string {
@@ -113,4 +157,48 @@ export async function createPromptVersion(promptId: number, content: string): Pr
   })
   if (!res.ok) throw new Error(await extractErrorMessage(res))
   return res.json() as Promise<PromptVersionCreateResult>
+}
+
+export async function renderPromptVersion(versionId: number, episodeId: number): Promise<PromptRenderResult> {
+  const res = await clientFetch(`/admin/prompts/versions/${versionId}/render`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ episode_id: episodeId }),
+  })
+  if (!res.ok) throw new PromptApiError(res.status, await extractErrorMessage(res))
+  return res.json() as Promise<PromptRenderResult>
+}
+
+export async function previewProgramPrompt(
+  programId: string,
+  templateKey: string,
+  episodeId: number,
+): Promise<PromptPreviewResult> {
+  const res = await clientFetch(`/admin/programs/${encodeURIComponent(programId)}/preview-prompt`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ template_key: templateKey, episode_id: episodeId }),
+  })
+  if (!res.ok) throw new PromptApiError(res.status, await extractErrorMessage(res))
+  return res.json() as Promise<PromptPreviewResult>
+}
+
+export async function activatePromptVersion(versionId: number, input: ChangeInput): Promise<PromptActivateResult> {
+  const res = await clientFetch(`/admin/prompts/versions/${versionId}/activate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw new PromptApiError(res.status, await extractErrorMessage(res))
+  return res.json() as Promise<PromptActivateResult>
+}
+
+export async function rollbackPromptVersion(versionId: number, input: ChangeInput): Promise<PromptRollbackResult> {
+  const res = await clientFetch(`/admin/prompts/versions/${versionId}/rollback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw new PromptApiError(res.status, await extractErrorMessage(res))
+  return res.json() as Promise<PromptRollbackResult>
 }

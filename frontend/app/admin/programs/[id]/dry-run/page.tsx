@@ -8,11 +8,11 @@ export default async function AdminProgramDryRunPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ dry_run_id?: string }>
+  searchParams: Promise<{ dry_run_id?: string; draft_prompt_version_id?: string }>
 }) {
   await requireAdminSessionForPage()
   const { id } = await params
-  const { dry_run_id: dryRunIdParam } = await searchParams
+  const { dry_run_id: dryRunIdParam, draft_prompt_version_id: draftPromptVersionIdParam } = await searchParams
   let error: string | null = null
   let program: Awaited<ReturnType<typeof fetchProgram>> | null = null
 
@@ -23,6 +23,8 @@ export default async function AdminProgramDryRunPage({
   }
 
   const initialDryRunId = dryRunIdParam && /^\d+$/.test(dryRunIdParam) ? Number(dryRunIdParam) : null
+  const initialPromptVersionId =
+    draftPromptVersionIdParam && /^\d+$/.test(draftPromptVersionIdParam) ? Number(draftPromptVersionIdParam) : null
 
   return (
     <main className="mx-auto max-w-5xl px-4 pb-24 pt-6 sm:px-6">
@@ -37,6 +39,7 @@ export default async function AdminProgramDryRunPage({
           programKind={program.kind}
           currentDefinition={program.definition}
           initialDryRunId={initialDryRunId}
+          initialPromptVersionId={initialPromptVersionId}
         />
       )}
     </main>
