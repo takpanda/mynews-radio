@@ -1580,6 +1580,15 @@ def generate_script(
         script["discussion_layout_issues"] = layout_issues
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    # 管理者のプロンプトプレビューで実生成時の差し込み値を再現できるよう保存する。
+    if episode_id is not None:
+        Path(output_path).with_name("prompt_context.json").write_text(
+            json.dumps({
+                "summaries_json": summaries_json,
+                "narrative_arc_section": narrative_arc_section,
+            }, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
     Path(output_path).write_text(
         json.dumps(script, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",

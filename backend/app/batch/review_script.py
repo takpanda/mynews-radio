@@ -672,6 +672,14 @@ def review_script(
         }
 
     script_json_str = json.dumps(source, ensure_ascii=False, indent=2)
+    review_dir = Path(output_dir)
+    review_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        (review_dir / "original_script.json").write_text(
+            script_json_str + "\n", encoding="utf-8"
+        )
+    except OSError:
+        logger.warning("review_script: failed to persist original script", exc_info=True)
     review_evidence = _load_review_evidence(source_script_path, summaries_path, article)
     article_summaries_json = _format_review_evidence(review_evidence)
     profile = program_profile or get_profile_by_id(

@@ -178,6 +178,12 @@ def generate_commentary_script(
         "text": article.get("text", ""),
     }, ensure_ascii=False, indent=2)
 
+    output_file = Path(output_path)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    output_file.with_name("article_input.json").write_text(
+        json.dumps(article, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
     if prompt_builder.uses_legacy_prompt:
         rendered = render_prompt(
             "generate_commentary_script",
@@ -272,7 +278,7 @@ def generate_commentary_script(
 
     _check_concrete_data(script["lines"], style)
 
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     Path(output_path).write_text(
         json.dumps(script, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",

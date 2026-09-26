@@ -82,33 +82,250 @@ def _validate_content(template_key: str, content: str) -> None:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-def _episode_summaries(episode_id: int):
+def _episode_data(episode_id: int) -> dict:
     with get_db_connection() as conn:
-        episode = conn.execute("SELECT id FROM episodes WHERE id = ?", (episode_id,)).fetchone()
+        episode = conn.execute(
+            "SELECT e.*, p.kind AS program_kind FROM episodes e "
+            "LEFT JOIN programs p ON p.id = e.program_id WHERE e.id = ?", (episode_id,),
+        ).fetchone()
     if episode is None:
         raise HTTPException(status_code=404, detail="Episode not found")
-    path = EPISODES_DIR / str(episode_id) / "summaries.json"
-    try:
-        summaries = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Episode summaries not found") from exc
-    except (OSError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=422, detail="Episode summaries are invalid") from exc
-    if not isinstance(summaries, (list, dict)):
-        raise HTTPException(status_code=422, detail="Episode summaries are invalid")
-    return summaries
+    episode_dir = EPISODES_DIR / str(episode_id)
+    data = {"dir": episode_dir, "episode": dict(episode)}
+    for name in ("summaries", "script", "review", "prompt_context", "article_input"):
+        path = episode_dir / "review" / "review.json" if name == "review" else episode_dir / f"{name}.json"
+        if not path.exists():
+            data[name] = None
+            continue
+        try:
+            data[name] = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=422, detail=f"Episode {name} data is invalid") from exc
+    return data
 
 
-def _render(version, definition: dict, summaries) -> str:
-    supported_variables = {"summaries_json"}
-    unavailable = set(definition["required_variables"]) - supported_variables
-    if unavailable:
-        names = ", ".join(sorted(unavailable))
-        raise HTTPException(
-            status_code=422,
-            detail=f"Prompt preview does not support variables without generation context: {names}",
+def _episode_variables(episode_id: int, template_key: str, required: list[str]) -> dict:
+    data = _episode_data(episode_id)
+    summaries = data["summaries"]
+    script = data["script"]
+    review = data["review"]
+    prompt_context = data["prompt_context"]
+    variables: dict = {}
+
+    if template_key in {"generate_radio_script", "generate_narrative_arc"}:
+        saved_context = prompt_context if isinstance(prompt_context, dict) else None
+        if template_key == "generate_radio_script" and isinstance(saved_context, dict) \
+                and set(required).issubset(saved_context):
+            variables.update(saved_context)
+        elif not isinstance(summaries, list) or not summaries:
+            raise HTTPException(status_code=422, detail="Missing required episode input: summaries_json (summaries.json)")
+        else:
+            episode_script = script if isinstance(script, dict) else {}
+        if template_key == "generate_radio_script" and "summaries_json" not in variables:
+            # summaries.json holds the episode's summary evidence. Match its IDs to the
+            # final script order and hydrate columns that the writer read from articles.
+            order = []
+            for line in episode_script.get("lines", []):
+                article_id = line.get("article_id") if isinstance(line, dict) else None
+                if article_id is not None and article_id not in order:
+                    order.append(article_id)
+            ids = [item.get("id", item.get("article_id")) for item in summaries if isinstance(item, dict)]
+            ordered_ids = [article_id for article_id in order if article_id in ids]
+            ordered_ids.extend(article_id for article_id in ids if article_id not in ordered_ids)
+            with get_db_connection() as conn:
+                article_rows = {}
+                if ordered_ids:
+                    placeholders = ",".join("?" for _ in ordered_ids)
+                    article_rows = {row["id"]: dict(row) for row in conn.execute(
+                        f"SELECT id, title, source, url, summary, category, importance_score, difficulty "
+                        f"FROM articles WHERE id IN ({placeholders})", ordered_ids,
+                    ).fetchall()}
+            hydrated = []
+            for article_id in ordered_ids:
+                row = article_rows.get(article_id)
+                if row is None:
+                    raise HTTPException(status_code=422, detail=f"Missing required episode input: article {article_id} (articles)")
+                # The DB row is authoritative for the fields used by generate_script.
+                hydrated.append(row)
+            summaries = hydrated
+        if "summaries_json" not in variables:
+            variables["summaries_json"] = json.dumps(summaries, ensure_ascii=False, indent=2)
+        if isinstance(prompt_context, dict):
+            variables.update(prompt_context)
+        elif template_key == "generate_radio_script":
+            if script and script.get("discussion_article_id") is not None:
+                with get_db_connection() as conn:
+                    arc_row = conn.execute(
+                        "SELECT response_text FROM llm_call_logs WHERE episode_id = ? AND phase = 'arc' "
+                        "AND status = 'success' ORDER BY id DESC LIMIT 1", (episode_id,),
+                    ).fetchone()
+                try:
+                    arc = json.loads(arc_row["response_text"]) if arc_row else None
+                except (TypeError, json.JSONDecodeError):
+                    arc = None
+                if not isinstance(arc, dict):
+                    raise HTTPException(status_code=422, detail="Missing required episode input: narrative_arc_section (arc result is unavailable)")
+                article_ids = [item["id"] for item in summaries]
+                article_order = [aid for aid in arc.get("article_order", []) if aid in article_ids]
+                article_order.extend(aid for aid in article_ids if aid not in article_order)
+                discussion_id = script["discussion_article_id"]
+                if discussion_id not in article_order:
+                    raise HTTPException(status_code=422, detail="Missing required episode input: narrative arc article order")
+                article_order.remove(discussion_id)
+                article_order.append(discussion_id)
+                arc["article_order"] = article_order
+                arc["discussion_article_id"] = discussion_id
+                from app.batch.generate_script import _build_narrative_arc_section
+                variables["narrative_arc_section"] = _build_narrative_arc_section(arc, summaries)
+            else:
+                # An arc is only recorded in script.json when one was used.
+                variables["narrative_arc_section"] = ""
+    elif template_key == "generate_commentary_script":
+        if not isinstance(script, dict):
+            raise HTTPException(status_code=422, detail="Missing required episode input: script.json")
+        article = _episode_review_article(data, script)
+        if article is None:
+            raise HTTPException(status_code=422, detail="Missing required episode input: generated article_input.json")
+        style = script.get("style")
+        mc_gender = script.get("mc_gender")
+        if not style or not mc_gender:
+            raise HTTPException(status_code=422, detail="Missing required episode input: style or mc_gender (script.json)")
+        from app.batch.generate_commentary_script import _build_section_details, _calc_suggested_lines
+        text_length = len(article.get("text") or "")
+        suggested_lines = _calc_suggested_lines(text_length, style)
+        variables.update({
+            "article_id": article.get("id"), "article_title": article.get("title", ""),
+            "article_json": json.dumps({"id": article.get("id"), "title": article.get("title", ""),
+                                        "text": article.get("text", "")}, ensure_ascii=False, indent=2),
+            "mc_gender": mc_gender, "style": style,
+            "section_details": _build_section_details(suggested_lines, style),
+            "suggested_lines_count": suggested_lines,
+        })
+    elif template_key.startswith("review_"):
+        if not isinstance(script, dict):
+            raise HTTPException(status_code=422, detail="Missing required episode input: script.json")
+        original_script_path = data["dir"] / "review" / "original_script.json"
+        if original_script_path.is_file():
+            try:
+                script = json.loads(original_script_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise HTTPException(status_code=422, detail="Episode original review script is invalid") from exc
+        else:
+            with get_db_connection() as conn:
+                generated_revision = conn.execute(
+                    "SELECT script_json FROM script_revisions WHERE episode_id = ? AND source = 'generated' "
+                    "ORDER BY revision ASC LIMIT 1", (episode_id,),
+                ).fetchone()
+            if generated_revision is None:
+                raise HTTPException(status_code=422, detail="Missing required episode input: original pre-review script")
+            try:
+                original_script = json.loads(generated_revision["script_json"])
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise HTTPException(status_code=422, detail="Episode generated script revision is invalid") from exc
+            if original_script != script:
+                raise HTTPException(status_code=422, detail="Missing required episode input: original pre-review script")
+            script = original_script
+
+        if data["episode"].get("program_kind") == "commentary":
+            article = _episode_review_article(data, script)
+            if article is None:
+                raise HTTPException(status_code=422, detail="Missing required episode input: generated article_input.json")
+            evidence = [article]
+        elif isinstance(summaries, list) and summaries:
+            evidence = summaries
+        elif (article := _episode_review_article(data, script)) is not None:
+            evidence = [article]
+        else:
+            raise HTTPException(status_code=422, detail="Missing required episode input: article_summaries_json (summaries.json or source article)")
+        from app.batch.review_script import _format_review_evidence
+        evidence_text = _format_review_evidence(evidence)
+        script_text = json.dumps(script, ensure_ascii=False, indent=2)
+        variables.update({"script_json": script_text, "original_script_json": script_text,
+                          "article_summaries_json": evidence_text,
+                          "mode": script.get("style", "dialogue"),
+                          "mc_gender": script.get("mc_gender", "male")})
+        if template_key == "review_radio_director":
+            from app.batch.review_script import _build_output_issue_example, _build_radio_director_style_guidance
+            style = script.get("style", "")
+            variables.update({"style_guidance": _build_radio_director_style_guidance(style),
+                              "output_issue_example": _build_output_issue_example(style)})
+        if template_key == "review_synthesize":
+            reviews = review.get("reviews") if isinstance(review, dict) else None
+            if not isinstance(reviews, dict):
+                raise HTTPException(status_code=422, detail="Missing required episode input: reviews (review/review.json)")
+            for key in ("beginner", "genius", "worried", "positive", "radio"):
+                if key not in reviews:
+                    raise HTTPException(status_code=422, detail=f"Missing required episode input: reviews.{key} (review/review.json)")
+                variables[f"{key}_review"] = json.dumps(reviews[key], ensure_ascii=False, indent=2)
+    elif template_key == "category":
+        if not isinstance(script, dict) or not isinstance(script.get("lines"), list):
+            raise HTTPException(status_code=422, detail="Missing required episode input: script.json lines")
+        source = "\n".join(str(line.get("text", "")).strip() for line in script["lines"]
+                             if isinstance(line, dict) and str(line.get("text", "")).strip())
+        if not source:
+            if not isinstance(summaries, list):
+                raise HTTPException(status_code=422, detail="Missing required episode input: source (script.json or summaries.json)")
+            source = "\n".join(str(item.get("summary", "")).strip() for item in summaries
+                                if isinstance(item, dict) and item.get("summary"))
+        if not source:
+            raise HTTPException(status_code=422, detail="Missing required episode input: source (script.json lines or summaries.json)")
+        from app.services.episode_category_service import EPISODE_CATEGORIES
+        variables.update({"categories": ", ".join(EPISODE_CATEGORIES), "source": source})
+    elif template_key == "summarize_article":
+        article_ids = [item.get("id", item.get("article_id")) for item in summaries or []
+                       if isinstance(item, dict)]
+        with get_db_connection() as conn:
+            row = None
+            if article_ids:
+                row = conn.execute(
+                    "SELECT id, title, source, url, text, published_at FROM articles WHERE id = ?",
+                    (article_ids[0],),
+                ).fetchone()
+        if row is None:
+            with get_db_connection() as conn:
+                row = conn.execute(
+                    "SELECT a.id, a.title, a.source, a.url, a.text, a.published_at "
+                    "FROM episode_items i JOIN articles a ON a.id = i.article_id "
+                    "WHERE i.episode_id = ? ORDER BY i.item_order LIMIT 1", (episode_id,),
+                ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=422, detail="Missing required episode input: source article (episode_items/articles)")
+        article = dict(row)
+        from app.config import get_settings
+        variables.update({key: article.get(key) for key in ("published_at", "source", "title", "url")})
+        variables["text"] = (
+            (article["text"] or "")[:get_settings().summary_article_max_chars]
+            if article.get("text") is not None else None
         )
-    variables = {"summaries_json": json.dumps(summaries, ensure_ascii=False, indent=2)}
+        missing_article_fields = sorted(
+            key for key in required if variables.get(key) is None or variables.get(key) == ""
+        )
+        if missing_article_fields:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Missing required episode inputs: {', '.join(missing_article_fields)} (articles)",
+            )
+
+    missing = sorted(set(required) - variables.keys())
+    if missing:
+        raise HTTPException(status_code=422, detail=f"Missing required episode inputs: {', '.join(missing)}")
+    return variables
+
+
+def _episode_review_article(data: dict, script: dict) -> dict | None:
+    article = data.get("article_input")
+    if not isinstance(article, dict):
+        return None
+    article_ids = {line.get("article_id") for line in script.get("lines", [])
+                   if isinstance(line, dict) and line.get("article_id") is not None}
+    if article_ids and article.get("id") not in article_ids:
+        return None
+    return article
+
+
+def _render(version, definition: dict, episode_id: int) -> str:
+    variables = _episode_variables(episode_id, version["template_key"], definition["required_variables"])
+    variables = {key: value for key, value in variables.items() if key in definition["allowed_variables"]}
     try:
         return render_prompt_template(
             version["content"], variables,
@@ -290,23 +507,21 @@ def rollback_prompt_version(version_id: int, body: RollbackInput, admin: AdminCo
 
 @router.post("/prompts/versions/{version_id}/render")
 def render_prompt_version(version_id: int, body: RenderInput, _: AdminContext) -> dict:
-    summaries = _episode_summaries(body.episode_id)
     with get_db_connection() as conn:
         version = _find_version(conn, version_id)
     definition = _get_definition(version["template_key"])
     return {"version_id": version_id, "episode_id": body.episode_id,
-            "template_key": version["template_key"], "prompt": _render(version, definition, summaries)}
+            "template_key": version["template_key"], "prompt": _render(version, definition, body.episode_id)}
 
 
 @router.post("/programs/{program_id}/preview-prompt")
 def preview_prompt(program_id: str, body: PreviewInput, admin: AdminContext) -> dict:
     definition = _get_definition(body.template_key)
-    summaries = _episode_summaries(body.episode_id)
     with get_db_connection() as conn:
         if conn.execute("SELECT 1 FROM programs WHERE id = ?", (program_id,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="Program not found")
         version = conn.execute(
-            "SELECT pv.* FROM prompt_templates pt JOIN prompt_versions pv ON pv.template_id = pt.id "
+            "SELECT pv.*, pt.template_key FROM prompt_templates pt JOIN prompt_versions pv ON pv.template_id = pt.id "
             "WHERE pt.template_key = ? AND pv.status = 'active' "
             "AND (pt.program_id = ? OR pt.program_id IS NULL) "
             "ORDER BY CASE WHEN pt.program_id = ? THEN 0 ELSE 1 END LIMIT 1",
@@ -314,7 +529,7 @@ def preview_prompt(program_id: str, body: PreviewInput, admin: AdminContext) -> 
         ).fetchone()
         if version is None:
             raise HTTPException(status_code=404, detail="Active prompt version not found")
-    prompt = _render(version, definition, summaries)
+    prompt = _render(version, definition, body.episode_id)
     with get_db_connection() as conn:
         _admin_audit(conn, "admin_prompt_preview", admin[0],
                      {"program_id": program_id, "template_key": body.template_key,
