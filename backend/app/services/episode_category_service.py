@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.db.connection import get_db_connection
 from app.services.ollama_client import OllamaClient
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
+from app.prompts.definitions import PROMPT_TEMPLATE_DEFINITIONS
 
 logger = logging.getLogger(__name__)
 
@@ -86,15 +87,10 @@ def select_episode_categories(
     if not source:
         return []
     settings = get_settings()
-    prompt = f"""あなたはニュース番組の分類担当です。次の内容に該当するカテゴリを0〜3件選んでください。
-必ずJSONオブジェクト {{\"categories\": [\"カテゴリ\"]}} のみを返してください。
-カテゴリは次の固定15件から選び、重複させないでください: {', '.join(EPISODE_CATEGORIES)}
-「テック・IT」は一般的なIT製品、ソフトウェア、通信、デジタルサービスを指します。
-「AI・先端技術」は生成AI、機械学習、ロボット、量子技術など、先端技術そのものが主題の場合に限ります。
-
-内容:
-{source}
-"""
+    prompt_path = Path(__file__).resolve().parents[1] / "prompts" / PROMPT_TEMPLATE_DEFINITIONS["category"]["file"]
+    prompt = prompt_path.read_text(encoding="utf-8").format(
+        categories=", ".join(EPISODE_CATEGORIES), source=source
+    )
     try:
         # OllamaClient の既定タイムアウト（推論用の十分な時間）を利用する。
         # カテゴリ処理の失敗は下記で吸収するが、正常な推論を1秒で打ち切らない。

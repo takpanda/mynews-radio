@@ -1,6 +1,7 @@
 import sqlite3
 import json
 from dataclasses import replace
+from pathlib import Path
 
 
 SYSTEM_OWNER_USERNAME = "__generation_queue_system__"
@@ -225,6 +226,69 @@ def migrate_llm_call_logs(conn: sqlite3.Connection) -> bool:
         "CREATE INDEX IF NOT EXISTS idx_llm_call_logs_created_at "
         "ON llm_call_logs(created_at)"
     )
+    return True
+
+
+def migrate_prompt_templates(conn: sqlite3.Connection) -> bool:
+    """プロンプト版管理テーブルとファイル由来の共通active版を冪等に追加する。"""
+    from app.prompts.definitions import PROMPT_TEMPLATE_DEFINITIONS
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS prompt_templates ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, template_key TEXT NOT NULL, program_id TEXT, "
+        "required_variables TEXT NOT NULL DEFAULT '[]', allowed_variables TEXT NOT NULL DEFAULT '[]', "
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "FOREIGN KEY (program_id) REFERENCES programs(id) ON DELETE CASCADE)"
+    )
+    # NULL を含む UNIQUE(template_key, program_id) は SQLite では重複を許すため、
+    # 共通スコープを空文字へ正規化した式インデックスで一意性を保証する。
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_templates_key_program "
+        "ON prompt_templates(template_key, COALESCE(program_id, ''))"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS prompt_versions ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, template_id INTEGER NOT NULL, version INTEGER NOT NULL CHECK (version > 0), "
+        "content TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft' "
+        "CHECK (status IN ('draft', 'active', 'archived')), "
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "UNIQUE(template_id, version), FOREIGN KEY (template_id) REFERENCES prompt_templates(id) ON DELETE CASCADE)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_versions_one_active "
+        "ON prompt_versions(template_id) WHERE status = 'active'"
+    )
+    log_columns = {row["name"] for row in conn.execute("PRAGMA table_info(llm_call_logs)").fetchall()}
+    if "prompt_version_id" not in log_columns:
+        conn.execute(
+            "ALTER TABLE llm_call_logs ADD COLUMN prompt_version_id INTEGER "
+            "REFERENCES prompt_versions(id) ON DELETE SET NULL"
+        )
+
+    prompt_dir = Path(__file__).resolve().parents[1] / "prompts"
+    for template_key, definition in PROMPT_TEMPLATE_DEFINITIONS.items():
+        conn.execute(
+            "INSERT OR IGNORE INTO prompt_templates "
+            "(template_key, program_id, required_variables, allowed_variables) VALUES (?, NULL, ?, ?)",
+            (
+                template_key,
+                json.dumps(definition["required_variables"], ensure_ascii=False),
+                json.dumps(definition["allowed_variables"], ensure_ascii=False),
+            ),
+        )
+        template = conn.execute(
+            "SELECT id FROM prompt_templates WHERE template_key = ? AND program_id IS NULL",
+            (template_key,),
+        ).fetchone()
+        has_versions = conn.execute(
+            "SELECT 1 FROM prompt_versions WHERE template_id = ? LIMIT 1", (template["id"],)
+        ).fetchone()
+        if not has_versions:
+            content = (prompt_dir / definition["file"]).read_text(encoding="utf-8")
+            conn.execute(
+                "INSERT INTO prompt_versions (template_id, version, content, status) VALUES (?, 1, ?, 'active')",
+                (template["id"], content),
+            )
     return True
 
 

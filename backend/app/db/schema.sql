@@ -210,6 +210,33 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_audit_logs_executed_at ON audit_logs(executed_at);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_operation ON audit_logs(operation);
 
+CREATE TABLE IF NOT EXISTS prompt_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    template_key TEXT NOT NULL,
+    program_id TEXT,
+    required_variables TEXT NOT NULL DEFAULT '[]',
+    allowed_variables TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (program_id) REFERENCES programs(id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_templates_key_program
+    ON prompt_templates(template_key, COALESCE(program_id, ''));
+
+CREATE TABLE IF NOT EXISTS prompt_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    template_id INTEGER NOT NULL,
+    version INTEGER NOT NULL CHECK (version > 0),
+    content TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'archived')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(template_id, version),
+    FOREIGN KEY (template_id) REFERENCES prompt_templates(id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_versions_one_active
+    ON prompt_versions(template_id) WHERE status = 'active';
+
 -- LLMの試行単位ログ。本文を含むため管理者API経由でのみ参照する。
 CREATE TABLE IF NOT EXISTS llm_call_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -225,8 +252,10 @@ CREATE TABLE IF NOT EXISTS llm_call_logs (
     prompt_text TEXT NOT NULL DEFAULT '',
     response_text TEXT NOT NULL DEFAULT '',
     thinking_text TEXT NOT NULL DEFAULT '',
+    prompt_version_id INTEGER,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
+    FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE,
+    FOREIGN KEY (prompt_version_id) REFERENCES prompt_versions(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_llm_call_logs_episode_created
     ON llm_call_logs(episode_id, created_at);
