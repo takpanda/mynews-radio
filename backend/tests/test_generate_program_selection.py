@@ -4,6 +4,8 @@ import threading
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from app.db.connection import get_db_connection
 from app.db.migration import migrate_program_profiles
 from app.services.episode_service import EpisodeService
@@ -87,6 +89,42 @@ def test_program_id_missing_or_inactive_returns_400_without_fallback(client, mon
         json={"date": "2099-11-03", "program_id": "radio_news_neighbor"},
     )
     assert inactive.status_code == 400
+
+
+@pytest.mark.parametrize(
+    ("style", "mc_gender", "profile_id", "expected_keys", "expected_gender"),
+    [
+        ("solo", "female", "commentary_solo", ["female"], "female"),
+        ("dialogue", "female", "commentary_dialogue", ["male", "female"], None),
+    ],
+)
+def test_legacy_commentary_selection_persists_resolved_profile_snapshot(
+    client, monkeypatch, style, mc_gender, profile_id, expected_keys, expected_gender,
+):
+    _seed_program_profiles()
+    _suppress_generation_worker(monkeypatch)
+    with patch("app.api.generate._validate_url_public"):
+        response = client.post(
+            "/generate",
+            json={
+                "date": "2099-11-07",
+                "url": "https://example.com/article",
+                "style": style,
+                "mc_gender": mc_gender,
+            },
+        )
+
+    assert response.status_code == 200
+    episode = EpisodeService().get_episode(response.json()["episode_id"])
+    snapshot = json.loads(episode["program_snapshot"])
+    assert episode["program_id"] == profile_id
+    assert snapshot["id"] == profile_id
+    assert [member["key"] for member in snapshot["cast"]] == expected_keys
+    assert snapshot["options"]["style"] == style
+    assert snapshot["options"]["mc_gender"] == expected_gender
+    assert {
+        key for segment in snapshot["segments"] for key in segment["speaker_keys"]
+    } == set(expected_keys)
 
 
 def test_program_id_database_failure_returns_503(client):
