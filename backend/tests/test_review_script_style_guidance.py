@@ -126,6 +126,8 @@ class TestReviewScriptRadioDirectorPrompt:
         with patch("app.batch.review_script.OllamaClient", return_value=mock_cls):
             result = review_script(script_path, output_dir)
 
+        with open(os.path.join(output_dir, "original_script.json"), encoding="utf-8") as f:
+            assert json.load(f) == source_script
         assert result["review_count"] == len(("genius", "beginner", "worried", "positive", "radio"))
         assert "radio" in result.get("revision_summary", "") or result["review_count"] > 0
 

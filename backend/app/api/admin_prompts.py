@@ -88,9 +88,9 @@ def _episode_data(episode_id: int) -> dict:
     if episode is None:
         raise HTTPException(status_code=404, detail="Episode not found")
     episode_dir = EPISODES_DIR / str(episode_id)
-    data = {}
+    data = {"dir": episode_dir}
     for name in ("summaries", "script", "review", "prompt_context"):
-        path = episode_dir / f"{name}.json"
+        path = episode_dir / "review" / "review.json" if name == "review" else episode_dir / f"{name}.json"
         if not path.exists():
             data[name] = None
             continue
@@ -208,20 +208,37 @@ def _episode_variables(episode_id: int, template_key: str, required: list[str]) 
     elif template_key.startswith("review_"):
         if not isinstance(script, dict):
             raise HTTPException(status_code=422, detail="Missing required episode input: script.json")
-        with get_db_connection() as conn:
-            generated_revision = conn.execute(
-                "SELECT script_json FROM script_revisions WHERE episode_id = ? AND source = 'generated' "
-                "ORDER BY revision ASC LIMIT 1", (episode_id,),
-            ).fetchone()
-        if generated_revision is not None:
+        original_script_path = data["dir"] / "review" / "original_script.json"
+        if original_script_path.is_file():
             try:
-                script = json.loads(generated_revision["script_json"])
+                script = json.loads(original_script_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise HTTPException(status_code=422, detail="Episode original review script is invalid") from exc
+        else:
+            with get_db_connection() as conn:
+                generated_revision = conn.execute(
+                    "SELECT script_json FROM script_revisions WHERE episode_id = ? AND source = 'generated' "
+                    "ORDER BY revision ASC LIMIT 1", (episode_id,),
+                ).fetchone()
+            if generated_revision is None:
+                raise HTTPException(status_code=422, detail="Missing required episode input: original pre-review script")
+            try:
+                original_script = json.loads(generated_revision["script_json"])
             except (TypeError, json.JSONDecodeError) as exc:
                 raise HTTPException(status_code=422, detail="Episode generated script revision is invalid") from exc
-        evidence = summaries if isinstance(summaries, list) else None
-        if not evidence:
-            raise HTTPException(status_code=422, detail="Missing required episode input: article_summaries_json (summaries.json)")
-        evidence_text = json.dumps(evidence, ensure_ascii=False, indent=2)
+            if original_script != script:
+                raise HTTPException(status_code=422, detail="Missing required episode input: original pre-review script")
+            script = original_script
+
+        article = _episode_review_article(script)
+        if isinstance(summaries, list) and summaries:
+            evidence = summaries
+        elif article is not None:
+            evidence = [article]
+        else:
+            raise HTTPException(status_code=422, detail="Missing required episode input: article_summaries_json (summaries.json or source article)")
+        from app.batch.review_script import _format_review_evidence
+        evidence_text = _format_review_evidence(evidence)
         script_text = json.dumps(script, ensure_ascii=False, indent=2)
         variables.update({"script_json": script_text, "original_script_json": script_text,
                           "article_summaries_json": evidence_text,
@@ -235,9 +252,11 @@ def _episode_variables(episode_id: int, template_key: str, required: list[str]) 
         if template_key == "review_synthesize":
             reviews = review.get("reviews") if isinstance(review, dict) else None
             if not isinstance(reviews, dict):
-                raise HTTPException(status_code=422, detail="Missing required episode input: reviews (review.json)")
+                raise HTTPException(status_code=422, detail="Missing required episode input: reviews (review/review.json)")
             for key in ("beginner", "genius", "worried", "positive", "radio"):
-                variables[f"{key}_review"] = json.dumps(reviews.get(key, {}), ensure_ascii=False, indent=2)
+                if key not in reviews:
+                    raise HTTPException(status_code=422, detail=f"Missing required episode input: reviews.{key} (review/review.json)")
+                variables[f"{key}_review"] = json.dumps(reviews[key], ensure_ascii=False, indent=2)
     elif template_key == "category":
         if not isinstance(script, dict) or not isinstance(script.get("lines"), list):
             raise HTTPException(status_code=422, detail="Missing required episode input: script.json lines")
@@ -248,6 +267,8 @@ def _episode_variables(episode_id: int, template_key: str, required: list[str]) 
                 raise HTTPException(status_code=422, detail="Missing required episode input: source (script.json or summaries.json)")
             source = "\n".join(str(item.get("summary", "")).strip() for item in summaries
                                 if isinstance(item, dict) and item.get("summary"))
+        if not source:
+            raise HTTPException(status_code=422, detail="Missing required episode input: source (script.json lines or summaries.json)")
         from app.services.episode_category_service import EPISODE_CATEGORIES
         variables.update({"categories": ", ".join(EPISODE_CATEGORIES), "source": source})
     elif template_key == "summarize_article":
@@ -269,15 +290,39 @@ def _episode_variables(episode_id: int, template_key: str, required: list[str]) 
                 ).fetchone()
         if row is None:
             raise HTTPException(status_code=422, detail="Missing required episode input: source article (episode_items/articles)")
-        from app.config import get_settings
         article = dict(row)
-        variables.update({key: article.get(key) or "" for key in ("published_at", "source", "title", "url")})
-        variables["text"] = (article.get("text") or "")[:get_settings().summary_article_max_chars]
+        from app.config import get_settings
+        variables.update({key: article.get(key) for key in ("published_at", "source", "title", "url")})
+        variables["text"] = (
+            (article["text"] or "")[:get_settings().summary_article_max_chars]
+            if article.get("text") is not None else None
+        )
+        missing_article_fields = sorted(
+            key for key in required if variables.get(key) is None or variables.get(key) == ""
+        )
+        if missing_article_fields:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Missing required episode inputs: {', '.join(missing_article_fields)} (articles)",
+            )
 
     missing = sorted(set(required) - variables.keys())
     if missing:
         raise HTTPException(status_code=422, detail=f"Missing required episode inputs: {', '.join(missing)}")
     return variables
+
+
+def _episode_review_article(script: dict) -> dict | None:
+    article_id = next((line.get("article_id") for line in script.get("lines", [])
+                       if isinstance(line, dict) and line.get("article_id") is not None), None)
+    if article_id is None:
+        return None
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT id, title, source, url, text, published_at, summary, category, importance_score, difficulty "
+            "FROM articles WHERE id = ?", (article_id,),
+        ).fetchone()
+    return dict(row) if row is not None else None
 
 
 def _render(version, definition: dict, episode_id: int) -> str:
