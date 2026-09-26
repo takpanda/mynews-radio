@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import shutil
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Generator
 
@@ -40,6 +41,12 @@ from app.services.llm_provider import (
     LlmProviderValidationError,
     resolve_pipeline_llm_selection,
     validate_provider_model,
+)
+from app.programs.profiles import ProgramProfile, get_default_profile
+from app.programs.serialization import (
+    load_program_profile,
+    program_profile_from_definition,
+    program_profile_to_definition,
 )
 
 logger = logging.getLogger(__name__)
@@ -184,6 +191,7 @@ def _build_progress_payload(phase: str, message: str, status: str = "running", *
 
 class GenerateRequest(BaseModel):
     date: str = Field(description="放送日 (YYYY-MM-DD)")
+    program_id: str | None = Field(default=None, description="生成に使用する番組ID")
     max_articles: int | None = Field(default=None, ge=1, le=50)
     duration_minutes: int | None = Field(default=None, ge=1, le=640)
     news_source: str = Field(default="hatena_bookmark", description="ニュースソース (hatena_bookmark | hatena_hotentry_all | yahoo_news)")
@@ -217,6 +225,96 @@ class GenerateRequest(BaseModel):
         return normalized
 
 
+def _resolve_program_profile(body: GenerateRequest) -> ProgramProfile:
+    """Resolve and freeze a DB program, preserving legacy defaults on fallback."""
+    expected_kind = "commentary" if body.url else "radio"
+    if body.program_id is not None:
+        try:
+            with get_db_connection() as conn:
+                row = conn.execute(
+                    "SELECT 1 FROM programs WHERE id = ? AND is_active = 1",
+                    (body.program_id,),
+                ).fetchone()
+                if row is None:
+                    raise HTTPException(status_code=400, detail="program_id does not exist or is inactive")
+                profile = load_program_profile(conn, body.program_id)
+        except Exception as exc:
+            if isinstance(exc, HTTPException):
+                raise
+            logger.exception("指定番組の定義をDBから取得できません program_id=%s", body.program_id)
+            raise HTTPException(status_code=503, detail="Program definition is unavailable") from exc
+        if profile is None:
+            raise HTTPException(status_code=503, detail="Program definition is incomplete")
+        if profile.kind != expected_kind:
+            raise HTTPException(status_code=400, detail="program_id kind does not match the request")
+        return profile
+
+    if expected_kind == "commentary":
+        style = body.style if body.style in {"solo", "dialogue"} else "solo"
+        mc_gender = body.mc_gender if body.mc_gender in VALID_GENDERS else "male"
+        program_id = "commentary_dialogue" if style == "dialogue" else "commentary_solo"
+    else:
+        news_source = body.news_source if body.news_source in {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news"} else "hatena_bookmark"
+        style, mc_gender = None, "male"
+        program_id = "radio_tech_news" if news_source == "hatena_bookmark" else "radio_news_neighbor"
+
+    try:
+        with get_db_connection() as conn:
+            profile = load_program_profile(conn, program_id)
+        if profile is not None:
+            if expected_kind == "commentary" and style == "solo" and mc_gender == "female":
+                # Keep the registered solo definition while adapting its single
+                # speaker to the legacy female selection.
+                original_key = profile.cast[0].key
+                cast_member = replace(
+                    profile.cast[0], key="female", mc_id="commentary_female",
+                    voice_fishs2pro=None, voice_aivispeech=None, voice_voicevox=None,
+                )
+                segments = tuple(
+                    replace(
+                        segment,
+                        speaker_keys=tuple("female" if key == original_key else key for key in segment.speaker_keys),
+                    )
+                    for segment in profile.segments
+                )
+                with get_db_connection() as conn:
+                    mc = conn.execute(
+                        "SELECT voice_fishs2pro, voice_aivispeech, voice_voicevox "
+                        "FROM mc_profiles WHERE id = 'commentary_female' AND is_active = 1"
+                    ).fetchone()
+                    if mc is not None:
+                        cast_member = replace(
+                            cast_member,
+                            voice_fishs2pro=mc["voice_fishs2pro"],
+                            voice_aivispeech=mc["voice_aivispeech"],
+                            voice_voicevox=mc["voice_voicevox"],
+                        )
+                profile = replace(
+                    profile,
+                    cast=(cast_member,),
+                    segments=segments,
+                    options=replace(profile.options, style="solo", mc_gender="female"),
+                )
+            return profile
+    except Exception:
+        logger.warning("番組定義DBを利用できないため既定Profileへフォールバックします", exc_info=True)
+
+    if expected_kind == "commentary":
+        return get_default_profile(kind="commentary", style=style, mc_gender=mc_gender)
+    return get_default_profile(kind="radio", news_source=body.news_source)
+
+
+def _episode_program_profile(episode_id: int) -> ProgramProfile | None:
+    """Read the immutable definition captured when the episode was reserved."""
+    episode = EpisodeService().get_episode(episode_id)
+    raw = (episode or {}).get("program_snapshot")
+    if not raw:
+        return None
+    if isinstance(raw, str):
+        raw = json.loads(raw)
+    return program_profile_from_definition(raw)
+
+
 def _run_generation(episode_id: int, body: GenerateRequest) -> dict[str, Any] | PipelineResult | None:
     """Background pipeline that delegates to the shared radio pipeline."""
 
@@ -225,6 +323,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> dict[str, Any] | 
     seq = ep.get("seq", 0) if ep else 0
 
     news_source = body.news_source if body.news_source in {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news"} else "hatena_bookmark"
+    program_profile = _episode_program_profile(episode_id)
     logger.info("Background generation started: episode_id=%d date=%s seq=%d", episode_id, body.date, seq)
 
     def _progress(phase: str, message: str) -> None:
@@ -251,6 +350,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> dict[str, Any] | 
         content_provider=body.content_provider,
         content_model=body.content_model,
         generation_job_id=_active_generation_job_id(episode_id),
+        program_profile=program_profile,
     )
 
     if result is None:
@@ -304,6 +404,10 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
 
         style = body.style if body.style in {"solo", "dialogue"} else "solo"
         mc_gender = body.mc_gender if body.mc_gender in VALID_GENDERS else "male"
+        program_profile = _episode_program_profile(episode_id)
+        if program_profile is not None:
+            style = program_profile.options.style or ("solo" if len(program_profile.cast) == 1 else "dialogue")
+            mc_gender = program_profile.options.mc_gender or program_profile.cast[0].key
         logger.info(
             "Background commentary started: episode_id=%d date=%s url=%s style=%s mc_gender=%s",
             episode_id, episode_date, body.url, style, body.mc_gender,
@@ -370,6 +474,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             _fail("generate_commentary", "解説台本生成用LLMを利用できません")
             return
         line_count = generate_commentary_script(script_path, article, style=style, mc_gender=mc_gender,
+                                                program_profile=program_profile,
                                                 llm_provider=content_llm.name, llm_model=content_llm.model)
 
         if line_count <= 0:
@@ -388,7 +493,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
                                           program_name="ニュースのとなり",
                                           commentary=True,
                                           llm_provider=content_llm.name, llm_model=content_llm.model,
-                                          article=article)
+                                          article=article, program_profile=program_profile)
             logger.info(
                 "review_script: revised=%s review_count=%d",
                 review_result["revised"],
@@ -415,6 +520,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
                 article=article,
                 commentary=True,
                 prior_review_result=review_result,
+                program_profile=program_profile,
             )
             if not final_validation["can_synthesize"]:
                 reason = human_review_message(final_validation)
@@ -522,8 +628,10 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
     """Creates episode record and returns JSON immediately; actual generation runs in background."""
 
     # Validate: mc_gender
-    if body.mc_gender not in VALID_GENDERS:
+    if body.program_id is None and body.mc_gender not in VALID_GENDERS:
         raise HTTPException(status_code=400, detail="mc_gender must be 'male' or 'female'")
+
+    program_profile = _resolve_program_profile(body)
 
     if body.settings_snapshot is not None:
         try:
@@ -570,7 +678,7 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
 
     # Validate: url 指定時は style をチェック → SSRFチェック
     if body.url:
-        if body.style not in {"solo", "dialogue"}:
+        if body.program_id is None and body.style not in {"solo", "dialogue"}:
             raise HTTPException(
                 status_code=400,
                 detail="style must be 'solo' or 'dialogue'",
@@ -598,6 +706,8 @@ def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int
               } and v is None)}),
             episode_date=body.date, episode_type=episode_type, source_url=body.url,
             client_ip=_client_ip(request), dispatch=False,
+            program_id=program_profile.id,
+            program_snapshot=json.dumps(program_profile_to_definition(program_profile), ensure_ascii=False),
         )
     except GenerationControlError as exc:
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None

@@ -34,6 +34,7 @@ from app.services.settings_service import (
 )
 from app.services.telegram_notifier import notify_failure, notify_success, notify_review_needed
 from app.services.script_review_service import move_episode_to_awaiting_review
+from app.programs.profiles import ProgramProfile
 
 
 def _extract_key_points(script: dict, summaries_path: str) -> list[str]:
@@ -170,6 +171,7 @@ def run_radio_pipeline(
     content_provider: str | None = None,
     content_model: str | None = None,
     generation_job_id: int | None = None,
+    program_profile: ProgramProfile | None = None,
 ) -> dict[str, Any] | PipelineResult | None:
     """Run the full radio generation pipeline for an episode.
 
@@ -217,7 +219,7 @@ def run_radio_pipeline(
     effective_min_score = profile_params["min_importance_score"]
     base_dir = (default_episodes_dir or DEFAULT_EPISODES_DIR)
     base_dir = os.path.join(base_dir, str(episode_id))
-    effective_program_name = program_name or (
+    effective_program_name = program_name or (program_profile.name if program_profile is not None else None) or (
         "テックニュース" if news_source == "hatena_bookmark" else "ニュースのとなり"
     )
 
@@ -329,6 +331,7 @@ def run_radio_pipeline(
                 program_settings=profile,
                 max_articles=effective_max_articles,
                 min_importance_score=effective_min_score,
+                program_profile=program_profile,
             )
             script_kwargs.update(llm_provider=content_llm.name, llm_model=content_llm.model)
             line_count = generate_script(script_path, **script_kwargs)
@@ -389,6 +392,7 @@ def run_radio_pipeline(
                     commentary=False,
                     llm_provider=content_llm.name, llm_model=content_llm.model,
                     summaries_path=summaries_path,
+                    program_profile=program_profile,
                 )
             else:
                 logger.warning("review skipped because content LLM is unavailable")
@@ -416,6 +420,7 @@ def run_radio_pipeline(
                 output_dir=base_dir,
                 program_name=effective_program_name,
                 prior_review_result=review_result,
+                program_profile=program_profile,
             )
         # 最終台本をrevisionとして保持する。revision番号はepisode単位で単調増加。
         try:
