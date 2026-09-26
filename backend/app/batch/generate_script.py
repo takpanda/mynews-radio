@@ -1449,13 +1449,24 @@ def generate_script(
                 base_prompt = base_prompt.replace("ニュースのとなり", program_name)
         else:
             rendered_script_prompt = None
+            profile_instructions = narrative_arc_section
+            if prompt_version_id is not None:
+                rendered_script_prompt = render_prompt(
+                    "generate_radio_script",
+                    {"narrative_arc_section": narrative_arc_section, "summaries_json": summaries_json},
+                    program_id=prompt_program_id,
+                    version_id=prompt_version_id,
+                )
+                profile_instructions = "\n\n".join(
+                    part for part in (narrative_arc_section, rendered_script_prompt.text) if part
+                )
             base_prompt = prompt_builder.build_profile_prompt(
                 task_description=(
                     f"与えられたニュース要約一覧から、番組「{prompt_profile.name}」の"
                     "ラジオ台本を日本語で作成してください。"
                 ),
                 input_description=f"# ニュース要約一覧\n{summaries_json}",
-                additional_instructions=narrative_arc_section,
+                additional_instructions=profile_instructions,
             )
 
         _MAX_LINT_RETRIES = int(os.getenv("SCRIPT_LINT_RETRIES", "3"))

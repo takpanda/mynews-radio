@@ -158,6 +158,9 @@ def enqueue_job(
         active_count = conn.execute(
             "SELECT COUNT(*) AS count FROM generation_jobs WHERE status = 'active'"
         ).fetchone()["count"]
+        waiting_count = conn.execute(
+            "SELECT COUNT(*) AS count FROM generation_jobs WHERE status = 'waiting'"
+        ).fetchone()["count"]
         queued_count = conn.execute(
             "SELECT COUNT(*) AS count FROM generation_jobs j "
             "LEFT JOIN admin_users u ON u.id = j.owner_user_id "
@@ -165,7 +168,7 @@ def enqueue_job(
             (SYSTEM_OWNER_USERNAME,),
         ).fetchone()["count"]
         system_owner = _is_system_owner(conn, owner_user_id)
-        if active_count or queued_count:
+        if active_count or waiting_count:
             status = "waiting"
             if not system_owner and queued_count >= _configured_queue_limit():
                 insert_audit_log(

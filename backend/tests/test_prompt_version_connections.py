@@ -115,6 +115,56 @@ def test_radio_without_episode_uses_common_scope_for_default_profile(monkeypatch
     assert [context["prompt_version_id"] for _, context in client.calls] == [500, 501]
 
 
+def test_profile_prompt_includes_requested_draft_version(monkeypatch, tmp_path):
+    from app.batch import generate_script as generation
+    from app.db.connection import get_db_connection
+    from app.programs.profiles import ProgramCastMember, ProgramOptions, ProgramProfile, ProgramSegment
+    from app.prompts.definitions import PROMPT_TEMPLATE_DEFINITIONS
+
+    profile = ProgramProfile(
+        id="radio_draft_profile", name="一人番組", kind="radio",
+        cast=(ProgramCastMember(key="host", name="司会"),),
+        segments=(
+            ProgramSegment("intro", "intro", 0, 1, 1, ("host",)),
+            ProgramSegment("news", "news", 1, 1, 2, ("host",)),
+            ProgramSegment("outro", "outro", 2, 1, 1, ("host",)),
+        ),
+        options=ProgramOptions(narrative_arc=False),
+    )
+    definition = PROMPT_TEMPLATE_DEFINITIONS["generate_radio_script"]
+    with get_db_connection() as conn:
+        template_id = conn.execute(
+            "INSERT INTO prompt_templates(template_key, program_id, required_variables, allowed_variables) "
+            "VALUES (?, ?, ?, ?)",
+            ("generate_radio_script", profile.id, json.dumps(definition["required_variables"]),
+             json.dumps(definition["allowed_variables"])),
+        ).lastrowid
+        version_id = conn.execute(
+            "INSERT INTO prompt_versions(template_id, version, content, status) VALUES (?, 1, ?, 'draft')",
+            (template_id, "DRAFT_PROMPT_MARKER: follow this draft rule\n{narrative_arc_section}\n{summaries_json}"),
+        ).lastrowid
+
+    client = _ContextClient([{"title": "test", "lines": [
+        {"speaker": "host", "text": "記事を説明します。", "article_id": 1,
+         "section": "news", "segment": "news"},
+    ]}])
+    monkeypatch.setattr(generation, "create_llm_client", lambda *_args: client)
+    monkeypatch.setattr(
+        generation.ArticleService, "fetch_summaries_for_script",
+        lambda *_args, **_kwargs: [{"id": 1, "title": "article", "summary": "summary"}],
+    )
+    monkeypatch.setattr(generation, "lint_script", lambda *_args, **_kwargs: [])
+
+    generation.generate_script(
+        str(tmp_path / "profile-draft.json"), program_profile=profile,
+        prompt_version_id=version_id, use_program_prompt_scope=True, mark_articles=False,
+        llm_provider="test", llm_model="model",
+    )
+
+    assert "DRAFT_PROMPT_MARKER: follow this draft rule" in client.calls[0][0]
+    assert client.calls[0][1]["prompt_version_id"] == version_id
+
+
 def test_commentary_without_episode_uses_common_scope_and_logs_version(monkeypatch, tmp_path):
     from app.batch import generate_commentary_script as generation
 
