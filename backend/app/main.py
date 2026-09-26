@@ -147,6 +147,10 @@ def _apply_db_migrations() -> None:
         from app.db.migration import migrate_llm_call_logs
         migrate_llm_call_logs(conn)
 
+        # 初回は既存プロンプトファイルを共通active版として登録する。
+        from app.db.migration import migrate_prompt_templates
+        migrate_prompt_templates(conn)
+
         # 生成監査ログの拡張（既存DBにも安全に適用）
         for column, definition in (
             ("actor_user_id", "INTEGER"),
