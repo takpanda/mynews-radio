@@ -307,6 +307,51 @@ describe('AdminPromptDetailShell', () => {
     expect(screen.queryByText(/対象の過去回ID/)).not.toBeInTheDocument()
   })
 
+  it('通信中に過去回IDを変更すると、変更前のリクエストへの遅延応答は結果に反映されない', async () => {
+    let resolveFirst: ((value: unknown) => void) | undefined
+    ;(global.fetch as jest.Mock)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve
+          }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, { version_id: 9, episode_id: 6, template_key: 'category', prompt: '6回目の本文' }),
+      )
+    const user = userEvent.setup()
+    render(
+      <AdminPromptDetailShell
+        promptId={1}
+        templateKey="category"
+        programId={null}
+        programName={null}
+        programKind={null}
+        radioPrograms={[]}
+        requiredVariables={['categories', 'source']}
+        allowedVariables={['categories', 'source']}
+        initialVersions={initialVersions}
+      />,
+    )
+
+    const inputs = screen.getAllByLabelText(/の展開プレビュー用過去回ID/)
+    await user.type(inputs[1], '5')
+    await user.click(screen.getAllByRole('button', { name: 'この版で展開プレビューを実行' })[1])
+
+    // ID=5への応答がまだ届かないうちにIDを変更し、ID=6で改めて実行する
+    await user.clear(inputs[1])
+    await user.type(inputs[1], '6')
+    await user.click(screen.getAllByRole('button', { name: 'この版で展開プレビューを実行' })[1])
+    expect(await screen.findByText('6回目の本文')).toBeInTheDocument()
+
+    // ID=5への遅延応答が今ごろ届いても、既に表示中のID=6の結果を上書きしない
+    resolveFirst?.(jsonResponse(200, { version_id: 9, episode_id: 5, template_key: 'category', prompt: '5回目の本文' }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(screen.getByText('6回目の本文')).toBeInTheDocument()
+    expect(screen.queryByText('5回目の本文')).not.toBeInTheDocument()
+    expect(screen.getByText('対象の過去回ID: 6')).toBeInTheDocument()
+  })
+
   it('番組固有テンプレートでは対象番組の現在の運用結果も確認できる', async () => {
     ;(global.fetch as jest.Mock).mockResolvedValueOnce(
       jsonResponse(200, { program_id: 'radio-test', episode_id: 5, template_key: 'category', version_id: 10, prompt: '運用中の本文' }),

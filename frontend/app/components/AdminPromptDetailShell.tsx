@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, type MutableRefObject } from 'react'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 import {
@@ -98,6 +98,9 @@ export default function AdminPromptDetailShell({
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  // 過去回IDが変わった後に前の回への応答が届いても上書きしないよう、行・種別ごとに直近のリクエストだけを採用する。
+  const renderSeqRef = useRef<Record<number, number>>({})
+  const prodSeqRef = useRef<Record<number, number>>({})
 
   const target = programId === null ? '共通' : programName ?? programId
   const currentActive = versions.find((v) => v.status === 'active') ?? null
@@ -142,13 +145,24 @@ export default function AdminPromptDetailShell({
     }
   }
 
+  const bumpSeq = (ref: MutableRefObject<Record<number, number>>, versionId: number): number => {
+    const next = (ref.current[versionId] ?? 0) + 1
+    ref.current[versionId] = next
+    return next
+  }
+
   const handleEpisodeIdChange = (versionId: number, value: string) => {
     // 入力中のIDと表示中の結果が食い違って別回の結果を取り違えないよう、ID変更時は前回の結果を破棄する。
+    // seqも進めて、変更前に開始した通信中のリクエストが後から届いても古い結果で上書きしないようにする。
+    bumpSeq(renderSeqRef, versionId)
+    bumpSeq(prodSeqRef, versionId)
     updatePreview(versionId, {
       episodeId: value,
+      loading: false,
       prompt: null,
       error: null,
       resultEpisodeId: null,
+      prodLoading: false,
       prodPrompt: null,
       prodError: null,
       prodVersionId: null,
@@ -159,14 +173,18 @@ export default function AdminPromptDetailShell({
   const runRenderPreview = async (versionId: number) => {
     const episodeId = parseEpisodeId(getPreview(versionId).episodeId)
     if (episodeId === null) {
+      bumpSeq(renderSeqRef, versionId)
       updatePreview(versionId, { error: '過去回IDは1以上の整数で入力してください。', prompt: null, resultEpisodeId: null })
       return
     }
+    const seq = bumpSeq(renderSeqRef, versionId)
     updatePreview(versionId, { loading: true, error: null })
     try {
       const result = await renderPromptVersion(versionId, episodeId)
+      if (renderSeqRef.current[versionId] !== seq) return
       updatePreview(versionId, { loading: false, prompt: result.prompt, resultEpisodeId: episodeId })
     } catch (err) {
+      if (renderSeqRef.current[versionId] !== seq) return
       updatePreview(versionId, {
         loading: false,
         prompt: null,
@@ -180,6 +198,7 @@ export default function AdminPromptDetailShell({
     if (!programId) return
     const episodeId = parseEpisodeId(getPreview(versionId).episodeId)
     if (episodeId === null) {
+      bumpSeq(prodSeqRef, versionId)
       updatePreview(versionId, {
         prodError: '過去回IDは1以上の整数で入力してください。',
         prodPrompt: null,
@@ -187,9 +206,11 @@ export default function AdminPromptDetailShell({
       })
       return
     }
+    const seq = bumpSeq(prodSeqRef, versionId)
     updatePreview(versionId, { prodLoading: true, prodError: null })
     try {
       const result = await previewProgramPrompt(programId, templateKey, episodeId)
+      if (prodSeqRef.current[versionId] !== seq) return
       updatePreview(versionId, {
         prodLoading: false,
         prodVersionId: result.version_id,
@@ -197,6 +218,7 @@ export default function AdminPromptDetailShell({
         prodResultEpisodeId: episodeId,
       })
     } catch (err) {
+      if (prodSeqRef.current[versionId] !== seq) return
       updatePreview(versionId, {
         prodLoading: false,
         prodPrompt: null,
