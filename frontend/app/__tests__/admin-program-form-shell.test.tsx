@@ -138,7 +138,7 @@ describe('AdminProgramFormShell', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
-  it('種別をradioからcommentaryへ変更すると、narrative_arcが自動でオフになり、非対応セグメント種類が置き換わる', async () => {
+  it('種別をradioからcommentaryへ変更すると、narrative_arcは自動でオフになるが、非対応セグメント種類は自動変換せず保存をブロックする', async () => {
     const user = userEvent.setup()
     const program = baseProgram(1)
     program.options.narrative_arc = true
@@ -152,18 +152,25 @@ describe('AdminProgramFormShell', () => {
     // commentary用のオプションUIに切り替わり、narrative_arcチェックボックスは表示されない
     expect(screen.queryByRole('checkbox', { name: '物語構成（narrative_arc）を使う' })).not.toBeInTheDocument()
 
-    const savedProgram: ProgramDefinitionValue = {
-      ...program,
-      kind: 'commentary',
-      segments: [{ ...program.segments[0], kind: 'intro' }],
-      options: { ...program.options, narrative_arc: false },
-    }
+    // セグメント種類は自動変換されず、元の値（つなぎ=transition）のまま「使用できません」と明示される
+    expect(screen.getByText((_, el) => el?.tagName === 'OPTION' && el.textContent === 'つなぎ（現在の種別では使用できません）')).toBeInTheDocument()
+    expect(screen.getByText('種類を選び直してください')).toBeInTheDocument()
+
+    // 直さずに保存しようとすると、種類の選び直しを促すエラーで保存はブロックされる（確認ダイアログは開かない）
+    await user.click(screen.getByRole('button', { name: '保存する' }))
+    expect(await screen.findByText(/は種別「解説」では使用できません/)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(global.fetch).not.toHaveBeenCalled()
+
+    // セグメントの種類を管理者自身が有効な値へ選び直すと保存できる
+    await user.selectOptions(screen.getByDisplayValue('つなぎ（現在の種別では使用できません）'), 'news')
+
     ;(global.fetch as jest.Mock).mockResolvedValueOnce(
       jsonResponse(200, {
-        id: savedProgram.id,
-        name: savedProgram.name,
-        kind: savedProgram.kind,
-        definition: savedProgram,
+        id: program.id,
+        name: program.name,
+        kind: 'commentary',
+        definition: { ...program, kind: 'commentary', segments: [{ ...program.segments[0], kind: 'news' }], options: { ...program.options, narrative_arc: false } },
         is_active: true,
         created_at: '',
         updated_at: '',
@@ -176,16 +183,14 @@ describe('AdminProgramFormShell', () => {
     await user.click(within(dialog).getByRole('button', { name: '保存する' }))
 
     await waitFor(() => expect(global.fetch).toHaveBeenCalled())
-    const [, options] = (global.fetch as jest.Mock).mock.calls[0]
-    const sentBody = JSON.parse(options.body as string)
+    const [, fetchOptions] = (global.fetch as jest.Mock).mock.calls[0]
+    const sentBody = JSON.parse(fetchOptions.body as string)
     expect(sentBody.kind).toBe('commentary')
     expect(sentBody.options.narrative_arc).toBe(false)
-    // commentaryが許可しない'transition'は許可された種類へ置き換わっている
-    expect(sentBody.segments[0].kind).not.toBe('transition')
-    expect(['intro', 'headline', 'news', 'corner', 'outro']).toContain(sentBody.segments[0].kind)
+    expect(sentBody.segments[0].kind).toBe('news')
   })
 
-  it('新規作成は確認ダイアログなしでPOSTを送信する', async () => {
+  it('新規作成は確認ダイアログなしで、cast/segments/optionsを含むPOSTを送信する', async () => {
     ;(global.fetch as jest.Mock).mockResolvedValueOnce(
       jsonResponse(201, {
         id: 'p2',
@@ -207,6 +212,18 @@ describe('AdminProgramFormShell', () => {
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/admin/programs', expect.objectContaining({ method: 'POST' })))
+
+    const [, fetchOptions] = (global.fetch as jest.Mock).mock.calls[0]
+    const sentBody = JSON.parse(fetchOptions.body as string)
+    expect(sentBody).toMatchObject({
+      id: 'p2',
+      name: '新番組',
+      kind: 'radio',
+      is_active: true,
+      cast: [{ key: 'male', name: '田村', role: 'メインMC' }],
+      segments: [],
+      options: { review_mode: 'on_failure', narrative_arc: false, style: null, mc_gender: null },
+    })
   })
 
   it('編集フォームはPCのみ、閲覧サマリーはスマホのみ表示するクラス構成になっている', () => {

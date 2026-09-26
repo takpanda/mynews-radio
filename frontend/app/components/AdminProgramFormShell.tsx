@@ -65,9 +65,15 @@ function validate(program: ProgramDefinitionValue): string | null {
   const segmentIds = program.segments.map((segment) => segment.id.trim())
   if (segmentIds.some((id) => !id)) return 'セグメントのIDは必須です'
   if (new Set(segmentIds).size !== segmentIds.length) return 'セグメントのIDが重複しています'
+  const allowedKinds = SEGMENT_KINDS_BY_PROGRAM_KIND[program.kind]
   for (const segment of program.segments) {
     if (segment.min_lines < 0 || segment.max_lines < segment.min_lines) {
       return `セグメント「${segment.id || segment.label}」の行数範囲が不正です`
+    }
+    if (!allowedKinds.includes(segment.kind)) {
+      return `セグメント「${segment.id || segment.label}」の種類（${SEGMENT_KIND_LABELS[segment.kind] ?? segment.kind}）は種別「${
+        KIND_LABEL[program.kind]
+      }」では使用できません。セグメントの種類を選び直してください`
     }
   }
   return null
@@ -139,16 +145,15 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
   const handleKindChange = (nextKind: ProgramKind) => {
     setKind(nextKind)
     // commentaryはnarrative_arcを受け付けない（validate_program_profile）。
-    // チェックボックスはradioのときしか表示できないため、切り替え時に自動で落とす。
+    // チェックボックスはradioのときしか表示できないため、切り替え時に自動で落とす
+    // （falseは常に両種別で有効な値なので、無条件に落として問題ない）。
     if (nextKind === 'commentary') {
       setOptions((prev) => (prev.narrative_arc ? { ...prev, narrative_arc: false } : prev))
     }
-    // 新しい種別で使えないセグメント種類（例: radioのtransition/discussion）が
-    // 残ると保存時に422になるため、許可された種類へ置き換える。
-    const allowed = SEGMENT_KINDS_BY_PROGRAM_KIND[nextKind]
-    setSegments((prev) =>
-      prev.map((segment) => (allowed.includes(segment.kind) ? segment : { ...segment, kind: allowed[0] })),
-    )
+    // セグメントの種類（例: radio専用のtransition/discussion）は、どの種類に
+    // 置き換えるべきかが元の意味によって異なり自動では決められないため、
+    // ここでは変更しない。選べなくなった種類は選択肢に残し、下のvalidate()で
+    // 保存をブロックして管理者に選び直してもらう。
   }
 
   const buildPayload = (): ProgramDefinitionValue => ({
@@ -388,14 +393,26 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
                     <select
                       value={segment.kind}
                       onChange={(e) => updateSegment(index, { kind: e.target.value })}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                      className={`w-full rounded-lg border px-2 py-1.5 text-sm ${
+                        allowedSegmentKinds.includes(segment.kind)
+                          ? 'border-slate-200 bg-white'
+                          : 'border-red-300 bg-red-50'
+                      }`}
                     >
+                      {!allowedSegmentKinds.includes(segment.kind) && (
+                        <option value={segment.kind}>
+                          {(SEGMENT_KIND_LABELS[segment.kind] ?? segment.kind) + '（現在の種別では使用できません）'}
+                        </option>
+                      )}
                       {allowedSegmentKinds.map((k) => (
                         <option key={k} value={k}>
                           {SEGMENT_KIND_LABELS[k] ?? k}
                         </option>
                       ))}
                     </select>
+                    {!allowedSegmentKinds.includes(segment.kind) && (
+                      <p className="mt-1 text-xs text-red-600">種類を選び直してください</p>
+                    )}
                   </div>
                   <LabeledNumberInput
                     label="最小行数"
