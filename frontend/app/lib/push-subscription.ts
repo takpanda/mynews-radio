@@ -49,6 +49,16 @@ export async function getSubscriptionState(): Promise<SubscriptionState> {
       const registration = await navigator.serviceWorker.ready
       const realSub = await registration.pushManager.getSubscription()
       if (realSub) {
+        // 移行前の購読を、管理者セッションがある場合にサーバー側で再紐付けする。
+        // 未認証の呼び出しは失敗しても購読状態の表示に影響させない。
+        try {
+          await fetch('/api/push/subscriptions/associate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ subscription_id: storedId }),
+          })
+        } catch {
+        }
         return { status: 'subscribed', subscriptionId: storedId }
       }
     } catch {

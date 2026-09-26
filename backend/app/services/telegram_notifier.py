@@ -70,3 +70,12 @@ def notify_failure(*, episode_id: int, phase: str, error: Any) -> bool:
         f"エラー概要: {sanitize_error(error)}"
     )
     return _send_message(text)
+
+
+def notify_review_needed(*, episode_id: int) -> bool:
+    """台本確認待ちを管理画面へのリンク付きで通知する。"""
+    settings = get_settings()
+    url = f"{settings.public_base_url.rstrip('/')}/admin/episodes/{episode_id}/review"
+    return _send_message(
+        f"📝 Mynews-Radio 台本の確認待ち\nエピソード番号: {episode_id}\n確認画面: {url}"
+    )

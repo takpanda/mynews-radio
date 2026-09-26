@@ -221,7 +221,7 @@ def promote_next_job() -> JobClaim | None:
         if conn.execute("SELECT 1 FROM generation_jobs WHERE status = 'active' LIMIT 1").fetchone():
             return None
         row = conn.execute(
-            "SELECT id, episode_id, payload FROM generation_jobs "
+            "SELECT id, episode_id, payload, operation FROM generation_jobs "
             "WHERE status = 'waiting' ORDER BY id ASC LIMIT 1"
         ).fetchone()
         if not row:
@@ -234,8 +234,9 @@ def promote_next_job() -> JobClaim | None:
             return None
         if row["episode_id"] is not None:
             conn.execute(
-                "UPDATE episodes SET status = 'generating', updated_at = CURRENT_TIMESTAMP "
-                "WHERE id = ? AND status = 'waiting'", (row["episode_id"],)
+                "UPDATE episodes SET status = ?, updated_at = CURRENT_TIMESTAMP "
+                "WHERE id = ? AND status = 'waiting'",
+                ("synthesizing" if row["operation"] == "synthesize" else "generating", row["episode_id"]),
             )
         conn.execute(
             "UPDATE audit_logs SET started_at = CURRENT_TIMESTAMP, episode_id = COALESCE(episode_id, ?) "

@@ -34,7 +34,8 @@ from app.services.article_service import ArticleService, write_fallback_summarie
 from app.services.episode_service import EpisodeService, retry_on_busy, override_script_title, build_radio_title
 from app.services.settings_service import resolve_tts_speakers
 from app.config import get_settings
-from app.services.telegram_notifier import notify_failure, notify_success
+from app.services.telegram_notifier import notify_failure, notify_success, notify_review_needed
+from app.services.script_review_service import move_episode_to_awaiting_review
 
 logger = logging.getLogger(__name__)
 
@@ -56,12 +57,27 @@ def _set_episode_status(episode_id: int, status: str) -> None:
         )
 
 
-def _hold_episode_for_human_review(episode_id: int, reason: str) -> None:
+def _hold_episode_for_human_review(episode_id: int, reason: str) -> bool:
+    return move_episode_to_awaiting_review(episode_id, reason)
+
+
+def _episode_review_mode(episode_id: int) -> str:
     with get_db_connection() as conn:
+        row = conn.execute("SELECT review_mode FROM episodes WHERE id = ?", (episode_id,)).fetchone()
+    return (row["review_mode"] if row else None) or "on_failure"
+
+
+def _record_script_revision(episode_id: int, script_path: str, source: str) -> None:
+    import json
+    with open(script_path, "r", encoding="utf-8") as f:
+        encoded = json.dumps(json.load(f), ensure_ascii=False)
+    with get_db_connection() as conn:
+        revision = conn.execute(
+            "SELECT COALESCE(MAX(revision), 0) + 1 FROM script_revisions WHERE episode_id = ?", (episode_id,),
+        ).fetchone()[0]
         conn.execute(
-            "UPDATE episodes SET status = 'failed', phase = 'human_review', "
-            "generation_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (reason, episode_id),
+            "INSERT INTO script_revisions(episode_id, revision, script_json, source) VALUES (?, ?, ?, ?)",
+            (episode_id, revision, encoded, source),
         )
 
 
@@ -190,7 +206,9 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
             logger.warning("review_script failed (non-fatal): %s", _rev_exc)
 
         # Review後の台本を音声化へ渡す前に、共通の最終品質ゲートを通す。
-        if should_run_final_validation(script_path, review_result):
+        review_mode = _episode_review_mode(episode_id)
+        final_validation = None
+        if review_mode == "always" or should_run_final_validation(script_path, review_result):
             logger.info("=== Final validation (before synthesis) ===")
             final_validation = validate_final_script_file(
                 script_path,
@@ -199,12 +217,31 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
                 program_name=program_name,
                 prior_review_result=review_result,
             )
-            if not final_validation["can_synthesize"]:
+        try:
+            _record_script_revision(episode_id, script_path, "reviewed" if review_result.get("revised") else "generated")
+        except Exception:
+            logger.exception("[%d] failed to persist generated script revision", episode_id)
+            _set_episode_status(episode_id, "failed")
+            _notify_failure("script_revision", "生成台本の保存に失敗しました")
+            return
+
+        has_errors = bool(final_validation and not final_validation["can_synthesize"])
+        if review_mode == "always" or (review_mode == "on_failure" and has_errors):
+            if has_errors:
                 reason = human_review_message(final_validation)
-                _hold_episode_for_human_review(episode_id, reason)
-                _notify_failure("human_review", reason)
-                logger.error("[%d] final validation requires human review: %s", episode_id, reason)
-                return
+            else:
+                reason = "管理者による台本確認が必要です"
+            if _hold_episode_for_human_review(episode_id, reason):
+                try:
+                    notify_review_needed(episode_id=episode_id)
+                except Exception:
+                    logger.warning("[%d] review notification could not be sent", episode_id)
+            logger.info("[%d] awaiting administrator script review", episode_id)
+            return
+        if review_mode == "auto" and has_errors:
+            _set_episode_status(episode_id, "failed")
+            _notify_failure("final_validation", human_review_message(final_validation))
+            return
 
         # Step 5: synthesize_voicevox
         logger.info("=== Step 5/5: synthesize_voicevox ===")

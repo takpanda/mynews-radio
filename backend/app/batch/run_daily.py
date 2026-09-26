@@ -119,6 +119,10 @@ def run_daily_job(job) -> bool:
         logger.info("=== daily batch complete - no new articles ===")
         _write_manifest(status="done")
         return True
+    if metadata is PipelineResult.REVIEW_REQUIRED:
+        logger.info("=== daily batch complete - awaiting script review (episode %d) ===", episode_id)
+        _write_manifest(status="awaiting_review")
+        return True
     if metadata is not None:
         logger.info("=== daily batch complete - %s ===", metadata.get("title", f"episode {episode_id}"))
         print(json.dumps(metadata, ensure_ascii=False, indent=2))

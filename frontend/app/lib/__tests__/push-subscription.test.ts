@@ -135,10 +135,16 @@ describe('getSubscriptionState', () => {
       writable: true,
       configurable: true,
     })
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 204 })
 
     const state = await getSubscriptionState()
     expect(state.status).toBe('subscribed')
     expect(state.subscriptionId).toBe('test-id-123')
+    expect(global.fetch).toHaveBeenCalledWith('/api/push/subscriptions/associate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscription_id: 'test-id-123' }),
+    })
   })
 
   it('clears stale stored ID when real subscription is gone', async () => {

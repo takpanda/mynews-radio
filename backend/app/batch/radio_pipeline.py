@@ -21,6 +21,7 @@ from app.batch.review_script import review_script
 from app.batch.summarize_articles import summarize_articles
 from app.batch.synthesize_voicevox import synthesize_episode
 from app.config import get_settings
+from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService, override_script_title, build_radio_title
 from app.services.article_service import ArticleService, write_fallback_summaries
 from app.services.episode_category_service import select_episode_categories
@@ -31,7 +32,8 @@ from app.services.settings_service import (
     resolve_category_female_voice,
     resolve_tts_speakers,
 )
-from app.services.telegram_notifier import notify_failure, notify_success
+from app.services.telegram_notifier import notify_failure, notify_success, notify_review_needed
+from app.services.script_review_service import move_episode_to_awaiting_review
 
 
 def _extract_key_points(script: dict, summaries_path: str) -> list[str]:
@@ -83,10 +85,20 @@ DEFAULT_EPISODES_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
 ProgressCallback = Optional[Callable[[str, str], None]]
 
 
+def _review_state(review_mode: str, passed: bool) -> str:
+    """最終チェック結果とepisodeに固定されたreview_modeから次状態を返す。"""
+    if review_mode == "always":
+        return "awaiting_review"
+    if passed:
+        return "synthesizing"
+    return "failed" if review_mode == "auto" else "awaiting_review"
+
+
 class PipelineResult(Enum):
     """パイプラインの完了結果（通常の成功 metadata 以外）。"""
 
     NO_CONTENT = "no_content"
+    REVIEW_REQUIRED = "review_required"
 
 
 def _resolve_max_articles(max_articles: int | None, settings_params: dict[str, Any]) -> int:
@@ -166,6 +178,8 @@ def run_radio_pipeline(
     Episode status is updated to "completed" on success or "failed" on error.
     """
     service = EpisodeService()
+    episode_record = service.get_episode(episode_id) or {}
+    review_mode = episode_record.get("review_mode") or "on_failure"
     profile = program_settings or get_settings_or_default()
     from app.services.llm_provider import (
         resolve_pipeline_llm_selection,
@@ -393,7 +407,8 @@ def run_radio_pipeline(
             override_script_title(script_path, effective_program_name, episode_date, seq)
 
         # -- FINAL VALIDATION (after review, before TTS) --
-        if should_run_final_validation(script_path, review_result):
+        final_validation = None
+        if review_mode == "always" or should_run_final_validation(script_path, review_result):
             _progress(FINAL_VALIDATION_PHASE, "レビュー後の台本を最終確認しています…")
             final_validation = validate_final_script_file(
                 script_path,
@@ -402,12 +417,42 @@ def run_radio_pipeline(
                 program_name=effective_program_name,
                 prior_review_result=review_result,
             )
-            if not final_validation["can_synthesize"]:
-                reason = human_review_message(final_validation)
-                service.hold_for_human_review(episode_id, reason)
-                logger.error("[%d] final validation requires human review: %s", episode_id, reason)
-                _notify_failure("human_review", reason)
-                return None
+        # 最終台本をrevisionとして保持する。revision番号はepisode単位で単調増加。
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                script_revision = json.load(f)
+            with get_db_connection() as conn:
+                current = conn.execute("SELECT COALESCE(MAX(revision), 0) AS revision FROM script_revisions WHERE episode_id=?", (episode_id,)).fetchone()["revision"]
+                conn.execute(
+                    "INSERT INTO script_revisions(episode_id, revision, script_json, source) VALUES (?, ?, ?, ?)",
+                    (episode_id, current + 1, json.dumps(script_revision, ensure_ascii=False), "reviewed" if review_result.get("revised") else "generated"),
+                )
+        except Exception:
+            logger.exception("[%d] failed to persist generated script revision", episode_id)
+            service.update_episode_status(episode_id, "failed")
+            service.update_episode_phase(episode_id, "failed", "生成台本の保存に失敗しました")
+            _notify_failure("script_revision", "生成台本の保存に失敗しました")
+            return None
+
+        has_validation_errors = bool(final_validation and not final_validation["can_synthesize"])
+        next_review_state = _review_state(review_mode, not has_validation_errors)
+        if next_review_state == "awaiting_review":
+            reason = human_review_message(final_validation) if has_validation_errors else "管理者による台本確認が必要です"
+            transitioned = move_episode_to_awaiting_review(episode_id, reason)
+            if transitioned:
+                try:
+                    notify_review_needed(episode_id=episode_id)
+                except Exception:
+                    logger.warning("[%d] Telegram review notification could not be sent", episode_id)
+            logger.info("[%d] awaiting administrator script review", episode_id)
+            return PipelineResult.REVIEW_REQUIRED
+        if next_review_state == "failed":
+            reason = human_review_message(final_validation)
+            service.update_episode_status(episode_id, "failed")
+            _notify_failure("final_validation", reason)
+            return None
+
+        if final_validation:
             if final_validation["warnings"]:
                 logger.warning(
                     "[%d] final validation passed with %d warning(s)",

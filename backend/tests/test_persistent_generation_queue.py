@@ -2,6 +2,7 @@
 
 import sqlite3
 import threading
+from unittest.mock import patch
 
 import pytest
 
@@ -84,6 +85,47 @@ def test_generate_api_returns_waiting_when_another_job_is_active(client, monkeyp
     assert episode["status"] == "waiting"
     with get_db_connection() as conn:
         conn.execute("UPDATE generation_jobs SET status = 'failed' WHERE id = ?", (active.job_id,))
+
+
+def test_generate_api_marks_review_required_job_and_audit_success(client):
+    import threading
+    from app.api import generate as generate_api
+    from app.batch.radio_pipeline import PipelineResult
+    from app.services.episode_service import EpisodeService
+
+    def mark_awaiting_review(episode_id, **_kwargs):
+        EpisodeService().update_episode_status(episode_id, "awaiting_review")
+        return PipelineResult.REVIEW_REQUIRED
+
+    finalized = threading.Event()
+    finish_generation_job = generate_api._finish_generation_job
+
+    def finish_and_signal(job_id, success, *, dispatch):
+        result = finish_generation_job(job_id, success, dispatch=dispatch)
+        finalized.set()
+        return result
+
+    with patch.object(generate_api, "run_radio_pipeline", mark_awaiting_review), \
+         patch.object(generate_api, "_finish_generation_job", finish_and_signal):
+        response = client.post(
+            "/generate",
+            json={"date": "2099-02-12"},
+            headers={"Idempotency-Key": "api-review-required"},
+        )
+        assert finalized.wait(timeout=2)
+
+    assert response.status_code == 200
+    episode_id = response.json()["episode_id"]
+    with get_db_connection() as conn:
+        episode = conn.execute("SELECT status FROM episodes WHERE id=?", (episode_id,)).fetchone()
+        job = conn.execute("SELECT id, status FROM generation_jobs WHERE episode_id=?", (episode_id,)).fetchone()
+        audit = conn.execute(
+            "SELECT result FROM audit_logs WHERE generation_job_id=? ORDER BY id DESC LIMIT 1",
+            (job["id"],),
+        ).fetchone()
+    assert episode["status"] == "awaiting_review"
+    assert job["status"] == "completed"
+    assert audit["result"] == "success"
 
 
 def test_promotion_is_conditional_and_keeps_old_rows(client):
