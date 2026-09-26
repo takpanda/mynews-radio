@@ -173,12 +173,21 @@ describe('AdminScriptReviewShell 保存', () => {
 
   it('保存中は行の編集操作を無効化し、送信後の入力で表示内容が失われない', async () => {
     const user = userEvent.setup()
-    let resolvePut: (value: unknown) => void = () => {}
-    const putResponse = new Promise((resolve) => {
+    let resolvePut: () => void = () => {}
+    const putResponse = new Promise<void>((resolve) => {
       resolvePut = resolve
     })
+    let submittedScript: AdminScriptReviewScript | null = null
     global.fetch = jest.fn().mockImplementation((_url: string, options?: RequestInit) => {
-      if (options?.method === 'PUT') return putResponse
+      if (options?.method === 'PUT') {
+        // 実APIは送信した台本をそのまま返すため、モックでもリクエスト本文をレスポンスに反映する
+        submittedScript = (JSON.parse(options.body as string) as { script: AdminScriptReviewScript }).script
+        return putResponse.then(() => ({
+          ok: true,
+          status: 200,
+          json: async () => ({ episode_id: 1, revision: 2, script: submittedScript }),
+        }))
+      }
       return Promise.resolve({ ok: true, status: 200, json: async () => ({ episode_id: 1, revision: 2, script: baseScript() }) })
     }) as unknown as typeof fetch
 
@@ -198,9 +207,12 @@ describe('AdminScriptReviewShell 保存', () => {
     fireEvent.change(firstTextarea, { target: { value: '保存中に紛れ込んだ入力' } })
     expect(firstTextarea.value).toBe(valueBeforeBypass)
 
-    resolvePut({ ok: true, status: 200, json: async () => ({ episode_id: 1, revision: 2, script: baseScript() }) })
+    resolvePut()
     await waitFor(() => expect(firstTextarea).not.toBeDisabled())
     expect(screen.getByText(/版: 2/)).toBeInTheDocument()
+    // 保存前に入力していた内容（追記）が応答後も画面に残っており、失われていないこと
+    expect(screen.getByDisplayValue(/追記$/)).toBeInTheDocument()
+    expect(screen.queryByDisplayValue(/保存中に紛れ込んだ入力/)).not.toBeInTheDocument()
   })
 })
 
