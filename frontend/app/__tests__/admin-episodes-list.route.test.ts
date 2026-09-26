@@ -22,6 +22,21 @@ describe('/api/admin/episodes Route Handler', () => {
     expect(global.fetch).not.toHaveBeenCalled()
   })
 
+  it('Cookieがあっても/admin/meが401を返す失効セッションでは、業務APIを呼ばず401を返す', async () => {
+    ;(global.fetch as jest.Mock).mockResolvedValueOnce(upstream(401, '{"detail":"Not authenticated"}'))
+
+    const response = await GET(
+      request('http://localhost/api/admin/episodes?status=awaiting_review', 'admin_session=expired-token'),
+    )
+
+    expect(response.status).toBe(401)
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/admin/me'),
+      expect.objectContaining({ headers: { Cookie: 'admin_session=expired-token' } }),
+    )
+  })
+
   it('有効Cookieはstatusクエリを維持したまま上流の一覧APIへ転送する', async () => {
     const body = JSON.stringify([{ id: 1, episode_date: '2026-09-20', seq: 1, status: 'awaiting_review' }])
     ;(global.fetch as jest.Mock)

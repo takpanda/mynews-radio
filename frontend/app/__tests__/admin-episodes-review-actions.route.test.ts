@@ -123,6 +123,22 @@ describe('/api/admin/episodes/[id]/lines/[idx]/preview-audio Route Handler', () 
     expect(global.fetch).not.toHaveBeenCalled()
   })
 
+  it('Cookieがあっても/admin/meが401を返す失効セッションでは、試し聴き（レート制限消費を伴う）APIを呼ばず401を返す', async () => {
+    ;(global.fetch as jest.Mock).mockResolvedValueOnce({
+      status: 401,
+      ok: false,
+      text: () => Promise.resolve('{"detail":"Not authenticated"}'),
+    })
+
+    const response = await POST_PREVIEW(
+      request2('http://localhost/api/admin/episodes/7/lines/0/preview-audio', 'admin_session=expired-token'),
+      { params: Promise.resolve({ id: '7', idx: '0' }) },
+    )
+
+    expect(response.status).toBe(401)
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+  })
+
   it('成功時はWAV本体とContent-Typeをそのまま転送する', async () => {
     const wavBytes = new Uint8Array([1, 2, 3, 4]).buffer
     ;(global.fetch as jest.Mock).mockResolvedValueOnce(meUpstream()).mockResolvedValueOnce({
