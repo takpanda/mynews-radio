@@ -15,16 +15,20 @@ export const SECTION_LABEL: Record<string, string> = {
 
 export function buildChapters(script: Script | null): Chapter[] {
   if (!script) return []
+  const segmentLabels = new Map((script.segments ?? []).map((segment) => [segment.id, segment.label]))
   const chapters: Chapter[] = []
-  const seenSections = new Set<string>()
+  const seenKeys = new Set<string>()
   for (const line of script.lines) {
-    // つなぎトークは章にしない。同じセクションの再登場もスキップして章数を絞る
+    // つなぎトークは章にしない。同じセクション（または同じセグメント）の再登場もスキップして章数を絞る
     if (line.section === 'transition') continue
-    if (seenSections.has(line.section)) continue
-    seenSections.add(line.section)
+    // segmentがあればID単位で章を分ける（同じkindでも別セグメントなら別章）。旧台本はsection名で判定する
+    const key = line.segment ?? line.section
+    if (seenKeys.has(key)) continue
+    seenKeys.add(key)
     if (typeof line.start_time === 'number') {
+      const label = line.segment ? segmentLabels.get(line.segment) ?? SECTION_LABEL[line.section] ?? line.section : SECTION_LABEL[line.section] ?? line.section
       chapters.push({
-        label: SECTION_LABEL[line.section] ?? line.section,
+        label,
         startTime: line.start_time,
       })
     }

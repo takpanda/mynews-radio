@@ -18,7 +18,17 @@ interface SectionGroup {
   lines: Array<{ line: ScriptLine; globalIndex: number }>
 }
 
-const SPEAKER_META = {
+interface SpeakerMeta {
+  label: string
+  align: 'justify-start' | 'justify-end'
+  bubble: string
+  activeBubble: string
+  badge: string
+  icon?: string
+  iconShape: string
+}
+
+const SPEAKER_META: Record<string, SpeakerMeta> = {
   male: {
     label: 'MC（男性）',
     align: 'justify-start',
@@ -39,7 +49,23 @@ const SPEAKER_META = {
     icon: '/images/speakers/mc-female.jpg',
     iconShape: 'rounded-md border border-rose-300',
   },
-} as const
+}
+
+// 未知の speaker key（可変の出演者構成）向けの中立色フォールバック。表示名が無いため key をそのまま表示する。
+// `constructor` 等の継承キーを既知話者と誤認しないよう、自オブジェクトのプロパティかを明示的に確認する。
+function getSpeakerMeta(speaker: string): SpeakerMeta {
+  if (Object.prototype.hasOwnProperty.call(SPEAKER_META, speaker)) {
+    return SPEAKER_META[speaker]
+  }
+  return {
+    label: speaker,
+    align: 'justify-start',
+    bubble: 'bg-slate-100 text-slate-800 rounded-tl-md',
+    activeBubble: 'ring-2 ring-slate-300 ring-offset-2 outline outline-2 outline-slate-900',
+    badge: 'text-slate-700',
+    iconShape: 'rounded-full border border-slate-300 bg-slate-200',
+  }
+}
 
 function formatTimeLabel(seconds?: number): string | null {
   if (seconds === undefined || Number.isNaN(seconds)) return null
@@ -117,7 +143,7 @@ export default function ScriptViewer({ lines, currentTime, onSeek, onMisreadingR
             {section.lines.map(({ line, globalIndex }) => {
               const isActive = globalIndex === activeIndex
               const canSeek = line.start_time !== undefined && onSeek !== undefined
-              const speakerMeta = SPEAKER_META[line.speaker]
+              const speakerMeta = getSpeakerMeta(line.speaker)
               const previousArticleId = globalIndex > 0 ? lines[globalIndex - 1].article_id : null
               const topic = topicStarts.get(globalIndex)
               const topicArticleIds = topic?.source_article_ids ?? (
@@ -174,13 +200,19 @@ export default function ScriptViewer({ lines, currentTime, onSeek, onMisreadingR
                       <span className={`flex items-center gap-1.5 font-medium ${speakerMeta.badge}`}>
                         <span
                           aria-hidden="true"
-                          className={`h-6 w-6 shrink-0 overflow-hidden ${speakerMeta.iconShape}`}
+                          className={`h-6 w-6 shrink-0 overflow-hidden ${speakerMeta.iconShape} ${
+                            speakerMeta.icon ? '' : 'flex items-center justify-center text-[10px] font-bold text-slate-500'
+                          }`}
                         >
-                          <img
-                            src={speakerMeta.icon}
-                            alt=""
-                            className="h-full w-full object-cover"
-                          />
+                          {speakerMeta.icon ? (
+                            <img
+                              src={speakerMeta.icon}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            speakerMeta.label.slice(0, 1)
+                          )}
                         </span>
                         {speakerMeta.label}
                       </span>
