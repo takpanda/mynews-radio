@@ -120,6 +120,15 @@ npm run test:local
 
 `test:local` は `npm ci` でlockfileどおりに依存関係を構築してから、`npm test -- --runInBand` を実行します。個別に実行する場合も、先に `npm ci` を実行してください。
 
+番組・MC管理画面の実ブラウザテストは、フロントエンドのモックAPIを自動起動して実行します。Chromiumを初回インストールしたあと、同じディレクトリから実行してください:
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+```
+
+このテストは `375px` とPC幅の表示、番組保存・エラー表示、MC作成と再有効化を確認します。実アカウントや実DBは使用しません。
+
 `nvm` を使わない場合は、Node.js 20.x と npm 10 以上を用意したうえで `frontend` ディレクトリから `npm ci` を実行してください。`.nvmrc` と `package.json` の `engines` が必要なバージョンを示します。
 
 ### フロントエンドテスト（Docker）

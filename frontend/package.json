@@ -11,6 +11,7 @@
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 3010",
     "test": "jest",
+    "test:e2e": "playwright test",
     "test:local": "node -e \"if (!process.versions.node.startsWith('20.')) { console.error('Node 20.x is required; run nvm use first.'); process.exit(1) }\" && npm ci && npm test -- --runInBand",
     "lint": "next lint"
   },
@@ -21,6 +22,7 @@
     "react-hot-toast": "^2.6.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@swc/jest": "^0.2.39",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
