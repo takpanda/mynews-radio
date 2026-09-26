@@ -179,3 +179,74 @@ def test_render_and_preview_use_selected_prompt_versions_and_require_admin(clien
         "/admin/programs/radio-test/preview-prompt",
         json={"template_key": "category", "episode_id": 1},
     ).status_code == 401
+
+
+def test_preview_renders_saved_generation_context_for_target_templates(client):
+    _episode(episode_id=72, program_id="preview-test")
+    from app.api import admin_prompts
+    episode_dir = admin_prompts.EPISODES_DIR / "72"
+    with get_db_connection() as conn:
+        article_id = conn.execute(
+            "INSERT INTO articles(title, source, url, text, summary, category, importance_score, difficulty, status, published_at) "
+            "VALUES ('記事タイトル', '媒体', 'https://example.test/a', '本文' || printf('%0200d', 1), '要約本文', 'technology', 5, 2, 'summarized', '2026-09-01')",
+        ).lastrowid
+        conn.execute(
+            "INSERT INTO episode_items(episode_id, article_id, item_order, segment_text) VALUES (72, ?, 1, '台本本文')",
+            (article_id,),
+        )
+    (episode_dir / "summaries.json").write_text(json.dumps([
+        {"article_id": article_id, "title": "記事タイトル", "summary": "要約本文",
+         "category": "technology", "importance_score": 5, "difficulty": 2},
+    ], ensure_ascii=False), encoding="utf-8")
+    (episode_dir / "script.json").write_text(json.dumps({
+        "style": "solo", "mc_gender": "female", "discussion_article_id": article_id,
+        "lines": [{"article_id": article_id, "text": "台本本文", "section": "news"}],
+    }, ensure_ascii=False), encoding="utf-8")
+    (episode_dir / "prompt_context.json").write_text(json.dumps({
+            "summaries_json": json.dumps([{"id": article_id, "title": "記事タイトル", "source": "媒体",
+                                            "url": "https://example.test/a", "summary": "要約本文",
+                                            "category": "technology", "importance_score": 5, "difficulty": 2}], ensure_ascii=False, indent=2),
+            "narrative_arc_section": "# 保存済み Narrative Arc\n",
+    }, ensure_ascii=False), encoding="utf-8")
+    (episode_dir / "review.json").write_text(json.dumps({"reviews": {
+        "beginner": {"score": 1}, "genius": {"score": 2}, "worried": {"score": 3},
+        "positive": {"score": 4}, "radio": {"score": 5},
+    }}, ensure_ascii=False), encoding="utf-8")
+
+    for template_key in ("generate_radio_script", "generate_commentary_script", "review_beginner_director",
+                         "review_synthesize", "category", "summarize_article"):
+        template_id = _template_id(template_key)
+        with get_db_connection() as conn:
+            version_id = conn.execute(
+                "SELECT id FROM prompt_versions WHERE template_id = ? AND status = 'active'", (template_id,),
+            ).fetchone()[0]
+        rendered = client.post(f"/admin/prompts/versions/{version_id}/render", json={"episode_id": 72})
+        assert rendered.status_code == 200, (template_key, rendered.text)
+        assert rendered.json()["prompt"]
+        previewed = client.post("/admin/programs/preview-test/preview-prompt", json={
+            "episode_id": 72, "template_key": template_key,
+        })
+        assert previewed.status_code == 200, (template_key, previewed.text)
+        if template_key == "generate_radio_script":
+            assert rendered.json()["prompt"] == previewed.json()["prompt"]
+            assert "# 保存済み Narrative Arc" in rendered.json()["prompt"]
+            assert "記事タイトル" in rendered.json()["prompt"]
+        elif template_key == "generate_commentary_script":
+            assert "記事タイトル" in rendered.json()["prompt"]
+            assert "本文" in rendered.json()["prompt"]
+        elif template_key == "category":
+            assert "台本本文" in rendered.json()["prompt"]
+
+
+def test_prompt_preview_reports_missing_required_inputs(client):
+    _episode(episode_id=73, program_id="missing-preview-test")
+    from app.api import admin_prompts
+    (admin_prompts.EPISODES_DIR / "73" / "summaries.json").write_text("[]", encoding="utf-8")
+    template_id = _template_id("generate_radio_script")
+    with get_db_connection() as conn:
+        version_id = conn.execute(
+            "SELECT id FROM prompt_versions WHERE template_id = ? AND status = 'active'", (template_id,),
+        ).fetchone()[0]
+    response = client.post(f"/admin/prompts/versions/{version_id}/render", json={"episode_id": 73})
+    assert response.status_code == 422
+    assert "summaries_json" in response.json()["detail"]
