@@ -173,6 +173,23 @@ def segment_snapshots(profile: ProgramProfile) -> list[dict[str, str]]:
     return snapshots
 
 
+def profile_voice_overrides(profile: ProgramProfile, engine: str) -> dict[str, int | str]:
+    """Return per-cast voice values configured for the selected TTS engine."""
+    field_by_engine = {
+        "fishs2pro": "voice_fishs2pro",
+        "aivispeech": "voice_aivispeech",
+        "voicevox": "voice_voicevox",
+    }
+    field = field_by_engine.get(engine)
+    if field is None:
+        return {}
+    return {
+        member.key: value
+        for member in profile.cast
+        if (value := getattr(member, field)) is not None
+    }
+
+
 _RADIO_CAST = (
     ProgramCastMember("male", "田村", "メインMC", mc_id="radio_male"),
     ProgramCastMember("female", "山口", "パートナーMC", mc_id="radio_female"),

@@ -60,7 +60,10 @@ def _is_system_owner(conn, owner_user_id: int) -> bool:
     return bool(row and row["username"] == SYSTEM_OWNER_USERNAME)
 
 
-def _insert_episode(conn, episode_date: str, episode_type: str, source_url: str | None, status: str) -> int:
+def _insert_episode(
+    conn, episode_date: str, episode_type: str, source_url: str | None, status: str,
+    program_id: str | None = None, program_snapshot: str | None = None,
+) -> int:
     if episode_type == "radio":
         if status == "active":
             conn.execute(
@@ -69,15 +72,16 @@ def _insert_episode(conn, episode_date: str, episode_type: str, source_url: str 
                 (episode_date,),
             )
         cursor = conn.execute(
-            "INSERT INTO episodes (episode_date, seq, status, type) "
-            "SELECT ?, COALESCE(MAX(seq), -1) + 1, ?, 'radio' "
+            "INSERT INTO episodes (episode_date, seq, status, type, program_id, program_snapshot) "
+            "SELECT ?, COALESCE(MAX(seq), -1) + 1, ?, 'radio', ?, ? "
             "FROM episodes WHERE episode_date = ? AND type = 'radio'",
-            (episode_date, status, episode_date),
+            (episode_date, status, program_id, program_snapshot, episode_date),
         )
     else:
         cursor = conn.execute(
-            "INSERT INTO episodes (episode_date, status, type, source_url) VALUES (?, ?, ?, ?)",
-            (episode_date, status, episode_type, source_url),
+            "INSERT INTO episodes (episode_date, status, type, source_url, program_id, program_snapshot) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (episode_date, status, episode_type, source_url, program_id, program_snapshot),
         )
     return int(cursor.lastrowid)
 
@@ -94,6 +98,8 @@ def enqueue_job(
     episode_id: int | None = None,
     client_ip: str = "unknown",
     dispatch: bool = False,
+    program_id: str | None = None,
+    program_snapshot: str | None = None,
 ) -> JobClaim:
     """ジョブをFIFOへ登録する。同時実行中ならwaitingとして永続化する。"""
     digest = input_hash(payload)
@@ -181,7 +187,10 @@ def enqueue_job(
         reserved_episode_id = episode_id
         if episode_date is not None:
             try:
-                reserved_episode_id = _insert_episode(conn, episode_date, episode_type, source_url, status)
+                reserved_episode_id = _insert_episode(
+                    conn, episode_date, episode_type, source_url, status,
+                    program_id=program_id, program_snapshot=program_snapshot,
+                )
             except Exception:
                 insert_audit_log(
                     conn, operation=operation, actor_user_id=owner_user_id, result="failure",

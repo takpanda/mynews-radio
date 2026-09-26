@@ -93,7 +93,7 @@ class FakeVoicevoxClient:
 
 
 def _patched_client(failing_texts=None):
-    def factory(base_url, speaker_male=None, speaker_female=None):
+    def factory(base_url, speaker_male=None, speaker_female=None, speaker_overrides=None):
         return FakeVoicevoxClient(base_url, speaker_male, speaker_female, failing_texts)
     return factory
 
@@ -316,7 +316,7 @@ def test_synthesize_client_close_exception_does_not_block_success_finalization(t
         def close(self):
             raise RuntimeError("close boom")
 
-    def factory(base_url, speaker_male=None, speaker_female=None):
+    def factory(base_url, speaker_male=None, speaker_female=None, speaker_overrides=None):
         return CloseRaisingClient(base_url, speaker_male, speaker_female)
 
     with patch("app.batch.synthesize_voicevox.get_settings", return_value=_voicevox_settings()), \

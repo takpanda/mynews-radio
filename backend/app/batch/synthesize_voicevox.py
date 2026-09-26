@@ -146,6 +146,7 @@ def synthesize_episode(
     tts_engine: str | None = None,
     episode_id: int | None = None,
     generation_job_id: int | None = None,
+    speaker_overrides: dict[str, int | str] | None = None,
 ) -> int:
     """
     Read script.json from *directory*, generate a WAV for each line,
@@ -153,6 +154,7 @@ def synthesize_episode(
 
     base_url / speaker_male / speaker_female override the settings values
     (useful for switching between VOICEVOX and AivisSpeech at runtime).
+    speaker_overrides overrides configured TTS values for individual cast keys.
     Fish S2 Pro の場合、speaker_male / speaker_female はボイス名（例: morigawa）。
 
     episode_id が指定された場合、行単位・工程単位の詳細ログ（BEE-718）を永続化する。
@@ -229,10 +231,18 @@ def synthesize_episode(
             effective_base_url,
             voice_male=effective_speaker_male,
             voice_female=effective_speaker_female,
+            voice_overrides={
+                key: value for key, value in (speaker_overrides or {}).items()
+                if isinstance(value, str)
+            },
         ) if is_fishs2pro else VoicevoxClient(
             effective_base_url,
             speaker_male=effective_speaker_male,
             speaker_female=effective_speaker_female,
+            speaker_overrides={
+                key: value for key, value in (speaker_overrides or {}).items()
+                if isinstance(value, int)
+            },
         )
         file_counter = 1  # WAV ファイルの通し番号（無音挿入分も含む）
         prev_section: str | None = None

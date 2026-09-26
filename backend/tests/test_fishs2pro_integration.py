@@ -35,7 +35,7 @@ def test_fishs2pro_episode_uses_male_and_female_and_44100hz(tmp_path):
     calls = []
 
     class FakeFishClient:
-        def __init__(self, base_url, voice_male=None, voice_female=None):
+        def __init__(self, base_url, voice_male=None, voice_female=None, voice_overrides=None):
             assert base_url == "http://fish.test"
             assert voice_male == "male"
             assert voice_female == "morigawa"
@@ -83,7 +83,7 @@ def test_fishs2pro_episode_uses_saved_voices_when_speakers_are_omitted(tmp_path)
     client_voices = {}
 
     class FakeFishClient:
-        def __init__(self, base_url, voice_male=None, voice_female=None):
+        def __init__(self, base_url, voice_male=None, voice_female=None, voice_overrides=None):
             client_voices.update(male=voice_male, female=voice_female)
 
         def synthesize_line(self, text, speaker, output_path, delivery="neutral"):
@@ -117,7 +117,7 @@ def test_fishs2pro_episode_keeps_explicit_speakers_over_saved_voices(tmp_path):
     client_voices = {}
 
     class FakeFishClient:
-        def __init__(self, base_url, voice_male=None, voice_female=None):
+        def __init__(self, base_url, voice_male=None, voice_female=None, voice_overrides=None):
             client_voices.update(male=voice_male, female=voice_female)
 
         def synthesize_line(self, text, speaker, output_path, delivery="neutral"):
@@ -160,7 +160,7 @@ def test_fishs2pro_female_audio_is_not_volume_normalized(tmp_path):
     )
 
     class FakeFishClient:
-        def __init__(self, base_url, voice_male=None, voice_female=None):
+        def __init__(self, base_url, voice_male=None, voice_female=None, voice_overrides=None):
             pass
 
         def synthesize_line(self, text, speaker, output_path, delivery="neutral"):
@@ -199,7 +199,7 @@ def test_fishs2pro_normalizes_transition_before_combining(tmp_path):
     )
 
     class FakeFishClient:
-        def __init__(self, base_url, voice_male=None, voice_female=None):
+        def __init__(self, base_url, voice_male=None, voice_female=None, voice_overrides=None):
             pass
 
         def synthesize_line(self, text, speaker, output_path, delivery="neutral"):
@@ -330,7 +330,7 @@ def test_health_check_fishs2pro_uses_fish_client():
     from app.batch import health_check
 
     class FakeFishClient:
-        def __init__(self, base_url, voice_male=None, voice_female=None):
+        def __init__(self, base_url, voice_male=None, voice_female=None, voice_overrides=None):
             assert base_url == "http://fish.test"
             assert voice_male == "male"
             assert voice_female == "morigawa"
@@ -356,7 +356,7 @@ def test_health_check_fishs2pro_reports_error_when_configured_voice_missing():
     from app.batch import health_check
 
     class FakeFishClient:
-        def __init__(self, base_url, voice_male=None, voice_female=None):
+        def __init__(self, base_url, voice_male=None, voice_female=None, voice_overrides=None):
             pass
 
         def __enter__(self):

@@ -15,10 +15,14 @@ class FishS2ProClient:
     通信・レスポンス・ファイル書き込み失敗時 ``False`` を返す。
     """
 
-    def __init__(self, base_url: str, voice_male: str = "male", voice_female: str = "female"):
+    def __init__(
+        self, base_url: str, voice_male: str = "male", voice_female: str = "female",
+        voice_overrides: dict[str, str] | None = None,
+    ):
         self._base_url = base_url.rstrip("/")
         self._client: Optional[httpx.Client] = None
         self._voice_names = {"male": voice_male, "female": voice_female}
+        self._voice_names.update(voice_overrides or {})
 
     @property
     def client(self) -> httpx.Client:
