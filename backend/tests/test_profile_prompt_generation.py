@@ -84,6 +84,13 @@ def test_radio_generation_uses_custom_profile_and_segments_added_transitions(tmp
     assert len(between_articles) == 1
     assert between_articles[0]["segment"] == "transition"
     assert all(line.get("segment") for line in script["lines"])
+    assert script["segments"] == [
+        {"id": "intro", "label": "オープニング"},
+        {"id": "transition", "label": "つなぎ"},
+        {"id": "news", "label": "ニュース"},
+        {"id": "discussion", "label": "討論"},
+        {"id": "outro", "label": "エンディング"},
+    ]
     assert {line["speaker"] for line in script["lines"]} == {"host"}
 
 
@@ -151,6 +158,7 @@ def test_commentary_style_defaults_from_explicit_dialogue_profile(tmp_path):
     script = json.loads((tmp_path / "dialogue.json").read_text(encoding="utf-8"))
     assert script["style"] == "dialogue"
     assert {line["speaker"] for line in script["lines"]} == {"male", "female"}
+    assert script["segments"][0] == {"id": "intro", "label": "オープニング"}
 
 
 def test_generation_and_final_validation_report_missing_unknown_and_mismatched_ids(tmp_path):
@@ -191,6 +199,11 @@ def test_generation_and_final_validation_report_missing_unknown_and_mismatched_i
     assert script["lines"][2]["segment"] == "unknown_id"
     assert script["lines"][3]["segment"] == "daily_corner"
     assert script["lines"][3]["section"] == "headline"
+    assert script["segments"] == [
+        {"id": "headline_open", "label": "ヘッドライン 1"},
+        {"id": "headline_wrap", "label": "ヘッドライン 2"},
+        {"id": "daily_corner", "label": "コーナー"},
+    ]
 
     result = validate_final_script(
         script["lines"],
@@ -200,3 +213,23 @@ def test_generation_and_final_validation_report_missing_unknown_and_mismatched_i
     )
     finding_codes = {finding["code"] for finding in result["critical_issues"]}
     assert {"SEGMENT_MISSING", "UNKNOWN_SEGMENT", "SEGMENT_SECTION_MISMATCH"} <= finding_codes
+
+
+def test_review_keeps_generation_time_segment_labels():
+    from app.batch.review_script import _build_revised_script
+
+    saved_segments = [
+        {"id": "news_first", "label": "当時の前半ニュース"},
+        {"id": "news_second", "label": "当時の後半ニュース"},
+    ]
+    source = {
+        "program_profile_id": "commentary_solo",
+        "style": "solo",
+        "mc_gender": "male",
+        "segments": saved_segments,
+        "lines": [],
+    }
+
+    revised = _build_revised_script(source, {"lines": []})
+
+    assert revised["segments"] == saved_segments

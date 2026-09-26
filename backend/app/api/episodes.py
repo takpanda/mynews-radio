@@ -436,7 +436,7 @@ def get_episode_script(episode_id: int, admin_session: Optional[str] = Cookie(No
     with open(script_path, "r", encoding="utf-8") as f:
         script = json.load(f)
 
-    return {
+    response = {
         "id": episode["id"],
         "episode_date": episode["episode_date"],
         "categories": parse_episode_categories(episode.get("categories")),
@@ -445,6 +445,9 @@ def get_episode_script(episode_id: int, admin_session: Optional[str] = Cookie(No
         "lines": script.get("lines", []),
         "generated_at": episode.get("updated_at", ""),
     }
+    if isinstance(script.get("segments"), list):
+        response["segments"] = script["segments"]
+    return response
 
 
 @router.get("/episodes/{episode_id}/review", summary="エピソードのレビュー結果JSONを取得")
