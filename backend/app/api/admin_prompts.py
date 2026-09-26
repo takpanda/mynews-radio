@@ -140,7 +140,6 @@ def _episode_variables(episode_id: int, template_key: str, required: list[str]) 
                         f"SELECT id, title, source, url, summary, category, importance_score, difficulty "
                         f"FROM articles WHERE id IN ({placeholders})", ordered_ids,
                     ).fetchall()}
-            by_id = {item.get("id", item.get("article_id")): item for item in summaries if isinstance(item, dict)}
             hydrated = []
             for article_id in ordered_ids:
                 row = article_rows.get(article_id)
