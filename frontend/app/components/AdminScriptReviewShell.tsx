@@ -81,6 +81,12 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
 
   const [draftPrompt, setDraftPrompt] = useState<ScriptDraft | null>(null)
 
+  // 保存・試し聴きの実行中に編集が入り込むと、送信済みの内容と画面表示がずれてしまう。
+  // 台本内容を変更するたびに増やし、非同期処理の応答が「その時点より後の編集」を跨いでいないかの照合に使う。
+  const editTokenRef = useRef(0)
+
+  const busy = saving || previewingIndex !== null
+
   // 端末下書きの確認は初回マウント時のみ。ユーザーが選択するまで編集内容には反映しない。
   useEffect(() => {
     const draft = loadDraftFromStorage(episodeId)
@@ -99,11 +105,17 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
     }
   }, [])
 
-  const updateLines = useCallback((updater: (lines: AdminScriptReviewLine[]) => AdminScriptReviewLine[]) => {
-    setScript((prev) => ({ ...prev, lines: updater(prev.lines) }))
-    setDirty(true)
-    setValidation(null)
-  }, [])
+  const updateLines = useCallback(
+    (updater: (lines: AdminScriptReviewLine[]) => AdminScriptReviewLine[]) => {
+      // 保存中・試し聴き中は送信済みの内容と画面がずれるため、編集操作そのものを受け付けない。
+      if (busy) return
+      editTokenRef.current += 1
+      setScript((prev) => ({ ...prev, lines: updater(prev.lines) }))
+      setDirty(true)
+      setValidation(null)
+    },
+    [busy],
+  )
 
   const handleTextChange = (index: number, text: string) => {
     updateLines((lines) => lines.map((line, i) => (i === index ? { ...line, text } : line)))
@@ -145,6 +157,7 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
       setSaveError(null)
       try {
         const result = await saveScriptClient(episodeId, revisionToUse, script)
+        editTokenRef.current += 1
         setScript(result.script)
         setRevision(result.revision)
         setDirty(false)
@@ -178,6 +191,7 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
 
   const handleUseServerVersion = () => {
     if (!conflict) return
+    editTokenRef.current += 1
     setScript(conflict.serverScript)
     setRevision(conflict.latestRevision)
     setDirty(false)
@@ -196,12 +210,16 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
 
   const handleValidate = async () => {
     if (dirty || validating) return
+    const requestToken = editTokenRef.current
     setValidating(true)
     setValidationError(null)
     try {
       const result = await validateScriptClient(episodeId)
+      // 検査中に編集されていたら、保存済み最新版に対する結果ではなくなっているため反映しない。
+      if (editTokenRef.current !== requestToken) return
       setValidation(result)
     } catch (err) {
+      if (editTokenRef.current !== requestToken) return
       setValidationError(err instanceof ScriptApiError ? err.message : '検査に失敗しました。もう一度お試しください。')
     } finally {
       setValidating(false)
@@ -209,11 +227,14 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
   }
 
   const handlePreview = async (index: number) => {
-    if (dirty || previewingIndex !== null) return
+    if (dirty || busy) return
+    const requestToken = editTokenRef.current
     setPreviewingIndex(index)
     setPreviewError(null)
     try {
       const blob = await previewAudioClient(episodeId, index)
+      // 応答を待つ間に台本が変わっていたら、画面表示と異なる内容の音声のため再生しない。
+      if (editTokenRef.current !== requestToken) return
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
       const url = URL.createObjectURL(blob)
       previewUrlRef.current = url
@@ -222,6 +243,7 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
         await audioRef.current.play()
       }
     } catch (err) {
+      if (editTokenRef.current !== requestToken) return
       setPreviewError(err instanceof ScriptApiError ? err.message : '試し聴きに失敗しました。もう一度お試しください。')
     } finally {
       setPreviewingIndex(null)
@@ -268,6 +290,7 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
 
   const handleRestoreDraftSameRevision = () => {
     if (!draftPrompt) return
+    editTokenRef.current += 1
     setScript(draftPrompt.script)
     setDirty(true)
     setDraftPrompt(null)
@@ -275,6 +298,7 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
 
   const handleApplyDraftAnyway = () => {
     if (!draftPrompt) return
+    editTokenRef.current += 1
     setScript(draftPrompt.script)
     setDirty(true)
     setDraftPrompt(null)
@@ -331,14 +355,16 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
                 <button
                   type="button"
                   onClick={handleRestoreDraftSameRevision}
-                  className="min-h-11 rounded-full bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700"
+                  disabled={busy}
+                  className="min-h-11 rounded-full bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   下書きを復元する
                 </button>
                 <button
                   type="button"
                   onClick={handleDiscardDraft}
-                  className="min-h-11 rounded-full border border-sky-200 bg-white px-4 py-2 text-sm font-medium text-sky-700 transition hover:bg-sky-100"
+                  disabled={busy}
+                  className="min-h-11 rounded-full border border-sky-200 bg-white px-4 py-2 text-sm font-medium text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   下書きを破棄する
                 </button>
@@ -371,14 +397,16 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
                 <button
                   type="button"
                   onClick={handleApplyDraftAnyway}
-                  className="min-h-11 rounded-full bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700"
+                  disabled={busy}
+                  className="min-h-11 rounded-full bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   下書きの内容を反映する
                 </button>
                 <button
                   type="button"
                   onClick={handleDiscardDraft}
-                  className="min-h-11 rounded-full border border-sky-200 bg-white px-4 py-2 text-sm font-medium text-sky-700 transition hover:bg-sky-100"
+                  disabled={busy}
+                  className="min-h-11 rounded-full border border-sky-200 bg-white px-4 py-2 text-sm font-medium text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   サーバー最新版を使う（下書きを破棄）
                 </button>
@@ -413,14 +441,16 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
             <button
               type="button"
               onClick={handleRetrySaveWithLatestRevision}
-              className="min-h-11 rounded-full bg-amber-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-700"
+              disabled={busy}
+              className="min-h-11 rounded-full bg-amber-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               この内容で保存し直す
             </button>
             <button
               type="button"
               onClick={handleUseServerVersion}
-              className="min-h-11 rounded-full border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-800 transition hover:bg-amber-100"
+              disabled={busy}
+              className="min-h-11 rounded-full border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               サーバーの最新版を使う（編集を破棄）
             </button>
@@ -489,8 +519,9 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
                     <select
                       value={line.speaker}
                       onChange={(e) => handleSpeakerChange(index, e.target.value)}
+                      disabled={busy}
                       aria-label={`行${index + 1}の話者`}
-                      className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900"
+                      className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {speakerKeys.map((key) => (
                         <option key={key} value={key}>
@@ -506,7 +537,7 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
                   <button
                     type="button"
                     onClick={() => handleMoveLine(index, -1)}
-                    disabled={index === 0}
+                    disabled={index === 0 || busy}
                     aria-label={`行${index + 1}を上へ`}
                     className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
                   >
@@ -515,7 +546,7 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
                   <button
                     type="button"
                     onClick={() => handleMoveLine(index, 1)}
-                    disabled={index === script.lines.length - 1}
+                    disabled={index === script.lines.length - 1 || busy}
                     aria-label={`行${index + 1}を下へ`}
                     className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
                   >
@@ -524,7 +555,7 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
                   <button
                     type="button"
                     onClick={() => handlePreview(index)}
-                    disabled={dirty || previewingIndex !== null}
+                    disabled={dirty || busy}
                     title={dirty ? '保存してから試し聴きしてください' : undefined}
                     aria-label={`行${index + 1}を試し聴き`}
                     className="flex h-11 w-11 items-center justify-center rounded-lg text-sky-600 transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-30"
@@ -538,8 +569,9 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
                   <button
                     type="button"
                     onClick={() => handleRemoveLine(index)}
+                    disabled={busy}
                     aria-label={`行${index + 1}を削除`}
-                    className="flex h-11 w-11 items-center justify-center rounded-lg text-red-500 transition hover:bg-red-50"
+                    className="flex h-11 w-11 items-center justify-center rounded-lg text-red-500 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     ✕
                   </button>
@@ -549,8 +581,9 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
                 value={line.text}
                 onChange={(e) => handleTextChange(index, e.target.value)}
                 rows={2}
+                disabled={busy}
                 aria-label={`行${index + 1}の本文`}
-                className="mt-2 w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 transition focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                className="mt-2 w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 transition focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
               />
               {lineFindings.length > 0 && (
                 <div className="mt-2 space-y-1">
@@ -570,7 +603,8 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
       <button
         type="button"
         onClick={handleAddLine}
-        className="min-h-11 w-full rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-slate-50"
+        disabled={busy}
+        className="min-h-11 w-full rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
       >
         + 行を追加
       </button>

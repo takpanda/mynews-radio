@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import AdminScriptReviewShell from '../components/AdminScriptReviewShell'
 import {
@@ -170,6 +170,66 @@ describe('AdminScriptReviewShell 保存', () => {
     expect(screen.getByDisplayValue('サーバー版の内容')).toBeInTheDocument()
     expect(screen.getByText(/版: 5/)).toBeInTheDocument()
   })
+
+  it('保存中は行の編集操作を無効化し、送信後の入力で表示内容が失われない', async () => {
+    const user = userEvent.setup()
+    let resolvePut: (value: unknown) => void = () => {}
+    const putResponse = new Promise((resolve) => {
+      resolvePut = resolve
+    })
+    global.fetch = jest.fn().mockImplementation((_url: string, options?: RequestInit) => {
+      if (options?.method === 'PUT') return putResponse
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ episode_id: 1, revision: 2, script: baseScript() }) })
+    }) as unknown as typeof fetch
+
+    render(<AdminScriptReviewShell episodeId={1} initialRevision={1} initialScript={baseScript()} />)
+    const firstTextarea = screen.getAllByLabelText(/の本文/)[0] as HTMLTextAreaElement
+    await user.type(firstTextarea, '追記')
+    await user.click(screen.getByText('保存する'))
+
+    // 保存リクエストが完了するまでは、本文・行操作は無効化されている
+    await waitFor(() => expect(firstTextarea).toBeDisabled())
+    expect(screen.getByLabelText('行1を削除')).toBeDisabled()
+    expect(screen.getByLabelText('行1を上へ')).toBeDisabled()
+    expect(screen.getByText('+ 行を追加')).toBeDisabled()
+
+    // 無効化中に本文が書き換わっても、画面表示（＝保存対象）は変化しない
+    const valueBeforeBypass = firstTextarea.value
+    fireEvent.change(firstTextarea, { target: { value: '保存中に紛れ込んだ入力' } })
+    expect(firstTextarea.value).toBe(valueBeforeBypass)
+
+    resolvePut({ ok: true, status: 200, json: async () => ({ episode_id: 1, revision: 2, script: baseScript() }) })
+    await waitFor(() => expect(firstTextarea).not.toBeDisabled())
+    expect(screen.getByText(/版: 2/)).toBeInTheDocument()
+  })
+})
+
+describe('AdminScriptReviewShell 試し聴き中の編集ブロックと遅延応答', () => {
+  it('試し聴き中は行の編集操作を無効化する', async () => {
+    const user = userEvent.setup()
+    let resolvePreview: (value: unknown) => void = () => {}
+    const previewResponse = new Promise((resolve) => {
+      resolvePreview = resolve
+    })
+    global.fetch = jest.fn().mockImplementation(() => previewResponse) as unknown as typeof fetch
+
+    render(<AdminScriptReviewShell episodeId={1} initialRevision={1} initialScript={baseScript()} />)
+    await user.click(screen.getByLabelText('行1を試し聴き'))
+
+    const firstTextarea = screen.getAllByLabelText(/の本文/)[0] as HTMLTextAreaElement
+    await waitFor(() => expect(firstTextarea).toBeDisabled())
+    expect(screen.getByLabelText('行1を削除')).toBeDisabled()
+    expect(screen.getByText('+ 行を追加')).toBeDisabled()
+
+    // 無効化中に本文が書き換わっても、表示中の台本は変化しない（古い音声を再生したように見せない）
+    const valueBeforeBypass = firstTextarea.value
+    fireEvent.change(firstTextarea, { target: { value: '試し聴き中に紛れ込んだ入力' } })
+    expect(firstTextarea.value).toBe(valueBeforeBypass)
+
+    resolvePreview({ ok: true, status: 200, blob: async () => new Blob(['audio']) })
+    await waitFor(() => expect(firstTextarea).not.toBeDisabled())
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalled()
+  })
 })
 
 describe('AdminScriptReviewShell 下書き復元', () => {
@@ -242,5 +302,38 @@ describe('AdminScriptReviewShell 試し聴き', () => {
     await user.click(screen.getByLabelText('行1を試し聴き'))
 
     await waitFor(() => expect(screen.getByText(/上限に達しました/)).toBeInTheDocument())
+  })
+})
+
+describe('AdminScriptReviewShell 再チェック中の編集と古い検査結果', () => {
+  it('検査中に編集すると、後から届いた検査結果は反映しない', async () => {
+    const user = userEvent.setup()
+    let resolveValidate: (value: unknown) => void = () => {}
+    const validateResponse = new Promise((resolve) => {
+      resolveValidate = resolve
+    })
+    global.fetch = jest.fn().mockImplementation(() => validateResponse) as unknown as typeof fetch
+
+    render(<AdminScriptReviewShell episodeId={1} initialRevision={1} initialScript={baseScript()} />)
+    await user.click(screen.getByText('再チェック'))
+    expect(screen.getByText('検査中...')).toBeInTheDocument()
+
+    // 検査の応答を待つ間に編集すると未保存状態になる（再チェックはこの時点では止めない）
+    await user.type(screen.getAllByLabelText(/の本文/)[0], '追記')
+    expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
+
+    resolveValidate({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        can_approve: false,
+        results: [{ code: 'X', message: '編集前の内容に対する指摘', line_indices: [0], severity: 'error' }],
+      }),
+    })
+
+    await waitFor(() => expect(screen.queryByText('検査中...')).not.toBeInTheDocument())
+    // 編集後に届いた古い検査結果は表示しない
+    expect(screen.queryByText('編集前の内容に対する指摘')).not.toBeInTheDocument()
+    expect(screen.queryByText('検査エラーが残っています。承認する前に修正してください。')).not.toBeInTheDocument()
   })
 })
