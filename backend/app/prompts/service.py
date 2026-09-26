@@ -205,3 +205,20 @@ def render_prompt(
         source=template.source,
         version_id=template.version_id,
     )
+
+
+def program_id_for_episode(episode_id: int | None) -> str | None:
+    """Return an episode's program scope; standalone or unavailable DB uses common prompts."""
+    if episode_id is None:
+        return None
+    try:
+        with get_db_connection() as conn:
+            row = conn.execute("SELECT program_id FROM episodes WHERE id = ?", (episode_id,)).fetchone()
+            return row["program_id"] if row else None
+    except Exception:
+        logger.warning(
+            "Could not resolve episode program for prompt selection episode_id=%s",
+            episode_id,
+            exc_info=True,
+        )
+        return None

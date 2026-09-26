@@ -28,6 +28,7 @@ from app.batch.script_contracts import COMMENTARY_IGNORED_LINT_CODES, FAREWELL_R
 from app.batch.script_validator import ScriptValidator
 from app.programs.profiles import ProgramProfile, get_profile_by_id
 from app.programs.prompt_builder import PromptBuilder
+from app.prompts.service import program_id_for_episode, render_prompt
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
@@ -689,6 +690,8 @@ def review_script(
     contract_repairs: list[str] = []
 
     client_factory = (lambda: create_llm_client(llm_provider, llm_model)) if (llm_provider or llm_model) else (lambda: OllamaClient(settings.ollama_base_url, settings.ollama_model))
+    episode_id = infer_episode_id(source_script_path)
+    program_id = program_id_for_episode(episode_id) or source.get("program_profile_id")
     with client_factory() as client:
 
         # --- Step 1: collect individual director reviews ---
@@ -696,23 +699,35 @@ def review_script(
 
         for key in _DIRECTOR_KEYS:
             try:
-                set_llm_context(client, phase="review", episode_id=infer_episode_id(source_script_path))
-                template = _load_prompt(_PROMPT_FILES[key])
                 if key == "radio":
                     style_guidance = _build_radio_director_style_guidance(style)
                     output_issue_example = _build_output_issue_example(style)
-                    prompt = template.format(
-                        script_json=script_json_str,
-                        style_guidance=style_guidance,
-                        output_issue_example=output_issue_example,
-                        article_summaries_json=article_summaries_json,
+                    rendered = render_prompt(
+                        "review_radio_director",
+                        {
+                            "script_json": script_json_str,
+                            "style_guidance": style_guidance,
+                            "output_issue_example": output_issue_example,
+                            "article_summaries_json": article_summaries_json,
+                        },
+                        program_id=program_id,
                     )
                 else:
-                    prompt = template.format(
-                        script_json=script_json_str,
-                        article_summaries_json=article_summaries_json,
+                    rendered = render_prompt(
+                        f"review_{key}_director",
+                        {
+                            "script_json": script_json_str,
+                            "article_summaries_json": article_summaries_json,
+                        },
+                        program_id=program_id,
                     )
-                result = client.generate_json(prompt)
+                set_llm_context(
+                    client,
+                    phase="review",
+                    episode_id=episode_id,
+                    prompt_version_id=rendered.version_id,
+                )
+                result = client.generate_json(rendered.text)
                 if result and isinstance(result, dict):
                     reviews[key] = result
                     review_count += 1
@@ -731,26 +746,35 @@ def review_script(
 
         # --- Step 2: synthesise reviews into a revised script ---
         try:
-            synth_template = _load_prompt("review_synthesize.md")
             mode = source.get("style", "dialogue")
             mc_gender = source.get("mc_gender", "male")
-            synth_prompt = synth_template.format(
-                original_script_json=script_json_str,
-                article_summaries_json=article_summaries_json,
-                mode=mode,
-                mc_gender=mc_gender,
-                genius_review=json.dumps(reviews.get("genius", {}), ensure_ascii=False, indent=2),
-                beginner_review=json.dumps(reviews.get("beginner", {}), ensure_ascii=False, indent=2),
-                worried_review=json.dumps(reviews.get("worried", {}), ensure_ascii=False, indent=2),
-                positive_review=json.dumps(reviews.get("positive", {}), ensure_ascii=False, indent=2),
-                radio_review=json.dumps(reviews.get("radio", {}), ensure_ascii=False, indent=2),
+            rendered_synthesis = render_prompt(
+                "review_synthesize",
+                {
+                    "original_script_json": script_json_str,
+                    "article_summaries_json": article_summaries_json,
+                    "mode": mode,
+                    "mc_gender": mc_gender,
+                    "genius_review": json.dumps(reviews.get("genius", {}), ensure_ascii=False, indent=2),
+                    "beginner_review": json.dumps(reviews.get("beginner", {}), ensure_ascii=False, indent=2),
+                    "worried_review": json.dumps(reviews.get("worried", {}), ensure_ascii=False, indent=2),
+                    "positive_review": json.dumps(reviews.get("positive", {}), ensure_ascii=False, indent=2),
+                    "radio_review": json.dumps(reviews.get("radio", {}), ensure_ascii=False, indent=2),
+                },
+                program_id=program_id,
             )
+            synth_prompt = rendered_synthesis.text
             synth_prompt += _build_contract_preservation_context(
                 source,
                 program_name=program_name,
                 style=str(source.get("style", "dialogue")),
             )
-            set_llm_context(client, phase="correction", episode_id=infer_episode_id(source_script_path))
+            set_llm_context(
+                client,
+                phase="correction",
+                episode_id=episode_id,
+                prompt_version_id=rendered_synthesis.version_id,
+            )
             synth_response = client.generate_json(synth_prompt)
 
             if synth_response and isinstance(synth_response.get("lines"), list) and synth_response["lines"]:

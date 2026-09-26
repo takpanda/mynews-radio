@@ -13,6 +13,7 @@ from app.batch.script_structure import normalize_discussion_layout
 from app.config import get_settings
 from app.programs.profiles import ProgramProfile, get_default_profile, segment_snapshots
 from app.programs.prompt_builder import PromptBuilder
+from app.prompts.service import render_prompt
 from app.batch.script_validator import ScriptValidator
 from app.services.article_service import ArticleService
 from app.services.ollama_client import OllamaClient, create_llm_client
@@ -1280,11 +1281,19 @@ def _build_narrative_arc_section(arc: dict, summaries: list) -> str:
 # Step 1: Architect — Narrative Arc 生成
 # ---------------------------------------------------------------------------
 
-def _generate_arc(client: OllamaClient, summaries: list) -> dict | None:
+def _generate_arc(
+    client: OllamaClient, summaries: list, *, program_id: str | None = None,
+    episode_id: int | None = None,
+) -> dict | None:
     """Narrative Arc を生成して返す。失敗時は None。"""
-    template = _load_arc_prompt_template()
     summaries_json = json.dumps(summaries, ensure_ascii=False, indent=2)
-    prompt = template.format(summaries_json=summaries_json)
+    rendered = render_prompt(
+        "generate_narrative_arc", {"summaries_json": summaries_json}, program_id=program_id
+    )
+    prompt = rendered.text
+    set_llm_context(
+        client, phase="arc", episode_id=episode_id, prompt_version_id=rendered.version_id
+    )
 
     arc = client.generate_json(prompt)
     if not arc or not isinstance(arc.get("article_order"), list):
@@ -1405,8 +1414,12 @@ def generate_script(
         arc = None
         if prompt_profile.options.narrative_arc:
             logger.info("=== Script Step 1/2: Narrative Arc (Architect) ===")
-            set_llm_context(client, phase="arc", episode_id=infer_episode_id(output_path))
-            arc = _generate_arc(client, summaries)
+            arc = _generate_arc(
+                client,
+                summaries,
+                program_id=prompt_profile.id,
+                episode_id=infer_episode_id(output_path),
+            )
 
         # Arc に基づいて記事の順序を確定
         if arc and arc.get("article_order"):
@@ -1419,14 +1432,16 @@ def generate_script(
         logger.info("=== Script Step 2/2: Script generation (Writer) ===")
         summaries_json = json.dumps(ordered_summaries, ensure_ascii=False, indent=2)
         if prompt_builder.uses_legacy_prompt:
-            template = _load_prompt_template()
-            if program_name != "ニュースのとなり":
-                template = template.replace("ニュースのとなり", program_name)
-            base_prompt = template.format(
-                narrative_arc_section=narrative_arc_section,
-                summaries_json=summaries_json,
+            rendered_script_prompt = render_prompt(
+                "generate_radio_script",
+                {"narrative_arc_section": narrative_arc_section, "summaries_json": summaries_json},
+                program_id=prompt_profile.id,
             )
+            base_prompt = rendered_script_prompt.text
+            if program_name != "ニュースのとなり":
+                base_prompt = base_prompt.replace("ニュースのとなり", program_name)
         else:
+            rendered_script_prompt = None
             base_prompt = prompt_builder.build_profile_prompt(
                 task_description=(
                     f"与えられたニュース要約一覧から、番組「{prompt_profile.name}」の"
@@ -1444,6 +1459,7 @@ def generate_script(
                 client,
                 phase="script" if lint_attempt == 1 else "correction",
                 episode_id=infer_episode_id(output_path),
+                prompt_version_id=rendered_script_prompt.version_id if rendered_script_prompt else None,
             )
             response = client.generate_json(current_prompt)
             if response is None or not isinstance(response.get("lines"), list):
