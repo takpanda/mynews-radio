@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import AdminProgramFormShell from '../../../components/AdminProgramFormShell'
 import AdminNav from '../../../components/AdminNav'
 import { requireAdminSessionForPage } from '../../auth'
@@ -24,12 +25,22 @@ export default async function AdminEditProgramPage({ params }: { params: Promise
           {error ?? '番組が見つかりませんでした。'}
         </div>
       ) : (
-        <AdminProgramFormShell
-          mode="edit"
-          initialProgram={program.definition}
-          initialIsActive={program.is_active}
-          mcs={mcs}
-        />
+        <>
+          <div className="mb-5 flex justify-end">
+            <Link
+              href={`/admin/programs/${encodeURIComponent(program.id)}/dry-run`}
+              className="inline-flex min-h-11 items-center rounded-full border border-sky-200 bg-white px-4 py-2 text-sm font-medium text-sky-700 transition hover:bg-sky-50"
+            >
+              テスト生成・比較テスト
+            </Link>
+          </div>
+          <AdminProgramFormShell
+            mode="edit"
+            initialProgram={program.definition}
+            initialIsActive={program.is_active}
+            mcs={mcs}
+          />
+        </>
       )}
     </main>
   )
