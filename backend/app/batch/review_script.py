@@ -950,6 +950,8 @@ def _build_revised_script(
         script["program_profile_id"] = profile_id
     if source.get("discussion_article_id") is not None:
         script["discussion_article_id"] = source["discussion_article_id"]
+    if isinstance(source.get("segments"), list):
+        script["segments"] = source["segments"]
     if style:
         script["style"] = style
     if mc_gender:

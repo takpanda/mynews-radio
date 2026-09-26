@@ -13,6 +13,7 @@ from app.services.llm_call_log_service import infer_episode_id, set_llm_context
 from app.programs.profiles import (
     ProgramProfile,
     get_default_profile,
+    segment_snapshots,
     validate_program_profile,
 )
 from app.programs.prompt_builder import PromptBuilder
@@ -217,6 +218,7 @@ def generate_commentary_script(
         "style": style,
         "mc_gender": mc_gender,
         "program_profile_id": profile.id,
+        "segments": segment_snapshots(profile),
         "lines": [],
     }
     allowed_speakers = profile.speaker_keys

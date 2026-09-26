@@ -32,6 +32,7 @@ class ProgramSegment:
     min_lines: int
     max_lines: int
     speaker_keys: tuple[str, ...] = ()
+    label: str = ""
 
 
 @dataclass(frozen=True)
@@ -129,8 +130,40 @@ def _segment(
     min_lines: int,
     max_lines: int,
     speaker_keys: tuple[str, ...],
+    label: str = "",
 ) -> ProgramSegment:
-    return ProgramSegment(segment_id, kind, order, min_lines, max_lines, speaker_keys)
+    return ProgramSegment(segment_id, kind, order, min_lines, max_lines, speaker_keys, label)
+
+
+_SEGMENT_LABELS = {
+    "intro": "オープニング",
+    "transition": "つなぎ",
+    "headline": "ヘッドライン",
+    "news": "ニュース",
+    "discussion": "討論",
+    "corner": "コーナー",
+    "outro": "エンディング",
+}
+
+
+def segment_snapshots(profile: ProgramProfile) -> list[dict[str, str]]:
+    """Return display metadata frozen into a generated script."""
+    base_labels: list[str] = []
+    label_counts: dict[str, int] = {}
+    for segment in profile.segments:
+        label = segment.label.strip() or _SEGMENT_LABELS.get(segment.kind, segment.kind)
+        base_labels.append(label)
+        label_counts[label] = label_counts.get(label, 0) + 1
+
+    label_indexes: dict[str, int] = {}
+    snapshots = []
+    for segment, base_label in zip(profile.segments, base_labels):
+        label_indexes[base_label] = label_indexes.get(base_label, 0) + 1
+        label = base_label
+        if label_counts[base_label] > 1:
+            label = f"{base_label} {label_indexes[base_label]}"
+        snapshots.append({"id": segment.id, "label": label})
+    return snapshots
 
 
 _RADIO_CAST = (

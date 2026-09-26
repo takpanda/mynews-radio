@@ -423,13 +423,16 @@ class TestEpisodeReviewEndpoint:
 class TestEpisodeDetailScriptReviewPublicBoundary:
     """GET /episodes/{id}, /script, /review の公開/管理境界のテスト"""
 
-    def _create_script_json(self, ep_dir: str, episode_id: int, title: str = "タイトル"):
+    def _create_script_json(self, ep_dir: str, episode_id: int, title: str = "タイトル", segments=None):
         import json as _json
         import os as _os
         d = _os.path.join(ep_dir, str(episode_id))
         _os.makedirs(d, exist_ok=True)
         with open(_os.path.join(d, "script.json"), "w", encoding="utf-8") as f:
-            _json.dump({"title": title, "subtitle": "", "lines": []}, f)
+            data = {"title": title, "subtitle": "", "lines": []}
+            if segments is not None:
+                data["segments"] = segments
+            _json.dump(data, f)
 
     def test_detail_404_for_unauthenticated_when_not_completed(self):
         """未認証は生成中・失敗・下書きエピソードの詳細を取得できない"""
@@ -533,6 +536,7 @@ class TestEpisodeDetailScriptReviewPublicBoundary:
 
         assert resp.status_code == 200
         assert resp.json()["title"] == "公開台本"
+        assert "segments" not in resp.json()
 
     def test_script_404_for_unauthenticated_when_audio_file_missing(self):
         """完成済み・DBにaudio_pathがあっても、実ファイルが欠損していれば未認証の台本取得は404"""
@@ -564,6 +568,24 @@ class TestEpisodeDetailScriptReviewPublicBoundary:
         resp = client.get(f"/episodes/{eid}/script")
         assert resp.status_code == 200
         assert resp.json()["title"] == "管理用台本"
+
+    def test_script_api_returns_saved_segment_labels(self, client):
+        """台本に保存されたセグメント表示名を公開台本APIが返す"""
+        import os as _os
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        eid = svc.create_episode(episode_date="2099-11-12")
+        segments = [
+            {"id": "headline_open", "label": "前半ヘッドライン"},
+            {"id": "headline_wrap", "label": "後半ヘッドライン"},
+        ]
+        self._create_script_json(_os.environ.get("EPISODES_DIR", "data/episodes"), eid, segments=segments)
+
+        resp = client.get(f"/episodes/{eid}/script")
+
+        assert resp.status_code == 200
+        assert resp.json()["segments"] == segments
 
     def test_review_401_for_unauthenticated_even_when_completed(self):
         """内部レビューは公開の利用箇所がないため、完成済みでも未認証には返さない"""

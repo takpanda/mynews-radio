@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.batch.script_structure import normalize_discussion_layout
 from app.config import get_settings
-from app.programs.profiles import ProgramProfile, get_default_profile
+from app.programs.profiles import ProgramProfile, get_default_profile, segment_snapshots
 from app.programs.prompt_builder import PromptBuilder
 from app.batch.script_validator import ScriptValidator
 from app.services.article_service import ArticleService
@@ -1483,6 +1483,7 @@ def generate_script(
         "title": str(response.get("title", program_name)),
         "subtitle": str(response.get("subtitle", "")),
         "program_profile_id": prompt_profile.id,
+        "segments": segment_snapshots(prompt_profile),
         "lines": [],
     }
 
