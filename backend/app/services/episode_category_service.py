@@ -9,7 +9,7 @@ from app.config import get_settings
 from app.db.connection import get_db_connection
 from app.services.ollama_client import OllamaClient
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
-from app.prompts.definitions import PROMPT_TEMPLATE_DEFINITIONS
+from app.prompts.service import program_id_for_episode, render_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -87,16 +87,23 @@ def select_episode_categories(
     if not source:
         return []
     settings = get_settings()
-    prompt_path = Path(__file__).resolve().parents[1] / "prompts" / PROMPT_TEMPLATE_DEFINITIONS["category"]["file"]
-    prompt = prompt_path.read_text(encoding="utf-8").format(
-        categories=", ".join(EPISODE_CATEGORIES), source=source
+    episode_id = infer_episode_id(script_path)
+    rendered = render_prompt(
+        "category",
+        {"categories": ", ".join(EPISODE_CATEGORIES), "source": source},
+        program_id=program_id_for_episode(episode_id),
     )
     try:
         # OllamaClient の既定タイムアウト（推論用の十分な時間）を利用する。
         # カテゴリ処理の失敗は下記で吸収するが、正常な推論を1秒で打ち切らない。
         with client_factory(settings.ollama_base_url, settings.ollama_model, max_retries=0) as client:
-            set_llm_context(client, phase="category", episode_id=infer_episode_id(script_path))
-            response = client.generate_json(prompt)
+            set_llm_context(
+                client,
+                phase="category",
+                episode_id=episode_id,
+                prompt_version_id=rendered.version_id,
+            )
+            response = client.generate_json(rendered.text)
         if not isinstance(response, dict):
             return []
         return validate_episode_categories(response.get("categories", response.get("category", [])))

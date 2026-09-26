@@ -32,7 +32,7 @@ def test_record_llm_call_writes_db_and_episode_jsonl_without_secret(tmp_path, mo
     episode_id = _episode()
     monkeypatch.setenv("EPISODES_DIR", str(tmp_path / "episodes"))
     client = OllamaClient("http://ollama.local", "model")
-    set_llm_context(client, phase="script", episode_id=episode_id)
+    set_llm_context(client, phase="script", episode_id=episode_id, prompt_version_id=987)
 
     call_id = record_llm_call(
         client,
@@ -48,12 +48,14 @@ def test_record_llm_call_writes_db_and_episode_jsonl_without_secret(tmp_path, mo
         row = conn.execute("SELECT * FROM llm_call_logs WHERE call_id = ?", (call_id,)).fetchone()
     assert row["episode_id"] == episode_id
     assert row["phase"] == "script"
+    assert row["prompt_version_id"] == 987
     assert "top-secret" not in row["prompt_text"]
     assert "hidden" not in row["prompt_text"]
 
     jsonl = tmp_path / "episodes" / str(episode_id) / "llm_calls.jsonl"
     item = json.loads(jsonl.read_text(encoding="utf-8"))
     assert item["call_id"] == call_id
+    assert item["prompt_version_id"] == 987
     assert item["response_text"] == '{"ok": true}'
 
 

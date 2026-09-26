@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.services.article_service import ArticleService
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
+from app.prompts.service import program_id_for_episode, render_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +36,12 @@ def summarize_articles(output_path: str, *, llm_provider: str | None = None, llm
         Path(output_path).write_text("[]\n", encoding="utf-8")
         return 0
 
-    template = _load_prompt_template()
+    episode_id = infer_episode_id(output_path)
+    program_id = program_id_for_episode(episode_id)
     results: list[dict] = []
 
     client_factory = (lambda: create_llm_client(llm_provider, llm_model)) if (llm_provider or llm_model) else (lambda: OllamaClient(settings.ollama_base_url, settings.ollama_model))
     with client_factory() as client:
-        set_llm_context(client, phase="summarize", episode_id=infer_episode_id(output_path))
         for article in articles:
             # Skip articles with too short text (not enough content to summarize)
             article_text = article.get("text", "") or ""
@@ -53,14 +54,24 @@ def summarize_articles(output_path: str, *, llm_provider: str | None = None, llm
                 service.update_summary(article["id"], "", "general", 3, "error")
                 continue
 
-            prompt = template.format(
-                title=article.get("title", ""),
-                source=article.get("source", ""),
-                url=article.get("url", ""),
-                published_at=article.get("published_at", ""),
-                text=_truncate_article_text(article_text, settings.summary_article_max_chars),
+            rendered = render_prompt(
+                "summarize_article",
+                {
+                    "title": article.get("title", ""),
+                    "source": article.get("source", ""),
+                    "url": article.get("url", ""),
+                    "published_at": article.get("published_at", ""),
+                    "text": _truncate_article_text(article_text, settings.summary_article_max_chars),
+                },
+                program_id=program_id,
             )
-            response = client.generate_json(prompt)
+            set_llm_context(
+                client,
+                phase="summarize",
+                episode_id=episode_id,
+                prompt_version_id=rendered.version_id,
+            )
+            response = client.generate_json(rendered.text)
             if response is None:
                 logger.error("Skip article id=%s due to invalid json response", article["id"])
                 service.update_summary(article["id"], "", "unknown", 0, "error")

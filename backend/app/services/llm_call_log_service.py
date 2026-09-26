@@ -88,9 +88,19 @@ def infer_episode_id(path: str | os.PathLike[str] | None) -> int | None:
     return None
 
 
-def set_llm_context(client: Any, *, phase: str, episode_id: int | None = None) -> None:
+def set_llm_context(
+    client: Any,
+    *,
+    phase: str,
+    episode_id: int | None = None,
+    prompt_version_id: int | None = None,
+) -> None:
     """既存のクライアント呼び出しを変更せず、ログ用コンテキストを設定する。"""
-    setattr(client, "_generation_context", {"phase": phase, "episode_id": episode_id})
+    setattr(client, "_generation_context", {
+        "phase": phase,
+        "episode_id": episode_id,
+        "prompt_version_id": prompt_version_id,
+    })
 
 
 def _jsonl_path(episode_id: int) -> Path:
@@ -107,6 +117,7 @@ def _safe_context(client: Any) -> dict[str, Any]:
     context = getattr(client, "_generation_context", {}) or {}
     return {
         "episode_id": context.get("episode_id"),
+        "prompt_version_id": context.get("prompt_version_id"),
         "phase": context.get("phase") or "unknown",
         "provider": context.get("provider") or getattr(
             client, "_provider", "ollama" if client.__class__.__name__ == "OllamaClient" else "unknown"
@@ -144,6 +155,7 @@ def record_llm_call(
             "prompt_text": sanitize_llm_text(prompt_text),
             "response_text": sanitize_llm_text(response_text),
             "thinking_text": sanitize_llm_text(thinking_text),
+            "prompt_version_id": context["prompt_version_id"],
             "created_at": created_at,
         }
 
@@ -153,12 +165,12 @@ def record_llm_call(
                 conn.execute(
                     "INSERT INTO llm_call_logs "
                     "(call_id, episode_id, phase, provider, model, base_url, attempt, status, "
-                    "latency_ms, prompt_text, response_text, thinking_text, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "latency_ms, prompt_text, response_text, thinking_text, prompt_version_id, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     tuple(item[key] for key in (
                         "call_id", "episode_id", "phase", "provider", "model", "base_url",
                         "attempt", "status", "latency_ms", "prompt_text", "response_text",
-                        "thinking_text", "created_at",
+                        "thinking_text", "prompt_version_id", "created_at",
                     )),
                 )
         except Exception:

@@ -81,7 +81,13 @@ def test_summarize_articles_limits_prompt_body(monkeypatch, tmp_path, text_lengt
     )
     monkeypatch.setattr(summarize_module, "ArticleService", lambda: service)
     monkeypatch.setattr(summarize_module, "OllamaClient", lambda *_args: client)
-    monkeypatch.setattr(summarize_module, "_load_prompt_template", lambda: "本文:\n{text}")
+    monkeypatch.setattr(
+        summarize_module,
+        "render_prompt",
+        lambda _key, variables, **_kwargs: SimpleNamespace(
+            text="本文:\n" + variables["text"], version_id=None
+        ),
+    )
 
     assert summarize_module.summarize_articles(str(tmp_path / "summaries.json")) == 1
     assert prompts == ["本文:\n" + article_text[:MAX_CHARS]]

@@ -17,6 +17,7 @@ from app.programs.profiles import (
     validate_program_profile,
 )
 from app.programs.prompt_builder import PromptBuilder
+from app.prompts.service import render_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +165,8 @@ def generate_commentary_script(
         mc_gender = "male" if mc_gender is None else mc_gender
         profile = get_default_profile(kind="commentary", style=style, mc_gender=mc_gender)
     prompt_builder = PromptBuilder(profile)
-    template = _load_prompt_template(style) if prompt_builder.uses_legacy_prompt else None
+    episode_id = infer_episode_id(output_path)
+    prompt_program_id = profile.id if episode_id is not None else None
 
     text_length = len(article.get("text", "") or "")
     suggested_lines = _calc_suggested_lines(text_length, style)
@@ -176,17 +178,25 @@ def generate_commentary_script(
         "text": article.get("text", ""),
     }, ensure_ascii=False, indent=2)
 
-    if template is not None:
-        prompt = template.format(
-            style=style,
-            mc_gender=mc_gender,
-            article_id=article.get("id"),
-            article_title=article.get("title", ""),
-            suggested_lines_count=suggested_lines,
-            section_details=section_details,
-            article_json=article_json,
+    if prompt_builder.uses_legacy_prompt:
+        rendered = render_prompt(
+            "generate_commentary_script",
+            {
+                "style": style,
+                "mc_gender": mc_gender,
+                "article_id": article.get("id"),
+                "article_title": article.get("title", ""),
+                "suggested_lines_count": suggested_lines,
+                "section_details": section_details,
+                "article_json": article_json,
+            },
+            program_id=prompt_program_id,
         )
+        prompt = rendered.text
+        if style != "dialogue":
+            prompt = _strip_dialogue_only_sections(prompt)
     else:
+        rendered = None
         prompt = prompt_builder.build_profile_prompt(
             task_description=(
                 f"与えられた1記事の本文から、プロフィールで定義された「{profile.name}」の"
@@ -204,7 +214,12 @@ def generate_commentary_script(
 
     client_factory = (lambda: create_llm_client(llm_provider, llm_model)) if (llm_provider or llm_model) else (lambda: OllamaClient(settings.ollama_base_url, settings.ollama_model))
     with client_factory() as client:
-        set_llm_context(client, phase="script", episode_id=infer_episode_id(output_path))
+        set_llm_context(
+            client,
+            phase="script",
+            episode_id=episode_id,
+            prompt_version_id=rendered.version_id if rendered else None,
+        )
         response = client.generate_json(prompt)
 
     if response is None or not isinstance(response.get("lines"), list):
