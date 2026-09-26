@@ -190,6 +190,23 @@ CREATE INDEX IF NOT EXISTS idx_generation_jobs_claimed_at
 CREATE INDEX IF NOT EXISTS idx_generation_jobs_ip_status
     ON generation_jobs(client_ip_hash, status);
 
+CREATE TABLE IF NOT EXISTS dry_runs (
+    id INTEGER PRIMARY KEY,
+    program_id TEXT NOT NULL,
+    program_definition TEXT NOT NULL,
+    draft_program_definition TEXT,
+    prompt_version_id INTEGER,
+    input_episode_id INTEGER,
+    script_json TEXT,
+    validation_json TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+    error TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (prompt_version_id) REFERENCES prompt_versions(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dry_runs_status_created ON dry_runs(status, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     operation TEXT NOT NULL,

@@ -1363,6 +1363,10 @@ def generate_script(
     llm_provider: str | None = None,
     llm_model: str | None = None,
     program_profile: ProgramProfile | None = None,
+    summaries_override: list[dict] | None = None,
+    prompt_version_id: int | None = None,
+    mark_articles: bool = True,
+    use_program_prompt_scope: bool = False,
 ) -> int:
     settings = get_settings()
     profile = program_settings or get_settings_or_default()
@@ -1378,7 +1382,7 @@ def generate_script(
         news_source = "hatena_bookmark"
 
     service = ArticleService()
-    summaries = service.fetch_summaries_for_script(
+    summaries = summaries_override if summaries_override is not None else service.fetch_summaries_for_script(
         max_articles=max_articles,
         min_importance_score=min_score,
         source=news_source,
@@ -1407,7 +1411,7 @@ def generate_script(
     response = None
     ordered_summaries = summaries  # デフォルトは元の順序
     episode_id = infer_episode_id(output_path)
-    prompt_program_id = prompt_profile.id if episode_id is not None else None
+    prompt_program_id = prompt_profile.id if (episode_id is not None or use_program_prompt_scope) else None
 
     client_factory = (lambda: create_llm_client(llm_provider, llm_model)) if (llm_provider or llm_model) else (lambda: OllamaClient(settings.ollama_base_url, settings.ollama_model))
     with client_factory() as client:
@@ -1438,19 +1442,31 @@ def generate_script(
                 "generate_radio_script",
                 {"narrative_arc_section": narrative_arc_section, "summaries_json": summaries_json},
                 program_id=prompt_program_id,
+                **({"version_id": prompt_version_id} if prompt_version_id is not None else {}),
             )
             base_prompt = rendered_script_prompt.text
             if program_name != "ニュースのとなり":
                 base_prompt = base_prompt.replace("ニュースのとなり", program_name)
         else:
             rendered_script_prompt = None
+            profile_instructions = narrative_arc_section
+            if prompt_version_id is not None:
+                rendered_script_prompt = render_prompt(
+                    "generate_radio_script",
+                    {"narrative_arc_section": narrative_arc_section, "summaries_json": summaries_json},
+                    program_id=prompt_program_id,
+                    version_id=prompt_version_id,
+                )
+                profile_instructions = "\n\n".join(
+                    part for part in (narrative_arc_section, rendered_script_prompt.text) if part
+                )
             base_prompt = prompt_builder.build_profile_prompt(
                 task_description=(
                     f"与えられたニュース要約一覧から、番組「{prompt_profile.name}」の"
                     "ラジオ台本を日本語で作成してください。"
                 ),
                 input_description=f"# ニュース要約一覧\n{summaries_json}",
-                additional_instructions=narrative_arc_section,
+                additional_instructions=profile_instructions,
             )
 
         _MAX_LINT_RETRIES = int(os.getenv("SCRIPT_LINT_RETRIES", "3"))
@@ -1597,8 +1613,9 @@ def generate_script(
 
     # 使用した記事を 'used' にマーク → 次エピソードで重複使用されないようにする
     used_ids = [a["id"] for a in summaries]
-    service.mark_articles_used(used_ids)
-    logger.info("marked %d articles as used", len(used_ids))
+    if mark_articles:
+        service.mark_articles_used(used_ids)
+        logger.info("marked %d articles as used", len(used_ids))
 
     return len(script["lines"])
 

@@ -189,10 +189,30 @@ def render_prompt(
     variables: Mapping[str, Any],
     *,
     program_id: str | None = None,
+    version_id: int | None = None,
 ) -> RenderedPrompt:
     """DBまたはファイルから選択し、契約に従って完成プロンプトを返す。"""
-    template = load_prompt_template(template_key, program_id=program_id)
     definition = _validate_template_key(template_key)
+    template = None
+    if version_id is not None:
+        with get_db_connection() as conn:
+            row = conn.execute(
+                "SELECT pv.id AS version_id, pv.content, pt.required_variables, pt.allowed_variables "
+                "FROM prompt_versions pv JOIN prompt_templates pt ON pt.id = pv.template_id "
+                "WHERE pv.id = ? AND pv.status = 'draft' AND pt.template_key = ? "
+                "AND (pt.program_id IS ? OR pt.program_id IS NULL)",
+                (version_id, template_key, program_id),
+            ).fetchone()
+        if row is None:
+            raise PromptTemplateError("draft prompt version does not match template scope")
+        template = PromptTemplate(template_key, row["content"], "draft", row["version_id"])
+        validate_prompt_template(
+            template.content,
+            required_variables=definition["required_variables"],
+            allowed_variables=definition["allowed_variables"],
+        )
+    else:
+        template = load_prompt_template(template_key, program_id=program_id)
     text = render_prompt_template(
         template.content,
         variables,

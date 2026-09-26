@@ -11,6 +11,7 @@ from app.services.generation_control import (
     GenerationControlError,
     SYSTEM_OWNER_USERNAME,
     enqueue_job,
+    finish_job,
     promote_next_job,
 )
 
@@ -66,6 +67,40 @@ def test_waiting_limit_is_for_api_only_and_cron_is_exempt(client, monkeypatch):
     assert cron.status == "waiting"
     with get_db_connection() as conn:
         conn.execute("UPDATE generation_jobs SET status = 'failed' WHERE id = ?", (active.job_id,))
+
+
+def test_user_job_does_not_overtake_system_owned_waiting_job(client):
+    from app.db.migration import ensure_generation_system_owner
+
+    with get_db_connection() as conn:
+        system_owner_id = ensure_generation_system_owner(conn)
+    active = enqueue_job(
+        system_owner_id, "daily", "system-fifo-active", {"date": "2099-02-20"},
+        episode_date="2099-02-20", dispatch=False,
+    )
+    system_waiting = enqueue_job(
+        system_owner_id, "daily", "system-fifo-waiting", {"date": "2099-02-21"},
+        episode_date="2099-02-21", dispatch=False,
+    )
+    with get_db_connection() as conn:
+        conn.execute("UPDATE generation_jobs SET status='completed' WHERE id=?", (active.job_id,))
+
+    # This is the gap between finish_job's terminal update and FIFO promotion.
+    user_job = enqueue_job(1, "dry_run", "system-fifo-user", {"program_id": "radio"}, dispatch=False)
+    assert user_job.status == "waiting"
+
+    first = promote_next_job()
+    assert first is not None and first.job_id == system_waiting.job_id
+    next_job = finish_job(first.job_id, True, dispatch=False)
+    assert next_job is not None and next_job.job_id == user_job.job_id
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, status FROM generation_jobs WHERE id IN (?, ?) ORDER BY id",
+            (system_waiting.job_id, user_job.job_id),
+        ).fetchall()
+    assert [(row["id"], row["status"]) for row in rows] == [
+        (system_waiting.job_id, "completed"), (user_job.job_id, "active")
+    ]
 
 
 def test_generate_api_returns_waiting_when_another_job_is_active(client, monkeypatch):

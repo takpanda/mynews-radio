@@ -26,18 +26,25 @@ def _load_prompt_template() -> str:
     return prompt_path.read_text(encoding="utf-8")
 
 
-def summarize_articles(output_path: str, *, llm_provider: str | None = None, llm_model: str | None = None) -> int:
+def summarize_articles(
+    output_path: str,
+    *,
+    llm_provider: str | None = None,
+    llm_model: str | None = None,
+    news_source: str | None = None,
+    program_id: str | None = None,
+) -> int:
     settings = get_settings()
     service = ArticleService()
 
-    articles = service.fetch_new_articles()
+    articles = service.fetch_new_articles() if news_source is None else service.fetch_new_articles(news_source)
     if not articles:
         logger.info("No new articles found")
         Path(output_path).write_text("[]\n", encoding="utf-8")
         return 0
 
     episode_id = infer_episode_id(output_path)
-    program_id = program_id_for_episode(episode_id)
+    program_id = program_id or program_id_for_episode(episode_id)
     results: list[dict] = []
 
     client_factory = (lambda: create_llm_client(llm_provider, llm_model)) if (llm_provider or llm_model) else (lambda: OllamaClient(settings.ollama_base_url, settings.ollama_model))

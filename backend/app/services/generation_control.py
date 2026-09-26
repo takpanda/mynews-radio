@@ -121,6 +121,13 @@ def enqueue_job(
         conn.execute("BEGIN IMMEDIATE")
         stale_cutoff = _utc_text(now - STALE_ACTIVE_TIMEOUT)
         conn.execute(
+            "UPDATE dry_runs SET status = 'failed', error = 'Generation job timed out', "
+            "updated_at = CURRENT_TIMESTAMP WHERE id IN ("
+            "SELECT id FROM generation_jobs WHERE operation = 'dry_run' AND status = 'active' AND claimed_at < ?) "
+            "AND status = 'running'",
+            (stale_cutoff,),
+        )
+        conn.execute(
             "UPDATE generation_jobs SET status = 'failed', finished_at = CURRENT_TIMESTAMP "
             "WHERE status = 'active' AND claimed_at < ?",
             (stale_cutoff,),
@@ -151,6 +158,9 @@ def enqueue_job(
         active_count = conn.execute(
             "SELECT COUNT(*) AS count FROM generation_jobs WHERE status = 'active'"
         ).fetchone()["count"]
+        waiting_count = conn.execute(
+            "SELECT COUNT(*) AS count FROM generation_jobs WHERE status = 'waiting'"
+        ).fetchone()["count"]
         queued_count = conn.execute(
             "SELECT COUNT(*) AS count FROM generation_jobs j "
             "LEFT JOIN admin_users u ON u.id = j.owner_user_id "
@@ -158,7 +168,7 @@ def enqueue_job(
             (SYSTEM_OWNER_USERNAME,),
         ).fetchone()["count"]
         system_owner = _is_system_owner(conn, owner_user_id)
-        if active_count or queued_count:
+        if active_count or waiting_count:
             status = "waiting"
             if not system_owner and queued_count >= _configured_queue_limit():
                 insert_audit_log(
@@ -292,6 +302,12 @@ def recover_generation_queue() -> None:
     """
     with get_db_connection() as conn:
         conn.execute(
+            "UPDATE dry_runs SET status = 'failed', error = 'Generation process restarted', "
+            "updated_at = CURRENT_TIMESTAMP WHERE id IN ("
+            "SELECT id FROM generation_jobs WHERE operation = 'dry_run' AND status = 'active') "
+            "AND status = 'running'"
+        )
+        conn.execute(
             "UPDATE generation_jobs SET status = 'failed', finished_at = CURRENT_TIMESTAMP "
             "WHERE status = 'active'"
         )
@@ -306,7 +322,7 @@ def dispatch_job(job_id: int | None = None) -> None:
     with get_db_connection() as conn:
         unbound_active = conn.execute(
             "SELECT 1 FROM generation_jobs WHERE status = 'active' "
-            "AND episode_id IS NULL AND operation != 'daily' LIMIT 1"
+            "AND episode_id IS NULL AND operation NOT IN ('daily', 'dry_run') LIMIT 1"
         ).fetchone()
     if unbound_active:
         logger.warning("generation dispatcher skipped unbound active job; queue remains paused")
@@ -367,7 +383,7 @@ class GenerationDispatcher:
                 if job:
                     # payloadだけを扱う制御テストや外部利用者の予約を、API実行
                     # 経路として誤って実行しない。実ジョブはepisodeを予約する。
-                    if job["episode_id"] is None and job["operation"] != "daily":
+                    if job["episode_id"] is None and job["operation"] not in {"daily", "dry_run"}:
                         logger.warning(
                             "generation dispatcher skipped unbound active job; job_id=%d queue remains paused",
                             job_id,
