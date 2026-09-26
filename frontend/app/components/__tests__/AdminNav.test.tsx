@@ -41,6 +41,7 @@ describe('AdminNav', () => {
     render(<AdminNav />)
     await waitFor(() => expect(global.fetch).toHaveBeenCalled())
     expect(screen.getAllByRole('link', { name: '辞書管理' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('link', { name: 'プロンプト管理' }).length).toBeGreaterThan(0)
   })
 
   it('スマホ幅のハンバーガーメニューから確認待ち一覧・既存管理画面・ログアウトへ移動できる', async () => {
@@ -58,6 +59,7 @@ describe('AdminNav', () => {
     expect(menu).not.toBeNull()
     expect(menu).toHaveTextContent('確認待ち一覧')
     expect(menu).toHaveTextContent('番組・MC管理')
+    expect(menu).toHaveTextContent('プロンプト管理')
     expect(menu).toHaveTextContent('辞書管理')
     expect(menu).toHaveTextContent('読み間違い報告')
     expect(menu).toHaveTextContent('ボイス設定')
@@ -68,5 +70,20 @@ describe('AdminNav', () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/admin/logout', { method: 'POST' }))
     expect(mockPush).toHaveBeenCalledWith('/admin/login')
     expect(mockRefresh).toHaveBeenCalled()
+  })
+
+  it('リンク追加で1行表示が窮屈にならないよう、横並び表示の開始幅はlg（1024px）にしている', async () => {
+    ;(global.fetch as jest.Mock).mockReturnValue(jsonResponse([]))
+    const { container } = render(<AdminNav />)
+
+    const desktopLinks = container.querySelector('.hidden.items-center.gap-4')
+    expect(desktopLinks).not.toBeNull()
+    expect(desktopLinks).toHaveClass('hidden')
+    expect(desktopLinks).toHaveClass('lg:flex')
+    expect(desktopLinks).not.toHaveClass('md:flex')
+
+    const hamburgerToggle = screen.getByRole('button', { name: 'メニューを開く' })
+    expect(hamburgerToggle).toHaveClass('lg:hidden')
+    expect(hamburgerToggle).not.toHaveClass('md:hidden')
   })
 })
