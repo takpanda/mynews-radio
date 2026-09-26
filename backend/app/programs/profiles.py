@@ -20,6 +20,10 @@ class ProgramCastMember:
     key: str
     name: str
     role: str = ""
+    mc_id: str | None = None
+    voice_fishs2pro: str | None = None
+    voice_aivispeech: int | None = None
+    voice_voicevox: int | None = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +46,7 @@ class ProgramOptions:
     style: str | None = None
     mc_gender: str | None = None
     narrative_arc: bool = False
+    review_mode: str = "on_failure"
 
 
 @dataclass(frozen=True)
@@ -69,6 +74,8 @@ def validate_program_profile(profile: ProgramProfile) -> None:
     errors: list[str] = []
     if profile.kind not in {"radio", "commentary"}:
         errors.append(f"unsupported program kind: {profile.kind!r}")
+    if profile.options.review_mode not in {"always", "on_failure", "auto"}:
+        errors.append(f"unsupported review_mode: {profile.options.review_mode!r}")
 
     cast_keys = [member.key for member in profile.cast]
     if not cast_keys:
@@ -167,12 +174,12 @@ def segment_snapshots(profile: ProgramProfile) -> list[dict[str, str]]:
 
 
 _RADIO_CAST = (
-    ProgramCastMember("male", "田村", "メインMC"),
-    ProgramCastMember("female", "山口", "パートナーMC"),
+    ProgramCastMember("male", "田村", "メインMC", mc_id="radio_male"),
+    ProgramCastMember("female", "山口", "パートナーMC", mc_id="radio_female"),
 )
 _COMMENTARY_DIALOGUE_CAST = (
-    ProgramCastMember("male", "", "解説者"),
-    ProgramCastMember("female", "", "聞き手"),
+    ProgramCastMember("male", "", "解説者", mc_id="commentary_male"),
+    ProgramCastMember("female", "", "聞き手", mc_id="commentary_female"),
 )
 
 RADIO_TWO_PERSON = ProgramProfile(
@@ -194,7 +201,7 @@ COMMENTARY_ONE_PERSON = ProgramProfile(
     id="commentary_solo",
     name="解説",
     kind="commentary",
-    cast=(ProgramCastMember("male", "", "解説者"),),
+    cast=(ProgramCastMember("male", "", "解説者", mc_id="commentary_male"),),
     segments=(
         _segment("intro", "intro", 0, 1, 2, ("male",)),
         _segment("news", "news", 1, 3, 12, ("male",)),
@@ -251,7 +258,12 @@ def get_default_profile(
             raise ValueError(f"unsupported commentary style: {style!r}")
         if mc_gender not in {"male", "female"}:
             raise ValueError(f"unsupported commentary mc_gender: {mc_gender!r}")
-        cast = (ProgramCastMember(mc_gender, "", "解説者"),)
+        cast = (ProgramCastMember(
+            mc_gender,
+            "",
+            "解説者",
+            mc_id=f"commentary_{mc_gender}",
+        ),)
         segments = tuple(replace(segment, speaker_keys=(mc_gender,)) for segment in COMMENTARY_ONE_PERSON.segments)
         return replace(
             COMMENTARY_ONE_PERSON,
