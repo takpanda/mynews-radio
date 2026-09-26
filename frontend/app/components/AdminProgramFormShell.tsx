@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
 import {
@@ -18,7 +18,10 @@ import {
   type ProgramSegmentValue,
   type ReviewMode,
 } from '../lib/admin-programs'
+import { fetchVoiceOptionsClient, type VoiceOption, type VoiceOptionsResponse } from '../lib/admin-voice-settings'
 import ConfirmDialog from './ConfirmDialog'
+
+const FISHS2PRO_FETCH_ERROR = 'ボイス一覧を取得できませんでした'
 
 interface Props {
   mode: 'create' | 'edit'
@@ -95,6 +98,36 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
   const [segmentLimitError, setSegmentLimitError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [noteDialog, setNoteDialog] = useState<{ note: string; error: string | null } | null>(null)
+
+  const [voiceOptions, setVoiceOptions] = useState<VoiceOptionsResponse | null>(null)
+  const [voiceOptionsLoading, setVoiceOptionsLoading] = useState(true)
+  const [voiceOptionsError, setVoiceOptionsError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchVoiceOptionsClient()
+      .then((res) => {
+        if (cancelled) return
+        setVoiceOptions(res)
+        if (res.fishs2pro.status === 'error') {
+          setVoiceOptionsError(res.fishs2pro.error ?? FISHS2PRO_FETCH_ERROR)
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return
+        const detail = err instanceof Error ? err.message : String(err)
+        setVoiceOptionsError(detail ? `${FISHS2PRO_FETCH_ERROR}（${detail}）` : FISHS2PRO_FETCH_ERROR)
+      })
+      .finally(() => {
+        if (!cancelled) setVoiceOptionsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const fishs2proOptions: VoiceOption[] =
+    voiceOptions && voiceOptions.fishs2pro.status === 'ok' ? voiceOptions.fishs2pro.options : []
 
   const allowedSegmentKinds = SEGMENT_KINDS_BY_PROGRAM_KIND[kind]
   const castKeys = cast.map((member) => member.key).filter(Boolean)
@@ -347,11 +380,38 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
                       ))}
                     </select>
                   </div>
-                  <LabeledInput
-                    label="Fish S2 Pro"
-                    value={member.voice_fishs2pro ?? ''}
-                    onChange={(v) => updateCast(index, { voice_fishs2pro: v || null })}
-                  />
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-500">Fish S2 Pro</label>
+                    <select
+                      value={member.voice_fishs2pro ?? ''}
+                      onChange={(e) => updateCast(index, { voice_fishs2pro: e.target.value || null })}
+                      disabled={voiceOptionsLoading}
+                      aria-label={`Fish S2 Pro（${index + 1}人目）`}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                    >
+                      {voiceOptionsLoading ? (
+                        <option value="">読み込み中…</option>
+                      ) : (
+                        <>
+                          <option value="">ブランク（未指定）</option>
+                          {member.voice_fishs2pro &&
+                            !fishs2proOptions.some((opt) => String(opt.value) === member.voice_fishs2pro) && (
+                              <option value={member.voice_fishs2pro}>
+                                {member.voice_fishs2pro}（一覧にありません）
+                              </option>
+                            )}
+                          {fishs2proOptions.map((opt) => (
+                            <option key={String(opt.value)} value={String(opt.value)}>
+                              {opt.display_name}
+                            </option>
+                          ))}
+                        </>
+                      )}
+                    </select>
+                    {!voiceOptionsLoading && voiceOptionsError && (
+                      <p className="mt-1 text-xs text-red-600">{voiceOptionsError}</p>
+                    )}
+                  </div>
                   <div className="flex items-end">
                     <button
                       type="button"
