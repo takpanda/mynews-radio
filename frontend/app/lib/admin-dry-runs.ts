@@ -51,13 +51,19 @@ export class DryRunQueueFullError extends DryRunApiError {
   }
 }
 
+/**
+ * idempotencyKeyは呼び出し側が管理する。応答が届かず結果不明のまま再試行する場合は
+ * 同じキーを渡してバックエンドの重複排除（owner・operation・key）に乗せ、
+ * 同一入力のジョブが二重登録されるのを防ぐ。省略時のみ新規キーを発行する。
+ */
 export async function createDryRunClient(
   programId: string,
   input: DryRunCreateInput,
+  idempotencyKey?: string,
 ): Promise<DryRunCreateResult> {
   const res = await fetch(`/api/admin/programs/${encodeURIComponent(programId)}/dry-run`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey ?? crypto.randomUUID() },
     body: JSON.stringify(input),
     cache: 'no-store' as RequestCache,
   })

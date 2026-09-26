@@ -7,6 +7,7 @@ import {
   fetchDryRunClient,
   DryRunApiError,
   DryRunQueueFullError,
+  type DryRunCreateInput,
   type DryRunDetail,
   type DryRunStatus,
   type DryRunVariant,
@@ -57,6 +58,10 @@ export default function AdminDryRunShell({ programId, programKind, currentDefini
   const [loadingDetail, setLoadingDetail] = useState(initialDryRunId !== null)
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // 応答が届かず受付結果が不明なまま同じ入力で再試行したとき、バックエンドの重複排除
+  // （owner・operation・key）に乗せて同一ジョブを再登録しないよう、直近の送信内容と
+  // 対応するキーを保持する。入力が変わったとき、または受付が確定したときだけ新しいキーを発行する。
+  const pendingSubmissionRef = useRef<{ signature: string; idempotencyKey: string } | null>(null)
 
   const stopPolling = () => {
     if (pollingRef.current) {
@@ -144,13 +149,23 @@ export default function AdminDryRunShell({ programId, programKind, currentDefini
       inputEpisodeId = value
     }
 
+    const payload: DryRunCreateInput = {
+      draft_program_definition: draftProgramDefinition,
+      draft_prompt_version_id: draftPromptVersionId,
+      input_episode_id: inputEpisodeId,
+    }
+    const signature = JSON.stringify(payload)
+    const idempotencyKey =
+      pendingSubmissionRef.current?.signature === signature
+        ? pendingSubmissionRef.current.idempotencyKey
+        : crypto.randomUUID()
+    pendingSubmissionRef.current = { signature, idempotencyKey }
+
     setSubmitting(true)
     try {
-      const result = await createDryRunClient(programId, {
-        draft_program_definition: draftProgramDefinition,
-        draft_prompt_version_id: draftPromptVersionId,
-        input_episode_id: inputEpisodeId,
-      })
+      const result = await createDryRunClient(programId, payload, idempotencyKey)
+      // 受付が確定したので、次回以降は同じ入力でも新しいテスト実行として新規キーを発行する。
+      pendingSubmissionRef.current = null
       setDetail(null)
       setDetailError(null)
       setLoadingDetail(true)

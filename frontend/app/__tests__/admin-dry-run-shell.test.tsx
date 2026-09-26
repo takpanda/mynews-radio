@@ -221,4 +221,77 @@ describe('AdminDryRunShell', () => {
     expect(screen.getByText('実行結果（ジョブID: 7）')).toBeInTheDocument()
     expect(global.fetch).toHaveBeenCalledWith('/api/admin/dry-runs/7', expect.anything())
   })
+
+  it('通信結果が不明な失敗の後、同じ入力で再試行すると同じIdempotency-Keyを再利用し同じジョブIDが返る', async () => {
+    const user = userEvent.setup()
+    ;(global.fetch as jest.Mock)
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(jsonResponse(202, { id: 5, status: 'queued' }))
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: 5,
+          program_id: 'p1',
+          program_definition: {},
+          draft_program_definition: null,
+          prompt_version_id: null,
+          input_episode_id: null,
+          script_json: null,
+          validation_json: null,
+          status: 'queued',
+          error: null,
+          created_at: '',
+          updated_at: '',
+        }),
+      )
+
+    render(<AdminDryRunShell programId="p1" programKind="radio" currentDefinition={baseDefinition()} initialDryRunId={null} />)
+
+    await user.click(screen.getByRole('button', { name: 'テスト生成を実行' }))
+    expect(await screen.findByText('テスト生成の受付に失敗しました。通信状態を確認してもう一度お試しください。')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'テスト生成を実行' }))
+    expect(await screen.findByText('実行結果（ジョブID: 5）')).toBeInTheDocument()
+
+    const calls = (global.fetch as jest.Mock).mock.calls
+    const firstKey = (calls[0][1].headers as Record<string, string>)['Idempotency-Key']
+    const secondKey = (calls[1][1].headers as Record<string, string>)['Idempotency-Key']
+    expect(firstKey).toBeTruthy()
+    expect(secondKey).toBe(firstKey)
+  })
+
+  it('受付が確定した後は、同じ入力のまま再実行しても新しいIdempotency-Keyを発行する', async () => {
+    const user = userEvent.setup()
+    const detailFor = (id: number) => ({
+      id,
+      program_id: 'p1',
+      program_definition: {},
+      draft_program_definition: null,
+      prompt_version_id: null,
+      input_episode_id: null,
+      script_json: null,
+      validation_json: null,
+      status: 'queued',
+      error: null,
+      created_at: '',
+      updated_at: '',
+    })
+    ;(global.fetch as jest.Mock)
+      .mockResolvedValueOnce(jsonResponse(202, { id: 10, status: 'queued' }))
+      .mockResolvedValueOnce(jsonResponse(200, detailFor(10)))
+      .mockResolvedValueOnce(jsonResponse(202, { id: 11, status: 'queued' }))
+      .mockResolvedValueOnce(jsonResponse(200, detailFor(11)))
+
+    render(<AdminDryRunShell programId="p1" programKind="radio" currentDefinition={baseDefinition()} initialDryRunId={null} />)
+
+    await user.click(screen.getByRole('button', { name: 'テスト生成を実行' }))
+    expect(await screen.findByText('実行結果（ジョブID: 10）')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'テスト生成を実行' }))
+    expect(await screen.findByText('実行結果（ジョブID: 11）')).toBeInTheDocument()
+
+    const calls = (global.fetch as jest.Mock).mock.calls
+    const firstKey = (calls[0][1].headers as Record<string, string>)['Idempotency-Key']
+    const secondKey = (calls[2][1].headers as Record<string, string>)['Idempotency-Key']
+    expect(secondKey).not.toBe(firstKey)
+  })
 })
