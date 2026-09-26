@@ -5,19 +5,23 @@ import { toast } from 'react-hot-toast'
 import ConfirmDialog from './ConfirmDialog'
 import {
   approveScriptClient,
+  buildSpeakerOptions,
   clearDraftFromStorage,
-  collectSpeakerKeys,
   diffScriptLines,
   fetchScriptClient,
+  initialSpeakerKey,
+  isSpeakerOutsideCast,
   loadDraftFromStorage,
   previewAudioClient,
   rejectScriptClient,
   saveDraftToStorage,
   saveScriptClient,
+  shouldShowSpeakerSelect,
   ScriptApiError,
   ScriptRevisionConflictError,
   ScriptValidationBlockedError,
   validateScriptClient,
+  type AdminScriptReviewCastMember,
   type AdminScriptReviewLine,
   type AdminScriptReviewScript,
   type ScriptDraft,
@@ -29,6 +33,7 @@ interface Props {
   episodeId: number
   initialRevision: number
   initialScript: AdminScriptReviewScript
+  initialCast?: AdminScriptReviewCastMember[] | null
 }
 
 interface ConflictState {
@@ -51,7 +56,7 @@ function globalFindings(validation: ValidationResult | null): ValidationFinding[
   return validation.results.filter((finding) => finding.line_indices.length === 0)
 }
 
-export default function AdminScriptReviewShell({ episodeId, initialRevision, initialScript }: Props) {
+export default function AdminScriptReviewShell({ episodeId, initialRevision, initialScript, initialCast = null }: Props) {
   const [revision, setRevision] = useState(initialRevision)
   const [script, setScript] = useState(initialScript)
   const [dirty, setDirty] = useState(false)
@@ -126,10 +131,9 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
   }
 
   const handleAddLine = () => {
-    const speakers = collectSpeakerKeys(script.lines)
     const lastLine = script.lines[script.lines.length - 1]
     const newLine: AdminScriptReviewLine = {
-      speaker: speakers[0] ?? 'male',
+      speaker: initialSpeakerKey(initialCast, script.lines),
       text: '',
       section: lastLine?.section ?? 'news',
     }
@@ -327,8 +331,8 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
     )
   }
 
-  const speakerKeys = collectSpeakerKeys(script.lines)
-  const showSpeakerSelect = speakerKeys.length > 1
+  const speakerOptions = buildSpeakerOptions(initialCast, script.lines)
+  const showSpeakerSelect = shouldShowSpeakerSelect(initialCast, script.lines)
   const findings = globalFindings(validation)
   const draftIsSameRevision = draftPrompt?.baseRevision === revision
 
@@ -523,12 +527,16 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
                       aria-label={`行${index + 1}の話者`}
                       className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {speakerKeys.map((key) => (
-                        <option key={key} value={key}>
-                          {key}
+                      {speakerOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
                         </option>
                       ))}
                     </select>
+                  ) : isSpeakerOutsideCast(initialCast, line.speaker) ? (
+                    <span className="text-xs text-slate-500">
+                      行{index + 1}（話者: {line.speaker}）
+                    </span>
                   ) : (
                     <span className="text-xs text-slate-400">行{index + 1}</span>
                   )}

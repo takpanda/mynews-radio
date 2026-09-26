@@ -1,20 +1,29 @@
 import {
+  buildSpeakerOptions,
   clearDraftFromStorage,
   collectSpeakerKeys,
   diffScriptLines,
+  initialSpeakerKey,
+  isSpeakerOutsideCast,
   loadDraftFromStorage,
   previewAudioClient,
   saveDraftToStorage,
   saveScriptClient,
+  shouldShowSpeakerSelect,
   approveScriptClient,
   ScriptApiError,
   ScriptRevisionConflictError,
   ScriptValidationBlockedError,
+  type AdminScriptReviewCastMember,
   type AdminScriptReviewLine,
 } from '../lib/admin-script-review'
 
 function line(overrides: Partial<AdminScriptReviewLine> = {}): AdminScriptReviewLine {
   return { speaker: 'male', section: 'news', text: 'テキスト', ...overrides }
+}
+
+function cast(overrides: Partial<AdminScriptReviewCastMember>[] = []): AdminScriptReviewCastMember[] {
+  return overrides.map((o, i) => ({ key: `cast${i}`, name: `出演者${i}`, ...o }))
 }
 
 describe('collectSpeakerKeys', () => {
@@ -25,6 +34,85 @@ describe('collectSpeakerKeys', () => {
 
   it('1種類しかない場合は1件のみ返す', () => {
     expect(collectSpeakerKeys([line({ speaker: 'male' }), line({ speaker: 'male' })])).toEqual(['male'])
+  })
+})
+
+describe('buildSpeakerOptions', () => {
+  it('castがあれば台本に登場しない出演者も候補に含める', () => {
+    const members = cast([{ key: 'mc-a', name: '田中' }, { key: 'mc-b', name: '鈴木' }])
+    const lines = [line({ speaker: 'mc-a' })]
+    expect(buildSpeakerOptions(members, lines)).toEqual([
+      { key: 'mc-a', label: '田中' },
+      { key: 'mc-b', label: '鈴木' },
+    ])
+  })
+
+  it('cast外のspeaker keyを持つ行があれば、元のkeyを表示名にした候補を追加する', () => {
+    const members = cast([{ key: 'mc-a', name: '田中' }])
+    const lines = [line({ speaker: 'mc-a' }), line({ speaker: 'legacy-key' })]
+    expect(buildSpeakerOptions(members, lines)).toEqual([
+      { key: 'mc-a', label: '田中' },
+      { key: 'legacy-key', label: 'legacy-key' },
+    ])
+  })
+
+  it('castが無い場合は台本に登場するspeaker keyから候補を作る', () => {
+    const lines = [line({ speaker: 'male' }), line({ speaker: 'female' })]
+    expect(buildSpeakerOptions(null, lines)).toEqual([
+      { key: 'male', label: 'male' },
+      { key: 'female', label: 'female' },
+    ])
+  })
+
+  it('castが空配列の場合も台本由来にフォールバックする', () => {
+    const lines = [line({ speaker: 'male' })]
+    expect(buildSpeakerOptions([], lines)).toEqual([{ key: 'male', label: 'male' }])
+  })
+})
+
+describe('shouldShowSpeakerSelect', () => {
+  it('castが2人なら台本に1人しか登場しなくても表示する', () => {
+    const members = cast([{ key: 'mc-a' }, { key: 'mc-b' }])
+    expect(shouldShowSpeakerSelect(members, [line({ speaker: 'mc-a' })])).toBe(true)
+  })
+
+  it('castが1人なら台本に別keyの行があっても表示しない', () => {
+    const members = cast([{ key: 'mc-a' }])
+    expect(shouldShowSpeakerSelect(members, [line({ speaker: 'mc-a' }), line({ speaker: 'legacy-key' })])).toBe(false)
+  })
+
+  it('castが無い過去回は台本に登場するspeaker keyの種類数で判定する既存動作', () => {
+    expect(shouldShowSpeakerSelect(null, [line({ speaker: 'male' })])).toBe(false)
+    expect(shouldShowSpeakerSelect(null, [line({ speaker: 'male' }), line({ speaker: 'female' })])).toBe(true)
+  })
+})
+
+describe('initialSpeakerKey', () => {
+  it('castがあれば先頭のkeyを返す', () => {
+    const members = cast([{ key: 'mc-a' }, { key: 'mc-b' }])
+    expect(initialSpeakerKey(members, [])).toBe('mc-a')
+  })
+
+  it('castが無ければ既存動作（登場済みの先頭、無ければmale）', () => {
+    expect(initialSpeakerKey(null, [line({ speaker: 'female' })])).toBe('female')
+    expect(initialSpeakerKey(null, [])).toBe('male')
+  })
+})
+
+describe('isSpeakerOutsideCast', () => {
+  it('castのどのkeyとも一致しなければtrue', () => {
+    const members = cast([{ key: 'mc-a' }])
+    expect(isSpeakerOutsideCast(members, 'legacy-key')).toBe(true)
+  })
+
+  it('castのkeyと一致すればfalse', () => {
+    const members = cast([{ key: 'mc-a' }])
+    expect(isSpeakerOutsideCast(members, 'mc-a')).toBe(false)
+  })
+
+  it('castが無い/空の場合は常にfalse（過去回の既存動作に影響しない）', () => {
+    expect(isSpeakerOutsideCast(null, 'male')).toBe(false)
+    expect(isSpeakerOutsideCast([], 'male')).toBe(false)
   })
 })
 

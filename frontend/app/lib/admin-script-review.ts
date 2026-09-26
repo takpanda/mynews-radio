@@ -15,10 +15,18 @@ export interface AdminScriptReviewScript {
   [key: string]: unknown
 }
 
+/** 番組の出演者定義（生成時点のprogram_snapshot由来）。過去回にはsnapshotが無くcastはnull。 */
+export interface AdminScriptReviewCastMember {
+  key: string
+  name: string
+  role?: string
+}
+
 export interface AdminScriptReviewResponse {
   episode_id: number
   revision: number
   script: AdminScriptReviewScript
+  cast?: AdminScriptReviewCastMember[] | null
 }
 
 export interface ValidationFinding {
@@ -214,6 +222,66 @@ export function collectSpeakerKeys(lines: AdminScriptReviewLine[]): string[] {
     if (!seen.includes(line.speaker)) seen.push(line.speaker)
   }
   return seen
+}
+
+export interface SpeakerOption {
+  key: string
+  label: string
+}
+
+/**
+ * 話者選択の選択肢を作る。castがあればその全員を（台本に未登場でも）候補にし、
+ * castに無いspeaker keyを持つ行があっても、現在値が誤って別の出演者に見えないよう
+ * 元のkeyをそのまま表示名にした選択肢を追加する。
+ * castが無い/空の過去回では、台本に登場するspeaker keyから作る既存動作にする。
+ */
+export function buildSpeakerOptions(
+  cast: AdminScriptReviewCastMember[] | null | undefined,
+  lines: AdminScriptReviewLine[],
+): SpeakerOption[] {
+  if (cast && cast.length > 0) {
+    const options: SpeakerOption[] = cast.map((member) => ({ key: member.key, label: member.name }))
+    const known = new Set(options.map((option) => option.key))
+    for (const line of lines) {
+      if (!known.has(line.speaker)) {
+        known.add(line.speaker)
+        options.push({ key: line.speaker, label: line.speaker })
+      }
+    }
+    return options
+  }
+  return collectSpeakerKeys(lines).map((key) => ({ key, label: key }))
+}
+
+/** 話者選択UIの表示要否。castがあればcastの人数、無ければ台本に登場するspeaker keyの種類数で決める。 */
+export function shouldShowSpeakerSelect(
+  cast: AdminScriptReviewCastMember[] | null | undefined,
+  lines: AdminScriptReviewLine[],
+): boolean {
+  if (cast && cast.length > 0) return cast.length > 1
+  return collectSpeakerKeys(lines).length > 1
+}
+
+/** 行追加時の初期話者。castがあればその先頭のkey、無ければ既存動作（登場済みの先頭 or 'male'）。 */
+export function initialSpeakerKey(
+  cast: AdminScriptReviewCastMember[] | null | undefined,
+  lines: AdminScriptReviewLine[],
+): string {
+  if (cast && cast.length > 0) return cast[0].key
+  return collectSpeakerKeys(lines)[0] ?? 'male'
+}
+
+/**
+ * speakerがcastのどのkeyとも一致しないか判定する。
+ * castが1人で選択UIが表示されない場合でも、この行だけは元のkeyを読み取り専用で表示する必要があるため、
+ * 選択UIの表示要否（shouldShowSpeakerSelect）とは別に行単位で判定する。
+ */
+export function isSpeakerOutsideCast(
+  cast: AdminScriptReviewCastMember[] | null | undefined,
+  speaker: string,
+): boolean {
+  if (!cast || cast.length === 0) return false
+  return !cast.some((member) => member.key === speaker)
 }
 
 export type ScriptDiffOp =
