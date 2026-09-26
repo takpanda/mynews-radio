@@ -85,6 +85,9 @@ test('セグメント上限、変更メモ必須、キャンセル、保存後�
   await expect(page.getByText('セグメントは最大6件までです')).toBeVisible()
   await expect(page.getByText('セグメント（6/6）')).toBeVisible()
 
+  await page.getByRole('button', { name: 'segment-1番目のセグメントを下へ' }).click()
+  await expect(page.getByRole('button', { name: 'segment-2番目のセグメントを上へ' })).toBeDisabled()
+
   await page.locator('[data-testid="program-edit-form"] input[type="text"]').nth(1).fill('朝のニュース 更新')
   await page.getByRole('button', { name: '保存する' }).click()
   const dialog = page.getByRole('dialog')
@@ -101,13 +104,23 @@ test('セグメント上限、変更メモ必須、キャンセル、保存後�
   await page.getByLabel('変更メモ').fill('出演者と構成を更新')
   await page.getByRole('dialog').getByRole('button', { name: '保存する' }).click()
   await expect(page.getByText('番組を保存しました。変更はすぐに反映されます。')).toBeVisible()
-  expect((await readMockState(page)).mutations).toHaveLength(1)
+  const mutations = (await readMockState(page)).mutations
+  expect(mutations).toHaveLength(1)
+  const savedSegments = (mutations[0].body.segments as Array<{ id: string; order: number }>)
+  expect(savedSegments.map((segment) => segment.id)).toEqual([
+    'segment-2', 'segment-1', 'segment-3', 'segment-4', 'segment-5', 'segment-6',
+  ])
+  const orders = savedSegments.map((segment) => segment.order)
+  expect(new Set(orders).size).toBe(orders.length)
+  expect(orders).toEqual([...orders].sort((a, b) => a - b))
 
   await page.reload()
   await expect(
     page.locator('[data-testid="program-edit-form"] input[type="text"]').nth(1),
   ).toHaveValue('朝のニュース 更新')
   await expect(page.getByText('セグメント（6/6）')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'segment-2番目のセグメントを上へ' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'segment-1番目のセグメントを上へ' })).toBeEnabled()
 })
 
 test('重複した番組IDの409エラーを画面に表示する', async ({ page }) => {
