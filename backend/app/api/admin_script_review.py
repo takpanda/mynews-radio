@@ -123,12 +123,38 @@ def get_script(episode_id: int, _: Annotated[int, Depends(require_owner_session)
             {key: member[key] for key in ("key", "name", "role")}
             for member in snapshot["cast"]
         ] if snapshot is not None else None
-        return {
-            "episode_id": episode_id,
-            "revision": row["revision"],
-            "script": json.loads(row["script_json"]),
-            "cast": cast,
-        }
+        revision = row["revision"]
+        script = json.loads(row["script_json"])
+    if revision == 1:
+        try:
+            generated_validation = json.loads(
+                (_script_path(episode_id).parent / "final_validation.json").read_text(encoding="utf-8")
+            )
+            if not isinstance(generated_validation, dict) or not all(
+                isinstance(generated_validation.get(key), list)
+                for key in ("critical_issues", "warnings")
+            ) or not all(
+                isinstance(item, dict)
+                for key in ("critical_issues", "warnings")
+                for item in generated_validation[key]
+            ):
+                raise ValueError("Invalid final validation report")
+            validation = _validation_result(generated_validation)
+            validation_source = "generated"
+        except (OSError, ValueError):
+            validation = _validate_episode_script(episode_id, script)
+            validation_source = "current"
+    else:
+        validation = _validate_episode_script(episode_id, script)
+        validation_source = "current"
+    validation.update({"source": validation_source, "revision": revision})
+    return {
+        "episode_id": episode_id,
+        "revision": revision,
+        "script": script,
+        "cast": cast,
+        "validation": validation,
+    }
 
 
 @router.put("/admin/episodes/{episode_id}/script")
@@ -174,6 +200,13 @@ def list_script_revisions(episode_id: int, _: Annotated[int, Depends(require_own
         ]
 
 
+def _validation_result(result: dict) -> dict:
+    findings = [
+        {**item, "severity": "error"} for item in result.get("critical_issues", [])
+    ] + [{**item, "severity": "warning"} for item in result.get("warnings", [])]
+    return {"can_approve": not any(item["severity"] == "error" for item in findings), "results": findings}
+
+
 def _validate_episode_script(episode_id: int, script: dict) -> dict:
     summaries = []
     try:
@@ -189,10 +222,7 @@ def _validate_episode_script(episode_id: int, script: dict) -> dict:
         program_name=str(script.get("program_name") or "ニュースのとなり"),
         style=script.get("style", "dialogue"), program_profile=profile,
     )
-    findings = [
-        {**item, "severity": "error"} for item in result.get("critical_issues", [])
-    ] + [{**item, "severity": "warning"} for item in result.get("warnings", [])]
-    return {"can_approve": not any(item["severity"] == "error" for item in findings), "results": findings}
+    return _validation_result(result)
 
 
 @router.post("/admin/episodes/{episode_id}/validate")
