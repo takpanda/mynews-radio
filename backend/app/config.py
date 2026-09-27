@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings
 
 FISHS2PRO_TTS_ENGINE = "fishs2pro"
 DISABLED_TTS_ENGINES = frozenset({"aivispeech", "voicevox"})
-SUPPORTED_TTS_ENGINES = frozenset({FISHS2PRO_TTS_ENGINE}) | DISABLED_TTS_ENGINES
+SUPPORTED_TTS_ENGINES = frozenset({FISHS2PRO_TTS_ENGINE, "aivispeech", "voicevox"})
 
 
 def resolve_default_tts_engine(engine: str | None) -> str:

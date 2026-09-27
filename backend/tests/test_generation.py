@@ -1000,6 +1000,18 @@ class TestDetermineTtsConfig:
         with pytest.raises(ValueError, match="currently disabled"):
             _determine_tts_config(engine)
 
+    def test_removing_engine_from_disabled_set_reenables_it(self, monkeypatch):
+        from app.batch import radio_pipeline
+        from app.config import Settings
+
+        monkeypatch.setattr(
+            radio_pipeline, "DISABLED_TTS_ENGINES", frozenset({"voicevox"})
+        )
+        config = radio_pipeline._determine_tts_config("aivispeech")
+
+        assert config["tts_engine"] == "aivispeech"
+        assert config["base_url"] == Settings().aivispeech_base_url
+
     def test_invalid_engine_falls_back_to_default(self):
         from app.batch.radio_pipeline import _determine_tts_config
 
