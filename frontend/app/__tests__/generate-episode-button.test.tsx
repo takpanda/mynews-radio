@@ -850,6 +850,19 @@ describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', ()
     expect(screen.queryByText('生成できませんでした。再試行できます')).not.toBeInTheDocument()
   })
 
+  it('400（無効なtts_engineなど）はAPIのdetailメッセージを表示し再試行ボタンを出す', async () => {
+    mockGenerateEpisode.mockRejectedValue(
+      new GenerationError('指定されたTTSエンジンは無効です。', 400),
+    )
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.click(radioSubmit())
+
+    expect(await screen.findByText('指定されたTTSエンジンは無効です。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument()
+  })
+
   it('429はRetry-Afterの待機時間を表示し再試行ボタンを出す', async () => {
     mockGenerateEpisode.mockRejectedValue(
       new GenerationError('利用制限に達しました。約2分後に再試行できます。', 429),

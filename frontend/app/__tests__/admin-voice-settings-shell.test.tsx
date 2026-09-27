@@ -161,9 +161,9 @@ describe('AdminVoiceSettingsShell', () => {
     expect(voicevoxSelect).toBeDisabled()
   })
 
-  it('一覧取得の一部失敗：保存ボタンが無効化され、保存APIは呼ばれない', async () => {
+  it('一覧取得の失敗（有効エンジン）：保存ボタンが無効化され、保存APIは呼ばれない', async () => {
     const partial = clone(sampleOptions)
-    partial.voicevox = { status: 'error', options: [], error: '話者一覧を取得できませんでした' }
+    partial.fishs2pro = { status: 'error', options: [], error: '話者一覧を取得できませんでした' }
     const user = userEvent.setup()
     render(<AdminVoiceSettingsShell initialSettings={sampleSettings} initialOptions={partial} />)
 
@@ -175,6 +175,28 @@ describe('AdminVoiceSettingsShell', () => {
 
     await user.click(saveButton)
     expect(mockSave).not.toHaveBeenCalled()
+  })
+
+  it('一覧取得の失敗（無効化エンジン）：保存はブロックされず、AivisSpeech/VOICEVOXの値は保持されたまま送信される', async () => {
+    const partial = clone(sampleOptions)
+    partial.voicevox = { status: 'error', options: [], error: '話者一覧を取得できませんでした' }
+    mockSave.mockResolvedValueOnce(sampleSettings)
+    const user = userEvent.setup()
+    render(<AdminVoiceSettingsShell initialSettings={sampleSettings} initialOptions={partial} />)
+
+    const saveButton = screen.getByRole('button', { name: '保存' })
+    expect(saveButton).not.toBeDisabled()
+
+    await user.click(saveButton)
+
+    await waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1))
+    expect(mockSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aivispeech_speaker_male: sampleSettings.aivispeech_speaker_male,
+        voicevox_speaker_male: sampleSettings.voicevox_speaker_male,
+        fishs2pro_voice_male: sampleSettings.fishs2pro_voice_male,
+      }),
+    )
   })
 
   it('再試行成功：一覧が再取得されエラー表示が消える', async () => {
@@ -201,8 +223,8 @@ describe('AdminVoiceSettingsShell', () => {
     expect(screen.getByText('現在の値は最新の一覧にありません')).toBeInTheDocument()
   })
 
-  it('現在値欠落：保存ボタンが無効化され、保存APIは呼ばれない', async () => {
-    const settingsWithStale: VoiceSettings = { ...sampleSettings, voicevox_speaker_male: 999 }
+  it('現在値欠落（有効エンジン）：保存ボタンが無効化され、保存APIは呼ばれない', async () => {
+    const settingsWithStale: VoiceSettings = { ...sampleSettings, fishs2pro_voice_male: 'unknown' }
     const user = userEvent.setup()
     render(<AdminVoiceSettingsShell initialSettings={settingsWithStale} initialOptions={sampleOptions} />)
 
@@ -211,5 +233,20 @@ describe('AdminVoiceSettingsShell', () => {
 
     await user.click(saveButton)
     expect(mockSave).not.toHaveBeenCalled()
+  })
+
+  it('現在値欠落（無効化エンジン）：保存はブロックされない', async () => {
+    const settingsWithStale: VoiceSettings = { ...sampleSettings, voicevox_speaker_male: 999 }
+    mockSave.mockResolvedValueOnce(sampleSettings)
+    const user = userEvent.setup()
+    render(<AdminVoiceSettingsShell initialSettings={settingsWithStale} initialOptions={sampleOptions} />)
+
+    const saveButton = screen.getByRole('button', { name: '保存' })
+    expect(saveButton).not.toBeDisabled()
+
+    await user.click(saveButton)
+
+    await waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1))
+    expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({ voicevox_speaker_male: 999 }))
   })
 })

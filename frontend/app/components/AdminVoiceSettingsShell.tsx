@@ -84,8 +84,10 @@ export default function AdminVoiceSettingsShell({ initialSettings, initialOption
     }
   }
 
-  const hasUnsavableValues = VOICE_ENGINES.some((engine) =>
-    engineHasUnsavableValue(engine.key, settings, options),
+  // 無効化エンジン（AivisSpeech/VOICEVOX）は編集不可のため、一覧取得エラーや旧値があっても
+  // Fish S2 Proの保存まで止めない。保存対象の検証は有効なエンジンだけに絞る。
+  const hasUnsavableValues = VOICE_ENGINES.filter((engine) => !DISABLED_TTS_ENGINES.includes(engine.key)).some(
+    (engine) => engineHasUnsavableValue(engine.key, settings, options),
   )
 
   const handleSave = async () => {
