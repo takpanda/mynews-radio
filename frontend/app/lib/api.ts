@@ -369,7 +369,7 @@ function parseErrorCode(body: string): string | undefined {
   return undefined
 }
 
-export async function generateEpisode(date: string, maxArticles = 5, newsSource = 'hatena_bookmark', ttsEngine = 'aivispeech', recreateSummary = false, url?: string, style?: 'solo' | 'dialogue', mcGender?: 'male' | 'female', settingsSnapshot?: ProgramSettings, idempotencyKey?: string, llmProvider?: string, llmModel?: string, summarizeProvider?: string, summarizeModel?: string, contentProvider?: string, contentModel?: string): Promise<GenerateResponse> {
+export async function generateEpisode(date: string, maxArticles = 5, newsSource = 'hatena_bookmark', ttsEngine = 'fishs2pro', recreateSummary = false, url?: string, style?: 'solo' | 'dialogue', mcGender?: 'male' | 'female', settingsSnapshot?: ProgramSettings, idempotencyKey?: string, llmProvider?: string, llmModel?: string, summarizeProvider?: string, summarizeModel?: string, contentProvider?: string, contentModel?: string): Promise<GenerateResponse> {
   const res = await fetch('/api/generate', {
     method: 'POST',
     headers: {
@@ -418,7 +418,7 @@ export async function searchEpisodesBySourceUrl(sourceUrl: string): Promise<Dupl
   return res.json() as Promise<DuplicateEpisodeInfo[]>
 }
 
-export async function synthesizeEpisodeStream(episodeId: number, ttsEngine = 'aivispeech', idempotencyKey?: string): Promise<Response> {
+export async function synthesizeEpisodeStream(episodeId: number, ttsEngine = 'fishs2pro', idempotencyKey?: string): Promise<Response> {
   return fetch(`/api/episodes/${episodeId}/synthesize`, {
     method: 'POST',
     headers: {

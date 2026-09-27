@@ -35,6 +35,13 @@ export const VOICE_ENGINES: { key: VoiceEngineKey; label: string }[] = [
   { key: 'fishs2pro', label: 'Fish S2 Pro' },
 ]
 
+/**
+ * TTSをFish S2 Proのみに制限する対応で無効化しているエンジン（BEE-1075）。
+ * 再有効化する場合はここから外す。UI・型・保存値は残したまま選択のみ止める。
+ */
+export const DISABLED_TTS_ENGINES: VoiceEngineKey[] = ['aivispeech', 'voicevox']
+export const DISABLED_TTS_ENGINE_MESSAGE = '現在は Fish S2 Pro のみ利用できます'
+
 export const VOICE_FIELD_MAP: Record<VoiceEngineKey, Record<VoiceGender, keyof VoiceSettings>> = {
   aivispeech: { male: 'aivispeech_speaker_male', female: 'aivispeech_speaker_female' },
   voicevox: { male: 'voicevox_speaker_male', female: 'voicevox_speaker_female' },

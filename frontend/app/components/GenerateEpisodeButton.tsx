@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'react-hot-toast'
 import { generateEpisode, fetchEpisode, fetchLlmProviders, searchEpisodesBySourceUrl, GenerationError, type EpisodeListItem, type DuplicateEpisodeInfo, type LlmProvider } from '../lib/api'
+import { DISABLED_TTS_ENGINES, DISABLED_TTS_ENGINE_MESSAGE } from '../lib/admin-voice-settings'
 import DuplicateUrlConfirmDialog from './DuplicateUrlConfirmDialog'
 import ProgramSettingsPanel from './ProgramSettingsPanel'
 import type { ProgramSettings } from '../lib/api'
@@ -382,6 +383,8 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   const idempotencyKeyRef = useRef<string | null>(null)
 
   const isUrlMode = urlInput.trim().length > 0
+  const isVoicevoxDisabled = DISABLED_TTS_ENGINES.includes('voicevox')
+  const isAivispeechDisabled = DISABLED_TTS_ENGINES.includes('aivispeech')
 
   const isValidUrl = (value: string): boolean =>
     value === '' || /^https?:\/\/.+/.test(value)
@@ -589,7 +592,9 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
     const source = params ? params.newsSource : newsSource
     const style = params ? params.commentaryStyle : commentaryStyle
     const gender = params ? params.mcGender : mcGender
-    const engine = params ? params.ttsEngine : ttsEngine
+    const requestedEngine = params ? params.ttsEngine : ttsEngine
+    // 無効化エンジン（DISABLED_TTS_ENGINES）はUI上も選択できないが、念のため送信直前にもfishs2proへ強制する（BEE-1075）。
+    const engine = DISABLED_TTS_ENGINES.includes(requestedEngine) ? 'fishs2pro' : requestedEngine
     const articles = params ? params.maxArticles : maxArticles
     const recreate = params ? params.recreateSummary : recreateSummary
     const llmWasTouched = params ? params.llmTouched : llmTouched
@@ -1089,39 +1094,47 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
           <fieldset>
             <legend className="text-sm font-medium text-slate-900">音声エンジン</legend>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
-              <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(ttsEngine === 'voicevox', isLoading)}`}>
+              <label
+                title={isVoicevoxDisabled ? DISABLED_TTS_ENGINE_MESSAGE : undefined}
+                className={`flex items-start justify-between gap-2 rounded-xl border p-3 transition ${isVoicevoxDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${optionCardClass(ttsEngine === 'voicevox', isLoading, isVoicevoxDisabled)}`}
+              >
                 <input
                   type="radio"
                   name="ttsEngine"
                   value="voicevox"
                   checked={ttsEngine === 'voicevox'}
                   onChange={() => setTtsEngine('voicevox')}
-                  disabled={isLoading}
+                  disabled={isLoading || isVoicevoxDisabled}
+                  title={isVoicevoxDisabled ? DISABLED_TTS_ENGINE_MESSAGE : undefined}
                   className="sr-only"
                 />
                 <span>
                   <span className="block text-sm font-medium text-slate-900">VOICEVOX</span>
                   <span className="mt-0.5 block text-xs leading-5 text-slate-500">
-                    安定した読み上げで、通常の番組生成に向いています。
+                    {isVoicevoxDisabled ? DISABLED_TTS_ENGINE_MESSAGE : '安定した読み上げで、通常の番組生成に向いています。'}
                   </span>
                 </span>
                 <RadioDot checked={ttsEngine === 'voicevox'} />
               </label>
 
-              <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(ttsEngine === 'aivispeech', isLoading)}`}>
+              <label
+                title={isAivispeechDisabled ? DISABLED_TTS_ENGINE_MESSAGE : undefined}
+                className={`flex items-start justify-between gap-2 rounded-xl border p-3 transition ${isAivispeechDisabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${optionCardClass(ttsEngine === 'aivispeech', isLoading, isAivispeechDisabled)}`}
+              >
                 <input
                   type="radio"
                   name="ttsEngine"
                   value="aivispeech"
                   checked={ttsEngine === 'aivispeech'}
                   onChange={() => setTtsEngine('aivispeech')}
-                  disabled={isLoading}
+                  disabled={isLoading || isAivispeechDisabled}
+                  title={isAivispeechDisabled ? DISABLED_TTS_ENGINE_MESSAGE : undefined}
                   className="sr-only"
                 />
                 <span>
                   <span className="block text-sm font-medium text-slate-900">AivisSpeech</span>
                   <span className="mt-0.5 block text-xs leading-5 text-slate-500">
-                    音声差分を試したいときの代替エンジンです。
+                    {isAivispeechDisabled ? DISABLED_TTS_ENGINE_MESSAGE : '音声差分を試したいときの代替エンジンです。'}
                   </span>
                 </span>
                 <RadioDot checked={ttsEngine === 'aivispeech'} />

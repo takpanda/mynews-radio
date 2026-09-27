@@ -69,6 +69,7 @@ describe('SynthesizeAudioButton', () => {
     expect(screen.queryByText('音声を合成しています...')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '状態を再確認' })).toBeInTheDocument()
     expect(container.querySelector('.animate-spin')).not.toBeInTheDocument()
+    expect(mockSynthesize.mock.calls[0][1]).toBe('fishs2pro')
   })
 
   it('SSE error確定後は冪等キーを解放し、再試行でキーを差し替える', async () => {
@@ -120,6 +121,17 @@ describe('SynthesizeAudioButton', () => {
     await user.click(screen.getByRole('button', { name: '音声ファイルを作成する' }))
 
     expect(await screen.findByText(message)).toBeInTheDocument()
+  })
+
+  it('HTTP 400（無効なtts_engineなど）はAPIのdetailメッセージを表示する', async () => {
+    mockSynthesize.mockResolvedValueOnce(errorResponse(400))
+    const user = userEvent.setup()
+    render(<SynthesizeAudioButton episodeId={42} />)
+
+    await user.click(screen.getByRole('button', { name: '音声ファイルを作成する' }))
+
+    expect(await screen.findByText('detail-400')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument()
   })
 
   it('409（同一キーの入力不一致）は再試行導線を表示しない', async () => {

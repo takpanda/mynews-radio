@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import AdminVoiceSettingsShell from '../components/AdminVoiceSettingsShell'
-import type { VoiceOptionsResponse, VoiceSettings } from '../lib/admin-voice-settings'
+import { DISABLED_TTS_ENGINE_MESSAGE, type VoiceOptionsResponse, type VoiceSettings } from '../lib/admin-voice-settings'
 
 const mockFetchOptions = jest.fn()
 const mockSave = jest.fn()
@@ -122,7 +122,7 @@ describe('AdminVoiceSettingsShell', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '保存' })).not.toBeDisabled())
   })
 
-  it('一覧取得の一部失敗：対象エンジンにエラーと再試行ボタンが表示され、他エンジンは操作できる', () => {
+  it('一覧取得の一部失敗：対象エンジンにエラーと再試行ボタンが表示され、Fish S2 Proは操作できる', () => {
     const partial = clone(sampleOptions)
     partial.voicevox = { status: 'error', options: [], error: '話者一覧を取得できませんでした' }
     render(<AdminVoiceSettingsShell initialSettings={sampleSettings} initialOptions={partial} />)
@@ -130,8 +130,26 @@ describe('AdminVoiceSettingsShell', () => {
     expect(screen.getByText('話者一覧を取得できませんでした')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'VOICEVOXの一覧を再試行' })).toBeInTheDocument()
 
+    const fishSelect = screen.getByDisplayValue('male') as HTMLSelectElement
+    expect(fishSelect).not.toBeDisabled()
+  })
+
+  it('AivisSpeech・VOICEVOXは常に無効化され、ツールチップで案内が表示される', () => {
+    render(<AdminVoiceSettingsShell initialSettings={sampleSettings} initialOptions={sampleOptions} />)
+
     const aivisSelect = screen.getByDisplayValue('阿井田 茂 - ノーマル') as HTMLSelectElement
-    expect(aivisSelect).not.toBeDisabled()
+    expect(aivisSelect).toBeDisabled()
+    expect(aivisSelect).toHaveAttribute('title', DISABLED_TTS_ENGINE_MESSAGE)
+
+    const voicevoxSelect = screen.getByDisplayValue('四国めたん - ノーマル') as HTMLSelectElement
+    expect(voicevoxSelect).toBeDisabled()
+    expect(voicevoxSelect).toHaveAttribute('title', DISABLED_TTS_ENGINE_MESSAGE)
+
+    expect(screen.getAllByText(DISABLED_TTS_ENGINE_MESSAGE).length).toBeGreaterThanOrEqual(2)
+
+    const fishSelect = screen.getByDisplayValue('male') as HTMLSelectElement
+    expect(fishSelect).not.toBeDisabled()
+    expect(fishSelect).not.toHaveAttribute('title')
   })
 
   it('一覧取得の失敗エンジンのコンボボックスは無効化される', () => {
@@ -143,9 +161,9 @@ describe('AdminVoiceSettingsShell', () => {
     expect(voicevoxSelect).toBeDisabled()
   })
 
-  it('一覧取得の一部失敗：保存ボタンが無効化され、保存APIは呼ばれない', async () => {
+  it('一覧取得の失敗（有効エンジン）：保存ボタンが無効化され、保存APIは呼ばれない', async () => {
     const partial = clone(sampleOptions)
-    partial.voicevox = { status: 'error', options: [], error: '話者一覧を取得できませんでした' }
+    partial.fishs2pro = { status: 'error', options: [], error: '話者一覧を取得できませんでした' }
     const user = userEvent.setup()
     render(<AdminVoiceSettingsShell initialSettings={sampleSettings} initialOptions={partial} />)
 
@@ -157,6 +175,28 @@ describe('AdminVoiceSettingsShell', () => {
 
     await user.click(saveButton)
     expect(mockSave).not.toHaveBeenCalled()
+  })
+
+  it('一覧取得の失敗（無効化エンジン）：保存はブロックされず、AivisSpeech/VOICEVOXの値は保持されたまま送信される', async () => {
+    const partial = clone(sampleOptions)
+    partial.voicevox = { status: 'error', options: [], error: '話者一覧を取得できませんでした' }
+    mockSave.mockResolvedValueOnce(sampleSettings)
+    const user = userEvent.setup()
+    render(<AdminVoiceSettingsShell initialSettings={sampleSettings} initialOptions={partial} />)
+
+    const saveButton = screen.getByRole('button', { name: '保存' })
+    expect(saveButton).not.toBeDisabled()
+
+    await user.click(saveButton)
+
+    await waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1))
+    expect(mockSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aivispeech_speaker_male: sampleSettings.aivispeech_speaker_male,
+        voicevox_speaker_male: sampleSettings.voicevox_speaker_male,
+        fishs2pro_voice_male: sampleSettings.fishs2pro_voice_male,
+      }),
+    )
   })
 
   it('再試行成功：一覧が再取得されエラー表示が消える', async () => {
@@ -183,8 +223,8 @@ describe('AdminVoiceSettingsShell', () => {
     expect(screen.getByText('現在の値は最新の一覧にありません')).toBeInTheDocument()
   })
 
-  it('現在値欠落：保存ボタンが無効化され、保存APIは呼ばれない', async () => {
-    const settingsWithStale: VoiceSettings = { ...sampleSettings, voicevox_speaker_male: 999 }
+  it('現在値欠落（有効エンジン）：保存ボタンが無効化され、保存APIは呼ばれない', async () => {
+    const settingsWithStale: VoiceSettings = { ...sampleSettings, fishs2pro_voice_male: 'unknown' }
     const user = userEvent.setup()
     render(<AdminVoiceSettingsShell initialSettings={settingsWithStale} initialOptions={sampleOptions} />)
 
@@ -193,5 +233,20 @@ describe('AdminVoiceSettingsShell', () => {
 
     await user.click(saveButton)
     expect(mockSave).not.toHaveBeenCalled()
+  })
+
+  it('現在値欠落（無効化エンジン）：保存はブロックされない', async () => {
+    const settingsWithStale: VoiceSettings = { ...sampleSettings, voicevox_speaker_male: 999 }
+    mockSave.mockResolvedValueOnce(sampleSettings)
+    const user = userEvent.setup()
+    render(<AdminVoiceSettingsShell initialSettings={settingsWithStale} initialOptions={sampleOptions} />)
+
+    const saveButton = screen.getByRole('button', { name: '保存' })
+    expect(saveButton).not.toBeDisabled()
+
+    await user.click(saveButton)
+
+    await waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1))
+    expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({ voicevox_speaker_male: 999 }))
   })
 })

@@ -4,6 +4,7 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import GenerateEpisodeButton from '../components/GenerateEpisodeButton'
 import { fetchEpisode, GenerationError } from '../lib/api'
+import { DISABLED_TTS_ENGINE_MESSAGE } from '../lib/admin-voice-settings'
 
 const mockSearchEpisodesBySourceUrl = jest.fn()
 const mockGenerateEpisode = jest.fn()
@@ -584,9 +585,10 @@ describe('GenerateEpisodeButton — 通常ラジオ生成（回帰）', () => {
 
     render(<GenerateEpisodeButton />)
 
-    expect(screen.getByRole('radio', { name: /Fish S2 Pro/ })).toBeChecked()
-    expect(screen.getByRole('radio', { name: /VOICEVOX/ })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /AivisSpeech/ })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /^Fish S2 Pro/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /^Fish S2 Pro/ })).not.toBeDisabled()
+    expect(screen.getByRole('radio', { name: /^VOICEVOX/ })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /^AivisSpeech/ })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
 
@@ -594,16 +596,25 @@ describe('GenerateEpisodeButton — 通常ラジオ生成（回帰）', () => {
     expect(mockGenerateEpisode.mock.calls[0][3]).toBe('fishs2pro')
   })
 
-  it('VOICEVOXを選択して通常生成するとvoicevoxを生成APIへ送信する', async () => {
+  it('VOICEVOX・AivisSpeechはグレーアウトされ選択できず、生成すると常にfishs2proを生成APIへ送信する', async () => {
     const user = userEvent.setup()
 
     render(<GenerateEpisodeButton />)
 
-    await user.click(screen.getByRole('radio', { name: /VOICEVOX/ }))
+    const voicevoxRadio = screen.getByRole('radio', { name: /VOICEVOX/ }) as HTMLInputElement
+    const aivisRadio = screen.getByRole('radio', { name: /AivisSpeech/ }) as HTMLInputElement
+    expect(voicevoxRadio).toBeDisabled()
+    expect(voicevoxRadio).toHaveAttribute('title', DISABLED_TTS_ENGINE_MESSAGE)
+    expect(aivisRadio).toBeDisabled()
+    expect(aivisRadio).toHaveAttribute('title', DISABLED_TTS_ENGINE_MESSAGE)
+
+    await user.click(voicevoxRadio)
+    expect(voicevoxRadio.checked).toBe(false)
+
     await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
 
     await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
-    expect(mockGenerateEpisode.mock.calls[0][3]).toBe('voicevox')
+    expect(mockGenerateEpisode.mock.calls[0][3]).toBe('fishs2pro')
   })
 })
 
@@ -837,6 +848,19 @@ describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', ()
     expect(await screen.findByText('同じ操作が競合しています。入力内容を確認して再試行してください。')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument()
     expect(screen.queryByText('生成できませんでした。再試行できます')).not.toBeInTheDocument()
+  })
+
+  it('400（無効なtts_engineなど）はAPIのdetailメッセージを表示し再試行ボタンを出す', async () => {
+    mockGenerateEpisode.mockRejectedValue(
+      new GenerationError('指定されたTTSエンジンは無効です。', 400),
+    )
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+
+    await user.click(radioSubmit())
+
+    expect(await screen.findByText('指定されたTTSエンジンは無効です。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument()
   })
 
   it('429はRetry-Afterの待機時間を表示し再試行ボタンを出す', async () => {

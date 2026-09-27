@@ -50,7 +50,7 @@ export default function SynthesizeAudioButton({ episodeId, compact = false }: Pr
     idempotencyKeyRef.current = idempotencyKey
 
     try {
-      const response = await synthesizeEpisodeStream(episodeId, 'aivispeech', idempotencyKey)
+      const response = await synthesizeEpisodeStream(episodeId, 'fishs2pro', idempotencyKey)
 
       if (!response.ok) {
         const errorBody = await response.text().catch(() => '')
