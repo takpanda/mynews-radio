@@ -37,6 +37,7 @@ export default async function AdminEpisodeScriptReviewPage(props: Props) {
           initialRevision={initialData!.revision}
           initialScript={initialData!.script}
           initialCast={initialData!.cast ?? null}
+          initialValidation={initialData!.validation ?? null}
         />
       )}
     </main>

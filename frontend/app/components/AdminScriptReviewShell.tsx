@@ -34,6 +34,7 @@ interface Props {
   initialRevision: number
   initialScript: AdminScriptReviewScript
   initialCast?: AdminScriptReviewCastMember[] | null
+  initialValidation?: ValidationResult | null
 }
 
 interface ConflictState {
@@ -56,12 +57,18 @@ function globalFindings(validation: ValidationResult | null): ValidationFinding[
   return validation.results.filter((finding) => finding.line_indices.length === 0)
 }
 
-export default function AdminScriptReviewShell({ episodeId, initialRevision, initialScript, initialCast = null }: Props) {
+export default function AdminScriptReviewShell({
+  episodeId,
+  initialRevision,
+  initialScript,
+  initialCast = null,
+  initialValidation = null,
+}: Props) {
   const [revision, setRevision] = useState(initialRevision)
   const [script, setScript] = useState(initialScript)
   const [dirty, setDirty] = useState(false)
 
-  const [validation, setValidation] = useState<ValidationResult | null>(null)
+  const [validation, setValidation] = useState<ValidationResult | null>(initialValidation ?? null)
   const [validating, setValidating] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
 
@@ -500,9 +507,12 @@ export default function AdminScriptReviewShell({ episodeId, initialRevision, ini
       {validationError && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{validationError}</div>}
       {previewError && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{previewError}</div>}
       {validation && (
-        <p className="text-xs text-slate-500">
-          {validation.can_approve ? '検査エラーはありません。' : '検査エラーが残っています。承認する前に修正してください。'}
-        </p>
+        <div className="text-xs text-slate-500">
+          <p>{validation.can_approve ? '検査エラーはありません。' : '検査エラーが残っています。承認する前に修正してください。'}</p>
+          {validation.source === 'generated' && (
+            <p className="mt-1">生成時点の検証結果です。最新の状態は「再チェック」で確認できます。</p>
+          )}
+        </div>
       )}
 
       <div className="space-y-3">
