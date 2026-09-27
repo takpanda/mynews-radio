@@ -248,7 +248,7 @@ def approve_script(episode_id: int, user_id: Annotated[int, Depends(require_owne
 def reject_script(episode_id: int, body: RejectRequest, user_id: Annotated[int, Depends(require_owner_session)]) -> dict:
     with get_db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute("SELECT episode_date, seq, status FROM episodes WHERE id=?", (episode_id,)).fetchone()
+        row = conn.execute("SELECT episode_date, seq, status, program_id FROM episodes WHERE id=?", (episode_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Episode not found")
         if row["status"] != "awaiting_review":
@@ -257,7 +257,32 @@ def reject_script(episode_id: int, body: RejectRequest, user_id: Annotated[int, 
             conn.execute("UPDATE episodes SET status='discarded', phase='discarded', updated_at=CURRENT_TIMESTAMP WHERE id=?", (episode_id,))
             _audit(conn, "script_discard", user_id, episode_id, {})
             return {"episode_id": episode_id, "status": "discarded"}
-        payload = {"date": row["episode_date"], "news_source": "hatena_bookmark", "tts_engine": get_settings().batch_default_tts_engine}
+        source_row = conn.execute(
+            "SELECT payload FROM generation_jobs WHERE episode_id=? AND operation='daily' ORDER BY id DESC LIMIT 1",
+            (episode_id,),
+        ).fetchone()
+        try:
+            source_payload = json.loads(source_row["payload"] or "{}") if source_row else {}
+        except (TypeError, ValueError):
+            source_payload = {}
+        if not isinstance(source_payload, dict):
+            source_payload = {}
+        valid_news_sources = {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news"}
+        news_source = source_payload.get("news_source")
+        if not isinstance(news_source, str) or news_source not in valid_news_sources:
+            from app.api.generate import RADIO_PROGRAM_NEWS_SOURCES
+
+            news_source = RADIO_PROGRAM_NEWS_SOURCES.get(row["program_id"], "hatena_bookmark")
+            if news_source not in valid_news_sources:
+                news_source = "hatena_bookmark"
+        payload = {
+            "date": row["episode_date"],
+            "news_source": news_source,
+            "tts_engine": get_settings().batch_default_tts_engine,
+            "preserve_news_source": True,
+        }
+        if row["program_id"] is not None:
+            payload["program_id"] = row["program_id"]
         job_id, job_status = _enqueue_episode_job(conn, user_id=user_id, operation="daily", episode_id=episode_id, payload=payload)
         conn.execute("UPDATE episodes SET status='generating', phase='generate_script', updated_at=CURRENT_TIMESTAMP WHERE id=?", (episode_id,))
         _audit(conn, "script_regenerate", user_id, episode_id, {"job_id": job_id})

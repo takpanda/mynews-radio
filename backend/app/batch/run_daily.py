@@ -134,7 +134,10 @@ def run_daily_job(job) -> bool:
         program_profile = _episode_program_profile(episode_id)
         if program_profile is None or program_profile.id != payload["program_id"]:
             raise RuntimeError("指定番組のsnapshotをepisodeから取得できません")
-        news_source = RADIO_PROGRAM_NEWS_SOURCES.get(program_profile.id, "hatena_hotentry_all")
+        if payload.get("preserve_news_source"):
+            news_source = payload.get("news_source", "hatena_bookmark")
+        else:
+            news_source = RADIO_PROGRAM_NEWS_SOURCES.get(program_profile.id, "hatena_hotentry_all")
     else:
         news_source = payload.get("news_source", "hatena_bookmark")
     metadata = run_radio_pipeline(
