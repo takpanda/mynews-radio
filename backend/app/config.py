@@ -3,6 +3,18 @@ from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
+FISHS2PRO_TTS_ENGINE = "fishs2pro"
+DISABLED_TTS_ENGINES = frozenset({"aivispeech", "voicevox"})
+SUPPORTED_TTS_ENGINES = frozenset({FISHS2PRO_TTS_ENGINE, "aivispeech", "voicevox"})
+
+
+def resolve_default_tts_engine(engine: str | None) -> str:
+    """無効・不明な設定値を、現在利用可能な既定エンジンへ解決する。"""
+    if engine in SUPPORTED_TTS_ENGINES and engine not in DISABLED_TTS_ENGINES:
+        return engine
+    return FISHS2PRO_TTS_ENGINE
+
+
 class Settings(BaseSettings):
     app_env: str = "development"
     api_port: int = 8010
@@ -49,10 +61,10 @@ class Settings(BaseSettings):
     api_key: str = ""
     proxy_client_ip_hmac_secret: str = ""
     cookie_secure: bool = True
-    default_tts_engine: str = "aivispeech"
+    default_tts_engine: str = FISHS2PRO_TTS_ENGINE
     # 定期ニュース生成（run_daily.py）でエンジン未指定時に使う既定値。
-    # POST /generate・再合成APIの未指定時は default_tts_engine（aivispeech）を維持する。
-    batch_default_tts_engine: str = "fishs2pro"
+    # 未指定時は default_tts_engine と同じく Fish S2 Pro を使用する。
+    batch_default_tts_engine: str = FISHS2PRO_TTS_ENGINE
     episode_retention_days: int = 30
     jingle_opening_path: str = "/app/data/jingles/opening.mp3"
     jingle_ending_path: str = "/app/data/jingles/ending.mp3"

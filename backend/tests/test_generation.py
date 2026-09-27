@@ -44,6 +44,28 @@ class TestGenerateEndpoint:
         }
         claim_job.assert_not_called()
 
+    @pytest.mark.parametrize("engine", ["aivispeech", "voicevox"])
+    def test_synthesize_disabled_engine_is_rejected_before_job(self, client, engine):
+        from app.services.episode_service import EpisodeService
+
+        episode_id, _ = EpisodeService().create_radio_episode("2099-01-03")
+        with patch("app.api.generate.claim_job") as claim_job:
+            response = client.post(
+                f"/episodes/{episode_id}/synthesize", json={"tts_engine": engine}
+            )
+
+        assert response.status_code == 400
+        assert response.json() == {
+            "detail": "この TTS エンジンは現在無効です。Fish S2 Pro を指定してください。"
+        }
+        claim_job.assert_not_called()
+        from app.db.connection import get_db_connection
+        with get_db_connection() as conn:
+            assert conn.execute(
+                "SELECT COUNT(*) FROM episodes WHERE episode_date = ?",
+                ("2099-01-02",),
+            ).fetchone()[0] == 0
+
     @pytest.mark.parametrize(
         ("phase_field", "phase_label"),
         [("summarize_provider", "summarize"), ("content_provider", "content")],
@@ -110,6 +132,7 @@ class TestGenerateEndpoint:
         resp = client.post("/generate", json={
             "date": "2099-01-01",
             "max_articles": 5,
+            "tts_engine": "fishs2pro",
         })
         assert resp.status_code == 200
         data = resp.json()
@@ -122,6 +145,19 @@ class TestGenerateEndpoint:
         resp = client.post("/generate", json={"date": "2099-02-02"})
         elapsed = time.time() - start
         assert resp.status_code == 200 and elapsed < 1.0
+
+    @pytest.mark.parametrize("engine", ["aivispeech", "voicevox"])
+    def test_disabled_engine_is_rejected_before_generation_job(self, client, engine):
+        with patch("app.api.generate.claim_job") as claim_job:
+            response = client.post(
+                "/generate", json={"date": "2099-01-02", "tts_engine": engine}
+            )
+
+        assert response.status_code == 400
+        assert response.json() == {
+            "detail": "この TTS エンジンは現在無効です。Fish S2 Pro を指定してください。"
+        }
+        claim_job.assert_not_called()
 
     def test_duplicate_date_creates_new_episode(self, client):
         from app.services.episode_service import EpisodeService
@@ -763,25 +799,17 @@ class TestRadioPipelineArgPropagation:
     @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
     @patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "ep.mp3"})
     def test_tts_engine_aivispeech_passed_to_synthesize(self, mock_build, mock_review, mock_gen, mock_sum, mock_import):
-        """tts_engine=aivispeech 指定時に synthesize_episode へ正しい param が渡る."""
+        """無効な明示指定は合成処理に到達する前に拒否する。"""
         from app.batch.radio_pipeline import run_radio_pipeline
         from app.services.episode_service import EpisodeService
-        from app.config import Settings
 
         svc = EpisodeService()
         ep_id, _ = svc.create_radio_episode("2099-04-01")
 
-        with patch("app.batch.radio_pipeline.synthesize_episode", return_value=3) as mock_synth, \
-             patch("builtins.open", _make_fake_open('{"lines": [{"text": "hello"}]}')):
-
-            run_radio_pipeline(ep_id, episode_date="2099-04-01", tts_engine="aivispeech")
-
-        mock_synth.assert_called_once()
-        _call_kwargs = mock_synth.call_args[1]
-        settings = Settings()
-        assert _call_kwargs["base_url"] == settings.aivispeech_base_url
-        assert _call_kwargs["speaker_male"] == settings.aivispeech_speaker_male
-        assert _call_kwargs["speaker_female"] == settings.aivispeech_speaker_female
+        with patch("app.batch.radio_pipeline.synthesize_episode") as mock_synth:
+            result = run_radio_pipeline(ep_id, episode_date="2099-04-01", tts_engine="aivispeech")
+        assert result is None
+        mock_synth.assert_not_called()
 
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
@@ -789,25 +817,17 @@ class TestRadioPipelineArgPropagation:
     @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
     @patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "ep.mp3"})
     def test_tts_engine_voicevox_passed_to_synthesize(self, mock_build, mock_review, mock_gen, mock_sum, mock_import):
-        """tts_engine=voicevox 指定時に synthesize_episode へ正しい param が渡る."""
+        """無効な明示指定は合成処理に到達する前に拒否する。"""
         from app.batch.radio_pipeline import run_radio_pipeline
         from app.services.episode_service import EpisodeService
-        from app.config import Settings
 
         svc = EpisodeService()
         ep_id, _ = svc.create_radio_episode("2099-04-02")
 
-        with patch("app.batch.radio_pipeline.synthesize_episode", return_value=3) as mock_synth, \
-             patch("builtins.open", _make_fake_open('{"lines": [{"text": "hello"}]}')):
-
-            run_radio_pipeline(ep_id, episode_date="2099-04-02", tts_engine="voicevox")
-
-        mock_synth.assert_called_once()
-        _call_kwargs = mock_synth.call_args[1]
-        settings = Settings()
-        assert _call_kwargs["base_url"] == settings.voicevox_base_url
-        assert _call_kwargs["speaker_male"] == settings.voicevox_speaker_male
-        assert _call_kwargs["speaker_female"] == settings.voicevox_speaker_female
+        with patch("app.batch.radio_pipeline.synthesize_episode") as mock_synth:
+            result = run_radio_pipeline(ep_id, episode_date="2099-04-02", tts_engine="voicevox")
+        assert result is None
+        mock_synth.assert_not_called()
 
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
@@ -841,10 +861,10 @@ class TestRadioPipelineArgPropagation:
     @patch("app.batch.radio_pipeline.review_script", return_value={"revised": False, "review_count": 0})
     @patch("app.batch.radio_pipeline.build_episode", return_value={"audio_path": "ep.mp3"})
     def test_tts_default_aivispeech_when_unspecified(self, mock_build, mock_review, mock_gen, mock_sum, mock_import):
-        """tts_engine 未指定時は settings.default_tts_engine (aivispeech) が使われる。
+        """tts_engine 未指定時は Fish S2 Pro が使われる。
 
         定期ニュース生成(run_daily.py)は batch_default_tts_engine (fishs2pro) を
-        明示的に渡すため、この汎用フォールバックの対象外(別途 test_run_daily_* で検証)。
+        明示的に渡すため、この既定値も Fish S2 Pro。
         """
         from app.batch.radio_pipeline import run_radio_pipeline
         from app.services.episode_service import EpisodeService
@@ -861,9 +881,10 @@ class TestRadioPipelineArgPropagation:
         mock_synth.assert_called_once()
         _call_kwargs = mock_synth.call_args[1]
         settings = Settings()
-        assert _call_kwargs["base_url"] == settings.aivispeech_base_url
-        assert _call_kwargs["speaker_male"] == settings.aivispeech_speaker_male
-        assert _call_kwargs["speaker_female"] == settings.aivispeech_speaker_female
+        assert _call_kwargs["base_url"] == settings.fishs2pro_base_url
+        assert _call_kwargs["speaker_male"] == settings.fishs2pro_voice_male
+        assert _call_kwargs["speaker_female"] == settings.fishs2pro_voice_female
+        assert _call_kwargs["tts_engine"] == "fishs2pro"
 
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
@@ -914,7 +935,7 @@ class TestRunGenerationArgPropagation:
         assert mock_pipeline.call_args[1]["max_articles"] == 25
 
     @patch("app.api.generate.run_radio_pipeline", return_value={"audio_path": "ep.mp3"})
-    def test_tts_engine_from_body_passed_to_pipeline(self, mock_pipeline):
+    def test_disabled_tts_engine_from_body_is_rejected_before_pipeline(self, mock_pipeline):
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
 
@@ -922,14 +943,13 @@ class TestRunGenerationArgPropagation:
         ep_id, _ = svc.create_radio_episode("2099-05-02")
         body = GenerateRequest(date="2099-05-02", tts_engine="voicevox")
 
-        _run_generation(ep_id, body)
-
-        mock_pipeline.assert_called_once()
-        assert mock_pipeline.call_args[1]["tts_engine"] == "voicevox"
+        with pytest.raises(ValueError, match="現在無効です"):
+            _run_generation(ep_id, body)
+        mock_pipeline.assert_not_called()
 
     @patch("app.api.generate.run_radio_pipeline", return_value={"audio_path": "ep.mp3"})
-    def test_default_tts_engine_aivispeech_from_request(self, mock_pipeline):
-        """POST /generate で tts_engine 未指定時は settings.default_tts_engine (aivispeech) を維持する。"""
+    def test_default_tts_engine_fishs2pro_from_request(self, mock_pipeline):
+        """POST /generate で tts_engine 未指定時は Fish S2 Pro を使用する。"""
         from app.api.generate import _run_generation, GenerateRequest
         from app.services.episode_service import EpisodeService
 
@@ -940,7 +960,7 @@ class TestRunGenerationArgPropagation:
         _run_generation(ep_id, body)
 
         mock_pipeline.assert_called_once()
-        assert mock_pipeline.call_args[1]["tts_engine"] == "aivispeech"
+        assert mock_pipeline.call_args[1]["tts_engine"] == "fishs2pro"
 
     @patch("app.api.generate.run_radio_pipeline", return_value={"audio_path": "ep.mp3"})
     def test_news_source_passed_to_pipeline(self, mock_pipeline):
@@ -974,43 +994,35 @@ class TestRunGenerationArgPropagation:
 class TestDetermineTtsConfig:
     """_determine_tts_config の直接検証."""
 
-    def test_aivispeech_config(self):
+    @pytest.mark.parametrize("engine", ["aivispeech", "voicevox"])
+    def test_disabled_engines_are_rejected(self, engine):
         from app.batch.radio_pipeline import _determine_tts_config
+        with pytest.raises(ValueError, match="currently disabled"):
+            _determine_tts_config(engine)
+
+    def test_removing_engine_from_disabled_set_reenables_it(self, monkeypatch):
+        from app.batch import radio_pipeline
         from app.config import Settings
 
-        settings = Settings()
-        config = _determine_tts_config("aivispeech")
+        monkeypatch.setattr(
+            radio_pipeline, "DISABLED_TTS_ENGINES", frozenset({"voicevox"})
+        )
+        config = radio_pipeline._determine_tts_config("aivispeech")
+
         assert config["tts_engine"] == "aivispeech"
-        assert config["base_url"] == settings.aivispeech_base_url
-        assert config["speaker_male"] == settings.aivispeech_speaker_male
-        assert config["speaker_female"] == settings.aivispeech_speaker_female
-
-    def test_voicevox_config(self):
-        from app.batch.radio_pipeline import _determine_tts_config
-        from app.config import Settings
-
-        settings = Settings()
-        config = _determine_tts_config("voicevox")
-        assert config["tts_engine"] == "voicevox"
-        assert config["base_url"] == settings.voicevox_base_url
-        assert config["speaker_male"] == settings.voicevox_speaker_male
-        assert config["speaker_female"] == settings.voicevox_speaker_female
+        assert config["base_url"] == Settings().aivispeech_base_url
 
     def test_invalid_engine_falls_back_to_default(self):
         from app.batch.radio_pipeline import _determine_tts_config
-        from app.config import Settings
 
-        settings = Settings()
         config = _determine_tts_config("invalid_engine")
-        assert config["tts_engine"] == settings.default_tts_engine
+        assert config["tts_engine"] == "fishs2pro"
 
     def test_none_engine_uses_default(self):
         from app.batch.radio_pipeline import _determine_tts_config
-        from app.config import Settings
 
-        settings = Settings()
         config = _determine_tts_config(None)
-        assert config["tts_engine"] == settings.default_tts_engine
+        assert config["tts_engine"] == "fishs2pro"
 
 
 class TestRunDailyTtsEngineDefault:
@@ -1043,7 +1055,7 @@ class TestRunDailyTtsEngineDefault:
             from app.batch.run_daily import main
             main()
 
-        assert mock_enqueue.call_args.args[3]["tts_engine"] == "aivispeech"
+        assert mock_enqueue.call_args.args[3]["tts_engine"] == "fishs2pro"
 
 
 class TestRunDailyFailureModes:

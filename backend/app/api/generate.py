@@ -26,7 +26,7 @@ from app.batch.build_episode import build_episode
 from app.batch.review_script import review_script
 from app.audit import finalize_audit_log
 from app.auth import require_owner_session
-from app.config import get_settings
+from app.config import DISABLED_TTS_ENGINES, get_settings, resolve_default_tts_engine
 from app.db.connection import get_db_connection
 from app.services.article_service import ArticleService
 from app.services.episode_service import EpisodeService
@@ -53,11 +53,16 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 TTS_ENGINES = {"voicevox", "aivispeech", "fishs2pro"}
+DISABLED_TTS_MESSAGE = "この TTS エンジンは現在無効です。Fish S2 Pro を指定してください。"
 
 
 def _resolve_tts_engine(request_engine: str | None, default_engine: str) -> str:
-    """リクエスト未指定・不正時は設定済みの既定エンジンを使う。"""
-    return request_engine if request_engine in TTS_ENGINES else default_engine
+    """無効な明示指定は拒否し、それ以外は有効な既定エンジンへ解決する。"""
+    if request_engine in DISABLED_TTS_ENGINES:
+        raise ValueError(DISABLED_TTS_MESSAGE)
+    if request_engine in TTS_ENGINES:
+        return request_engine
+    return resolve_default_tts_engine(default_engine)
 
 
 def _active_generation_job_id(episode_id: int) -> int | None:
@@ -199,7 +204,7 @@ class GenerateRequest(BaseModel):
     max_articles: int | None = Field(default=None, ge=1, le=50)
     duration_minutes: int | None = Field(default=None, ge=1, le=640)
     news_source: str = Field(default="hatena_bookmark", description="ニュースソース (hatena_bookmark | hatena_hotentry_all | yahoo_news)")
-    tts_engine: str | None = Field(default=None, description="TTSエンジン (voicevox | aivispeech | fishs2pro)。未指定時は設定値を使用")
+    tts_engine: str | None = Field(default=None, description="TTSエンジン (fishs2pro)。未指定時はFish S2 Proを使用")
     url: str | None = Field(default=None, description="解説対象の記事URL（指定時はnews_sourceは無視）")
     style: str = Field(default="solo", description="解説スタイル (solo | dialogue)")
     mc_gender: str = Field(default="male", description="MC性別 (male | female)")
@@ -643,6 +648,11 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
 def generate_episode(request: Request, body: GenerateRequest, owner_user_id: int = Depends(require_owner_session)) -> dict:
     """Creates episode record and returns JSON immediately; actual generation runs in background."""
 
+    try:
+        _resolve_tts_engine(body.tts_engine, get_settings().default_tts_engine)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     # Validate: mc_gender
     if body.program_id is None and body.mc_gender not in VALID_GENDERS:
         raise HTTPException(status_code=400, detail="mc_gender must be 'male' or 'female'")
@@ -852,7 +862,7 @@ def execute_queued_job(job, *, dispatch: bool = True) -> JobClaim | None:
 
 class SynthesizeRequest(BaseModel):
     """音声合成リクエスト"""
-    tts_engine: str | None = Field(default=None, description="TTSエンジン (voicevox | aivispeech | fishs2pro)。未指定時は設定値を使用")
+    tts_engine: str | None = Field(default=None, description="TTSエンジン (fishs2pro)。未指定時はFish S2 Proを使用")
 
 
 def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[bytes, None, None]:
@@ -948,6 +958,10 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
 @router.post("/episodes/{episode_id}/synthesize", summary="既存エピソードの音声を生成する")
 @limiter.limit(_get_generate_rate_limit)
 def synthesize_episode_audio(episode_id: int, request: Request, body: SynthesizeRequest, owner_user_id: int = Depends(require_owner_session)) -> StreamingResponse:
+    try:
+        _resolve_tts_engine(body.tts_engine, get_settings().default_tts_engine)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     episode = EpisodeService().get_episode(episode_id)
     if episode is None:
         raise HTTPException(status_code=404, detail="Episode not found")

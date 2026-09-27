@@ -172,7 +172,7 @@ def test_synthesis_records_success_and_failure_audit(client, monkeypatch):
 
     monkeypatch.setattr(generate_api, "_stream_synthesize", fake_success)
     success_id = EpisodeService().create_episode("2099-01-07", status="generating")
-    success = client.post(f"/episodes/{success_id}/synthesize", json={"tts_engine": "voicevox"})
+    success = client.post(f"/episodes/{success_id}/synthesize", json={"tts_engine": "fishs2pro"})
     assert success.status_code == 200
 
     def fake_failure(episode_id, _body):
@@ -181,7 +181,7 @@ def test_synthesis_records_success_and_failure_audit(client, monkeypatch):
 
     monkeypatch.setattr(generate_api, "_stream_synthesize", fake_failure)
     failure_id = EpisodeService().create_episode("2099-01-08", status="generating")
-    failure = client.post(f"/episodes/{failure_id}/synthesize", json={"tts_engine": "voicevox"})
+    failure = client.post(f"/episodes/{failure_id}/synthesize", json={"tts_engine": "fishs2pro"})
     assert failure.status_code == 200
 
     rows = _wait_for_audit_count("synthesize", 4)
