@@ -387,6 +387,52 @@ describe('AdminScriptReviewShell 下書き復元', () => {
     expect(screen.getByText('下書きの内容を反映する')).toBeInTheDocument()
     expect(screen.getByText('サーバー最新版を使う（下書きを破棄）')).toBeInTheDocument()
   })
+
+  it('同じ版の下書きを復元すると、初回ロードの検査結果は消える', async () => {
+    const user = userEvent.setup()
+    saveDraftToStorage(1, 1, baseScript({ lines: [{ speaker: 'male', section: 'intro', text: '端末に残っていた下書き' }] }))
+
+    render(
+      <AdminScriptReviewShell
+        episodeId={1}
+        initialRevision={1}
+        initialScript={baseScript()}
+        initialValidation={{
+          can_approve: false,
+          results: [{ code: 'LINE', message: '1行目の指摘', line_indices: [0], severity: 'error' }],
+        }}
+      />,
+    )
+    expect(screen.getByText('検査エラーが残っています。承認する前に修正してください。')).toBeInTheDocument()
+
+    await user.click(screen.getByText('下書きを復元する'))
+
+    expect(screen.queryByText('1行目の指摘')).not.toBeInTheDocument()
+    expect(screen.queryByText('検査エラーが残っています。承認する前に修正してください。')).not.toBeInTheDocument()
+  })
+
+  it('サーバー版が進んでいる場合の下書き反映でも、初回ロードの検査結果は消える', async () => {
+    const user = userEvent.setup()
+    saveDraftToStorage(1, 1, baseScript({ lines: [{ speaker: 'male', section: 'intro', text: '古い下書き' }] }))
+
+    render(
+      <AdminScriptReviewShell
+        episodeId={1}
+        initialRevision={3}
+        initialScript={baseScript()}
+        initialValidation={{
+          can_approve: false,
+          results: [{ code: 'LINE', message: '1行目の指摘', line_indices: [0], severity: 'error' }],
+        }}
+      />,
+    )
+    expect(screen.getByText('検査エラーが残っています。承認する前に修正してください。')).toBeInTheDocument()
+
+    await user.click(screen.getByText('下書きの内容を反映する'))
+
+    expect(screen.queryByText('1行目の指摘')).not.toBeInTheDocument()
+    expect(screen.queryByText('検査エラーが残っています。承認する前に修正してください。')).not.toBeInTheDocument()
+  })
 })
 
 describe('AdminScriptReviewShell 承認・破棄', () => {

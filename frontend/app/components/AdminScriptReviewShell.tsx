@@ -304,6 +304,7 @@ export default function AdminScriptReviewShell({
     editTokenRef.current += 1
     setScript(draftPrompt.script)
     setDirty(true)
+    setValidation(null)
     setDraftPrompt(null)
   }
 
@@ -312,6 +313,7 @@ export default function AdminScriptReviewShell({
     editTokenRef.current += 1
     setScript(draftPrompt.script)
     setDirty(true)
+    setValidation(null)
     setDraftPrompt(null)
   }
 
