@@ -72,7 +72,7 @@ def test_synthesize_radio_completion_uses_outbox_completion_path():
     with patch("app.api.generate.DEFAULT_EPISODES_DIR", os.environ["EPISODES_DIR"]), \
          patch("app.api.generate.synthesize_episode", return_value=1), \
          patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}):
-        list(_stream_synthesize(episode_id, SynthesizeRequest(tts_engine="voicevox")))
+        list(_stream_synthesize(episode_id, SynthesizeRequest(tts_engine="fishs2pro")))
 
     with get_db_connection() as conn:
         assert conn.execute("SELECT status FROM episodes WHERE id = ?", (episode_id,)).fetchone()["status"] == "completed"

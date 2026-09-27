@@ -8,7 +8,7 @@ from typing import Dict, List
 # Ensure backend root is on sys.path (mirrors what batch scripts do).
 sys.path.insert(0, __import__("os").path.join(__import__("os").path.dirname(__file__), "..", ".."))
 
-from app.config import get_settings  # noqa: E402
+from app.config import get_settings, resolve_default_tts_engine  # noqa: E402
 from app.services.ollama_client import OllamaClient  # noqa: E402
 from app.services.fishs2pro_client import FishS2ProClient  # noqa: E402
 from app.services.voicevox_client import VoicevoxClient  # noqa: E402
@@ -86,10 +86,11 @@ if __name__ == "__main__":
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
     settings = get_settings()
-    if settings.default_tts_engine == "fishs2pro":
+    engine = resolve_default_tts_engine(settings.default_tts_engine)
+    if engine == "fishs2pro":
         tts_url = settings.fishs2pro_base_url
     else:
-        tts_url = settings.aivispeech_base_url if settings.default_tts_engine == "aivispeech" else settings.voicevox_base_url
-    results = run_health_checks(settings.ollama_base_url, settings.ollama_model, tts_url, settings.default_tts_engine)
+        tts_url = settings.aivispeech_base_url if engine == "aivispeech" else settings.voicevox_base_url
+    results = run_health_checks(settings.ollama_base_url, settings.ollama_model, tts_url, engine)
     for r in results:
         print(f" {r['service']}: {r['status']} {r.get('detail', '')}")

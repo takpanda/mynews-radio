@@ -283,7 +283,7 @@ def test_synthesize_api_returns_waiting_when_another_job_is_active(client, monke
 
     response = client.post(
         f"/episodes/{episode_id}/synthesize",
-        json={"tts_engine": "voicevox"},
+        json={"tts_engine": "fishs2pro"},
         headers={"Idempotency-Key": "synth-waiting"},
     )
 

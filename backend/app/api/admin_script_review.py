@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from app.auth import require_owner_session
 from app.batch.final_validation import validate_final_script
 from app.programs.profiles import get_profile_by_id
-from app.config import get_settings
+from app.config import get_settings, resolve_default_tts_engine
 from app.db.connection import get_db_connection
 from app.services.generation_control import dispatch_job, input_hash
 from app.audit import hash_value
@@ -337,7 +337,7 @@ def reject_script(episode_id: int, body: RejectRequest, user_id: Annotated[int, 
         payload = {
             "date": row["episode_date"],
             "news_source": news_source,
-            "tts_engine": get_settings().batch_default_tts_engine,
+            "tts_engine": resolve_default_tts_engine(get_settings().batch_default_tts_engine),
             "preserve_news_source": True,
         }
         if row["program_id"] is not None:
@@ -375,7 +375,7 @@ def preview_audio(episode_id: int, idx: int, user_id: Annotated[int, Depends(req
     if not text:
         raise HTTPException(status_code=422, detail="Script line has no speakable text")
     settings = get_settings()
-    engine = settings.default_tts_engine
+    engine = resolve_default_tts_engine(settings.default_tts_engine)
     if engine == "fishs2pro":
         from app.services.fishs2pro_client import FishS2ProClient
         from app.services.settings_service import resolve_tts_speakers

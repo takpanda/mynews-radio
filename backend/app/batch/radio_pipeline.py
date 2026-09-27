@@ -20,7 +20,12 @@ from app.batch.import_articles import import_articles_by_source
 from app.batch.review_script import review_script
 from app.batch.summarize_articles import summarize_articles
 from app.batch.synthesize_voicevox import synthesize_episode
-from app.config import get_settings
+from app.config import (
+    DISABLED_TTS_ENGINES,
+    SUPPORTED_TTS_ENGINES,
+    get_settings,
+    resolve_default_tts_engine,
+)
 from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService, override_script_title, build_radio_title
 from app.services.article_service import ArticleService, write_fallback_summaries
@@ -110,8 +115,13 @@ def _resolve_max_articles(max_articles: int | None, settings_params: dict[str, A
 def _determine_tts_config(tts_engine: str | None = None) -> dict[str, Any]:
     """接続先とエンジン別の保存済み話者値（未保存時はconfig.py既定値）を返す。"""
     settings = get_settings()
-    tts_engines = {"voicevox", "aivispeech", "fishs2pro"}
-    engine = tts_engine if tts_engine and tts_engine in tts_engines else settings.default_tts_engine
+    if tts_engine in DISABLED_TTS_ENGINES:
+        raise ValueError(f"TTS engine is currently disabled: {tts_engine}")
+    engine = (
+        tts_engine
+        if tts_engine in SUPPORTED_TTS_ENGINES
+        else resolve_default_tts_engine(settings.default_tts_engine)
+    )
     base_url = (
         settings.fishs2pro_base_url if engine == "fishs2pro" else
         settings.aivispeech_base_url if engine == "aivispeech" else

@@ -28,16 +28,15 @@ def _make_fake_open(script_json: str):
 class TestRadioPipelineUsesSavedVoiceSettings:
     """手動生成・定期生成が共有する _determine_tts_config の解決対象."""
 
-    def test_determine_tts_config_uses_saved_values_per_engine(self):
+    def test_determine_tts_config_rejects_disabled_engines_and_keeps_fish_settings(self):
         from app.batch.radio_pipeline import _determine_tts_config
 
         _save_voice_settings()
 
-        aivis = _determine_tts_config("aivispeech")
-        assert (aivis["speaker_male"], aivis["speaker_female"]) == (9001, 9002)
-
-        voicevox = _determine_tts_config("voicevox")
-        assert (voicevox["speaker_male"], voicevox["speaker_female"]) == (9011, 9012)
+        import pytest
+        for engine in ("aivispeech", "voicevox"):
+            with pytest.raises(ValueError, match="currently disabled"):
+                _determine_tts_config(engine)
 
         fishs2pro = _determine_tts_config("fishs2pro")
         assert (fishs2pro["speaker_male"], fishs2pro["speaker_female"]) == ("custom-male", "custom-female")
@@ -47,9 +46,9 @@ class TestRadioPipelineUsesSavedVoiceSettings:
         from app.config import Settings
 
         settings = Settings()
-        config = _determine_tts_config("voicevox")
+        config = _determine_tts_config(None)
         assert (config["speaker_male"], config["speaker_female"]) == (
-            settings.voicevox_speaker_male, settings.voicevox_speaker_female,
+            settings.fishs2pro_voice_male, settings.fishs2pro_voice_female,
         )
 
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
@@ -67,13 +66,10 @@ class TestRadioPipelineUsesSavedVoiceSettings:
         svc = EpisodeService()
         ep_id, _ = svc.create_radio_episode("2099-08-01")
 
-        with patch("app.batch.radio_pipeline.synthesize_episode", return_value=3) as mock_synth, \
-             patch("builtins.open", _make_fake_open('{"lines": [{"text": "hello"}]}')):
-            run_radio_pipeline(ep_id, episode_date="2099-08-01", tts_engine="voicevox")
-
-        kwargs = mock_synth.call_args.kwargs
-        assert kwargs["speaker_male"] == 9011
-        assert kwargs["speaker_female"] == 9012
+        with patch("app.batch.radio_pipeline.synthesize_episode") as mock_synth:
+            result = run_radio_pipeline(ep_id, episode_date="2099-08-01", tts_engine="voicevox")
+        assert result is None
+        mock_synth.assert_not_called()
 
     @patch("app.batch.radio_pipeline.import_articles_by_source", return_value=(3, 0))
     @patch("app.batch.radio_pipeline.summarize_articles", return_value=5)
@@ -128,15 +124,12 @@ class TestRadioPipelineUsesSavedVoiceSettings:
 
         with patch("app.batch.radio_pipeline.synthesize_episode", return_value=3) as mock_synth, \
              patch("builtins.open", _make_fake_open('{"lines": [{"speaker": "male", "text": "hello"}]}')):
-            run_radio_pipeline(
+            result = run_radio_pipeline(
                 ep_id, episode_date="2099-08-07", tts_engine="voicevox",
                 program_profile=profile,
             )
-
-        kwargs = mock_synth.call_args.kwargs
-        assert kwargs["speaker_male"] == 9101
-        assert kwargs["speaker_female"] == 9102
-        assert kwargs["speaker_overrides"] == {"male": 9101, "female": 9102}
+        assert result is None
+        mock_synth.assert_not_called()
 
 
 class TestCommentaryGenerationUsesSavedVoiceSettings:
@@ -230,11 +223,11 @@ class TestResynthesisUsesSavedVoiceSettings:
         with patch("app.api.generate.DEFAULT_EPISODES_DIR", os.environ["EPISODES_DIR"]), \
              patch("app.api.generate.synthesize_episode", return_value=1) as mock_synth, \
              patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}):
-            list(_stream_synthesize(episode_id, SynthesizeRequest(tts_engine="aivispeech")))
+            list(_stream_synthesize(episode_id, SynthesizeRequest(tts_engine="fishs2pro")))
 
         kwargs = mock_synth.call_args.kwargs
-        assert kwargs["speaker_male"] == 9001
-        assert kwargs["speaker_female"] == 9002
+        assert kwargs["speaker_male"] == "custom-male"
+        assert kwargs["speaker_female"] == "custom-female"
 
     def test_stream_synthesize_clears_female_voice_without_female_line(self):
         from app.api.generate import SynthesizeRequest, _stream_synthesize

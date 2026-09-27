@@ -8,6 +8,7 @@ import pytest
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 from app.audit import cleanup_audit_logs, hash_input
 from app.db.connection import get_db_connection
 
@@ -188,29 +189,21 @@ def test_audit_write_failure_does_not_start_generation(client, monkeypatch):
         ).fetchone()[0] == 0
 
 
-def test_synthesis_idempotency_rejection_is_audited(client):
+def test_disabled_synthesis_engine_is_rejected_before_audit_or_job(client):
     from app.services.episode_service import EpisodeService
 
     episode_id = EpisodeService().create_episode("2099-06-04", status="generating")
-    key = "synthesis-audit-key"
-    first = client.post(
-        f"/episodes/{episode_id}/synthesize", json={"tts_engine": "voicevox"},
-        headers={"Idempotency-Key": key},
-    )
-    assert first.status_code == 200
-    second = client.post(
-        f"/episodes/{episode_id}/synthesize", json={"tts_engine": "aivispeech"},
-        headers={"Idempotency-Key": key},
-    )
-    assert second.status_code == 409
+    with patch("app.api.generate.claim_job") as claim_job:
+        response = client.post(
+            f"/episodes/{episode_id}/synthesize", json={"tts_engine": "voicevox"},
+        )
+    assert response.status_code == 400
+    claim_job.assert_not_called()
     with get_db_connection() as conn:
-        row = conn.execute(
-            "SELECT operation, accepted, rejection_reason FROM audit_logs "
-            "WHERE operation = 'synthesize' AND result = 'rejected' ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-    assert row["operation"] == "synthesize"
-    assert row["accepted"] == 0
-    assert row["rejection_reason"] == "idempotency_key_input_mismatch"
+        count = conn.execute(
+            "SELECT COUNT(*) FROM audit_logs WHERE operation = 'synthesize'"
+        ).fetchone()[0]
+        assert count == 0
 
 
 def test_legacy_audit_table_migration_allows_rejected_rows():

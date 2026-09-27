@@ -80,10 +80,12 @@ class TestConfigDefaults:
         assert settings.fishs2pro_voice_male == "kenji"
         assert settings.fishs2pro_voice_female == "yuki"
 
-    def test_default_tts_engine_is_aivispeech(self):
-        """POST /generate 等の手動生成系で tts_engine 未指定時に使う既定値。"""
-        from app.config import Settings
-        assert Settings().default_tts_engine == "aivispeech"
+    def test_default_tts_engine_is_fishs2pro(self):
+        """手動生成系の未指定時に使う既定値。"""
+        from app.config import Settings, resolve_default_tts_engine
+        assert Settings().default_tts_engine == "fishs2pro"
+        assert resolve_default_tts_engine("aivispeech") == "fishs2pro"
+        assert resolve_default_tts_engine("voicevox") == "fishs2pro"
 
     def test_batch_default_tts_engine_is_fishs2pro(self):
         """run_daily.py（定期ニュース生成）で tts_engine 未指定時に使う既定値。"""

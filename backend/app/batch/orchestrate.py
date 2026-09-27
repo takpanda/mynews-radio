@@ -33,7 +33,7 @@ from app.batch.build_episode import build_episode
 from app.services.article_service import ArticleService, write_fallback_summaries
 from app.services.episode_service import EpisodeService, retry_on_busy, override_script_title, build_radio_title
 from app.services.settings_service import resolve_tts_speakers
-from app.config import get_settings
+from app.config import get_settings, resolve_default_tts_engine
 from app.services.telegram_notifier import notify_failure, notify_success, notify_review_needed
 from app.services.script_review_service import move_episode_to_awaiting_review
 
@@ -93,7 +93,7 @@ def _update_episode_audio(episode_id: int, audio_path: str) -> None:
     settings = get_settings()
     voice_name = (
         resolve_tts_speakers("fishs2pro")[1]
-        if settings.default_tts_engine == "fishs2pro"
+        if resolve_default_tts_engine(settings.default_tts_engine) == "fishs2pro"
         else None
     )
     ep_service.update_episode_mc_voice_name(episode_id, voice_name)

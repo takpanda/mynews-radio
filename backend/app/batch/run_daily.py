@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.batch.radio_pipeline import PipelineResult, run_radio_pipeline  # noqa: E402
 from app.batch.cleanup_episodes import cleanup_episodes  # noqa: E402
-from app.config import get_settings                       # noqa: E402
+from app.config import DISABLED_TTS_ENGINES, get_settings, resolve_default_tts_engine  # noqa: E402
 from app.logging_config import setup_daily_logging       # noqa: E402
 from app.services.episode_service import EpisodeService   # noqa: E402
 from app.db.connection import get_db_connection         # noqa: E402
@@ -52,13 +52,13 @@ def main() -> None:
         )
 
     # 定期ニュース生成はエンジン未指定時、API/UIとは別に batch_default_tts_engine
-    # (既定 fishs2pro) を使う。POST /generate 等の未指定時は従来どおり
-    # settings.default_tts_engine (aivispeech) を維持するため、経路をここで分離する。
+    # (既定 fishs2pro) を使う。
     settings = get_settings()
     batch_tts_engine = (
         settings.batch_default_tts_engine
         if settings.batch_default_tts_engine in _TTS_ENGINES
-        else settings.default_tts_engine
+        and settings.batch_default_tts_engine not in DISABLED_TTS_ENGINES
+        else resolve_default_tts_engine(settings.default_tts_engine)
     )
 
     with get_db_connection() as conn:

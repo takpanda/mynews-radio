@@ -9,7 +9,7 @@ import logging
 # Ensure the backend root is on sys.path so `app.config` resolves.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from app.config import get_settings
+from app.config import get_settings, resolve_default_tts_engine
 from app.services import generation_log_service as log_service
 from app.services.ffmpeg_service import convert_to_wav
 from app.services.fishs2pro_client import FishS2ProClient
@@ -165,7 +165,7 @@ def synthesize_episode(
     Returns total number of lines successfully synthesized.
     """
     settings = get_settings()
-    engine = tts_engine or settings.default_tts_engine
+    engine = tts_engine or resolve_default_tts_engine(settings.default_tts_engine)
     default_engine_is_aivispeech = engine == "aivispeech"
     is_fishs2pro = engine == "fishs2pro"
     saved_fishs2pro_speakers = None

@@ -134,12 +134,12 @@ def test_synthesis_duplicate_reports_active_completed_and_failed_state(client):
         ("synth-completed", "complete", "completed", True),
         ("synth-failed", "error", "failed", False),
     ):
-        claim = claim_job(1, "synthesize", key, {"episode_id": episode_id, "body": {"tts_engine": "voicevox"}})
+        claim = claim_job(1, "synthesize", key, {"episode_id": episode_id, "body": {"tts_engine": "fishs2pro"}})
         if finished is not None:
             finish_job(claim.job_id, finished)
         response = client.post(
             f"/episodes/{episode_id}/synthesize",
-            json={"tts_engine": "voicevox"},
+            json={"tts_engine": "fishs2pro"},
             headers={"Idempotency-Key": key},
         )
         assert response.status_code == 200
@@ -181,7 +181,7 @@ def test_endpoints_allow_more_than_ten_daily_generations(client, monkeypatch):
         else:
             episode_id = EpisodeService().create_episode(f"2099-02-{i + 1:02d}", status="generating")
             response = client.post(
-                f"/episodes/{episode_id}/synthesize", json={"tts_engine": "voicevox"},
+                f"/episodes/{episode_id}/synthesize", json={"tts_engine": "fishs2pro"},
                 headers={"Idempotency-Key": f"endpoint-daily-{i}"},
             )
         assert response.status_code == 200
@@ -287,7 +287,7 @@ def test_untrusted_proxy_ip_headers_are_ignored_for_generation_and_synthesis(cli
     episode_id = EpisodeService().create_episode("2099-08-02", status="generating")
     synthesized = client.post(
         f"/episodes/{episode_id}/synthesize",
-        json={"tts_engine": "voicevox"},
+        json={"tts_engine": "fishs2pro"},
         headers={
             "Idempotency-Key": "relay-synthesize",
             "X-Proxy-Client-IP": "198.51.100.11",
