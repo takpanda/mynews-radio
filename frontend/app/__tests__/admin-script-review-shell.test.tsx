@@ -387,6 +387,52 @@ describe('AdminScriptReviewShell 下書き復元', () => {
     expect(screen.getByText('下書きの内容を反映する')).toBeInTheDocument()
     expect(screen.getByText('サーバー最新版を使う（下書きを破棄）')).toBeInTheDocument()
   })
+
+  it('同じ版の下書きを復元すると、初回ロードの検査結果は消える', async () => {
+    const user = userEvent.setup()
+    saveDraftToStorage(1, 1, baseScript({ lines: [{ speaker: 'male', section: 'intro', text: '端末に残っていた下書き' }] }))
+
+    render(
+      <AdminScriptReviewShell
+        episodeId={1}
+        initialRevision={1}
+        initialScript={baseScript()}
+        initialValidation={{
+          can_approve: false,
+          results: [{ code: 'LINE', message: '1行目の指摘', line_indices: [0], severity: 'error' }],
+        }}
+      />,
+    )
+    expect(screen.getByText('検査エラーが残っています。承認する前に修正してください。')).toBeInTheDocument()
+
+    await user.click(screen.getByText('下書きを復元する'))
+
+    expect(screen.queryByText('1行目の指摘')).not.toBeInTheDocument()
+    expect(screen.queryByText('検査エラーが残っています。承認する前に修正してください。')).not.toBeInTheDocument()
+  })
+
+  it('サーバー版が進んでいる場合の下書き反映でも、初回ロードの検査結果は消える', async () => {
+    const user = userEvent.setup()
+    saveDraftToStorage(1, 1, baseScript({ lines: [{ speaker: 'male', section: 'intro', text: '古い下書き' }] }))
+
+    render(
+      <AdminScriptReviewShell
+        episodeId={1}
+        initialRevision={3}
+        initialScript={baseScript()}
+        initialValidation={{
+          can_approve: false,
+          results: [{ code: 'LINE', message: '1行目の指摘', line_indices: [0], severity: 'error' }],
+        }}
+      />,
+    )
+    expect(screen.getByText('検査エラーが残っています。承認する前に修正してください。')).toBeInTheDocument()
+
+    await user.click(screen.getByText('下書きの内容を反映する'))
+
+    expect(screen.queryByText('1行目の指摘')).not.toBeInTheDocument()
+    expect(screen.queryByText('検査エラーが残っています。承認する前に修正してください。')).not.toBeInTheDocument()
+  })
 })
 
 describe('AdminScriptReviewShell 承認・破棄', () => {
@@ -475,6 +521,99 @@ describe('AdminScriptReviewShell 行ごと・全体の指摘', () => {
     expect(firstLine).toHaveClass('border-red-300', 'bg-red-50')
     expect(secondLine).toHaveClass('border-slate-200', 'bg-white')
     expect(screen.getByText('台本全体に関する指摘').parentElement).toHaveTextContent('[警告] 台本全体の指摘')
+  })
+})
+
+describe('AdminScriptReviewShell 初回ロードの検証結果', () => {
+  it('初回ロードのvalidationがある場合、再チェック前から検査結果を表示する', () => {
+    render(
+      <AdminScriptReviewShell
+        episodeId={1}
+        initialRevision={1}
+        initialScript={baseScript()}
+        initialValidation={{
+          can_approve: false,
+          results: [
+            { code: 'LINE', message: '1行目の指摘', line_indices: [0], severity: 'error' },
+            { code: 'GLOBAL', message: '台本全体の指摘', line_indices: [], severity: 'warning' },
+          ],
+        }}
+      />,
+    )
+
+    expect(screen.getByText('検査エラーが残っています。承認する前に修正してください。')).toBeInTheDocument()
+    const firstLine = screen.getByLabelText('行1の本文').closest('div.rounded-2xl')
+    expect(firstLine).toHaveClass('border-red-300', 'bg-red-50')
+    expect(screen.getByText('台本全体に関する指摘').parentElement).toHaveTextContent('[警告] 台本全体の指摘')
+  })
+
+  it('source: generated のときだけ生成時点である旨の注記を表示する', () => {
+    render(
+      <AdminScriptReviewShell
+        episodeId={1}
+        initialRevision={1}
+        initialScript={baseScript()}
+        initialValidation={{ can_approve: false, results: [], source: 'generated' }}
+      />,
+    )
+    expect(screen.getByText('生成時点の検証結果です。最新の状態は「再チェック」で確認できます。')).toBeInTheDocument()
+  })
+
+  it('sourceがgenerated以外の場合は注記を表示しない', () => {
+    render(
+      <AdminScriptReviewShell
+        episodeId={1}
+        initialRevision={1}
+        initialScript={baseScript()}
+        initialValidation={{ can_approve: true, results: [], source: 'current' }}
+      />,
+    )
+    expect(screen.queryByText(/生成時点の検証結果/)).not.toBeInTheDocument()
+  })
+
+  it('validationがnullの場合は従来どおり検証結果欄を表示せず、エラーにもならない', () => {
+    render(<AdminScriptReviewShell episodeId={1} initialRevision={1} initialScript={baseScript()} initialValidation={null} />)
+    expect(screen.queryByText('検査エラーが残っています。承認する前に修正してください。')).not.toBeInTheDocument()
+    expect(screen.queryByText('検査エラーはありません。')).not.toBeInTheDocument()
+    expect(screen.queryByText(/生成時点の検証結果/)).not.toBeInTheDocument()
+  })
+
+  it('validationが未指定の場合も従来どおり検証結果欄を表示せず、エラーにもならない', () => {
+    render(<AdminScriptReviewShell episodeId={1} initialRevision={1} initialScript={baseScript()} />)
+    expect(screen.queryByText('検査エラーが残っています。承認する前に修正してください。')).not.toBeInTheDocument()
+    expect(screen.queryByText('検査エラーはありません。')).not.toBeInTheDocument()
+  })
+
+  it('再チェック押下後は再チェック結果に置き換わり、生成時点の注記は消える', async () => {
+    const user = userEvent.setup()
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        can_approve: true,
+        results: [],
+      }),
+    }) as unknown as typeof fetch
+
+    render(
+      <AdminScriptReviewShell
+        episodeId={1}
+        initialRevision={1}
+        initialScript={baseScript()}
+        initialValidation={{
+          can_approve: false,
+          results: [{ code: 'GLOBAL', message: '生成時点の指摘', line_indices: [], severity: 'error' }],
+          source: 'generated',
+        }}
+      />,
+    )
+    expect(screen.getByText('生成時点の検証結果です。最新の状態は「再チェック」で確認できます。')).toBeInTheDocument()
+
+    await user.click(screen.getByText('再チェック'))
+
+    await waitFor(() => expect(screen.getByText('検査エラーはありません。')).toBeInTheDocument())
+    expect(screen.queryByText('生成時点の指摘')).not.toBeInTheDocument()
+    expect(screen.queryByText(/生成時点の検証結果/)).not.toBeInTheDocument()
   })
 })
 

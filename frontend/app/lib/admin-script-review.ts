@@ -22,13 +22,6 @@ export interface AdminScriptReviewCastMember {
   role?: string
 }
 
-export interface AdminScriptReviewResponse {
-  episode_id: number
-  revision: number
-  script: AdminScriptReviewScript
-  cast?: AdminScriptReviewCastMember[] | null
-}
-
 export interface ValidationFinding {
   code: string
   message: string
@@ -40,6 +33,16 @@ export interface ValidationResult {
   can_approve: boolean
   results: ValidationFinding[]
   revision?: number
+  /** 'generated': 台本生成時点の検証結果（初回ロード時のみ）。'current': 再チェック実行時点の結果。 */
+  source?: 'generated' | 'current'
+}
+
+export interface AdminScriptReviewResponse {
+  episode_id: number
+  revision: number
+  script: AdminScriptReviewScript
+  cast?: AdminScriptReviewCastMember[] | null
+  validation?: ValidationResult | null
 }
 
 export class ScriptApiError extends Error {
