@@ -136,6 +136,31 @@ def test_get_script_revalidates_when_generated_final_validation_is_missing_or_co
     validate.assert_called_once_with(episode_id, script)
 
 
+@pytest.mark.parametrize(
+    "finding",
+    [
+        {"code": "X"},
+        {"code": "X", "message": "破損", "line_indices": ["0"]},
+        {"code": "X", "message": 123, "line_indices": [0]},
+    ],
+)
+def test_get_script_revalidates_when_generated_finding_schema_is_invalid(client, finding):
+    episode_id, script = _episode_with_script()
+    report_path = Path(__import__("os").environ["EPISODES_DIR"]) / str(episode_id) / "final_validation.json"
+    report_path.write_text(
+        json.dumps({"critical_issues": [finding], "warnings": []}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    current = {"can_approve": True, "results": []}
+
+    with patch("app.api.admin_script_review._validate_episode_script", return_value=current) as validate:
+        response = client.get(f"/admin/episodes/{episode_id}/script")
+
+    assert response.status_code == 200
+    assert response.json()["validation"] == {**current, "source": "current", "revision": 1}
+    validate.assert_called_once_with(episode_id, script)
+
+
 def test_get_script_revalidates_human_revision_even_when_generated_report_exists(client):
     from app.db.connection import get_db_connection
 

@@ -65,6 +65,28 @@ def _ensure_initial_revision(conn, episode_id: int, source: str = "generated"):
     return _latest_revision(conn, episode_id)
 
 
+def _is_validation_finding(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    line_indices = value.get("line_indices")
+    return (
+        isinstance(value.get("code"), str)
+        and isinstance(value.get("message"), str)
+        and isinstance(line_indices, list)
+        and all(isinstance(index, int) and not isinstance(index, bool) for index in line_indices)
+    )
+
+
+def _is_final_validation_report(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return all(
+        isinstance(value.get(key), list)
+        and all(_is_validation_finding(item) for item in value[key])
+        for key in ("critical_issues", "warnings")
+    )
+
+
 def _audit(conn, operation: str, user_id: int, episode_id: int, payload: object, result="success"):
     digest = input_hash(payload)
     conn.execute(
@@ -130,14 +152,7 @@ def get_script(episode_id: int, _: Annotated[int, Depends(require_owner_session)
             generated_validation = json.loads(
                 (_script_path(episode_id).parent / "final_validation.json").read_text(encoding="utf-8")
             )
-            if not isinstance(generated_validation, dict) or not all(
-                isinstance(generated_validation.get(key), list)
-                for key in ("critical_issues", "warnings")
-            ) or not all(
-                isinstance(item, dict)
-                for key in ("critical_issues", "warnings")
-                for item in generated_validation[key]
-            ):
+            if not _is_final_validation_report(generated_validation):
                 raise ValueError("Invalid final validation report")
             validation = _validation_result(generated_validation)
             validation_source = "generated"
