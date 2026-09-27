@@ -188,10 +188,12 @@ def test_approve_is_idempotent_and_registers_one_audio_job(client):
     from app.db.connection import get_db_connection
 
     episode_id, _ = _episode_with_script()
-    with patch("app.api.admin_script_review._validate_episode_script", return_value={"can_approve": True, "results": []}), \
+    validation = {"can_approve": True, "results": []}
+    invalid = {"can_approve": False, "results": [{"code": "BAD", "message": "NG", "line_indices": [], "severity": "error"}]}
+    with patch("app.api.admin_script_review._validate_episode_script", side_effect=[validation, invalid]), \
          patch("app.api.admin_script_review.dispatch_job") as dispatch:
         first = client.post(f"/admin/episodes/{episode_id}/approve")
-        second = client.post(f"/admin/episodes/{episode_id}/approve")
+        second = client.post(f"/admin/episodes/{episode_id}/approve", json={"force": True})
 
     assert first.status_code == second.status_code == 200
     assert first.json()["job_id"] == second.json()["job_id"]
@@ -199,15 +201,62 @@ def test_approve_is_idempotent_and_registers_one_audio_job(client):
     with get_db_connection() as conn:
         jobs = conn.execute("SELECT operation FROM generation_jobs WHERE episode_id=?", (episode_id,)).fetchall()
         status = conn.execute("SELECT status FROM episodes WHERE id=?", (episode_id,)).fetchone()["status"]
+        audits = conn.execute("SELECT operation FROM audit_logs WHERE episode_id=?", (episode_id,)).fetchall()
     assert [row["operation"] for row in jobs] == ["synthesize"]
     assert status == "synthesizing"
+    assert [row["operation"] for row in audits].count("script_approve") == 1
+    assert [row["operation"] for row in audits].count("script_force_approve") == 0
 
 
-def test_approve_rejects_remaining_validation_errors(client):
+def test_approve_force_rejects_episode_outside_review(client):
+    from app.db.connection import get_db_connection
+
+    episode_id, _ = _episode_with_script(status="generating")
+    invalid = {"can_approve": False, "results": [{"code": "BAD", "message": "NG", "line_indices": [], "severity": "error"}]}
+    with patch("app.api.admin_script_review._validate_episode_script", return_value=invalid):
+        response = client.post(f"/admin/episodes/{episode_id}/approve", json={"force": True})
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Episode is not awaiting review"
+    with get_db_connection() as conn:
+        jobs = conn.execute("SELECT id FROM generation_jobs WHERE episode_id=? AND operation='synthesize'", (episode_id,)).fetchall()
+        status = conn.execute("SELECT status FROM episodes WHERE id=?", (episode_id,)).fetchone()["status"]
+    assert jobs == []
+    assert status == "generating"
+
+
+@pytest.mark.parametrize("body", [None, {"force": False}])
+def test_approve_rejects_remaining_validation_errors(client, body):
     episode_id, _ = _episode_with_script()
     with patch("app.api.admin_script_review._validate_episode_script", return_value={"can_approve": False, "results": [{"code": "BAD", "message": "NG", "line_indices": [], "severity": "error"}]}):
-        response = client.post(f"/admin/episodes/{episode_id}/approve")
+        response = client.post(f"/admin/episodes/{episode_id}/approve", json=body) if body is not None else client.post(f"/admin/episodes/{episode_id}/approve")
     assert response.status_code == 409
+    assert response.json()["detail"]["results"][0]["code"] == "BAD"
+
+
+def test_approve_force_bypasses_validation_and_is_audited(client):
+    from app.db.connection import get_db_connection
+
+    episode_id, _ = _episode_with_script()
+    invalid = {"can_approve": False, "results": [{"code": "BAD", "message": "NG", "line_indices": [], "severity": "error"}]}
+    with patch("app.api.admin_script_review._validate_episode_script", return_value=invalid), \
+         patch("app.api.admin_script_review.dispatch_job") as dispatch, \
+         patch("app.api.admin_script_review._audit", wraps=__import__("app.api.admin_script_review", fromlist=["_audit"])._audit) as audit:
+        response = client.post(f"/admin/episodes/{episode_id}/approve", json={"force": True})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "synthesizing"
+    dispatch.assert_called_once_with(response.json()["job_id"])
+    audit.assert_called_once()
+    assert audit.call_args.args[1] == "script_force_approve"
+    assert audit.call_args.args[4] == {"revision": 1, "force": True}
+    with get_db_connection() as conn:
+        jobs = conn.execute("SELECT operation FROM generation_jobs WHERE episode_id=?", (episode_id,)).fetchall()
+        status = conn.execute("SELECT status FROM episodes WHERE id=?", (episode_id,)).fetchone()["status"]
+        audits = conn.execute("SELECT operation FROM audit_logs WHERE episode_id=?", (episode_id,)).fetchall()
+    assert [row["operation"] for row in jobs] == ["synthesize"]
+    assert status == "synthesizing"
+    assert [row["operation"] for row in audits].count("script_force_approve") == 1
 
 
 def test_reject_discard_transitions_only_awaiting_review_episode(client):

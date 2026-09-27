@@ -34,6 +34,10 @@ class RejectRequest(BaseModel):
     action: str = Field(pattern="^(regenerate|discard)$")
 
 
+class ApproveRequest(BaseModel):
+    force: bool = False
+
+
 def _script_path(episode_id: int) -> Path:
     root = Path(os.environ.get("EPISODES_DIR", "data/episodes")).resolve()
     path = (root / str(episode_id) / "script.json").resolve()
@@ -259,7 +263,12 @@ def validate_script(episode_id: int, user_id: Annotated[int, Depends(require_own
 
 
 @router.post("/admin/episodes/{episode_id}/approve")
-def approve_script(episode_id: int, user_id: Annotated[int, Depends(require_owner_session)]) -> dict:
+def approve_script(
+    episode_id: int,
+    user_id: Annotated[int, Depends(require_owner_session)],
+    body: ApproveRequest | None = None,
+) -> dict:
+    force = body.force if body is not None else False
     with get_db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
         episode = conn.execute("SELECT status FROM episodes WHERE id=?", (episode_id,)).fetchone()
@@ -268,7 +277,7 @@ def approve_script(episode_id: int, user_id: Annotated[int, Depends(require_owne
         row = _ensure_initial_revision(conn, episode_id)
         script = json.loads(row["script_json"])
         validation = _validate_episode_script(episode_id, script)
-        if not validation["can_approve"]:
+        if not validation["can_approve"] and not force:
             raise HTTPException(status_code=409, detail={"message": "Script has validation errors", **validation})
         old_job = conn.execute(
             "SELECT id, status FROM generation_jobs WHERE episode_id=? AND operation='synthesize' "
@@ -283,7 +292,12 @@ def approve_script(episode_id: int, user_id: Annotated[int, Depends(require_owne
         script_path.write_text(json.dumps(script, ensure_ascii=False, indent=2), encoding="utf-8")
         job_id, job_status = _enqueue_episode_job(conn, user_id=user_id, operation="synthesize", episode_id=episode_id, payload={})
         conn.execute("UPDATE episodes SET status='synthesizing', phase='synthesize', updated_at=CURRENT_TIMESTAMP WHERE id=?", (episode_id,))
-        _audit(conn, "script_approve", user_id, episode_id, {"revision": row["revision"]})
+        audit_payload = {"revision": row["revision"]}
+        audit_operation = "script_approve"
+        if force:
+            audit_payload["force"] = True
+            audit_operation = "script_force_approve"
+        _audit(conn, audit_operation, user_id, episode_id, audit_payload)
     if job_status == "active":
         dispatch_job(job_id)
     return {"episode_id": episode_id, "status": "synthesizing", "job_id": job_id}
