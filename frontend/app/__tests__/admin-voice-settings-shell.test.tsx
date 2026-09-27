@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import AdminVoiceSettingsShell from '../components/AdminVoiceSettingsShell'
-import type { VoiceOptionsResponse, VoiceSettings } from '../lib/admin-voice-settings'
+import { DISABLED_TTS_ENGINE_MESSAGE, type VoiceOptionsResponse, type VoiceSettings } from '../lib/admin-voice-settings'
 
 const mockFetchOptions = jest.fn()
 const mockSave = jest.fn()
@@ -122,7 +122,7 @@ describe('AdminVoiceSettingsShell', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '保存' })).not.toBeDisabled())
   })
 
-  it('一覧取得の一部失敗：対象エンジンにエラーと再試行ボタンが表示され、他エンジンは操作できる', () => {
+  it('一覧取得の一部失敗：対象エンジンにエラーと再試行ボタンが表示され、Fish S2 Proは操作できる', () => {
     const partial = clone(sampleOptions)
     partial.voicevox = { status: 'error', options: [], error: '話者一覧を取得できませんでした' }
     render(<AdminVoiceSettingsShell initialSettings={sampleSettings} initialOptions={partial} />)
@@ -130,8 +130,26 @@ describe('AdminVoiceSettingsShell', () => {
     expect(screen.getByText('話者一覧を取得できませんでした')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'VOICEVOXの一覧を再試行' })).toBeInTheDocument()
 
+    const fishSelect = screen.getByDisplayValue('male') as HTMLSelectElement
+    expect(fishSelect).not.toBeDisabled()
+  })
+
+  it('AivisSpeech・VOICEVOXは常に無効化され、ツールチップで案内が表示される', () => {
+    render(<AdminVoiceSettingsShell initialSettings={sampleSettings} initialOptions={sampleOptions} />)
+
     const aivisSelect = screen.getByDisplayValue('阿井田 茂 - ノーマル') as HTMLSelectElement
-    expect(aivisSelect).not.toBeDisabled()
+    expect(aivisSelect).toBeDisabled()
+    expect(aivisSelect).toHaveAttribute('title', DISABLED_TTS_ENGINE_MESSAGE)
+
+    const voicevoxSelect = screen.getByDisplayValue('四国めたん - ノーマル') as HTMLSelectElement
+    expect(voicevoxSelect).toBeDisabled()
+    expect(voicevoxSelect).toHaveAttribute('title', DISABLED_TTS_ENGINE_MESSAGE)
+
+    expect(screen.getAllByText(DISABLED_TTS_ENGINE_MESSAGE).length).toBeGreaterThanOrEqual(2)
+
+    const fishSelect = screen.getByDisplayValue('male') as HTMLSelectElement
+    expect(fishSelect).not.toBeDisabled()
+    expect(fishSelect).not.toHaveAttribute('title')
   })
 
   it('一覧取得の失敗エンジンのコンボボックスは無効化される', () => {

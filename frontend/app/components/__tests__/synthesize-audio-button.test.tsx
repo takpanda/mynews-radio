@@ -69,6 +69,7 @@ describe('SynthesizeAudioButton', () => {
     expect(screen.queryByText('音声を合成しています...')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '状態を再確認' })).toBeInTheDocument()
     expect(container.querySelector('.animate-spin')).not.toBeInTheDocument()
+    expect(mockSynthesize.mock.calls[0][1]).toBe('fishs2pro')
   })
 
   it('SSE error確定後は冪等キーを解放し、再試行でキーを差し替える', async () => {

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createMc, replaceMc, type Mc, type McSaveInput } from '../lib/admin-programs'
+import { DISABLED_TTS_ENGINE_MESSAGE } from '../lib/admin-voice-settings'
 
 interface Props {
   mc: Mc | null
@@ -185,7 +186,10 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
                 type="number"
                 value={voiceAivispeech}
                 onChange={(e) => setVoiceAivispeech(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100"
+                disabled
+                title={DISABLED_TTS_ENGINE_MESSAGE}
+                aria-describedby="mc-form-tts-disabled-note"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                 placeholder="speaker id"
               />
             </div>
@@ -195,11 +199,17 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
                 type="number"
                 value={voiceVoicevox}
                 onChange={(e) => setVoiceVoicevox(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100"
+                disabled
+                title={DISABLED_TTS_ENGINE_MESSAGE}
+                aria-describedby="mc-form-tts-disabled-note"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                 placeholder="speaker id"
               />
             </div>
           </div>
+          <p id="mc-form-tts-disabled-note" className="text-xs text-slate-500">
+            {DISABLED_TTS_ENGINE_MESSAGE}
+          </p>
 
           {isEdit && (
             <div>

@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import {
+  DISABLED_TTS_ENGINES,
+  DISABLED_TTS_ENGINE_MESSAGE,
   VOICE_ENGINES,
   VOICE_FIELD_MAP,
   fetchVoiceOptionsClient,
@@ -126,10 +128,22 @@ export default function AdminVoiceSettingsShell({ initialSettings, initialOption
           const engineOptions = options[engine.key]
           const isError = engineOptions.status === 'error'
           const isRetrying = retryingEngines.has(engine.key)
+          const isDisabledEngine = DISABLED_TTS_ENGINES.includes(engine.key)
           return (
-            <div key={engine.key} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div
+              key={engine.key}
+              className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 ${isDisabledEngine ? 'opacity-60' : ''}`}
+            >
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold text-slate-900">{engine.label}</h2>
+                {isDisabledEngine && (
+                  <span
+                    title={DISABLED_TTS_ENGINE_MESSAGE}
+                    className="shrink-0 rounded-md border border-slate-200 bg-slate-100 px-2 py-1 text-xs text-slate-500"
+                  >
+                    無効
+                  </span>
+                )}
                 {isError && (
                   <button
                     type="button"
@@ -147,6 +161,11 @@ export default function AdminVoiceSettingsShell({ initialSettings, initialOption
                   {engineOptions.error ?? '話者一覧を取得できませんでした'}
                 </p>
               )}
+              {isDisabledEngine && (
+                <p id={`voice-${engine.key}-disabled`} className="mt-1 text-xs text-slate-500">
+                  {DISABLED_TTS_ENGINE_MESSAGE}
+                </p>
+              )}
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {GENDERS.map((gender) => {
                   const field = VOICE_FIELD_MAP[engine.key][gender]
@@ -156,7 +175,11 @@ export default function AdminVoiceSettingsShell({ initialSettings, initialOption
                   const selectId = `voice-${engine.key}-${gender}`
                   const missingId = `${selectId}-missing`
                   const describedBy =
-                    [isError ? `voice-${engine.key}-error` : null, missing ? missingId : null]
+                    [
+                      isError ? `voice-${engine.key}-error` : null,
+                      isDisabledEngine ? `voice-${engine.key}-disabled` : null,
+                      missing ? missingId : null,
+                    ]
                       .filter(Boolean)
                       .join(' ') || undefined
                   return (
@@ -167,10 +190,11 @@ export default function AdminVoiceSettingsShell({ initialSettings, initialOption
                       <select
                         id={selectId}
                         value={String(currentValue)}
-                        disabled={isError || saving}
+                        disabled={isError || saving || isDisabledEngine}
                         onChange={(e) => handleChange(engine.key, gender, e.target.value)}
                         aria-label={`${engine.label} ${GENDER_LABEL[gender]}`}
                         aria-describedby={describedBy}
+                        title={isDisabledEngine ? DISABLED_TTS_ENGINE_MESSAGE : undefined}
                         className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                       >
                         {(missing || isError) && (
