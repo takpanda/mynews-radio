@@ -195,6 +195,31 @@ def test_reject_regenerate_falls_back_for_invalid_original_payload(client):
     assert json.loads(job["payload"])["news_source"] == "hatena_hotentry_all"
 
 
+def test_reject_regenerate_falls_back_for_unexpected_original_news_source(client):
+    from app.db.connection import get_db_connection
+
+    episode_id, _ = _episode_with_script()
+    with get_db_connection() as conn:
+        conn.execute("UPDATE episodes SET program_id='radio_news_neighbor' WHERE id=?", (episode_id,))
+        owner_id = conn.execute(
+            "SELECT admin_user_id FROM sessions WHERE token=?",
+            (next(cookie.value for cookie in client.cookies.jar if cookie.name == "admin_session"),),
+        ).fetchone()["admin_user_id"]
+        conn.execute(
+            "INSERT INTO generation_jobs(owner_user_id, operation, idempotency_key, input_hash, client_ip_hash, episode_id, payload, status) "
+            "VALUES (?, 'daily', ?, 'source-hash', 'source-ip', ?, ?, 'completed')",
+            (owner_id, f"unexpected-source-{episode_id}", episode_id, json.dumps({"news_source": "unexpected"})),
+        )
+    with patch("app.api.admin_script_review.dispatch_job"):
+        response = client.post(f"/admin/episodes/{episode_id}/reject", json={"action": "regenerate"})
+    assert response.status_code == 200
+    with get_db_connection() as conn:
+        job = conn.execute("SELECT payload FROM generation_jobs WHERE id=?", (response.json()["job_id"],)).fetchone()
+    payload = json.loads(job["payload"])
+    assert payload["program_id"] == "radio_news_neighbor"
+    assert payload["news_source"] == "hatena_hotentry_all"
+
+
 def test_regeneration_runner_uses_preserved_source_with_program_snapshot(client):
     from types import SimpleNamespace
     from app.batch import run_daily
