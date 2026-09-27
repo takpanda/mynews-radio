@@ -81,7 +81,7 @@ export default function AdminScriptReviewShell({
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const previewUrlRef = useRef<string | null>(null)
 
-  const [approveDialogOpen, setApproveDialogOpen] = useState(false)
+  const [approveMode, setApproveMode] = useState<'normal' | 'force' | null>(null)
   const [approving, setApproving] = useState(false)
   const [approveError, setApproveError] = useState<ApproveErrorState | null>(null)
   const [approvedJobId, setApprovedJobId] = useState<number | null>(null)
@@ -265,9 +265,9 @@ export default function AdminScriptReviewShell({
     setApproving(true)
     setApproveError(null)
     try {
-      const result = await approveScriptClient(episodeId)
+      const result = await approveScriptClient(episodeId, approveMode === 'force' ? { force: true } : undefined)
       setApprovedJobId(result.job_id)
-      setApproveDialogOpen(false)
+      setApproveMode(null)
       clearDraftFromStorage(episodeId)
       toast.success('承認しました。音声生成を開始します。')
     } catch (err) {
@@ -639,26 +639,48 @@ export default function AdminScriptReviewShell({
         </button>
         <button
           type="button"
-          onClick={() => setApproveDialogOpen(true)}
+          onClick={() => setApproveMode('normal')}
           disabled={dirty}
           title={dirty ? '保存してから承認してください' : undefined}
           className="min-h-11 flex-1 rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           承認する
         </button>
+        <button
+          type="button"
+          onClick={() => setApproveMode('force')}
+          disabled={dirty || !validation || validation.can_approve}
+          title={
+            dirty
+              ? '保存してから承認してください'
+              : !validation
+              ? '検査結果が未取得のため強制承認できません'
+              : validation.can_approve
+              ? '検査エラーが無いため強制承認は不要です'
+              : undefined
+          }
+          className="min-h-11 flex-1 rounded-full border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          強制承認
+        </button>
       </div>
 
-      {approveDialogOpen && (
+      {approveMode !== null && (
         <ConfirmDialog
-          title="この台本を承認しますか？"
-          message="承認すると音声生成が開始されます。承認後の取り消しはできません。"
-          confirmLabel="承認する"
+          title={approveMode === 'force' ? 'この台本を強制承認しますか？' : 'この台本を承認しますか？'}
+          message={
+            approveMode === 'force'
+              ? '検査エラーが残ったまま承認します。この回を放送しますか？'
+              : '承認すると音声生成が開始されます。承認後の取り消しはできません。'
+          }
+          confirmLabel={approveMode === 'force' ? '強制承認する' : '承認する'}
+          danger={approveMode === 'force'}
           confirming={approving}
           error={approveError?.message ?? null}
           onConfirm={handleApproveConfirmed}
           onCancel={() => {
             if (!approving) {
-              setApproveDialogOpen(false)
+              setApproveMode(null)
               setApproveError(null)
             }
           }}

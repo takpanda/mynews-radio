@@ -235,6 +235,35 @@ describe('approveScriptClient', () => {
 
     await expect(approveScriptClient(1)).rejects.toBeInstanceOf(ScriptValidationBlockedError)
   })
+
+  it('force指定なしはボディ無しでリクエストする（現行動作）', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ episode_id: 1, status: 'synthesizing', job_id: 1 }),
+    }) as unknown as typeof fetch
+
+    await approveScriptClient(1)
+    expect(global.fetch).toHaveBeenCalledWith('/api/admin/episodes/1/approve', expect.not.objectContaining({ body: expect.anything() }))
+  })
+
+  it('force指定時は{"force":true}をJSONボディで送信する', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ episode_id: 1, status: 'synthesizing', job_id: 1 }),
+    }) as unknown as typeof fetch
+
+    await approveScriptClient(1, { force: true })
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/admin/episodes/1/approve',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ force: true }),
+      }),
+    )
+  })
 })
 
 describe('previewAudioClient', () => {

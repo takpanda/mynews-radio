@@ -474,6 +474,98 @@ describe('AdminScriptReviewShell 承認・破棄', () => {
   })
 })
 
+describe('AdminScriptReviewShell 強制承認', () => {
+  it('検査結果が未取得のときは強制承認ボタンが無効', () => {
+    render(<AdminScriptReviewShell episodeId={1} initialRevision={1} initialScript={baseScript()} />)
+    expect(screen.getByText('強制承認')).toBeDisabled()
+  })
+
+  it('検査エラーが無いときは強制承認ボタンが無効', () => {
+    render(
+      <AdminScriptReviewShell
+        episodeId={1}
+        initialRevision={1}
+        initialScript={baseScript()}
+        initialValidation={{ can_approve: true, results: [] }}
+      />,
+    )
+    expect(screen.getByText('強制承認')).toBeDisabled()
+  })
+
+  it('検査エラーが残っているときは強制承認ボタンが有効', () => {
+    render(
+      <AdminScriptReviewShell
+        episodeId={1}
+        initialRevision={1}
+        initialScript={baseScript()}
+        initialValidation={{ can_approve: false, results: [{ code: 'X', message: 'NG', line_indices: [], severity: 'error' }] }}
+      />,
+    )
+    expect(screen.getByText('強制承認')).toBeEnabled()
+  })
+
+  it('未保存の変更があるときは強制承認ボタンが無効', async () => {
+    const user = userEvent.setup()
+    render(
+      <AdminScriptReviewShell
+        episodeId={1}
+        initialRevision={1}
+        initialScript={baseScript()}
+        initialValidation={{ can_approve: false, results: [{ code: 'X', message: 'NG', line_indices: [], severity: 'error' }] }}
+      />,
+    )
+    await user.type(screen.getAllByLabelText(/の本文/)[0], '追記')
+    expect(screen.getByText('強制承認')).toBeDisabled()
+  })
+
+  it('キャンセルするとAPIが呼ばれない', async () => {
+    const user = userEvent.setup()
+    global.fetch = jest.fn()
+    render(
+      <AdminScriptReviewShell
+        episodeId={1}
+        initialRevision={1}
+        initialScript={baseScript()}
+        initialValidation={{ can_approve: false, results: [{ code: 'X', message: 'NG', line_indices: [], severity: 'error' }] }}
+      />,
+    )
+    await user.click(screen.getByText('強制承認'))
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveTextContent('検査エラーが残ったまま承認します。この回を放送しますか？')
+    await user.click(within(dialog).getByText('キャンセル'))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('確認ダイアログで確定するとforce付きで承認APIを呼び、成功表示を出す', async () => {
+    const user = userEvent.setup()
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ episode_id: 1, status: 'synthesizing', job_id: 42 }),
+    }) as unknown as typeof fetch
+
+    render(
+      <AdminScriptReviewShell
+        episodeId={1}
+        initialRevision={1}
+        initialScript={baseScript()}
+        initialValidation={{ can_approve: false, results: [{ code: 'X', message: 'NG', line_indices: [], severity: 'error' }] }}
+      />,
+    )
+    await user.click(screen.getByText('強制承認'))
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByText('強制承認する'))
+
+    await waitFor(() => expect(screen.getByText(/承認しました。音声生成を開始しました（ジョブID: 42）。/)).toBeInTheDocument())
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/admin/episodes/1/approve',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ force: true }) }),
+    )
+  })
+})
+
 describe('AdminScriptReviewShell 試し聴き', () => {
   it('429エラー時は利用回数上限メッセージを表示する', async () => {
     const user = userEvent.setup()
