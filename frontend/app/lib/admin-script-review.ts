@@ -165,9 +165,15 @@ export async function validateScriptClient(episodeId: number): Promise<Validatio
   return res.json() as Promise<ValidationResult>
 }
 
-export async function approveScriptClient(episodeId: number): Promise<{ episode_id: number; status: string; job_id: number }> {
+export async function approveScriptClient(
+  episodeId: number,
+  options?: { force?: boolean },
+): Promise<{ episode_id: number; status: string; job_id: number }> {
   const res = await fetch(`/api/admin/episodes/${episodeId}/approve`, {
     method: 'POST',
+    ...(options?.force
+      ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force: true }) }
+      : {}),
     cache: 'no-store' as RequestCache,
   })
   if (res.status === 409) {

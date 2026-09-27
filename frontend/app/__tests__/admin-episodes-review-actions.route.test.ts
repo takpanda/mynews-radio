@@ -78,6 +78,43 @@ describe('/api/admin/episodes/[id]/approve Route Handler', () => {
     expect(response.status).toBe(409)
     expect((await response.json()).detail.can_approve).toBe(false)
   })
+
+  it('bodyなしのリクエストは上流へbodyを送らない（現行動作）', async () => {
+    ;(global.fetch as jest.Mock)
+      .mockResolvedValueOnce(meUpstream())
+      .mockResolvedValueOnce(jsonUpstream(200, '{"episode_id":7,"status":"synthesizing","job_id":1}'))
+
+    const response = await POST_APPROVE(
+      request('http://localhost/api/admin/episodes/7/approve', { cookie: 'admin_session=valid-token' }),
+      { params: Promise.resolve({ id: '7' }) },
+    )
+
+    expect(response.status).toBe(200)
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2,
+      'http://api:8010/admin/episodes/7/approve',
+      expect.not.objectContaining({ body: expect.anything() }),
+    )
+  })
+
+  it('{"force":true}のbodyを上流へ転送する', async () => {
+    const payload = JSON.stringify({ force: true })
+    ;(global.fetch as jest.Mock)
+      .mockResolvedValueOnce(meUpstream())
+      .mockResolvedValueOnce(jsonUpstream(200, '{"episode_id":7,"status":"synthesizing","job_id":1}'))
+
+    const response = await POST_APPROVE(
+      request('http://localhost/api/admin/episodes/7/approve', { cookie: 'admin_session=valid-token', body: payload }),
+      { params: Promise.resolve({ id: '7' }) },
+    )
+
+    expect(response.status).toBe(200)
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2,
+      'http://api:8010/admin/episodes/7/approve',
+      expect.objectContaining({ method: 'POST', body: payload }),
+    )
+  })
 })
 
 describe('/api/admin/episodes/[id]/reject Route Handler', () => {

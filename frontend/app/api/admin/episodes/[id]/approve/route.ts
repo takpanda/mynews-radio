@@ -7,10 +7,12 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
   if (unauthorized) return unauthorized
 
   const cookie = request.headers.get('cookie') ?? ''
+  const body = await request.text()
   try {
     const upstream = await fetch(`${API_BASE}/admin/episodes/${params.id}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      ...(body ? { body } : {}),
       cache: 'no-store',
     })
     const data = await upstream.text()
