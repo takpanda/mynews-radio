@@ -3,6 +3,8 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 
 def _episode_with_script(status="awaiting_review"):
     from app.db.connection import get_db_connection
@@ -62,7 +64,7 @@ def test_get_script_returns_snapshot_cast_in_order_and_keeps_snapshot_names(clie
     response = client.get(f"/admin/episodes/{episode_id}/script")
 
     assert response.status_code == 200
-    assert response.json() == {
+    assert {key: response.json()[key] for key in ("episode_id", "revision", "script", "cast")} == {
         "episode_id": episode_id,
         "revision": 1,
         "script": script,
@@ -71,6 +73,8 @@ def test_get_script_returns_snapshot_cast_in_order_and_keeps_snapshot_names(clie
             {"key": "host_b", "name": "保存時の名前 B", "role": "解説"},
         ],
     }
+    assert response.json()["validation"]["source"] == "current"
+    assert response.json()["validation"]["revision"] == 1
 
 
 def test_get_script_returns_null_cast_for_episode_without_snapshot(client):
@@ -79,12 +83,105 @@ def test_get_script_returns_null_cast_for_episode_without_snapshot(client):
     response = client.get(f"/admin/episodes/{episode_id}/script")
 
     assert response.status_code == 200
-    assert response.json() == {
+    assert {key: response.json()[key] for key in ("episode_id", "revision", "script", "cast")} == {
         "episode_id": episode_id,
         "revision": 1,
         "script": script,
         "cast": None,
     }
+    assert response.json()["validation"]["source"] == "current"
+    assert response.json()["validation"]["revision"] == 1
+
+
+def test_get_script_uses_generated_final_validation_for_revision_one(client):
+    episode_id, script = _episode_with_script()
+    report = {
+        "critical_issues": [{"code": "BLOCKED", "message": "要確認", "line_indices": [0]}],
+        "warnings": [{"code": "CAUTION", "message": "注意", "line_indices": []}],
+    }
+    report_path = Path(__import__("os").environ["EPISODES_DIR"]) / str(episode_id) / "final_validation.json"
+    report_path.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+
+    with patch("app.api.admin_script_review._validate_episode_script") as validate:
+        response = client.get(f"/admin/episodes/{episode_id}/script")
+
+    assert response.status_code == 200
+    assert response.json()["script"] == script
+    assert response.json()["validation"] == {
+        "can_approve": False,
+        "results": [
+            {"code": "BLOCKED", "message": "要確認", "line_indices": [0], "severity": "error"},
+            {"code": "CAUTION", "message": "注意", "line_indices": [], "severity": "warning"},
+        ],
+        "source": "generated",
+        "revision": 1,
+    }
+    validate.assert_not_called()
+
+
+@pytest.mark.parametrize("report_contents", [None, "{invalid json"])
+def test_get_script_revalidates_when_generated_final_validation_is_missing_or_corrupt(client, report_contents):
+    episode_id, script = _episode_with_script()
+    report_path = Path(__import__("os").environ["EPISODES_DIR"]) / str(episode_id) / "final_validation.json"
+    if report_contents is not None:
+        report_path.write_text(report_contents, encoding="utf-8")
+    current = {"can_approve": False, "results": [{"code": "CURRENT", "severity": "error"}]}
+
+    with patch("app.api.admin_script_review._validate_episode_script", return_value=current) as validate:
+        response = client.get(f"/admin/episodes/{episode_id}/script")
+
+    assert response.status_code == 200
+    assert response.json()["script"] == script
+    assert response.json()["validation"] == {**current, "source": "current", "revision": 1}
+    validate.assert_called_once_with(episode_id, script)
+
+
+@pytest.mark.parametrize(
+    "finding",
+    [
+        {"code": "X"},
+        {"code": "X", "message": "破損", "line_indices": ["0"]},
+        {"code": "X", "message": 123, "line_indices": [0]},
+    ],
+)
+def test_get_script_revalidates_when_generated_finding_schema_is_invalid(client, finding):
+    episode_id, script = _episode_with_script()
+    report_path = Path(__import__("os").environ["EPISODES_DIR"]) / str(episode_id) / "final_validation.json"
+    report_path.write_text(
+        json.dumps({"critical_issues": [finding], "warnings": []}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    current = {"can_approve": True, "results": []}
+
+    with patch("app.api.admin_script_review._validate_episode_script", return_value=current) as validate:
+        response = client.get(f"/admin/episodes/{episode_id}/script")
+
+    assert response.status_code == 200
+    assert response.json()["validation"] == {**current, "source": "current", "revision": 1}
+    validate.assert_called_once_with(episode_id, script)
+
+
+def test_get_script_revalidates_human_revision_even_when_generated_report_exists(client):
+    from app.db.connection import get_db_connection
+
+    episode_id, script = _episode_with_script()
+    report_path = Path(__import__("os").environ["EPISODES_DIR"]) / str(episode_id) / "final_validation.json"
+    report_path.write_text(json.dumps({"critical_issues": [], "warnings": []}), encoding="utf-8")
+    edited_script = {**script, "title": "手編集"}
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO script_revisions(episode_id, revision, script_json, source) VALUES (?, 2, ?, 'human')",
+            (episode_id, json.dumps(edited_script, ensure_ascii=False)),
+        )
+    current = {"can_approve": True, "results": []}
+
+    with patch("app.api.admin_script_review._validate_episode_script", return_value=current) as validate:
+        response = client.get(f"/admin/episodes/{episode_id}/script")
+
+    assert response.status_code == 200
+    assert response.json()["script"] == edited_script
+    assert response.json()["validation"] == {**current, "source": "current", "revision": 2}
+    validate.assert_called_once_with(episode_id, edited_script)
 
 
 def test_approve_is_idempotent_and_registers_one_audio_job(client):
