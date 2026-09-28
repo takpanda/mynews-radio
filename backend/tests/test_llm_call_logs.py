@@ -28,6 +28,17 @@ def _response(data: dict) -> MagicMock:
     return response
 
 
+def _bad_response() -> MagicMock:
+    response = MagicMock()
+    response.status_code = 400
+    response.text = "unsupported response format"
+    request = httpx.Request("POST", "http://llm.internal/v1/chat/completions")
+    response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "bad response", request=request, response=response,
+    )
+    return response
+
+
 def test_record_llm_call_writes_db_and_episode_jsonl_without_secret(tmp_path, monkeypatch):
     episode_id = _episode()
     monkeypatch.setenv("EPISODES_DIR", str(tmp_path / "episodes"))
@@ -130,6 +141,28 @@ def test_openai_compatible_parse_failure_is_persisted_to_db_and_jsonl(tmp_path, 
     jsonl = tmp_path / "episodes" / str(episode_id) / "llm_calls.jsonl"
     item = json.loads(jsonl.read_text(encoding="utf-8"))
     assert (item["provider"], item["status"]) == (provider, "json_parse_failed")
+
+
+def test_lm_studio_schema_fallback_attempts_are_persisted(tmp_path, monkeypatch):
+    episode_id = _episode()
+    monkeypatch.setenv("EPISODES_DIR", str(tmp_path / "episodes"))
+    client = OpenAICompatibleClient("http://llm.internal", "local-model", provider="lm_studio")
+    set_llm_context(client, phase="script", episode_id=episode_id)
+
+    with patch(
+        "app.services.ollama_client.httpx.Client.post",
+        side_effect=[_bad_response(), _response({"choices": [{"message": {"content": '{"ok": true}'}}]})],
+    ):
+        assert client.generate_json("prompt") == {"ok": True}
+
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT provider, status, attempt FROM llm_call_logs WHERE episode_id = ? ORDER BY id",
+            (episode_id,),
+        ).fetchall()
+    assert [(row["provider"], row["status"], row["attempt"]) for row in rows] == [
+        ("lm_studio", "retry", 1), ("lm_studio", "success", 2),
+    ]
 
 
 @pytest.mark.parametrize("provider", ["lm_studio", "vllm"])

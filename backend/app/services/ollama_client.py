@@ -424,11 +424,40 @@ class OpenAICompatibleClient:
 
     def generate_json(self, prompt: str) -> Optional[dict[str, Any]]:
         started = time.monotonic()
+        attempt = 1
         try:
-            response = self.client.post("/v1/chat/completions", json={"model": self._model,
-                "messages": [{"role": "user", "content": prompt}], "temperature": 0,
-                "response_format": {"type": "json_object"}})
-            response.raise_for_status()
+            request_data = {
+                "model": self._model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0,
+            }
+            if self._provider == "lm_studio":
+                request_data["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "response",
+                        "schema": {"type": "object", "additionalProperties": True},
+                    },
+                }
+            else:
+                request_data["response_format"] = {"type": "json_object"}
+
+            try:
+                response = self.client.post("/v1/chat/completions", json=request_data)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                if self._provider != "lm_studio" or exc.response.status_code != 400:
+                    raise
+                _record_llm_call(
+                    self, attempt=1, status="retry", prompt_text=prompt,
+                    response_text=exc.response.text,
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                )
+                logger.warning("LM Studio rejected json_schema response format; retrying with text")
+                attempt = 2
+                retry_data = {**request_data, "response_format": {"type": "text"}}
+                response = self.client.post("/v1/chat/completions", json=retry_data)
+                response.raise_for_status()
             message = response.json()["choices"][0]["message"]
             content = message.get("content")
             thinking = message.get("reasoning_content") or message.get("reasoning") or message.get("thinking") or ""
@@ -436,7 +465,7 @@ class OpenAICompatibleClient:
                 content = thinking
             if isinstance(content, dict):
                 _record_llm_call(
-                    self, attempt=1, status="success", prompt_text=prompt,
+                    self, attempt=attempt, status="success", prompt_text=prompt,
                     response_text=content, thinking_text=thinking,
                     latency_ms=int((time.monotonic() - started) * 1000),
                 )
@@ -448,7 +477,7 @@ class OpenAICompatibleClient:
                 )
             if not isinstance(content, str):
                 _record_llm_call(
-                    self, attempt=1, status="json_parse_failed", prompt_text=prompt,
+                    self, attempt=attempt, status="json_parse_failed", prompt_text=prompt,
                     response_text=content, thinking_text=thinking,
                     latency_ms=int((time.monotonic() - started) * 1000),
                 )
@@ -460,14 +489,22 @@ class OpenAICompatibleClient:
                 parsed = json.loads(extracted)
             except (TypeError, ValueError):
                 _record_llm_call(
-                    self, attempt=1, status="json_parse_failed", prompt_text=prompt,
+                    self, attempt=attempt, status="json_parse_failed", prompt_text=prompt,
+                    response_text=content, thinking_text=thinking,
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                )
+                return None
+
+            if not isinstance(parsed, dict):
+                _record_llm_call(
+                    self, attempt=attempt, status="json_parse_failed", prompt_text=prompt,
                     response_text=content, thinking_text=thinking,
                     latency_ms=int((time.monotonic() - started) * 1000),
                 )
                 return None
 
             _record_llm_call(
-                self, attempt=1, status="success", prompt_text=prompt,
+                self, attempt=attempt, status="success", prompt_text=prompt,
                 response_text=content, thinking_text=thinking,
                 latency_ms=int((time.monotonic() - started) * 1000),
             )
@@ -475,7 +512,7 @@ class OpenAICompatibleClient:
         except Exception as exc:
             logger.error("OpenAI-compatible LLM request failed: %s", exc)
             _record_llm_call(
-                self, attempt=1, status="error", prompt_text=prompt,
+                self, attempt=attempt, status="error", prompt_text=prompt,
                 latency_ms=int((time.monotonic() - started) * 1000),
             )
             return None
