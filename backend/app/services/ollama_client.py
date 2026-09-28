@@ -33,7 +33,7 @@ def _record_llm_call(*args, **kwargs) -> None:
 
 
 class OllamaClient:
-    def __init__(self, base_url: str, model: str, max_retries: int = 2, timeout: float = 600.0):
+    def __init__(self, base_url: str, model: str, max_retries: int = 2, timeout: float = 1800.0):
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._provider = "ollama"
@@ -400,7 +400,7 @@ class OpenAICompatibleClient:
         base_url: str,
         model: str,
         api_key: str = "",
-        timeout: float = 600.0,
+        timeout: float = 1800.0,
         provider: str = "unknown",
     ):
         self._base_url, self._model, self._api_key, self._timeout = base_url.rstrip("/"), model, api_key, timeout

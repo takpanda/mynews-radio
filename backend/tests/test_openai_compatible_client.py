@@ -22,6 +22,22 @@ def _http_error(status_code=400):
     return httpx.HTTPStatusError("bad response", request=request, response=response)
 
 
+def test_default_timeout_is_1800_seconds():
+    client = OpenAICompatibleClient("http://llm.internal", "local-model", api_key="secret-key")
+
+    assert client._timeout == 1800.0
+    assert client.client.timeout.read == 1800.0
+    client.close()
+
+
+def test_explicit_timeout_is_preserved():
+    client = OpenAICompatibleClient("http://llm.internal", "local-model", timeout=45.0)
+
+    assert client._timeout == 45.0
+    assert client.client.timeout.read == 45.0
+    client.close()
+
+
 def test_api_key_is_sent_only_as_authorization_header():
     client = OpenAICompatibleClient("http://llm.internal", "local-model", api_key="secret-key")
     with patch("app.services.ollama_client.httpx.Client.post", return_value=_response({"content": '{"ok": true}'})):

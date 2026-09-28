@@ -208,7 +208,20 @@ class TestGenerateJson:
 
         assert mock_post.call_count == 2
 
-    def test_default_timeout_keeps_legacy_600_seconds(self):
+    def test_default_timeout_is_1800_seconds(self):
         client = OllamaClient(base_url="http://localhost:11434", model="qwen3.8:latest")
 
-        assert client._timeout == 600.0
+        assert client._timeout == 1800.0
+        assert client.client.timeout.read == 1800.0
+        client.close()
+
+    def test_explicit_timeout_is_preserved(self):
+        client = OllamaClient(
+            base_url="http://localhost:11434",
+            model="qwen3.8:latest",
+            timeout=45.0,
+        )
+
+        assert client._timeout == 45.0
+        assert client.client.timeout.read == 45.0
+        client.close()
