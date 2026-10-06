@@ -311,6 +311,8 @@ class TestVoiceOptionsApi:
     def test_returns_common_format_for_all_engines_on_success(self, client, monkeypatch):
         from app.api import settings as settings_api
 
+        monkeypatch.setattr(settings_api, "DISABLED_TTS_ENGINES", frozenset())
+
         def fake_speakers(self):
             return [{"speaker_name": "阿井田 茂", "style_name": "ノーマル", "value": 1310138976}]
 
@@ -342,6 +344,8 @@ class TestVoiceOptionsApi:
 
     def test_one_engine_failure_does_not_fail_whole_response(self, client, monkeypatch):
         from app.api import settings as settings_api
+
+        monkeypatch.setattr(settings_api, "DISABLED_TTS_ENGINES", frozenset())
 
         def fake_speakers(self):
             return [{"speaker_name": "s", "style_name": "st", "value": 1}]
@@ -387,6 +391,8 @@ class TestVoiceOptionsApi:
     ):
         from app.api import settings as settings_api
 
+        monkeypatch.setattr(settings_api, "DISABLED_TTS_ENGINES", frozenset())
+
         calls = {"count": 0}
 
         def speakers(self):
@@ -410,6 +416,69 @@ class TestVoiceOptionsApi:
             data[engine]["status"] == "ok"
             for engine in {"aivispeech", "voicevox", "fishs2pro"} - {failed_engine}
         )
+
+    def test_skips_disabled_engines_and_keeps_fishs2pro_options(self, client, monkeypatch):
+        from app.api import settings as settings_api
+
+        def unexpected_speakers(self):
+            pytest.fail("disabled engine speaker fetch must not be called")
+
+        monkeypatch.setattr(settings_api.VoicevoxClient, "list_speakers", unexpected_speakers)
+        monkeypatch.setattr(settings_api.VoicevoxClient, "close", lambda self: None)
+        monkeypatch.setattr(settings_api.FishS2ProClient, "list_voices", lambda self: ["male"])
+        monkeypatch.setattr(settings_api.FishS2ProClient, "close", lambda self: None)
+
+        response = client.get("/settings/voices/options")
+
+        assert response.status_code == 200
+        data = response.json()
+        for engine in ("aivispeech", "voicevox"):
+            assert data[engine] == {"status": "ok", "options": [], "error": None}
+        assert data["fishs2pro"]["status"] == "ok"
+        assert data["fishs2pro"]["options"] == [
+            {"display_name": "male", "value": "male", "speaker_name": None, "style_name": None}
+        ]
+
+    def test_fetches_engine_when_removed_from_disabled_engines(self, client, monkeypatch):
+        from app.api import settings as settings_api
+
+        calls = []
+
+        def speakers(self):
+            calls.append("speaker")
+            return [{"speaker_name": "s", "style_name": "st", "value": 1}]
+
+        monkeypatch.setattr(settings_api, "DISABLED_TTS_ENGINES", frozenset({"voicevox"}))
+        monkeypatch.setattr(settings_api.VoicevoxClient, "list_speakers", speakers)
+        monkeypatch.setattr(settings_api.VoicevoxClient, "close", lambda self: None)
+        monkeypatch.setattr(settings_api.FishS2ProClient, "list_voices", lambda self: ["male"])
+        monkeypatch.setattr(settings_api.FishS2ProClient, "close", lambda self: None)
+
+        response = client.get("/settings/voices/options")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert calls == ["speaker"]
+        assert data["aivispeech"]["status"] == "ok"
+        assert data["voicevox"] == {"status": "ok", "options": [], "error": None}
+
+    def test_fishs2pro_failure_returns_error_without_failing_endpoint(self, client, monkeypatch):
+        from app.api import settings as settings_api
+
+        def broken_voices(self):
+            raise httpx.ConnectError("connection refused")
+
+        monkeypatch.setattr(settings_api.FishS2ProClient, "list_voices", broken_voices)
+        monkeypatch.setattr(settings_api.FishS2ProClient, "close", lambda self: None)
+
+        response = client.get("/settings/voices/options")
+
+        assert response.status_code == 200
+        assert response.json()["fishs2pro"] == {
+            "status": "error",
+            "options": [],
+            "error": "話者一覧を取得できませんでした",
+        }
 
     def test_options_requires_authentication(self):
         from app.main import app
