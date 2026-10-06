@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.auth import require_owner_session
-from app.config import get_settings
+from app.config import DISABLED_TTS_ENGINES, get_settings
 from app.services.fishs2pro_client import FishS2ProClient
 from app.services.settings_service import (
     DURATION_PRESETS,
@@ -290,15 +290,28 @@ def _fetch_fishs2pro_options(base_url: str) -> EngineVoiceOptions:
     dependencies=[Depends(require_owner_session)],
 )
 def get_voice_options() -> dict:
-    """3エンジン分の話者・スタイル（またはボイス名）候補を共通形式で返す。
+    """各エンジンの話者・スタイル（またはボイス名）候補を共通形式で返す。
 
-    1エンジンの取得に失敗しても他エンジンの結果は返す（status="error" で識別）。
+    無効化済みエンジンは空候補を返し、有効エンジンの取得に失敗しても
+    他エンジンの結果を返す（status="error" で識別）。
     """
     cfg = get_settings()
     return {
-        "aivispeech": _fetch_speaker_style_options(cfg.aivispeech_base_url).model_dump(),
-        "voicevox": _fetch_speaker_style_options(cfg.voicevox_base_url).model_dump(),
-        "fishs2pro": _fetch_fishs2pro_options(cfg.fishs2pro_base_url).model_dump(),
+        "aivispeech": (
+            EngineVoiceOptions(status="ok", options=[]).model_dump()
+            if "aivispeech" in DISABLED_TTS_ENGINES
+            else _fetch_speaker_style_options(cfg.aivispeech_base_url).model_dump()
+        ),
+        "voicevox": (
+            EngineVoiceOptions(status="ok", options=[]).model_dump()
+            if "voicevox" in DISABLED_TTS_ENGINES
+            else _fetch_speaker_style_options(cfg.voicevox_base_url).model_dump()
+        ),
+        "fishs2pro": (
+            EngineVoiceOptions(status="ok", options=[]).model_dump()
+            if "fishs2pro" in DISABLED_TTS_ENGINES
+            else _fetch_fishs2pro_options(cfg.fishs2pro_base_url).model_dump()
+        ),
     }
 
 
