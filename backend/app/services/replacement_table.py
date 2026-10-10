@@ -2,6 +2,7 @@ import logging
 import re
 
 from app.db.connection import get_db_connection
+from app.services.text_normalization import normalize_dictionary_surface, normalize_text_with_span_map
 
 logger = logging.getLogger(__name__)
 
@@ -36,21 +37,49 @@ def apply_replacements(text: str) -> str:
     DB に有効なエントリがない場合は、入力テキストをそのまま返す。
     呼び出しごとに DB を参照するため、辞書編集は次回合成に即時反映される。
 
+    照合は Stage 2（AIVIS辞書同期）と同じ正規化規則（NFKC + 3桁区切りカンマ除去）を
+    文章側にも適用したうえで行うため、カンマ有無・全角半角の表記ゆれを吸収できる。
+    正規化後に同じ照合キーとなる辞書項目が複数ある場合は、読みの競合を避けるため
+    どちらの読みも適用しない（対象の表記をログへ出力する）。
+
     既存エピソードの spoken_text は変更されず、音声合成時の新規生成にのみ影響する。
+    表示用・保存用の元テキスト、DB の辞書表記そのものは変更しない。
     """
     _, entries = get_active_entries()
-    if not entries:
+    if not entries or not text:
         return text
 
-    _map = {e["surface"]: e["reading"] for e in entries}
-    _patterns = sorted(
-        [(re.escape(k), v) for k, v in _map.items()],
-        key=lambda pair: len(pair[0]),
-        reverse=True,
-    )
-    _pattern = re.compile("|".join(p[0] for p in _patterns))
+    entries_by_key: dict[str, list[dict[str, str]]] = {}
+    for e in entries:
+        key = normalize_dictionary_surface(e["surface"])
+        entries_by_key.setdefault(key, []).append(e)
 
-    def _replacer(m: re.Match) -> str:
-        return _map.get(m.group(0), m.group(0))
+    reading_by_key: dict[str, str] = {}
+    for key, group in entries_by_key.items():
+        if len(group) > 1:
+            logger.warning(
+                "辞書照合キーが競合したため置換を適用しません: key=%r surfaces=%r",
+                key, [g["surface"] for g in group],
+            )
+            continue
+        reading_by_key[key] = group[0]["reading"]
 
-    return _pattern.sub(_replacer, text)
+    if not reading_by_key:
+        return text
+
+    normalized_text, spans = normalize_text_with_span_map(text)
+
+    _patterns = sorted(reading_by_key.keys(), key=len, reverse=True)
+    _pattern = re.compile("|".join(re.escape(k) for k in _patterns))
+
+    result_parts: list[str] = []
+    last_end = 0
+    for m in _pattern.finditer(normalized_text):
+        orig_start = spans[m.start()][0]
+        orig_end = spans[m.end() - 1][1]
+        result_parts.append(text[last_end:orig_start])
+        result_parts.append(reading_by_key[m.group(0)])
+        last_end = orig_end
+    result_parts.append(text[last_end:])
+
+    return "".join(result_parts)
