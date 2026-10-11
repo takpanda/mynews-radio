@@ -369,7 +369,7 @@ function parseErrorCode(body: string): string | undefined {
   return undefined
 }
 
-export async function generateEpisode(date: string, maxArticles = 5, newsSource = 'hatena_bookmark', ttsEngine = 'fishs2pro', recreateSummary = false, url?: string, style?: 'solo' | 'dialogue', mcGender?: 'male' | 'female', settingsSnapshot?: ProgramSettings, idempotencyKey?: string, llmProvider?: string, llmModel?: string, summarizeProvider?: string, summarizeModel?: string, contentProvider?: string, contentModel?: string): Promise<GenerateResponse> {
+export async function generateEpisode(date: string, maxArticles = 5, newsSource = 'hatena_bookmark', ttsEngine = 'fishs2pro', recreateSummary = false, url?: string, style?: 'solo' | 'dialogue', mcGender?: 'male' | 'female', settingsSnapshot?: ProgramSettings, idempotencyKey?: string, llmProvider?: string, llmModel?: string, summarizeProvider?: string, summarizeModel?: string, contentProvider?: string, contentModel?: string, programId?: string): Promise<GenerateResponse> {
   const res = await fetch('/api/generate', {
     method: 'POST',
     headers: {
@@ -379,12 +379,13 @@ export async function generateEpisode(date: string, maxArticles = 5, newsSource 
     body: JSON.stringify({
       date,
       max_articles: maxArticles,
-      news_source: newsSource,
+      // 番組指定時は番組定義がソース・スタイル・MCを決めるため、個別指定は送らない
+      ...(programId ? { program_id: programId } : { news_source: newsSource }),
       tts_engine: ttsEngine,
       recreate_summary: recreateSummary,
       ...(url ? { url } : {}),
-      ...(style ? { style } : {}),
-      ...(style === 'solo' && mcGender ? { mc_gender: mcGender } : {}),
+      ...(!programId && style ? { style } : {}),
+      ...(!programId && style === 'solo' && mcGender ? { mc_gender: mcGender } : {}),
       ...(settingsSnapshot ? { settings_snapshot: settingsSnapshot } : {}),
       ...(llmProvider && llmModel ? { llm_provider: llmProvider, llm_model: llmModel } : {}),
       ...(summarizeProvider && summarizeModel ? { summarize_provider: summarizeProvider, summarize_model: summarizeModel } : {}),
