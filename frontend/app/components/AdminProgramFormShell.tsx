@@ -29,6 +29,8 @@ import {
 import { fetchVoiceOptionsClient, type VoiceOption, type VoiceOptionsResponse } from '../lib/admin-voice-settings'
 import ConfirmDialog from './ConfirmDialog'
 
+/** 名前selectで、mcsに存在しない既存値を保持するための疑似value */
+const UNLISTED_MC = '__unlisted__'
 const FISHS2PRO_FETCH_ERROR = 'ボイス一覧を取得できませんでした'
 
 interface Props {
@@ -55,6 +57,14 @@ function emptyCast(): ProgramCastValue {
     voice_aivispeech: null,
     voice_voicevox: null,
   }
+}
+
+/** 名前が空で有効なmc_idを持つキャストは、表示（MC選択）と保存値を一致させるためMC名で補完する */
+function fillEmptyCastNames(cast: ProgramCastValue[], mcs: Mc[]): ProgramCastValue[] {
+  return cast.map((member) => {
+    const mc = !member.name && member.mc_id ? mcs.find((m) => m.id === member.mc_id) : undefined
+    return mc ? { ...member, name: mc.name } : member
+  })
 }
 
 function emptySegment(order: number, kind: string): ProgramSegmentValue {
@@ -136,7 +146,7 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
   const [name, setName] = useState(initialProgram.name)
   const [kind, setKind] = useState<ProgramKind>(initialProgram.kind)
   const [isActive, setIsActive] = useState(initialIsActive)
-  const [cast, setCast] = useState<ProgramCastValue[]>(initialProgram.cast)
+  const [cast, setCast] = useState<ProgramCastValue[]>(() => fillEmptyCastNames(initialProgram.cast, mcs))
   const [segments, setSegments] = useState<ProgramSegmentValue[]>(initialProgram.segments)
   const [options, setOptions] = useState<ProgramOptionsValue>(initialProgram.options)
   const [newsSource, setNewsSource] = useState<NewsSource | null>(initialProgram.news_source ?? null)
@@ -192,6 +202,38 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
 
   const updateCast = (index: number, patch: Partial<ProgramCastValue>) => {
     setCast((prev) => prev.map((member, i) => (i === index ? { ...member, ...patch } : member)))
+  }
+  const castSelectValue = (member: ProgramCastValue): string => {
+    const mc = member.mc_id ? mcs.find((m) => m.id === member.mc_id) : undefined
+    // 保存済みの名前がプロフィール名と異なる場合は、値を隠さず「一覧にありません」で表示する
+    if (mc && (!member.name || member.name === mc.name)) return mc.id
+    return member.mc_id || member.name ? UNLISTED_MC : ''
+  }
+  const selectCastMc = (index: number, mcId: string) => {
+    if (mcId === UNLISTED_MC) return
+    if (!mcId) {
+      setCast((prev) =>
+        prev.map((member, i) => (i === index ? { ...emptyCast(), key: member.key } : member)),
+      )
+      return
+    }
+    const mc = mcs.find((m) => m.id === mcId)
+    if (!mc) return
+    setCast((prev) => {
+      const otherKeys = new Set(prev.filter((_, i) => i !== index).map((m) => m.key.trim()))
+      let key = mc.id
+      for (let n = 2; otherKeys.has(key); n++) key = `${mc.id}-${n}`
+      const patch: Partial<ProgramCastValue> = {
+        name: mc.name,
+        role: mc.role,
+        mc_id: mc.id,
+        voice_fishs2pro: mc.voice_fishs2pro,
+        voice_aivispeech: mc.voice_aivispeech,
+        voice_voicevox: mc.voice_voicevox,
+        persona: mc.persona ?? undefined,
+      }
+      return prev.map((member, i) => (i === index ? { ...member, ...patch, key } : member))
+    })
   }
   const addCast = () => setCast((prev) => [...prev, emptyCast()])
   const removeCast = (index: number) => setCast((prev) => prev.filter((_, i) => i !== index))
@@ -318,7 +360,7 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
       setName(updated.name)
       setKind(updated.kind)
       setIsActive(updated.is_active)
-      setCast(updated.definition.cast)
+      setCast(fillEmptyCastNames(updated.definition.cast, mcs))
       setSegments(updated.definition.segments)
       setOptions(updated.definition.options)
       setNewsSource(updated.definition.news_source ?? null)
@@ -532,18 +574,22 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
             {cast.length === 0 && <p className="text-sm text-slate-400">キャストがまだありません。</p>}
             {cast.map((member, index) => (
               <div key={index} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                <div className="grid gap-2 sm:grid-cols-6">
+                <div className="grid gap-2 sm:grid-cols-5">
                   <LabeledInput label="キー" value={member.key} onChange={(v) => updateCast(index, { key: v })} />
-                  <LabeledInput label="名前" value={member.name} onChange={(v) => updateCast(index, { name: v })} />
-                  <LabeledInput label="役割" value={member.role} onChange={(v) => updateCast(index, { role: v })} />
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-500">MC</label>
+                    <label className="mb-1 block text-xs font-medium text-slate-500">名前</label>
                     <select
-                      value={member.mc_id ?? ''}
-                      onChange={(e) => updateCast(index, { mc_id: e.target.value || null })}
+                      value={castSelectValue(member)}
+                      onChange={(e) => selectCastMc(index, e.target.value)}
+                      aria-label={`名前（${index + 1}人目）`}
                       className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
                     >
                       <option value="">未設定</option>
+                      {castSelectValue(member) === UNLISTED_MC && (
+                        <option value={UNLISTED_MC}>
+                          {(member.name || member.mc_id) + '（一覧にありません）'}
+                        </option>
+                      )}
                       {mcs.map((mc) => (
                         <option key={mc.id} value={mc.id}>
                           {(mc.name || mc.id) + (mc.is_active ? '' : '（無効）')}
@@ -551,6 +597,7 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
                       ))}
                     </select>
                   </div>
+                  <LabeledInput label="役割" value={member.role} onChange={(v) => updateCast(index, { role: v })} />
                   <div>
                     <label className="mb-1 block text-xs font-medium text-slate-500">Fish S2 Pro</label>
                     <select
