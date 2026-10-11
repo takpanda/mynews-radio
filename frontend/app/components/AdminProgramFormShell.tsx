@@ -65,8 +65,6 @@ function renumber(segments: ProgramSegmentValue[]): ProgramSegmentValue[] {
   return segments.map((segment, index) => ({ ...segment, order: index }))
 }
 
-const THEME_KEYS = Object.keys(THEME_LABELS) as ProgramTheme[]
-
 interface SelectionInput {
   newsSource: NewsSource | null
   priorityThemes: ProgramTheme[]
@@ -825,7 +823,7 @@ function ThemeCheckboxes({
     <fieldset>
       <legend className="mb-1 block text-xs font-medium text-slate-500">{legend}</legend>
       <div className="flex flex-wrap gap-3">
-        {THEME_KEYS.map((theme) => (
+        {(Object.keys(THEME_LABELS) as ProgramTheme[]).map((theme) => (
           <label key={theme} className="inline-flex items-center gap-1.5 text-xs text-slate-600">
             <input
               type="checkbox"
