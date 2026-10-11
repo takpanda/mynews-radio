@@ -1081,6 +1081,20 @@ describe('GenerateEpisodeButton — 番組選択式の生成UI', () => {
     expect(mockSearchEpisodesBySourceUrl).not.toHaveBeenCalled()
   })
 
+  it.each(['https://?q=1', 'http:///path', 'ftp://example.com/a', 'example.com'])(
+    '不正なURL（%s）ではエラーを表示し、検索・生成APIを呼ばない',
+    async (value) => {
+      const user = userEvent.setup()
+      render(<GenerateEpisodeButton />)
+      await selectCommentary(user)
+      await user.type(urlInput(), value)
+      await user.click(submitButton())
+      expect(screen.getByText('「http(s)://...」の形式で有効なURLを入力してください')).toBeInTheDocument()
+      expect(mockSearchEpisodesBySourceUrl).not.toHaveBeenCalled()
+      expect(mockGenerateEpisode).not.toHaveBeenCalled()
+    },
+  )
+
   it('解説番組でURLを入力して生成するとurlとprogram_idを送る', async () => {
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)

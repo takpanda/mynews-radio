@@ -388,8 +388,15 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   const isVoicevoxDisabled = DISABLED_TTS_ENGINES.includes('voicevox')
   const isAivispeechDisabled = DISABLED_TTS_ENGINES.includes('aivispeech')
 
-  const isValidUrl = (value: string): boolean =>
-    value === '' || /^https?:\/\/.+/.test(value)
+  const isValidUrl = (value: string): boolean => {
+    if (value === '') return true
+    try {
+      const parsed = new URL(value)
+      return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname !== ''
+    } catch {
+      return false
+    }
+  }
 
   useEffect(() => {
     isLoadingRef.current = isLoading
