@@ -18,11 +18,43 @@ export const SEGMENT_KIND_LABELS: Record<string, string> = {
 
 export const MAX_SEGMENTS = 6
 
+export type NewsSource = 'hatena_bookmark' | 'hatena_hotentry_all' | 'yahoo_news' | 'url'
+export type ProgramTheme = 'technology' | 'business' | 'society' | 'sports' | 'entertainment' | 'general'
+export type DurationPreset = 'short' | 'normal' | 'long'
+
+export const NEWS_SOURCE_LABELS: Record<NewsSource, string> = {
+  hatena_bookmark: 'はてなブックマーク',
+  hatena_hotentry_all: 'はてなブックマーク（総合ホットエントリー）',
+  yahoo_news: 'Yahoo!ニュース',
+  url: 'URL指定（解説番組のみ）',
+}
+
+export const THEME_LABELS: Record<ProgramTheme, string> = {
+  technology: 'テクノロジー',
+  business: 'ビジネス',
+  society: '社会',
+  sports: 'スポーツ',
+  entertainment: 'エンタメ',
+  general: '一般',
+}
+
+export const DURATION_PRESET_LABELS: Record<DurationPreset, string> = {
+  short: '短め',
+  normal: '標準',
+  long: '長め',
+}
+
+export const MAX_PRIORITY_THEMES = 3
+export const MAX_ARTICLES_LIMIT = 50
+export const MAX_PERSONA_LENGTH = 4000
+
 export interface ProgramCastValue {
   key: string
   name: string
   role: string
   mc_id: string | null
+  /** サーバー側でMCから解決される参照用の値。保存リクエストには含めない。 */
+  persona?: string
   voice_fishs2pro: string | null
   voice_aivispeech: number | null
   voice_voicevox: number | null
@@ -52,6 +84,13 @@ export interface ProgramDefinitionValue {
   cast: ProgramCastValue[]
   segments: ProgramSegmentValue[]
   options: ProgramOptionsValue
+  /** 以下は未設定（null/省略）のとき従来設定を使う。 */
+  news_source?: NewsSource | null
+  priority_themes?: ProgramTheme[] | null
+  excluded_themes?: ProgramTheme[] | null
+  max_articles?: number | null
+  min_importance_score?: number | null
+  duration_preset?: DurationPreset | null
 }
 
 export interface Program {
@@ -72,6 +111,7 @@ export interface Mc {
   id: string
   name: string
   role: string
+  persona?: string | null
   voice_fishs2pro: string | null
   voice_aivispeech: number | null
   voice_voicevox: number | null
@@ -84,6 +124,7 @@ export interface McSaveInput {
   id: string
   name: string
   role: string
+  persona?: string | null
   voice_fishs2pro: string | null
   voice_aivispeech: number | null
   voice_voicevox: number | null
