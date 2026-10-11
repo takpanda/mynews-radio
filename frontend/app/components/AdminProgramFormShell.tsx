@@ -196,7 +196,9 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
     setCast((prev) => prev.map((member, i) => (i === index ? { ...member, ...patch } : member)))
   }
   const castSelectValue = (member: ProgramCastValue): string => {
-    if (member.mc_id && mcs.some((mc) => mc.id === member.mc_id)) return member.mc_id
+    const mc = member.mc_id ? mcs.find((m) => m.id === member.mc_id) : undefined
+    // 保存済みの名前がプロフィール名と異なる場合は、値を隠さず「一覧にありません」で表示する
+    if (mc && (!member.name || member.name === mc.name)) return mc.id
     return member.mc_id || member.name ? UNLISTED_MC : ''
   }
   const selectCastMc = (index: number, mcId: string) => {
@@ -654,7 +656,7 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
             {segments.length === 0 && <p className="text-sm text-slate-400">セグメントがまだありません。</p>}
             {segments.map((segment, index) => (
               <div key={index} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                <div className="grid gap-2 sm:grid-cols-5">
+                <div className="grid gap-2 sm:grid-cols-6">
                   <LabeledInput label="ID" value={segment.id} onChange={(v) => updateSegment(index, { id: v })} />
                   <div>
                     <label className="mb-1 block text-xs font-medium text-slate-500">種類</label>
