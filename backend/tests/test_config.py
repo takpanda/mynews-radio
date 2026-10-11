@@ -47,17 +47,20 @@ class TestConfigDefaults:
         monkeypatch.setenv("SUMMARY_ARTICLE_MAX_CHARS", "3500")
         assert Settings().summary_article_max_chars == 3500
 
-    def test_voicevox_base_url_unchanged(self):
+    def test_voicevox_base_url_unchanged(self, monkeypatch):
+        monkeypatch.delenv("VOICEVOX_BASE_URL", raising=False)
         from app.config import Settings
         settings = Settings()
         assert settings.voicevox_base_url == "http://192.168.1.102:50021"
 
-    def test_aivispeech_base_url_unchanged(self):
+    def test_aivispeech_base_url_unchanged(self, monkeypatch):
+        monkeypatch.delenv("AIVISPEECH_BASE_URL", raising=False)
         from app.config import Settings
         settings = Settings()
         assert settings.aivispeech_base_url == "http://192.168.1.102:10101"
 
-    def test_fishs2pro_base_url_default(self):
+    def test_fishs2pro_base_url_default(self, monkeypatch):
+        monkeypatch.delenv("FISHS2PRO_BASE_URL", raising=False)
         from app.config import Settings
         assert Settings().fishs2pro_base_url == "http://192.168.1.102:8000"
 
