@@ -80,6 +80,8 @@ class PromptBuilder:
     @property
     def uses_legacy_prompt(self) -> bool:
         """Whether an existing hand-authored prompt exactly represents this profile."""
+        if self.profile.tone:
+            return False
         legacy_profiles = (
             RADIO_TWO_PERSON,
             get_default_profile(kind="radio", program_name="テックニュース"),

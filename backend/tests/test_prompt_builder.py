@@ -42,6 +42,20 @@ def test_example_uses_a_defined_segment_and_its_section_kind():
     assert builder.segment_for_section(line["section"]) == line["segment"]
 
 
+def test_tone_on_legacy_profile_uses_profile_prompt_and_preserves_default_legacy_path():
+    builder = PromptBuilder(replace(COMMENTARY_ONE_PERSON, tone="くだけた口調で解説する。"))
+    default_builder = PromptBuilder(COMMENTARY_ONE_PERSON)
+
+    assert not builder.uses_legacy_prompt
+    assert default_builder.uses_legacy_prompt is True
+    prompt = builder.build_profile_prompt(
+        task_description="解説してください。",
+        input_description="記事本文",
+    )
+    assert "# 話し方・口調" in prompt
+    assert "くだけた口調で解説する。" in prompt
+
+
 def test_custom_prompt_lists_ordered_segment_ids_kinds_counts_and_speakers():
     from app.programs.profiles import ProgramSegment
 

@@ -78,6 +78,7 @@ def test_program_profile_serialization_keeps_mc_voice_and_review_mode_fields():
             "options": profile.options.__class__(
                 style="solo", mc_gender="male", review_mode="always"
             ),
+            "tone": "くだけた口調で解説する。",
         }
     )
     definition = program_profile_to_definition(profile)
@@ -86,6 +87,15 @@ def test_program_profile_serialization_keeps_mc_voice_and_review_mode_fields():
     assert round_tripped.cast[0].voice_aivispeech == 123
     assert round_tripped.cast[0].voice_voicevox == 4
     assert round_tripped.options.review_mode == "always"
+    assert round_tripped.tone == "くだけた口調で解説する。"
+
+
+def test_program_profile_serialization_reads_legacy_definition_without_tone():
+    profile = get_default_profile(kind="commentary", style="solo")
+    definition = program_profile_to_definition(profile)
+    definition.pop("tone")
+
+    assert load_from_definition(definition).tone is None
 
 
 def load_from_definition(definition):

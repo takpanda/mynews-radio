@@ -86,6 +86,18 @@ def test_program_invalid_profiles_duplicate_and_missing_ids(client):
     assert client.put("/admin/programs/custom-radio", json={"id": "custom-radio"}).status_code == 422
 
 
+def test_program_tone_api_accepts_500_characters_and_rejects_501(client):
+    tone = "口" * 500
+    response = client.post("/admin/programs", json=_program_payload(tone=tone))
+
+    assert response.status_code == 201
+    assert response.json()["definition"]["tone"] == tone
+    assert client.get("/admin/programs/custom-radio").json()["definition"]["tone"] == tone
+
+    too_long = _program_payload(id="custom-radio-too-long", tone=tone + "口")
+    assert client.post("/admin/programs", json=too_long).status_code == 422
+
+
 def test_admin_program_api_requires_authentication():
     from app.main import app
 

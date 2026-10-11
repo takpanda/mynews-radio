@@ -133,6 +133,31 @@ def test_commentary_generation_inserts_profile_json_after_template_formatting(tm
     assert script["lines"][0]["speaker"] == "analyst"
 
 
+def test_commentary_generation_applies_tone_to_legacy_profile_shape(tmp_path):
+    from app.batch import generate_commentary_script as generation
+
+    profile = replace(COMMENTARY_ONE_PERSON, tone="くだけた話し言葉で、論理的に淡々と解説する。")
+    client = _FakeClient({
+        "title": "記事タイトル",
+        "lines": [
+            {"speaker": "male", "text": "記事を解説します。", "article_id": 7, "section": "news"},
+        ],
+    })
+
+    with patch.object(generation, "create_llm_client", return_value=client):
+        count = generation.generate_commentary_script(
+            str(tmp_path / "commentary-tone.json"),
+            {"id": 7, "title": "記事タイトル", "text": "本文です。"},
+            program_profile=profile,
+            llm_provider="test",
+            llm_model="test-model",
+        )
+
+    assert count == 1
+    assert "# 話し方・口調" in client.prompts[0]
+    assert "くだけた話し言葉で、論理的に淡々と解説する。" in client.prompts[0]
+
+
 def test_commentary_style_defaults_from_explicit_dialogue_profile(tmp_path):
     from app.batch import generate_commentary_script as generation
 
