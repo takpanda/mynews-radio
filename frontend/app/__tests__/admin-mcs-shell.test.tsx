@@ -26,6 +26,12 @@ const activeMc: Mc = {
   updated_at: '',
 }
 
+const VOICE_OPTIONS = {
+  aivispeech: { status: 'ok', options: [], error: null },
+  voicevox: { status: 'ok', options: [], error: null },
+  fishs2pro: { status: 'ok', options: [], error: null },
+}
+
 beforeEach(() => {
   global.fetch = jest.fn()
 })
@@ -44,9 +50,13 @@ describe('AdminMcsShell', () => {
   })
 
   it('編集からモーダルを開き、保存すると一覧が再取得される', async () => {
-    ;(global.fetch as jest.Mock)
-      .mockResolvedValueOnce(jsonResponse(200, { ...activeMc, name: '田村（改）' }))
-      .mockResolvedValueOnce(jsonResponse(200, [{ ...activeMc, name: '田村（改）' }]))
+    // モーダル表示時のボイス候補取得（GET .../voices/options）と、保存（PUT）・保存後の一覧再取得（GET .../mcs）をURL・メソッドで振り分ける
+    const updatedMc = { ...activeMc, name: '田村（改）' }
+    ;(global.fetch as jest.Mock).mockImplementation((url: string, options?: RequestInit) => {
+      if (url.includes('/settings/voices/options')) return Promise.resolve(jsonResponse(200, VOICE_OPTIONS))
+      if (options?.method === 'PUT') return Promise.resolve(jsonResponse(200, updatedMc))
+      return Promise.resolve(jsonResponse(200, [updatedMc]))
+    })
 
     const user = userEvent.setup()
     render(<AdminMcsShell initialMcs={[activeMc]} initialIncludeInactive={false} />)
@@ -60,6 +70,10 @@ describe('AdminMcsShell', () => {
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(await screen.findByText('田村（改）')).toBeInTheDocument()
+
+    const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit?][]
+    expect(calls.some(([url, o]) => o?.method === 'PUT' && url.includes('/admin/mcs/radio_male'))).toBe(true)
+    expect(calls.some(([url, o]) => !o?.method && /\/admin\/mcs(\?|$)/.test(url))).toBe(true)
   })
 
   it('「MCを追加」ボタンと操作列はスマホ幅（375px相当）では非表示になるクラスを持つ', () => {
