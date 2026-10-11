@@ -32,8 +32,8 @@ def test_radio_script_prompt_guides_female_mc_toward_natural_partner_talk():
         "別角度・反論・生活者視点の突っ込み",
         "「一方で」「ただし」「別の立場では」などの転換",
         "具体的な事実・数字・仕組みに基づいて答える",
-        "山口が具体的な別角度を提示する行",
-        "田村が選んだ記事の要約にある具体的な事実・数字・仕組みに基づいて答える行",
+        "MC2が具体的な別角度を提示する行",
+        "MC1が選んだ記事の要約にある具体的な事実・数字・仕組みに基づいて答える行",
         "入力要約に実際に記載された語句・数字・仕組みの言い換えに限定",
         "要約にない専門用語、背景、因果関係、生活影響を補ってはならない",
     )
@@ -76,8 +76,8 @@ def test_radio_script_prompt_explains_events_before_terms_and_defines_model_term
 
     for rule in required_rules:
         assert rule in prompt
-    assert "田村（male）が担当する説明文のモデル" in prompt
-    assert "山口（female）の疑問・生活影響の発言は別に続ける" in prompt
+    assert "MC1（male）が担当する説明文のモデル" in prompt
+    assert "MC2（female）の疑問・生活影響の発言は別に続ける" in prompt
     for technical_name, event, impact_or_response, example in model_examples:
         assert example in prompt
         sentences = [part for part in example.split("。") if part]

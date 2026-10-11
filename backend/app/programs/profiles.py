@@ -24,6 +24,7 @@ class ProgramCastMember:
     voice_fishs2pro: str | None = None
     voice_aivispeech: int | None = None
     voice_voicevox: int | None = None
+    persona: str = ""
 
 
 @dataclass(frozen=True)
@@ -190,13 +191,37 @@ def profile_voice_overrides(profile: ProgramProfile, engine: str) -> dict[str, i
     }
 
 
+def format_cast_personas(profile: ProgramProfile) -> str:
+    """Render the selected MC identities, program roles, and personas for prompts."""
+    lines = ["# 今回の出演MCと人物設定"]
+    for index, member in enumerate(profile.cast, start=1):
+        label = f"MC{index}"
+        identity = f"（{member.name}）" if member.name else ""
+        role = member.role.strip() or "役割指定なし"
+        lines.append(f"- {label}{identity} / speakerキー `{member.key}` / 番組内の役割: {role}")
+        if (persona := (member.persona or "").strip()):
+            lines.append(f"  人物設定: {persona}")
+    lines.extend([
+        "人物設定はMC自身の経歴・性格・話し方を表し、番組内の役割はこの出演で担う担当範囲を表します。",
+        "発話では人物設定と番組内の役割の両方を反映してください。",
+    ])
+    return "\n".join(lines)
+
+
+RADIO_MALE_PERSONA = "38歳。元新聞記者・ニュースキャスター。落ち着いて理性的。難しい話も噛み砕いて伝え、短く歯切れよく、やわらかい言葉で要点を話す。"
+RADIO_FEMALE_PERSONA = "31歳。ラジオパーソナリティ・生活情報コメンテーター。明るく率直で共感力が高い。やわらかく親しみやすい話し方で、少しテンポが速い。"
+RADIO_MALE_ROLE = "事実・数字・データを正確に伝える。技術的な仕組み、制度、背景、歴史的経緯を平易な言葉で説明し、論点を整理する。もう一人のMCの分析・疑問・別角度の提起には、感情論ではなく事実や構造で応答する。"
+RADIO_FEMALE_ROLE = "生活者・消費者の目線で影響を具体化する。リスクや不安、リスナーの疑問を言葉にし、実際の行動変容につなげる。生活影響・リスクシナリオ・社会的受容の切り口から分析や別角度の問題提起を行う。技術構造・制度・データの詳細解説は担わない。"
+COMMENTARY_MALE_PERSONA = "落ち着いて知的でわかりやすい解説者。専門用語を適宜噛み砕き、事実・背景・影響をバランスよく伝える。"
+COMMENTARY_FEMALE_PERSONA = "明るく率直で共感力が高い聞き手。生活者目線で影響を具体化し、リスナーの疑問を代弁する。"
+
 _RADIO_CAST = (
-    ProgramCastMember("male", "田村", "メインMC", mc_id="radio_male"),
-    ProgramCastMember("female", "山口", "パートナーMC", mc_id="radio_female"),
+    ProgramCastMember("male", "田村", RADIO_MALE_ROLE, mc_id="radio_male", persona=RADIO_MALE_PERSONA),
+    ProgramCastMember("female", "山口", RADIO_FEMALE_ROLE, mc_id="radio_female", persona=RADIO_FEMALE_PERSONA),
 )
 _COMMENTARY_DIALOGUE_CAST = (
-    ProgramCastMember("male", "", "解説者", mc_id="commentary_male"),
-    ProgramCastMember("female", "", "聞き手", mc_id="commentary_female"),
+    ProgramCastMember("male", "", "解説者", mc_id="commentary_male", persona=COMMENTARY_MALE_PERSONA),
+    ProgramCastMember("female", "", "聞き手", mc_id="commentary_female", persona=COMMENTARY_FEMALE_PERSONA),
 )
 
 RADIO_TWO_PERSON = ProgramProfile(
@@ -218,7 +243,7 @@ COMMENTARY_ONE_PERSON = ProgramProfile(
     id="commentary_solo",
     name="解説",
     kind="commentary",
-    cast=(ProgramCastMember("male", "", "解説者", mc_id="commentary_male"),),
+    cast=(ProgramCastMember("male", "", "解説者", mc_id="commentary_male", persona=COMMENTARY_MALE_PERSONA),),
     segments=(
         _segment("intro", "intro", 0, 1, 2, ("male",)),
         _segment("news", "news", 1, 3, 12, ("male",)),

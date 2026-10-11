@@ -10,16 +10,25 @@ SYSTEM_OWNER_USERNAME = "__generation_queue_system__"
 def migrate_program_profiles(conn: sqlite3.Connection) -> bool:
     """番組・MC定義を追加し、現行の4番組を未登録時のみ初期投入する。"""
     from app.programs.profiles import get_default_profile
+    from app.programs.profiles import (
+        RADIO_MALE_PERSONA, RADIO_FEMALE_PERSONA,
+        COMMENTARY_MALE_PERSONA, COMMENTARY_FEMALE_PERSONA,
+        RADIO_MALE_ROLE, RADIO_FEMALE_ROLE,
+    )
     from app.programs.serialization import program_profile_to_definition
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS mc_profiles ("
         "id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '', "
+        "persona TEXT NOT NULL DEFAULT '', "
         "voice_fishs2pro TEXT, voice_aivispeech INTEGER, voice_voicevox INTEGER, "
         "is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)), "
         "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
         "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
     )
+    mc_columns = {row[1] for row in conn.execute("PRAGMA table_info(mc_profiles)").fetchall()}
+    if "persona" not in mc_columns:
+        conn.execute("ALTER TABLE mc_profiles ADD COLUMN persona TEXT")
     conn.execute(
         "CREATE TABLE IF NOT EXISTS programs ("
         "id TEXT PRIMARY KEY, name TEXT NOT NULL, "
@@ -39,15 +48,19 @@ def migrate_program_profiles(conn: sqlite3.Connection) -> bool:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_episodes_program_id ON episodes(program_id)")
 
     mc_profiles = (
-        ("radio_male", "田村", "メインMC"),
-        ("radio_female", "山口", "パートナーMC"),
-        ("commentary_male", "", "解説者"),
-        ("commentary_female", "", "聞き手"),
+        ("radio_male", "田村", "メインMC", RADIO_MALE_PERSONA),
+        ("radio_female", "山口", "パートナーMC", RADIO_FEMALE_PERSONA),
+        ("commentary_male", "", "解説者", COMMENTARY_MALE_PERSONA),
+        ("commentary_female", "", "聞き手", COMMENTARY_FEMALE_PERSONA),
     )
     conn.executemany(
-        "INSERT OR IGNORE INTO mc_profiles (id, name, role) VALUES (?, ?, ?)",
+        "INSERT OR IGNORE INTO mc_profiles (id, name, role, persona) VALUES (?, ?, ?, ?)",
         mc_profiles,
     )
+    # 既存インストールでは列追加時にNULLとなった既定MCだけを一度補完する。
+    for mc_id, _, _, persona in mc_profiles:
+        conn.execute("UPDATE mc_profiles SET persona = ? WHERE id = ? AND persona IS NULL", (persona, mc_id))
+    conn.execute("UPDATE mc_profiles SET persona = '' WHERE persona IS NULL")
     profiles = (
         get_default_profile(kind="radio"),
         get_default_profile(kind="radio", news_source="hatena_bookmark"),
@@ -69,6 +82,26 @@ def migrate_program_profiles(conn: sqlite3.Connection) -> bool:
                 json.dumps(program_profile_to_definition(profile), ensure_ascii=False),
             ),
         )
+    # 既定ラジオ番組の旧cast.roleだけを新しい共有役割の文面へ移す。
+    # 管理者が既に変更した役割は維持する。
+    for program_id in ("radio_news_neighbor", "radio_tech_news"):
+        row = conn.execute("SELECT definition FROM programs WHERE id = ?", (program_id,)).fetchone()
+        if row is None:
+            continue
+        definition = json.loads(row["definition"] if hasattr(row, "keys") else row[0])
+        changed = False
+        for member in definition.get("cast", []):
+            if member.get("mc_id") == "radio_male" and member.get("role") == "メインMC":
+                member["role"] = RADIO_MALE_ROLE
+                changed = True
+            elif member.get("mc_id") == "radio_female" and member.get("role") == "パートナーMC":
+                member["role"] = RADIO_FEMALE_ROLE
+                changed = True
+        if changed:
+            conn.execute(
+                "UPDATE programs SET definition = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (json.dumps(definition, ensure_ascii=False), program_id),
+            )
     return True
 
 
@@ -289,7 +322,60 @@ def migrate_prompt_templates(conn: sqlite3.Connection) -> bool:
                 "INSERT INTO prompt_versions (template_id, version, content, status) VALUES (?, 1, ?, 'active')",
                 (template["id"], content),
             )
+    _migrate_mc_persona_prompt_text(conn)
     return True
+
+
+def _migrate_mc_persona_prompt_text(conn: sqlite3.Connection) -> None:
+    """Move legacy named character blocks out of active prompts without losing edits."""
+    import re
+
+    replacements = {
+        "generate_radio_script": (
+            re.compile(r"(?s)# MCキャラクター設定と役割の厳格定義.*?(?=# 番組全体の緩急と反復抑制)"),
+            "# 話者の役割と会話の原則\n\n"
+            "- 出演者ごとの担当範囲は、その番組のcastに設定された役割に従うこと。人物設定は経歴・性格・話し方を表す。\n"
+            "- 番組内の役割と人物設定が、話者キーや性別からの推測より優先される。\n"
+            "- 対話では各出演者が相手の発言を受け止め、根拠に沿って異なる視点や情報を加える。\n\n",
+        ),
+        "review_synthesize": (
+            re.compile(r"(?s)<!-- DIALOGUE_ONLY -->\n# MCキャラクター設定.*?<!-- END_DIALOGUE_ONLY -->"),
+            "<!-- DIALOGUE_ONLY -->\n<!-- END_DIALOGUE_ONLY -->",
+        ),
+        "generate_commentary_script": (
+            re.compile(r"(?s)## MC 男性：.*?<!-- END_DIALOGUE_ONLY -->"),
+            "- 各出演者は番組内の役割に沿って担当範囲を守る。人物設定は経歴・性格・話し方を表す。\n"
+            "- 説明内容を別の言い方で繰り返すだけにせず、視点・情報を加えること\n"
+            "<!-- END_DIALOGUE_ONLY -->",
+        ),
+    }
+    old_first = "\u7530\u6751"
+    old_second = "\u5c71\u53e3"
+    for template_key, (pattern, block_replacement) in replacements.items():
+        rows = conn.execute(
+            "SELECT pv.id, pv.version, pv.content FROM prompt_versions pv "
+            "JOIN prompt_templates pt ON pt.id = pv.template_id "
+            "WHERE pt.template_key = ? AND pv.status = 'active'",
+            (template_key,),
+        ).fetchall()
+        for row in rows:
+            content = pattern.sub(block_replacement, row["content"])
+            content = content.replace(old_first, "MC1").replace(old_second, "MC2")
+            content = content.replace("MC1 誠", "MC1").replace("MC1誠", "MC1")
+            content = content.replace("MC2 麻衣", "MC2").replace("MC2麻衣", "MC2")
+            if content == row["content"]:
+                continue
+            conn.execute("UPDATE prompt_versions SET status = 'archived' WHERE id = ?", (row["id"],))
+            next_version = conn.execute(
+                "SELECT COALESCE(MAX(version), 0) + 1 FROM prompt_versions WHERE template_id = ("
+                "SELECT template_id FROM prompt_versions WHERE id = ?)",
+                (row["id"],),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO prompt_versions(template_id, version, content, status) "
+                "SELECT template_id, ?, ?, 'active' FROM prompt_versions WHERE id = ?",
+                (next_version, content, row["id"]),
+            )
 
 
 def migrate_prompt_version_audit_events(conn: sqlite3.Connection) -> bool:

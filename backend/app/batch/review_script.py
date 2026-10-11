@@ -26,7 +26,7 @@ from app.batch.generate_script import (
 )
 from app.batch.script_contracts import COMMENTARY_IGNORED_LINT_CODES, FAREWELL_RE
 from app.batch.script_validator import ScriptValidator
-from app.programs.profiles import ProgramProfile, get_profile_by_id
+from app.programs.profiles import ProgramProfile, format_cast_personas, get_profile_by_id
 from app.programs.prompt_builder import PromptBuilder
 from app.prompts.service import program_id_for_episode, render_prompt
 from app.config import get_settings
@@ -199,9 +199,9 @@ def _build_output_issue_example(style: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Dialogue balance check — 山口(female)の質問偏重・一問一答の連続を検知する
+# Dialogue balance check — 2人目の出演者の質問偏重・一問一答の連続を検知する
 #
-# generate_radio_script.md / review_synthesize.md の「山口の非質問文の義務化」
+# generate_radio_script.md / review_synthesize.md の「非質問文の義務化」
 # 「一問一答の連続を避ける」要件（BEE-631）が守られているかを news セクション
 # 単位で検査する。transition・discussion の構造やプロンプト本文は対象外。
 # ---------------------------------------------------------------------------
@@ -237,23 +237,25 @@ def _news_blocks(lines: list) -> list:
     return blocks
 
 
-def check_dialogue_balance(lines: list) -> list[str]:
-    """山口(female)の発言が質問のみに偏っていないか、newsブロック単位で検査する。
+def check_dialogue_balance(
+    lines: list, *, ask_speaker: str = "female", response_speaker: str = "male",
+    ask_label: str = "MC2", response_label: str = "MC1",
+) -> list[str]:
+    """2人目の出演者の発言が質問のみに偏っていないか検査する。
 
     既存の lint_script（app/batch/generate_script.py）と同じ
     「[TAG] メッセージ」形式でリストを返す。空リストなら合格。
 
-    - [YAMAGUCHI_QUESTION_ONLY]: newsブロック内の山口の発言が全て疑問文
-    - [QA_RELAY]: 山口の発言がブロック内で唯一・末尾の質問だけで、
-      田村の回答を受けた掛け合いの続き（山口の感想・意見や田村の補足）が無い
-      （山口の非質問発言や複数往復を経た上での質問→回答は対象外）
+    - [YAMAGUCHI_QUESTION_ONLY]: newsブロック内の2人目の発言が全て疑問文
+    - [QA_RELAY]: 2人目の質問に1人目が答えてブロックが終わる
+      （質問以外の発言や複数往復を含むブロックは対象外）
     """
     issues: list[str] = []
 
     for block in _news_blocks(lines):
         female_entries = [
             (i, line.get("text", "")) for i, line in block
-            if line.get("speaker") == "female" and line.get("text", "").strip()
+            if line.get("speaker") == ask_speaker and line.get("text", "").strip()
         ]
         if not female_entries:
             continue
@@ -261,20 +263,20 @@ def check_dialogue_balance(lines: list) -> list[str]:
         if all(_is_question(text) for _, text in female_entries):
             indices = [i for i, _ in female_entries]
             issues.append(
-                f"[YAMAGUCHI_QUESTION_ONLY] news行 {indices} の山口(female)発言が全て疑問文です。"
+                f"[YAMAGUCHI_QUESTION_ONLY] news行 {indices} の{ask_label}発言が全て疑問文です。"
                 "感想・分析・別角度の提起など疑問文以外の発言を1行以上含めてください"
             )
 
         if len(block) >= 2 and len(female_entries) == 1:
             (prev_idx, prev_line), (last_idx, last_line) = block[-2], block[-1]
             if (
-                prev_line.get("speaker") == "female"
+                prev_line.get("speaker") == ask_speaker
                 and _is_question(prev_line.get("text", ""))
-                and last_line.get("speaker") == "male"
+                and last_line.get("speaker") == response_speaker
             ):
                 issues.append(
-                    f"[QA_RELAY] news行 {prev_idx}〜{last_idx} が山口の質問→田村の回答の1往復だけで終わっています。"
-                    "田村の回答の後に山口の感想・意見などの掛け合いを続けてください"
+                    f"[QA_RELAY] news行 {prev_idx}〜{last_idx} が{ask_label}の質問→{response_label}の回答の1往復だけで終わっています。"
+                    f"{response_label}の回答の後に{ask_label}の感想・意見などを続けてください"
                 )
 
     return issues
@@ -636,7 +638,7 @@ def review_script(
             review_count (int)                – Number of director reviews that succeeded.
             revision_summary (str)            – LLM-generated summary of changes, or "".
             lines_count (int)                 – Number of lines in the revised script, or 0.
-            dialogue_balance_issues (list[str]) – 山口(female)の質問偏重・一問一答の
+            dialogue_balance_issues (list[str]) – 2人目の質問偏重・一問一答の
                                                    連続を検出した警告。空リストなら合格。
                                                    (style="solo" の台本では常に空)
             question_response_issues (list[str]) – 質問直後の回答欠落と同じ説明の
@@ -687,6 +689,16 @@ def review_script(
         style=str(source.get("style", "solo")),
         mc_gender=str(source.get("mc_gender", "male")),
     )
+    persona_profile = profile
+    if persona_profile is None:
+        if commentary:
+            persona_profile = get_profile_by_id(
+                "commentary_solo" if source.get("style", "solo") == "solo" else "commentary_dialogue",
+                style=str(source.get("style", "solo")),
+                mc_gender=str(source.get("mc_gender", "male")),
+            )
+        else:
+            persona_profile = get_profile_by_id("radio_news_neighbor")
     validator = ScriptValidator(profile) if profile is not None else None
 
     reviews: dict[str, dict] = {}
@@ -771,7 +783,7 @@ def review_script(
                 },
                 program_id=program_id,
             )
-            synth_prompt = rendered_synthesis.text
+            synth_prompt = "\n\n".join((rendered_synthesis.text, format_cast_personas(persona_profile)))
             synth_prompt += _build_contract_preservation_context(
                 source,
                 program_name=program_name,
@@ -814,7 +826,7 @@ def review_script(
             logger.warning("review_script: synthesis step failed: %s", exc)
 
     # --- Step 3: 掛け合いバランスの自動検査（非fatal）---
-    # revised が書き出す最終行を対象に、山口(female)の質問偏重・一問一答の
+    # revised が書き出す最終行を対象に、2人目の質問偏重・一問一答の
     # 連続を検査する。solo（一人喋り）は対話が成立しないため対象外。
     dialogue_balance_issues: list[str] = []
     question_response_issues: list[str] = []
@@ -824,7 +836,17 @@ def review_script(
         dialogue_balance_issues = (
             validator.dialogue_issues(dialogue_check_lines)
             if validator is not None
-            else check_dialogue_balance(dialogue_check_lines)
+            else (
+                check_dialogue_balance(dialogue_check_lines)
+                if profile is None
+                else check_dialogue_balance(
+                    dialogue_check_lines,
+                    ask_speaker=profile.cast[1].key,
+                    response_speaker=profile.cast[0].key,
+                    ask_label=profile.cast[1].name or profile.cast[1].role or profile.cast[1].key,
+                    response_label=profile.cast[0].name or profile.cast[0].role or profile.cast[0].key,
+                )
+            )
         )
         question_response_issues = check_question_response_contract(dialogue_check_lines)
         if dialogue_balance_issues:

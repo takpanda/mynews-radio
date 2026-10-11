@@ -6,10 +6,16 @@ from dataclasses import replace
 from typing import Any
 
 from app.programs.profiles import (
+    COMMENTARY_FEMALE_PERSONA,
+    COMMENTARY_MALE_PERSONA,
     ProgramCastMember,
     ProgramOptions,
     ProgramProfile,
     ProgramSegment,
+    RADIO_FEMALE_PERSONA,
+    RADIO_FEMALE_ROLE,
+    RADIO_MALE_PERSONA,
+    RADIO_MALE_ROLE,
     validate_program_profile,
 )
 
@@ -27,6 +33,7 @@ def program_profile_to_definition(profile: ProgramProfile) -> dict[str, Any]:
                 "name": member.name,
                 "role": member.role,
                 "mc_id": member.mc_id,
+                "persona": member.persona,
                 "voice_fishs2pro": member.voice_fishs2pro,
                 "voice_aivispeech": member.voice_aivispeech,
                 "voice_voicevox": member.voice_voicevox,
@@ -57,11 +64,29 @@ def program_profile_to_definition(profile: ProgramProfile) -> dict[str, Any]:
 def program_profile_from_definition(definition: dict[str, Any]) -> ProgramProfile:
     """Parse and validate a stored program definition."""
     options = definition.get("options") or {}
+
+    legacy_mc_data = {
+        "radio_male": (RADIO_MALE_PERSONA, "メインMC", RADIO_MALE_ROLE),
+        "radio_female": (RADIO_FEMALE_PERSONA, "パートナーMC", RADIO_FEMALE_ROLE),
+        "commentary_male": (COMMENTARY_MALE_PERSONA, None, None),
+        "commentary_female": (COMMENTARY_FEMALE_PERSONA, None, None),
+    }
+
+    def cast_member(item: dict[str, Any]) -> ProgramCastMember:
+        values = dict(item)
+        legacy = legacy_mc_data.get(values.get("mc_id"))
+        if "persona" not in values and legacy is not None:
+            values["persona"] = legacy[0]
+        if legacy is not None and values.get("role") == legacy[1] and legacy[2] is not None:
+            values["role"] = legacy[2]
+        values["persona"] = values.get("persona") or ""
+        return ProgramCastMember(**values)
+
     profile = ProgramProfile(
         id=definition["id"],
         name=definition["name"],
         kind=definition["kind"],
-        cast=tuple(ProgramCastMember(**item) for item in definition["cast"]),
+        cast=tuple(cast_member(item) for item in definition["cast"]),
         segments=tuple(
             ProgramSegment(
                 id=item["id"],
@@ -98,7 +123,7 @@ def load_program_profile(conn, program_id: str) -> ProgramProfile | None:
     raw_definition = row["definition"] if hasattr(row, "keys") else row[0]
     profile = program_profile_from_definition(json.loads(raw_definition))
     mc_rows = conn.execute(
-        "SELECT id, voice_fishs2pro, voice_aivispeech, voice_voicevox "
+        "SELECT id, persona, voice_fishs2pro, voice_aivispeech, voice_voicevox "
         "FROM mc_profiles WHERE is_active = 1"
     ).fetchall()
     mc_by_id = {
@@ -114,9 +139,10 @@ def load_program_profile(conn, program_id: str) -> ProgramProfile | None:
             cast.append(member)
             continue
         values = {
-            "voice_fishs2pro": mc["voice_fishs2pro"] if hasattr(mc, "keys") else mc[1],
-            "voice_aivispeech": mc["voice_aivispeech"] if hasattr(mc, "keys") else mc[2],
-            "voice_voicevox": mc["voice_voicevox"] if hasattr(mc, "keys") else mc[3],
+            "persona": mc["persona"] if hasattr(mc, "keys") else mc[1],
+            "voice_fishs2pro": mc["voice_fishs2pro"] if hasattr(mc, "keys") else mc[2],
+            "voice_aivispeech": mc["voice_aivispeech"] if hasattr(mc, "keys") else mc[3],
+            "voice_voicevox": mc["voice_voicevox"] if hasattr(mc, "keys") else mc[4],
         }
         cast.append(replace(member, **values))
     profile = replace(profile, cast=tuple(cast))

@@ -12,6 +12,7 @@ from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
 from app.programs.profiles import (
     ProgramProfile,
+    format_cast_personas,
     get_default_profile,
     segment_snapshots,
     validate_program_profile,
@@ -72,7 +73,7 @@ def _build_section_details(suggested_lines_count: int, style: str = "solo") -> s
         news_range = "8〜12"
 
     if style == "dialogue":
-        progression_guidance = "   - dialogueの場合は田村と山口が掛け合い形式で進行"
+        progression_guidance = "   - dialogueの場合は2人のMCが番組内の役割に沿って掛け合い形式で進行"
     else:
         progression_guidance = "   - 一人の解説者が一貫してナレーション形式で進行"
 
@@ -198,7 +199,7 @@ def generate_commentary_script(
             },
             program_id=prompt_program_id,
         )
-        prompt = rendered.text
+        prompt = "\n\n".join((rendered.text, format_cast_personas(profile)))
         if style != "dialogue":
             prompt = _strip_dialogue_only_sections(prompt)
     else:
@@ -210,6 +211,7 @@ def generate_commentary_script(
             ),
             input_description=f"# 入力記事\n{article_json}",
             additional_instructions=(
+                f"{format_cast_personas(profile)}\n"
                 f"- title は入力記事のタイトル「{article.get('title', '')}」と完全一致させる。\n"
                 f"- 台詞は {suggested_lines} 行程度を目安にする。\n"
                 f"- セクションごとの行数目安:\n{section_details}"

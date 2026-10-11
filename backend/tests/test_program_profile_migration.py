@@ -39,6 +39,28 @@ def test_program_profile_migration_seeds_valid_profiles_idempotently():
     after = conn.execute("SELECT id, definition FROM programs ORDER BY id").fetchall()
     assert [tuple(row) for row in after] == [tuple(row) for row in before]
     assert conn.execute("SELECT COUNT(*) FROM mc_profiles").fetchone()[0] == 4
+    radio = load_program_profile(conn, "radio_news_neighbor")
+    assert "元新聞記者" in radio.cast[0].persona
+    assert "技術的な仕組み" in radio.cast[0].role
+    assert "共感力" in radio.cast[1].persona
+
+
+def test_program_snapshot_serialization_freezes_mc_persona_and_role():
+    from app.programs.serialization import program_profile_from_definition
+
+    profile = get_default_profile(kind="radio")
+    definition = program_profile_to_definition(profile)
+    restored = program_profile_from_definition(json.loads(json.dumps(definition, ensure_ascii=False)))
+    assert restored.cast[0].persona == profile.cast[0].persona
+    assert restored.cast[1].role == profile.cast[1].role
+
+    legacy = json.loads(json.dumps(definition, ensure_ascii=False))
+    for member in legacy["cast"]:
+        member.pop("persona", None)
+    assert program_profile_from_definition(legacy).cast[0].persona == profile.cast[0].persona
+
+    legacy["cast"][0]["mc_id"] = "old-custom-mc"
+    assert program_profile_from_definition(legacy).cast[0].persona == ""
 
 
 def test_program_profile_migration_preserves_existing_episode_values_and_allows_nulls():
@@ -52,6 +74,22 @@ def test_program_profile_migration_preserves_existing_episode_values_and_allows_
     ).fetchone()
     assert tuple(row) == ("ready", "existing script", None, None)
     assert conn.execute("PRAGMA foreign_key_list(episodes)").fetchall()
+
+
+def test_mc_persona_migration_preserves_existing_custom_mc_without_persona_column():
+    conn = _conn()
+    conn.execute(
+        "CREATE TABLE mc_profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', "
+        "role TEXT NOT NULL DEFAULT '', voice_fishs2pro TEXT, voice_aivispeech INTEGER, "
+        "voice_voicevox INTEGER, is_active INTEGER NOT NULL DEFAULT 1, "
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+    )
+    conn.execute("INSERT INTO mc_profiles(id, name, role) VALUES ('custom', '既存MC', '司会')")
+    migrate_program_profiles(conn)
+    custom = conn.execute("SELECT persona FROM mc_profiles WHERE id = 'custom'").fetchone()[0]
+    seeded = conn.execute("SELECT persona FROM mc_profiles WHERE id = 'radio_male'").fetchone()[0]
+    assert custom == ""
+    assert "元新聞記者" in seeded
 
 
 def test_program_profile_cannot_load_when_referenced_mc_is_inactive_or_missing():

@@ -11,7 +11,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.batch.script_structure import normalize_discussion_layout
 from app.config import get_settings
-from app.programs.profiles import ProgramProfile, get_default_profile, segment_snapshots
+from app.programs.profiles import (
+    ProgramProfile, format_cast_personas, get_default_profile, segment_snapshots,
+)
 from app.programs.prompt_builder import PromptBuilder
 from app.prompts.service import render_prompt
 from app.batch.script_validator import ScriptValidator
@@ -1444,12 +1446,14 @@ def generate_script(
                 program_id=prompt_program_id,
                 **({"version_id": prompt_version_id} if prompt_version_id is not None else {}),
             )
-            base_prompt = rendered_script_prompt.text
+            base_prompt = "\n\n".join((rendered_script_prompt.text, format_cast_personas(prompt_profile)))
             if program_name != "ニュースのとなり":
                 base_prompt = base_prompt.replace("ニュースのとなり", program_name)
         else:
             rendered_script_prompt = None
-            profile_instructions = narrative_arc_section
+            profile_instructions = "\n\n".join(
+                part for part in (narrative_arc_section, format_cast_personas(prompt_profile)) if part
+            )
             if prompt_version_id is not None:
                 rendered_script_prompt = render_prompt(
                     "generate_radio_script",
@@ -1458,7 +1462,10 @@ def generate_script(
                     version_id=prompt_version_id,
                 )
                 profile_instructions = "\n\n".join(
-                    part for part in (narrative_arc_section, rendered_script_prompt.text) if part
+                    part for part in (
+                        narrative_arc_section, rendered_script_prompt.text,
+                        format_cast_personas(prompt_profile),
+                    ) if part
                 )
             base_prompt = prompt_builder.build_profile_prompt(
                 task_description=(

@@ -113,6 +113,30 @@ def test_prompt_template_migration_preserves_legacy_logs_and_allows_null_version
         )
 
 
+def test_mc_persona_prompt_migration_retires_legacy_named_sections():
+    conn = _conn()
+    migrate_prompt_templates(conn)
+    template = conn.execute(
+        "SELECT id FROM prompt_templates WHERE template_key = 'generate_radio_script'"
+    ).fetchone()
+    conn.execute(
+        "UPDATE prompt_versions SET content = '# MCキャラクター設定と役割の厳格定義\n"
+        "田村 誠と山口 麻衣\n# 番組全体の緩急と反復抑制' WHERE template_id = ?",
+        (template["id"],),
+    )
+    migrate_prompt_templates(conn)
+    active = conn.execute(
+        "SELECT content FROM prompt_versions WHERE template_id = ? AND status = 'active'",
+        (template["id"],),
+    ).fetchone()[0]
+    assert "田村" not in active and "山口" not in active
+    assert "castに設定された役割" in active
+    assert conn.execute(
+        "SELECT COUNT(*) FROM prompt_versions WHERE template_id = ? AND status = 'archived'",
+        (template["id"],),
+    ).fetchone()[0] == 1
+
+
 def test_prompt_template_and_version_constraints():
     conn = _conn()
     migrate_prompt_templates(conn)

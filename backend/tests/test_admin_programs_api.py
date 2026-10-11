@@ -24,13 +24,20 @@ def _program_payload(**changes):
 def test_program_and_mc_crud_and_inactive_filters(client):
     mc = {
         "id": "custom-mc", "name": "MC", "role": "司会",
+        "persona": "落ち着いて簡潔に話す。",
         "voice_fishs2pro": None, "voice_aivispeech": None,
         "voice_voicevox": None, "is_active": True,
     }
     created_mc = client.post("/admin/mcs", json=mc)
     assert created_mc.status_code == 201
     assert created_mc.json()["voice_voicevox"] is None
+    assert created_mc.json()["persona"] == "落ち着いて簡潔に話す。"
     assert client.get("/admin/mcs/custom-mc").json()["voice_aivispeech"] is None
+    assert client.get("/admin/mcs/custom-mc").json()["persona"] == "落ち着いて簡潔に話す。"
+
+    updated_mc = client.put("/admin/mcs/custom-mc", json={**mc, "persona": "率直で親しみやすい。"})
+    assert updated_mc.status_code == 200
+    assert updated_mc.json()["persona"] == "率直で親しみやすい。"
 
     created_program = client.post("/admin/programs", json=_program_payload())
     assert created_program.status_code == 201
@@ -92,6 +99,41 @@ def test_admin_program_api_requires_authentication():
     unauthenticated = TestClient(app)
     assert unauthenticated.get("/admin/programs").status_code == 401
     assert unauthenticated.post("/admin/mcs", json={"id": "x", "name": "x", "role": ""}).status_code == 401
+
+
+def test_mc_persona_is_bounded_and_legacy_update_preserves_it(client):
+    mc = {"id": "persona-mc", "name": "MC", "role": "司会", "persona": "穏やか"}
+    assert client.post("/admin/mcs", json=mc).status_code == 201
+    assert client.put("/admin/mcs/persona-mc", json={"id": "persona-mc", "name": "MC", "role": "司会"}).json()["persona"] == "穏やか"
+    too_long = {**mc, "id": "too-long", "persona": "x" * 4001}
+    assert client.post("/admin/mcs", json=too_long).status_code == 422
+
+
+def test_same_mc_can_have_distinct_roles_per_program(client):
+    from app.programs.serialization import load_program_profile
+
+    assert client.post("/admin/mcs", json={
+        "id": "shared-mc", "name": "共通MC", "role": "MC", "persona": "PERSONA",
+    }).status_code == 201
+    for program_id, role in (("program-a", "技術解説"), ("program-b", "生活者目線")):
+        payload = _program_payload(
+            id=program_id,
+            cast=[{"key": "host", "name": "共通MC", "role": role, "mc_id": "shared-mc"}],
+            segments=[{"id": "intro", "kind": "intro", "order": 0,
+                       "min_lines": 1, "max_lines": 2, "speaker_keys": ["host"]}],
+        )
+        assert client.post("/admin/programs", json=payload).status_code == 201
+    from app.db.connection import get_db_connection
+    with get_db_connection() as conn:
+        role_a = load_program_profile(conn, "program-a").cast[0].role
+        role_b = load_program_profile(conn, "program-b").cast[0].role
+    assert role_a == "技術解説"
+    assert role_b == "生活者目線"
+    assert load_persona(client, "shared-mc") == "PERSONA"
+
+
+def load_persona(client, mc_id):
+    return client.get(f"/admin/mcs/{mc_id}").json()["persona"]
 
 
 def test_program_mutations_are_audited(client):

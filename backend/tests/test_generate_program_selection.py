@@ -48,6 +48,8 @@ def test_program_id_controls_radio_source_and_snapshot_is_immutable(client, monk
     assert episode["program_id"] == "radio_news_neighbor"
     assert snapshot["id"] == "radio_news_neighbor"
     assert snapshot["name"] == "ニュースのとなり"
+    captured_persona = snapshot["cast"][0]["persona"]
+    captured_role = snapshot["cast"][0]["role"]
 
     with get_db_connection() as conn:
         changed = dict(snapshot, name="更新後の番組名")
@@ -55,6 +57,7 @@ def test_program_id_controls_radio_source_and_snapshot_is_immutable(client, monk
             "UPDATE programs SET name = ?, definition = ? WHERE id = ?",
             (changed["name"], json.dumps(changed, ensure_ascii=False), snapshot["id"]),
         )
+        conn.execute("UPDATE mc_profiles SET persona = '後から変更した人物設定' WHERE id = 'radio_male'")
 
     assert service.get_episode(episode_id)["program_snapshot"] == episode["program_snapshot"]
 
@@ -72,6 +75,8 @@ def test_program_id_controls_radio_source_and_snapshot_is_immutable(client, monk
 
     assert pipeline.call_args.kwargs["news_source"] == "hatena_hotentry_all"
     assert pipeline.call_args.kwargs["program_profile"].name == "ニュースのとなり"
+    assert pipeline.call_args.kwargs["program_profile"].cast[0].persona == captured_persona
+    assert pipeline.call_args.kwargs["program_profile"].cast[0].role == captured_role
 
 
 def test_program_id_missing_or_inactive_returns_400_without_fallback(client, monkeypatch):
