@@ -307,7 +307,11 @@ def approve_script(
 def reject_script(episode_id: int, body: RejectRequest, user_id: Annotated[int, Depends(require_owner_session)]) -> dict:
     with get_db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute("SELECT episode_date, seq, status, program_id FROM episodes WHERE id=?", (episode_id,)).fetchone()
+        row = conn.execute(
+            "SELECT episode_date, seq, status, program_id, program_snapshot "
+            "FROM episodes WHERE id=?",
+            (episode_id,),
+        ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Episode not found")
         if row["status"] != "awaiting_review":
@@ -317,7 +321,8 @@ def reject_script(episode_id: int, body: RejectRequest, user_id: Annotated[int, 
             _audit(conn, "script_discard", user_id, episode_id, {})
             return {"episode_id": episode_id, "status": "discarded"}
         source_row = conn.execute(
-            "SELECT payload FROM generation_jobs WHERE episode_id=? AND operation='daily' ORDER BY id DESC LIMIT 1",
+            "SELECT payload FROM generation_jobs WHERE episode_id=? "
+            "AND operation IN ('daily', 'generate') ORDER BY id DESC LIMIT 1",
             (episode_id,),
         ).fetchone()
         try:
@@ -327,7 +332,19 @@ def reject_script(episode_id: int, body: RejectRequest, user_id: Annotated[int, 
         if not isinstance(source_payload, dict):
             source_payload = {}
         valid_news_sources = {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news"}
-        news_source = source_payload.get("news_source")
+        snapshot_profile = None
+        if row["program_snapshot"]:
+            try:
+                from app.programs.serialization import program_profile_from_definition
+
+                snapshot = json.loads(row["program_snapshot"])
+                snapshot_profile = program_profile_from_definition(snapshot)
+            except (TypeError, ValueError, json.JSONDecodeError, KeyError):
+                logger.warning("episode program snapshot is invalid; using stored generation source")
+        news_source = (
+            snapshot_profile.news_source
+            if snapshot_profile is not None else source_payload.get("news_source")
+        )
         if not isinstance(news_source, str) or news_source not in valid_news_sources:
             from app.api.generate import RADIO_PROGRAM_NEWS_SOURCES
 

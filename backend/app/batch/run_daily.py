@@ -128,8 +128,14 @@ def run_daily_job(job) -> bool:
     cleanup_result = cleanup_episodes()
     logger.info("=== daily retention cleanup complete: %s ===", cleanup_result)
     program_profile = None
+    program_settings = None
     if payload.get("program_id") is not None:
-        from app.api.generate import RADIO_PROGRAM_NEWS_SOURCES, _episode_program_profile
+        from app.api.generate import (
+            RADIO_PROGRAM_NEWS_SOURCES,
+            _episode_program_profile,
+            _resolve_program_settings,
+        )
+        from app.services.settings_service import get_settings_or_default
 
         program_profile = _episode_program_profile(episode_id)
         if program_profile is None or program_profile.id != payload["program_id"]:
@@ -137,7 +143,12 @@ def run_daily_job(job) -> bool:
         if payload.get("preserve_news_source"):
             news_source = payload.get("news_source", "hatena_bookmark")
         else:
-            news_source = RADIO_PROGRAM_NEWS_SOURCES.get(program_profile.id, "hatena_hotentry_all")
+            news_source = program_profile.news_source or RADIO_PROGRAM_NEWS_SOURCES.get(
+                program_profile.id, "hatena_hotentry_all"
+            )
+        program_settings = _resolve_program_settings(
+            program_profile, get_settings_or_default(), None
+        )
     else:
         news_source = payload.get("news_source", "hatena_bookmark")
     metadata = run_radio_pipeline(
@@ -148,6 +159,7 @@ def run_daily_job(job) -> bool:
         tts_engine=payload.get("tts_engine"),
         default_episodes_dir="data/episodes",
         program_profile=program_profile,
+        program_settings=program_settings,
         program_id_selected=payload.get("program_id") is not None,
     )
     if metadata is PipelineResult.NO_CONTENT:

@@ -302,6 +302,71 @@ def test_reject_regenerate_keeps_episode_and_registers_generation_job(client):
     assert payload["preserve_news_source"] is True
 
 
+def test_reject_regenerate_uses_snapshot_source_for_non_daily_generation(client):
+    from dataclasses import replace
+
+    from app.db.connection import get_db_connection
+    from app.programs.profiles import get_default_profile
+    from app.programs.serialization import program_profile_to_definition
+
+    episode_id, _ = _episode_with_script()
+    profile = replace(
+        get_default_profile(kind="radio"),
+        news_source="yahoo_news",
+        priority_themes=("business",),
+        excluded_themes=("sports",),
+        max_articles=9,
+        min_importance_score=4,
+        duration_preset="short",
+    )
+    snapshot = json.dumps(program_profile_to_definition(profile), ensure_ascii=False)
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE episodes SET program_id=?, program_snapshot=? WHERE id=?",
+            (profile.id, snapshot, episode_id),
+        )
+        owner_id = conn.execute(
+            "SELECT admin_user_id FROM sessions WHERE token=?",
+            (next(cookie.value for cookie in client.cookies.jar if cookie.name == "admin_session"),),
+        ).fetchone()["admin_user_id"]
+        conn.execute(
+            "INSERT INTO generation_jobs(owner_user_id, operation, idempotency_key, input_hash, "
+            "client_ip_hash, episode_id, payload, status) "
+            "VALUES (?, 'generate', ?, 'source-hash', 'source-ip', ?, ?, 'completed')",
+            (owner_id, f"api-source-{episode_id}", episode_id,
+             json.dumps({"news_source": "hatena_bookmark"})),
+        )
+
+    with patch("app.api.admin_script_review.dispatch_job"):
+        response = client.post(
+            f"/admin/episodes/{episode_id}/reject", json={"action": "regenerate"}
+        )
+    assert response.status_code == 200
+    with get_db_connection() as conn:
+        job = conn.execute(
+            "SELECT id, episode_id, payload FROM generation_jobs WHERE id=?",
+            (response.json()["job_id"],),
+        ).fetchone()
+        payload = json.loads(job["payload"])
+    assert payload["news_source"] == "yahoo_news"
+
+    from app.batch import run_daily
+
+    with (
+        patch("app.batch.run_daily.cleanup_episodes", return_value={}),
+        patch("app.batch.run_daily.run_radio_pipeline", return_value=None) as run_pipeline,
+        patch("app.batch.run_daily._write_manifest"),
+    ):
+        run_daily.run_daily_job(dict(job))
+    assert run_pipeline.call_args.kwargs["news_source"] == "yahoo_news"
+    applied = run_pipeline.call_args.kwargs["program_settings"]
+    assert applied.priority_themes == ("business",)
+    assert applied.excluded_themes == ("sports",)
+    assert applied.generation_params()["max_articles"] == 9
+    assert applied.generation_params()["min_importance_score"] == 4
+    assert applied.duration_preset == "short"
+
+
 def test_reject_regenerate_falls_back_to_program_source_without_original_job(client):
     from app.db.connection import get_db_connection
 
@@ -367,8 +432,10 @@ def test_reject_regenerate_falls_back_for_unexpected_original_news_source(client
 
 
 def test_regeneration_runner_uses_preserved_source_with_program_snapshot(client):
-    from types import SimpleNamespace
+    from dataclasses import replace
+
     from app.batch import run_daily
+    from app.programs.profiles import get_default_profile
 
     episode_id, _ = _episode_with_script()
     job = {
@@ -378,7 +445,15 @@ def test_regeneration_runner_uses_preserved_source_with_program_snapshot(client)
             "news_source": "yahoo_news", "preserve_news_source": True,
         }),
     }
-    profile = SimpleNamespace(id="radio_news_neighbor")
+    profile = replace(
+        get_default_profile(kind="radio"),
+        news_source="yahoo_news",
+        priority_themes=("business",),
+        excluded_themes=("sports",),
+        max_articles=9,
+        min_importance_score=4,
+        duration_preset="short",
+    )
     with (
         patch("app.api.generate._episode_program_profile", return_value=profile),
         patch("app.batch.run_daily.cleanup_episodes", return_value={}),
@@ -388,6 +463,12 @@ def test_regeneration_runner_uses_preserved_source_with_program_snapshot(client)
         run_daily.run_daily_job(job)
     assert run_pipeline.call_args.kwargs["news_source"] == "yahoo_news"
     assert run_pipeline.call_args.kwargs["program_profile"] is profile
+    settings = run_pipeline.call_args.kwargs["program_settings"]
+    assert settings.priority_themes == ("business",)
+    assert settings.excluded_themes == ("sports",)
+    assert settings.generation_params()["max_articles"] == 9
+    assert settings.generation_params()["min_importance_score"] == 4
+    assert settings.duration_preset == "short"
 
 
 def test_preview_audio_enforces_episode_daily_quota(client):

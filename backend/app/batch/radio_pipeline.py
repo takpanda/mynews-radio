@@ -548,7 +548,7 @@ def run_radio_pipeline(
 
         # Keep the exact profile used for this episode available to the result
         # display.  Do not expose the SQLite representation to consumers.
-        ep_metadata["applied_settings"] = profile.to_dict()
+        ep_metadata["applied_settings"] = profile.applied_dict()
         # 既存のメタデータ項目はcontentフェーズを代表値として維持し、
         # フェーズ別の実設定も追加する。
         ep_metadata["llm_provider"] = content_llm.name if content_llm else None

@@ -55,6 +55,15 @@ class ProgramSettings:
             params["min_importance_score"] = self.min_importance_score
         return params
 
+    def applied_dict(self) -> dict[str, Any]:
+        """Return configured fields plus the effective count and threshold."""
+        params = self.generation_params()
+        return {
+            **self.to_dict(),
+            "max_articles": params["max_articles"],
+            "min_importance_score": params["min_importance_score"],
+        }
+
 
 def validate_settings(
     priority_themes: list[str] | tuple[str, ...] | None = None,
