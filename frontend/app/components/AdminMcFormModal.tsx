@@ -2,7 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createMc, replaceMc, MAX_PERSONA_LENGTH, type Mc, type McSaveInput } from '../lib/admin-programs'
-import { DISABLED_TTS_ENGINES, DISABLED_TTS_ENGINE_MESSAGE } from '../lib/admin-voice-settings'
+import {
+  DISABLED_TTS_ENGINES,
+  DISABLED_TTS_ENGINE_MESSAGE,
+  fetchVoiceOptionsClient,
+  type EngineVoiceOptions,
+  type VoiceEngineKey,
+  type VoiceOptionsResponse,
+} from '../lib/admin-voice-settings'
 
 interface Props {
   mc: Mc | null
@@ -15,7 +22,22 @@ type FormErrors = Partial<Record<'id' | 'name' | 'role' | 'persona', string>>
 const MAX_ID = 100
 const MAX_NAME = 200
 const MAX_ROLE = 200
-const MAX_FISH = 200
+
+const VOICE_SELECT_CLASS =
+  'w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400'
+
+function VoiceOptionItems({ engine }: { engine: EngineVoiceOptions | undefined }) {
+  return (
+    <>
+      <option value="">選択してください</option>
+      {(engine?.options ?? []).map((o) => (
+        <option key={String(o.value)} value={String(o.value)}>
+          {o.display_name}
+        </option>
+      ))}
+    </>
+  )
+}
 
 export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
   const isEdit = mc !== null
@@ -36,8 +58,30 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
   const [errors, setErrors] = useState<FormErrors>({})
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [voiceOptions, setVoiceOptions] = useState<VoiceOptionsResponse | null>(null)
+  const [voiceOptionsError, setVoiceOptionsError] = useState<string | null>(null)
 
   const backdropRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchVoiceOptionsClient()
+      .then((res) => {
+        if (!cancelled) setVoiceOptions(res)
+      })
+      .catch((err) => {
+        if (!cancelled) setVoiceOptionsError(err instanceof Error ? err.message : 'ボイス候補の取得に失敗しました')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const engineError = (key: VoiceEngineKey): string | null => {
+    const e = voiceOptions?.[key]
+    return e?.status === 'error' ? (e.error ?? 'ボイス候補の取得に失敗しました') : null
+  }
+  const voiceErrors = [voiceOptionsError, engineError('fishs2pro')].filter((m): m is string => !!m)
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -202,43 +246,50 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
 
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500">Fish S2 Pro</label>
-              <input
-                type="text"
+              <label htmlFor="mc-form-voice-fishs2pro" className="mb-1 block text-xs font-medium text-slate-500">Fish S2 Pro</label>
+              <select
+                id="mc-form-voice-fishs2pro"
                 value={voiceFishs2pro}
                 onChange={(e) => setVoiceFishs2pro(e.target.value)}
-                maxLength={MAX_FISH}
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100"
-                placeholder="voice id"
-              />
+                className={VOICE_SELECT_CLASS}
+              >
+                <VoiceOptionItems engine={voiceOptions?.fishs2pro} />
+              </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500">AivisSpeech</label>
-              <input
-                type="number"
+              <label htmlFor="mc-form-voice-aivispeech" className="mb-1 block text-xs font-medium text-slate-500">AivisSpeech</label>
+              <select
+                id="mc-form-voice-aivispeech"
                 value={voiceAivispeech}
                 onChange={(e) => setVoiceAivispeech(e.target.value)}
                 disabled={isAivispeechDisabled}
                 title={isAivispeechDisabled ? DISABLED_TTS_ENGINE_MESSAGE : undefined}
                 aria-describedby={isAivispeechDisabled ? 'mc-form-tts-disabled-note' : undefined}
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                placeholder="speaker id"
-              />
+                className={VOICE_SELECT_CLASS}
+              >
+                <VoiceOptionItems engine={voiceOptions?.aivispeech} />
+              </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500">VOICEVOX</label>
-              <input
-                type="number"
+              <label htmlFor="mc-form-voice-voicevox" className="mb-1 block text-xs font-medium text-slate-500">VOICEVOX</label>
+              <select
+                id="mc-form-voice-voicevox"
                 value={voiceVoicevox}
                 onChange={(e) => setVoiceVoicevox(e.target.value)}
                 disabled={isVoicevoxDisabled}
                 title={isVoicevoxDisabled ? DISABLED_TTS_ENGINE_MESSAGE : undefined}
                 aria-describedby={isVoicevoxDisabled ? 'mc-form-tts-disabled-note' : undefined}
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                placeholder="speaker id"
-              />
+                className={VOICE_SELECT_CLASS}
+              >
+                <VoiceOptionItems engine={voiceOptions?.voicevox} />
+              </select>
             </div>
           </div>
+          {voiceErrors.map((m) => (
+            <p key={m} role="alert" className="text-xs text-red-600">
+              ボイス候補を取得できませんでした: {m}
+            </p>
+          ))}
           {(isAivispeechDisabled || isVoicevoxDisabled) && (
             <p id="mc-form-tts-disabled-note" className="text-xs text-slate-500">
               {DISABLED_TTS_ENGINE_MESSAGE}
