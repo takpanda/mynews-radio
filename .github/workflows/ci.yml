@@ -21,6 +21,12 @@ jobs:
       # 未モック経路がこのURLへ到達した場合でも、CI では即座に ECONNREFUSED で失敗する
       # ループバックアドレスに差し替え、アプリ側の非致命扱いフォールバックで安全に継続させる。
       OLLAMA_BASE_URL: http://127.0.0.1:11434
+      # TTS の既定URLも開発者宅内 LAN 上の実機を指す。未起動のCIでは
+      # ループバックへ向けて即時に接続失敗させ、未モック呼び出しの待ち時間を避ける。
+      # 接続失敗は各クライアント既存の失敗経路で扱い、テストの失敗を握りつぶさない。
+      VOICEVOX_BASE_URL: http://127.0.0.1:50021
+      AIVISPEECH_BASE_URL: http://127.0.0.1:10101
+      FISHS2PRO_BASE_URL: http://127.0.0.1:8000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
