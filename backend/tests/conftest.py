@@ -117,16 +117,22 @@ def no_daemon_thread_leaks(test_env):
         return original_start(self)
 
     threading.Thread.start = _tracked_start
-    yield
-    threading.Thread.start = original_start
+    deadline = None
 
-    deadline = time.monotonic() + 5.0
-    for t in threads:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            break
-        if t.is_alive():
-            t.join(timeout=max(0.01, remaining))
+    def _join_started_threads():
+        nonlocal deadline
+        if deadline is None:
+            deadline = time.monotonic() + 5.0
+        for thread in threads:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            if thread.is_alive():
+                thread.join(timeout=max(0.01, remaining))
+
+    yield _join_started_threads
+    threading.Thread.start = original_start
+    _join_started_threads()
 
 
 @pytest.fixture(autouse=True)
@@ -148,7 +154,7 @@ def isolate_external_telegram_notifications(test_env, monkeypatch):
 
 
 @pytest.fixture
-def client():
+def client(no_daemon_thread_leaks):
     from app.main import app
     from fastapi.testclient import TestClient
     from unittest.mock import patch
@@ -186,3 +192,7 @@ def client():
         # Secure CookieはHTTPのTestClientから自動送信されないため明示的に設定する。
         test_client.cookies.set("admin_session", login.cookies["admin_session"])
         yield test_client
+        # Keep the generation-pipeline mock installed until API background
+        # workers finish; otherwise they can enter the real pipeline after
+        # this fixture restores it and outlive the per-test DB configuration.
+        no_daemon_thread_leaks()
