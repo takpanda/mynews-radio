@@ -59,6 +59,7 @@ class ProgramFields(StrictModel):
     id: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=200)
     kind: Literal["radio", "commentary"]
+    tone: str | None = Field(default=None, max_length=500)
     cast: list[ProgramCastInput]
     segments: list[ProgramSegmentInput]
     options: ProgramOptionsInput
@@ -87,6 +88,7 @@ def _profile(body: ProgramFields) -> ProgramProfile:
         id=body.id,
         name=body.name,
         kind=body.kind,
+        tone=body.tone,
         cast=tuple(ProgramCastMember(**item.model_dump()) for item in body.cast),
         segments=tuple(
             ProgramSegment(**{**item.model_dump(), "speaker_keys": tuple(item.speaker_keys)})

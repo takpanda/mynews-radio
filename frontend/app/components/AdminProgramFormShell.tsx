@@ -89,6 +89,7 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
   const [id, setId] = useState(initialProgram.id)
   const [name, setName] = useState(initialProgram.name)
   const [kind, setKind] = useState<ProgramKind>(initialProgram.kind)
+  const [tone, setTone] = useState(initialProgram.tone ?? '')
   const [isActive, setIsActive] = useState(initialIsActive)
   const [cast, setCast] = useState<ProgramCastValue[]>(initialProgram.cast)
   const [segments, setSegments] = useState<ProgramSegmentValue[]>(initialProgram.segments)
@@ -193,6 +194,7 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
     id: id.trim(),
     name: name.trim(),
     kind,
+    tone: tone.trim() || null,
     cast: cast.map((member) => ({ ...member, key: member.key.trim() })),
     segments: renumber(segments).map((segment) => ({
       ...segment,
@@ -245,6 +247,7 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
       setId(updated.id)
       setName(updated.name)
       setKind(updated.kind)
+      setTone(updated.definition.tone ?? '')
       setIsActive(updated.is_active)
       setCast(updated.definition.cast)
       setSegments(updated.definition.segments)
@@ -269,6 +272,7 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
           cast={cast}
           segments={segments}
           options={options}
+          tone={tone}
         />
       </div>
 
@@ -537,6 +541,19 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
 
         {/* オプション */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <h2 className="text-sm font-semibold text-slate-900">話し方・口調</h2>
+          <p className="mt-1 text-xs text-slate-500">未入力の場合は、従来の汎用的な文体で台本を生成します（最大500文字）。</p>
+          <textarea
+            value={tone}
+            onChange={(e) => setTone(e.target.value)}
+            maxLength={500}
+            rows={4}
+            aria-label="話し方・口調"
+            className="mt-3 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100"
+          />
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <h2 className="text-sm font-semibold text-slate-900">オプション</h2>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
@@ -684,6 +701,7 @@ function ReadOnlySummary({
   cast,
   segments,
   options,
+  tone,
 }: {
   id: string
   name: string
@@ -692,6 +710,7 @@ function ReadOnlySummary({
   cast: ProgramCastValue[]
   segments: ProgramSegmentValue[]
   options: ProgramOptionsValue
+  tone: string
 }) {
   return (
     <>
@@ -734,6 +753,11 @@ function ReadOnlySummary({
             </li>
           ))}
         </ol>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-sm font-semibold text-slate-900">話し方・口調</h2>
+        <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{tone || '未設定'}</p>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

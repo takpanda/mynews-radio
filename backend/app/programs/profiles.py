@@ -59,6 +59,7 @@ class ProgramProfile:
     cast: tuple[ProgramCastMember, ...]
     segments: tuple[ProgramSegment, ...]
     options: ProgramOptions = ProgramOptions()
+    tone: str | None = None
 
     @property
     def speaker_keys(self) -> frozenset[str]:
@@ -76,6 +77,8 @@ def validate_program_profile(profile: ProgramProfile) -> None:
         errors.append(f"unsupported program kind: {profile.kind!r}")
     if profile.options.review_mode not in {"always", "on_failure", "auto"}:
         errors.append(f"unsupported review_mode: {profile.options.review_mode!r}")
+    if profile.tone is not None and len(profile.tone) > 500:
+        errors.append("program tone must be 500 characters or fewer")
 
     cast_keys = [member.key for member in profile.cast]
     if not cast_keys:

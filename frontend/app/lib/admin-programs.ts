@@ -49,6 +49,7 @@ export interface ProgramDefinitionValue {
   id: string
   name: string
   kind: ProgramKind
+  tone?: string | null
   cast: ProgramCastValue[]
   segments: ProgramSegmentValue[]
   options: ProgramOptionsValue

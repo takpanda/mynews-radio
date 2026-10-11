@@ -7,6 +7,7 @@ const EMPTY_PROGRAM: ProgramDefinitionValue = {
   id: '',
   name: '',
   kind: 'radio',
+  tone: null,
   cast: [],
   segments: [],
   options: { style: null, mc_gender: null, narrative_arc: false, review_mode: 'on_failure' },
