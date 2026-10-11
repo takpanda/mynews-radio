@@ -44,15 +44,22 @@ describe('AdminMcFormModal ペルソナ', () => {
     expect(mockReplaceMc).toHaveBeenCalledWith('radio_male', expect.objectContaining({ persona: '明るい口調' }))
   })
 
-  it('空にするとnullで送信する', async () => {
+  it('空にすると空文字で送信する（nullだとBEが既存値を保持するため）', async () => {
     mockReplaceMc.mockResolvedValueOnce(mc)
     const user = userEvent.setup()
-    render(<AdminMcFormModal mc={mc} onClose={jest.fn()} onSuccess={jest.fn()} />)
+    const { unmount } = render(<AdminMcFormModal mc={mc} onClose={jest.fn()} onSuccess={jest.fn()} />)
 
     await user.clear(screen.getByLabelText(/ペルソナ/))
     await user.click(screen.getByRole('button', { name: '保存する' }))
 
-    expect(mockReplaceMc).toHaveBeenCalledWith('radio_male', expect.objectContaining({ persona: null }))
+    const sent = mockReplaceMc.mock.calls[0][1]
+    expect(sent.persona).toBe('')
+    expect(sent.persona).not.toBeNull()
+
+    // 保存後の応答（persona空）で開き直すと空欄で再表示される
+    unmount()
+    render(<AdminMcFormModal mc={{ ...mc, persona: sent.persona }} onClose={jest.fn()} onSuccess={jest.fn()} />)
+    expect(screen.getByLabelText(/ペルソナ/)).toHaveValue('')
   })
 
   it('4000文字を超える入力は保存せずエラーを表示する', async () => {

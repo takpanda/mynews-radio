@@ -68,7 +68,8 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
       id: id.trim(),
       name: name.trim(),
       role: role.trim(),
-      persona: persona.trim() || null,
+      // BEのPUTはnullを「変更なし」として扱うため、削除は空文字で明示する
+      persona: persona.trim(),
       voice_fishs2pro: voiceFishs2pro.trim() || null,
       voice_aivispeech: voiceAivispeech.trim() === '' ? null : Number(voiceAivispeech),
       voice_voicevox: voiceVoicevox.trim() === '' ? null : Number(voiceVoicevox),
