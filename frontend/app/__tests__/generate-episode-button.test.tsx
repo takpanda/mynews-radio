@@ -1081,7 +1081,7 @@ describe('GenerateEpisodeButton — 番組選択式の生成UI', () => {
     expect(mockSearchEpisodesBySourceUrl).not.toHaveBeenCalled()
   })
 
-  it.each(['https://?q=1', 'http:///path', 'ftp://example.com/a', 'example.com'])(
+  it.each(['https://?q=1', 'https://#frag', 'ftp://example.com/a', 'example.com'])(
     '不正なURL（%s）ではエラーを表示し、検索・生成APIを呼ばない',
     async (value) => {
       const user = userEvent.setup()
