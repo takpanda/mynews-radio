@@ -54,6 +54,26 @@ def test_program_profile_migration_preserves_existing_episode_values_and_allows_
     assert conn.execute("PRAGMA foreign_key_list(episodes)").fetchall()
 
 
+def test_program_profile_migration_backfills_selection_contract_on_legacy_definitions():
+    conn = _conn()
+    conn.execute("CREATE TABLE programs (id TEXT PRIMARY KEY, name TEXT, kind TEXT, definition TEXT, is_active INTEGER DEFAULT 1)")
+    legacy = get_default_profile(kind="radio")
+    definition = program_profile_to_definition(legacy)
+    for key in ("news_source", "priority_themes", "excluded_themes", "max_articles",
+                "min_importance_score", "duration_preset"):
+        definition.pop(key, None)
+    conn.execute(
+        "INSERT INTO programs (id, name, kind, definition) VALUES (?, ?, ?, ?)",
+        (legacy.id, legacy.name, legacy.kind, json.dumps(definition)),
+    )
+    migrate_program_profiles(conn)
+    restored = load_program_profile(conn, "radio_news_neighbor")
+    assert restored.news_source == "hatena_hotentry_all"
+    assert restored.priority_themes is None
+    assert restored.excluded_themes is None
+    assert restored.duration_preset is None
+
+
 def test_program_profile_cannot_load_when_referenced_mc_is_inactive_or_missing():
     for unavailable_mc in ("inactive", "missing"):
         conn = _conn()

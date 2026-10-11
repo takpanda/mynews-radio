@@ -32,6 +32,8 @@ class ProgramSettings:
     priority_themes: tuple[str, ...] = ()
     excluded_themes: tuple[str, ...] = ()
     duration_preset: str = DEFAULT_DURATION_PRESET
+    max_articles: int | None = None
+    min_importance_score: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -42,11 +44,16 @@ class ProgramSettings:
 
     def generation_params(self) -> dict[str, Any]:
         """生成処理へ渡す安定した契約。保存形式を公開しない。"""
-        return {
+        params = {
             "priority_themes": list(self.priority_themes),
             "excluded_themes": list(self.excluded_themes),
             **DURATION_LIMITS[self.duration_preset],
         }
+        if self.max_articles is not None:
+            params["max_articles"] = self.max_articles
+        if self.min_importance_score is not None:
+            params["min_importance_score"] = self.min_importance_score
+        return params
 
 
 def validate_settings(
