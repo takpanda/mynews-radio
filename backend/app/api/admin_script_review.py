@@ -341,9 +341,11 @@ def reject_script(episode_id: int, body: RejectRequest, user_id: Annotated[int, 
                 snapshot_profile = program_profile_from_definition(snapshot)
             except (TypeError, ValueError, json.JSONDecodeError, KeyError):
                 logger.warning("episode program snapshot is invalid; using stored generation source")
+        snapshot_news_source = snapshot_profile.news_source if snapshot_profile is not None else None
         news_source = (
-            snapshot_profile.news_source
-            if snapshot_profile is not None else source_payload.get("news_source")
+            snapshot_news_source
+            if isinstance(snapshot_news_source, str) and snapshot_news_source in valid_news_sources
+            else source_payload.get("news_source")
         )
         if not isinstance(news_source, str) or news_source not in valid_news_sources:
             from app.api.generate import RADIO_PROGRAM_NEWS_SOURCES

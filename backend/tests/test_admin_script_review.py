@@ -367,6 +367,48 @@ def test_reject_regenerate_uses_snapshot_source_for_non_daily_generation(client)
     assert applied.duration_preset == "short"
 
 
+def test_reject_regenerate_uses_original_source_for_legacy_snapshot(client):
+    from dataclasses import replace
+
+    from app.db.connection import get_db_connection
+    from app.programs.profiles import get_default_profile
+    from app.programs.serialization import program_profile_to_definition
+
+    episode_id, _ = _episode_with_script()
+    profile = replace(get_default_profile(kind="radio"), news_source="yahoo_news")
+    snapshot_definition = program_profile_to_definition(profile)
+    snapshot_definition.pop("news_source")
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE episodes SET program_id=?, program_snapshot=? WHERE id=?",
+            (profile.id, json.dumps(snapshot_definition, ensure_ascii=False), episode_id),
+        )
+        owner_id = conn.execute(
+            "SELECT admin_user_id FROM sessions WHERE token=?",
+            (next(cookie.value for cookie in client.cookies.jar if cookie.name == "admin_session"),),
+        ).fetchone()["admin_user_id"]
+        conn.execute(
+            "INSERT INTO generation_jobs(owner_user_id, operation, idempotency_key, input_hash, "
+            "client_ip_hash, episode_id, payload, status) "
+            "VALUES (?, 'generate', ?, 'legacy-source-hash', 'legacy-source-ip', ?, ?, 'completed')",
+            (owner_id, f"api-legacy-source-{episode_id}", episode_id,
+             json.dumps({"news_source": "yahoo_news"})),
+        )
+
+    with patch("app.api.admin_script_review.dispatch_job"):
+        response = client.post(
+            f"/admin/episodes/{episode_id}/reject", json={"action": "regenerate"}
+        )
+
+    assert response.status_code == 200
+    with get_db_connection() as conn:
+        job = conn.execute(
+            "SELECT payload FROM generation_jobs WHERE id=?",
+            (response.json()["job_id"],),
+        ).fetchone()
+    assert json.loads(job["payload"])["news_source"] == "yahoo_news"
+
+
 def test_reject_regenerate_falls_back_to_program_source_without_original_job(client):
     from app.db.connection import get_db_connection
 
