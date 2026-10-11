@@ -59,6 +59,14 @@ function emptyCast(): ProgramCastValue {
   }
 }
 
+/** 名前が空で有効なmc_idを持つキャストは、表示（MC選択）と保存値を一致させるためMC名で補完する */
+function fillEmptyCastNames(cast: ProgramCastValue[], mcs: Mc[]): ProgramCastValue[] {
+  return cast.map((member) => {
+    const mc = !member.name && member.mc_id ? mcs.find((m) => m.id === member.mc_id) : undefined
+    return mc ? { ...member, name: mc.name } : member
+  })
+}
+
 function emptySegment(order: number, kind: string): ProgramSegmentValue {
   return { id: '', kind, order, min_lines: 0, max_lines: 0, speaker_keys: [], label: '' }
 }
@@ -138,7 +146,7 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
   const [name, setName] = useState(initialProgram.name)
   const [kind, setKind] = useState<ProgramKind>(initialProgram.kind)
   const [isActive, setIsActive] = useState(initialIsActive)
-  const [cast, setCast] = useState<ProgramCastValue[]>(initialProgram.cast)
+  const [cast, setCast] = useState<ProgramCastValue[]>(() => fillEmptyCastNames(initialProgram.cast, mcs))
   const [segments, setSegments] = useState<ProgramSegmentValue[]>(initialProgram.segments)
   const [options, setOptions] = useState<ProgramOptionsValue>(initialProgram.options)
   const [newsSource, setNewsSource] = useState<NewsSource | null>(initialProgram.news_source ?? null)
@@ -352,7 +360,7 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
       setName(updated.name)
       setKind(updated.kind)
       setIsActive(updated.is_active)
-      setCast(updated.definition.cast)
+      setCast(fillEmptyCastNames(updated.definition.cast, mcs))
       setSegments(updated.definition.segments)
       setOptions(updated.definition.options)
       setNewsSource(updated.definition.news_source ?? null)

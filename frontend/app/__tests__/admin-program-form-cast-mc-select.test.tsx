@@ -52,6 +52,16 @@ function program(casts: ProgramCastValue[]): ProgramDefinitionValue {
   }
 }
 
+async function savedCast() {
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('button', { name: '作成する' }))
+  await waitFor(() =>
+    expect(global.fetch).toHaveBeenCalledWith('/api/admin/programs', expect.objectContaining({ method: 'POST' })),
+  )
+  const call = (global.fetch as jest.Mock).mock.calls.find(([url]) => url === '/api/admin/programs')
+  return JSON.parse(call[1].body as string).cast
+}
+
 async function renderShell(casts: ProgramCastValue[]) {
   global.fetch = jest.fn((url: string) => {
     if (url === VOICE_OPTIONS_URL) {
@@ -101,6 +111,16 @@ describe('AdminProgramFormShell キャスト名のMC選択', () => {
   it('有効なmc_idでも保存済みの名前がプロフィール名と違えば、名前を隠さず保持表示する', async () => {
     await renderShell([cast({ key: 'haru', name: '旧ハル', role: 'メインMC', mc_id: 'haru' })])
     expect(nameSelect(1).selectedOptions[0]).toHaveTextContent('旧ハル（一覧にありません）')
+    // 無操作で保存しても旧名とmc_idが保持される
+    const saved = await savedCast()
+    expect(saved[0]).toMatchObject({ name: '旧ハル', mc_id: 'haru' })
+  })
+
+  it('名前が空で有効なmc_idの既存キャストは、MC名で補完され無操作保存でも表示と一致する', async () => {
+    await renderShell([cast({ key: 'haru', name: '', role: 'メインMC', mc_id: 'haru' })])
+    expect(nameSelect(1)).toHaveValue('haru')
+    const saved = await savedCast()
+    expect(saved[0]).toMatchObject({ name: 'ハル', mc_id: 'haru' })
   })
 
   it('名前がプロフィール名と一致する既存キャストはそのMCが選択される', async () => {
