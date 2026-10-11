@@ -129,6 +129,41 @@ def test_explicit_radio_program_name_takes_precedence_over_news_source():
     assert profile.id == "radio_news_neighbor"
 
 
+def test_program_selection_rules_override_legacy_settings_and_keep_fallbacks():
+    from dataclasses import replace
+
+    from app.api.generate import _resolve_program_settings
+    from app.services.settings_service import ProgramSettings
+
+    legacy = ProgramSettings(("business",), ("sports",), "long")
+    profile = replace(
+        get_default_profile(kind="radio"),
+        priority_themes=("technology",),
+        max_articles=8,
+        min_importance_score=4,
+        duration_preset="short",
+    )
+    resolved = _resolve_program_settings(profile, legacy, None)
+    assert resolved.priority_themes == ("technology",)
+    assert resolved.excluded_themes == ("sports",)
+    assert resolved.generation_params()["max_articles"] == 8
+    assert resolved.generation_params()["min_importance_score"] == 4
+    assert resolved.duration_preset == "short"
+
+    fallback = _resolve_program_settings(get_default_profile(kind="radio"), legacy, None)
+    assert fallback.priority_themes == ("business",)
+    assert fallback.duration_preset == "long"
+    assert fallback.generation_params()["max_articles"] == 14
+
+    preset_profile = replace(
+        get_default_profile(kind="radio"), duration_preset="short"
+    )
+    preset_resolved = _resolve_program_settings(preset_profile, legacy, 2)
+    assert preset_resolved.max_articles is None
+    assert preset_resolved.generation_params()["max_articles"] == 6
+    assert preset_resolved.generation_params()["min_importance_score"] == 4
+
+
 @pytest.mark.parametrize(
     "profile",
     [

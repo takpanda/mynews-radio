@@ -47,6 +47,52 @@ def _queued_payload(dry_run_id):
     return json.loads(row["payload"])
 
 
+def test_dry_run_fetch_uses_profile_source_and_selection_rules(monkeypatch):
+    from app.api import admin_dry_runs
+    from app.batch import summarize_articles as summarize_module
+    from app.programs.serialization import program_profile_from_definition
+    from app.services.settings_service import default_settings
+
+    profile = program_profile_from_definition({
+        **_profile(),
+        "news_source": "yahoo_news",
+        "priority_themes": ["technology"],
+        "excluded_themes": ["sports"],
+        "max_articles": 9,
+        "min_importance_score": 4,
+        "duration_preset": "short",
+    })
+    observed = {}
+
+    class FakeArticleService:
+        def fetch_summaries_for_script(self, **kwargs):
+            observed["selection"] = kwargs
+            return [{"id": 10, "summary": "summary"}]
+
+    monkeypatch.setattr(
+        "app.services.settings_service.get_settings_or_default",
+        lambda: default_settings(),
+    )
+    monkeypatch.setattr(admin_dry_runs, "ArticleService", FakeArticleService)
+    monkeypatch.setattr(
+        summarize_module, "summarize_articles",
+        lambda *args, **kwargs: observed.update(summarize=kwargs),
+    )
+
+    assert admin_dry_runs._get_input_summaries(profile, None) == [
+        {"id": 10, "summary": "summary"}
+    ]
+    assert observed["summarize"]["news_source"] == "yahoo_news"
+    assert observed["summarize"]["program_id"] == profile.id
+    assert observed["selection"] == {
+        "max_articles": 9,
+        "min_importance_score": 4,
+        "source": "yahoo_news",
+        "priority_themes": ["technology"],
+        "excluded_themes": ["sports"],
+    }
+
+
 def test_dry_run_is_queued_and_retrievable(client, monkeypatch):
     from app.api import admin_dry_runs
 

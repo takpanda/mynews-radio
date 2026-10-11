@@ -36,9 +36,20 @@ def test_program_and_mc_crud_and_inactive_filters(client):
     assert created_program.status_code == 201
     assert client.get("/admin/programs/custom-radio").json()["definition"]["cast"][0]["key"] == "host"
 
-    replaced = _program_payload(name="更新済み番組", is_active=False)
+    replaced = _program_payload(
+        name="更新済み番組", is_active=False, news_source="yahoo_news",
+        priority_themes=["technology"], excluded_themes=["sports"],
+        max_articles=7, min_importance_score=4, duration_preset="short",
+    )
     assert client.put("/admin/programs/custom-radio", json=replaced).status_code == 200
-    assert client.get("/admin/programs/custom-radio").json()["is_active"] is False
+    saved = client.get("/admin/programs/custom-radio").json()
+    assert saved["is_active"] is False
+    assert saved["definition"]["news_source"] == "yahoo_news"
+    assert saved["definition"]["priority_themes"] == ["technology"]
+    assert saved["definition"]["excluded_themes"] == ["sports"]
+    assert saved["definition"]["max_articles"] == 7
+    assert saved["definition"]["min_importance_score"] == 4
+    assert saved["definition"]["duration_preset"] == "short"
     omitted_active = {**replaced, "name": "状態維持を確認"}
     omitted_active.pop("is_active")
     assert client.put("/admin/programs/custom-radio", json=omitted_active).status_code == 422
@@ -84,6 +95,15 @@ def test_program_invalid_profiles_duplicate_and_missing_ids(client):
     assert client.get("/admin/programs/not-found").status_code == 404
     assert client.put("/admin/programs/not-found", json=_program_payload(id="not-found")).status_code == 404
     assert client.put("/admin/programs/custom-radio", json={"id": "custom-radio"}).status_code == 422
+
+
+def test_program_selection_rules_reject_invalid_source_and_themes(client):
+    assert client.post(
+        "/admin/programs", json=_program_payload(news_source="unknown_source")
+    ).status_code == 422
+    assert client.post(
+        "/admin/programs", json=_program_payload(priority_themes=["unknown"])
+    ).status_code == 422
 
 
 def test_admin_program_api_requires_authentication():

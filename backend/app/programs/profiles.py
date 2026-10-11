@@ -7,6 +7,12 @@ from typing import Literal
 
 
 ProgramKind = Literal["radio", "commentary"]
+ProgramNewsSource = Literal[
+    "hatena_bookmark", "hatena_hotentry_all", "yahoo_news", "url"
+]
+_NEWS_SOURCES = {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news", "url"}
+_THEMES = {"technology", "business", "society", "sports", "entertainment", "general"}
+_DURATION_PRESETS = {"short", "normal", "long"}
 _SEGMENT_KINDS = {
     "radio": {"intro", "transition", "headline", "news", "discussion", "corner", "outro"},
     "commentary": {"intro", "headline", "news", "corner", "outro"},
@@ -59,6 +65,12 @@ class ProgramProfile:
     cast: tuple[ProgramCastMember, ...]
     segments: tuple[ProgramSegment, ...]
     options: ProgramOptions = ProgramOptions()
+    news_source: ProgramNewsSource | None = None
+    priority_themes: tuple[str, ...] | None = None
+    excluded_themes: tuple[str, ...] | None = None
+    max_articles: int | None = None
+    min_importance_score: int | None = None
+    duration_preset: str | None = None
 
     @property
     def speaker_keys(self) -> frozenset[str]:
@@ -76,6 +88,32 @@ def validate_program_profile(profile: ProgramProfile) -> None:
         errors.append(f"unsupported program kind: {profile.kind!r}")
     if profile.options.review_mode not in {"always", "on_failure", "auto"}:
         errors.append(f"unsupported review_mode: {profile.options.review_mode!r}")
+    if profile.news_source is not None and profile.news_source not in _NEWS_SOURCES:
+        errors.append(f"unsupported news_source: {profile.news_source!r}")
+    if profile.news_source == "url" and profile.kind != "commentary":
+        errors.append("url news_source is only supported for commentary profiles")
+    if profile.kind == "commentary" and profile.news_source not in (None, "url"):
+        errors.append("commentary profiles must use the url news_source")
+    for name, themes in (
+        ("priority_themes", profile.priority_themes),
+        ("excluded_themes", profile.excluded_themes),
+    ):
+        if themes is not None:
+            if len(themes) != len(set(themes)):
+                errors.append(f"{name} must not contain duplicates")
+            if name == "priority_themes" and len(themes) > 3:
+                errors.append("priority_themes must contain at most 3 items")
+            if any(theme not in _THEMES for theme in themes):
+                errors.append(f"{name} contains an unsupported theme")
+    if profile.priority_themes is not None and profile.excluded_themes is not None:
+        if set(profile.priority_themes) & set(profile.excluded_themes):
+            errors.append("priority_themes and excluded_themes must not overlap")
+    if profile.max_articles is not None and not 1 <= profile.max_articles <= 50:
+        errors.append("max_articles must be between 1 and 50")
+    if profile.min_importance_score is not None and not 1 <= profile.min_importance_score <= 5:
+        errors.append("min_importance_score must be between 1 and 5")
+    if profile.duration_preset is not None and profile.duration_preset not in _DURATION_PRESETS:
+        errors.append(f"unsupported duration_preset: {profile.duration_preset!r}")
 
     cast_keys = [member.key for member in profile.cast]
     if not cast_keys:
@@ -212,6 +250,7 @@ RADIO_TWO_PERSON = ProgramProfile(
         _segment("outro", "outro", 4, 4, 6, ("male", "female")),
     ),
     options=ProgramOptions(narrative_arc=True),
+    news_source="hatena_hotentry_all",
 )
 
 COMMENTARY_ONE_PERSON = ProgramProfile(
@@ -225,6 +264,7 @@ COMMENTARY_ONE_PERSON = ProgramProfile(
         _segment("outro", "outro", 2, 1, 2, ("male",)),
     ),
     options=ProgramOptions(style="solo", mc_gender="male"),
+    news_source="url",
 )
 
 COMMENTARY_TWO_PERSON = ProgramProfile(
@@ -238,6 +278,7 @@ COMMENTARY_TWO_PERSON = ProgramProfile(
         _segment("outro", "outro", 2, 1, 2, ("male", "female")),
     ),
     options=ProgramOptions(style="dialogue"),
+    news_source="url",
 )
 
 DEFAULT_PROFILES: tuple[ProgramProfile, ...] = (
@@ -266,7 +307,12 @@ def get_default_profile(
         else:
             is_tech_news = news_source == "hatena_bookmark"
         if is_tech_news:
-            return replace(RADIO_TWO_PERSON, id="radio_tech_news", name="テックニュース")
+            return replace(
+                RADIO_TWO_PERSON,
+                id="radio_tech_news",
+                name="テックニュース",
+                news_source="hatena_bookmark",
+            )
         return RADIO_TWO_PERSON
     if kind == "commentary":
         if style == "dialogue":

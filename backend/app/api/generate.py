@@ -32,7 +32,7 @@ from app.services.article_service import ArticleService
 from app.services.episode_service import EpisodeService
 from app.services.telegram_notifier import notify_failure, notify_success
 from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_url
-from app.services.settings_service import get_settings_or_default, resolve_tts_speakers, validate_settings
+from app.services.settings_service import ProgramSettings, get_settings_or_default, resolve_tts_speakers, validate_settings
 from app.services.generation_control import (
     GenerationControlError, JobClaim, bind_episode, claim_job, dispatch_job, finish_job,
 )
@@ -256,6 +256,8 @@ def _resolve_program_profile(body: GenerateRequest) -> ProgramProfile:
             raise HTTPException(status_code=503, detail="Program definition is incomplete")
         if profile.kind != expected_kind:
             raise HTTPException(status_code=400, detail="program_id kind does not match the request")
+        if profile.news_source == "url" and not body.url:
+            raise HTTPException(status_code=400, detail="url is required for this program")
         return profile
 
     if expected_kind == "commentary":
@@ -324,6 +326,34 @@ def _episode_program_profile(episode_id: int) -> ProgramProfile | None:
     return program_profile_from_definition(raw)
 
 
+def _resolve_program_settings(
+    profile: ProgramProfile | None,
+    settings: ProgramSettings,
+    request_max_articles: int | None,
+) -> ProgramSettings:
+    """Merge per-program selection rules with the legacy user settings."""
+    if profile is None:
+        return settings
+    priority = profile.priority_themes if profile.priority_themes is not None else settings.priority_themes
+    excluded = profile.excluded_themes if profile.excluded_themes is not None else settings.excluded_themes
+    duration_preset = profile.duration_preset or settings.duration_preset
+    try:
+        resolved = validate_settings(priority, excluded, duration_preset)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail="Program selection rules are invalid") from exc
+    max_articles = profile.max_articles
+    if max_articles is None and profile.duration_preset is None:
+        max_articles = request_max_articles
+    min_importance_score = profile.min_importance_score
+    return ProgramSettings(
+        resolved.priority_themes,
+        resolved.excluded_themes,
+        duration_preset,
+        max_articles,
+        min_importance_score,
+    )
+
+
 def _run_generation(episode_id: int, body: GenerateRequest) -> dict[str, Any] | PipelineResult | None:
     """Background pipeline that delegates to the shared radio pipeline."""
 
@@ -332,8 +362,20 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> dict[str, Any] | 
     seq = ep.get("seq", 0) if ep else 0
 
     program_profile = _episode_program_profile(episode_id)
-    if body.program_id is not None and program_profile is not None:
-        # Explicit seeded radio programs carry their legacy source selection by ID.
+    pipeline_max_articles = body.max_articles
+    if (
+        body.program_id is not None
+        and program_profile is not None
+        and (
+            program_profile.max_articles is not None
+            or program_profile.duration_preset is not None
+        )
+    ):
+        pipeline_max_articles = program_profile.max_articles
+    if body.program_id is not None and program_profile is not None and program_profile.news_source:
+        news_source = program_profile.news_source
+    elif body.program_id is not None and program_profile is not None:
+        # Legacy definitions without source retain the existing ID based behavior.
         news_source = RADIO_PROGRAM_NEWS_SOURCES.get(program_profile.id, "hatena_hotentry_all")
     else:
         news_source = body.news_source if body.news_source in {"hatena_bookmark", "hatena_hotentry_all", "yahoo_news"} else "hatena_bookmark"
@@ -347,11 +389,13 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> dict[str, Any] | 
         episode_date=body.date,
         news_source=news_source,
         seq=seq,
-        max_articles=body.max_articles,
-        program_settings=(
+        max_articles=pipeline_max_articles,
+        program_settings=_resolve_program_settings(
+            program_profile if body.program_id is not None else None,
             validate_settings(**body.settings_snapshot)
             if body.settings_snapshot is not None
-            else get_settings_or_default()
+            else get_settings_or_default(),
+            body.max_articles,
         ),
         tts_engine=_resolve_tts_engine(body.tts_engine, get_settings().default_tts_engine),
         default_episodes_dir=DEFAULT_EPISODES_DIR,
@@ -364,6 +408,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> dict[str, Any] | 
         content_model=body.content_model,
         generation_job_id=_active_generation_job_id(episode_id),
         program_profile=program_profile,
+        program_id_selected=body.program_id is not None,
     )
 
     if result is None:
