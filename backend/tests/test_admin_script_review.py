@@ -600,12 +600,14 @@ def test_preview_audio_enforces_admin_per_minute_quota(client):
         Path(output_path).write_bytes(b"RIFF-preview")
         return True
 
-    with patch("app.services.voicevox_client.VoicevoxClient.synthesize_line", write_fake_audio):
+    with patch("app.services.fishs2pro_client.FishS2ProClient.synthesize_line", autospec=True) as synthesize:
+        synthesize.side_effect = write_fake_audio
         responses = [client.post(f"/admin/episodes/{episode_id}/lines/0/preview-audio") for _ in range(5)]
         limited = client.post(f"/admin/episodes/{episode_id}/lines/0/preview-audio")
 
     assert all(response.status_code == 200 for response in responses)
     assert limited.status_code == 429
+    assert synthesize.call_count == 5
 
 
 def test_script_revision_migration_keeps_existing_episode_states():
