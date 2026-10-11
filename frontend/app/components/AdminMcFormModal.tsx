@@ -26,11 +26,25 @@ const MAX_ROLE = 200
 const VOICE_SELECT_CLASS =
   'w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400'
 
-function VoiceOptionItems({ engine }: { engine: EngineVoiceOptions | undefined }) {
+function VoiceOptionItems({
+  engine,
+  current,
+  loaded,
+}: {
+  engine: EngineVoiceOptions | undefined
+  current: string
+  loaded: boolean
+}) {
+  const options = engine?.options ?? []
+  // 候補にない保存済みの値は、値を失わないよう専用optionで表示する（取得完了前は値のみ表示）
+  const isOutOfCandidates = current !== '' && !options.some((o) => String(o.value) === current)
   return (
     <>
       <option value="">選択してください</option>
-      {(engine?.options ?? []).map((o) => (
+      {isOutOfCandidates && (
+        <option value={current}>{loaded ? `現在の値: ${current}（候補にありません）` : current}</option>
+      )}
+      {options.map((o) => (
         <option key={String(o.value)} value={String(o.value)}>
           {o.display_name}
         </option>
@@ -81,6 +95,7 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
     const e = voiceOptions?.[key]
     return e?.status === 'error' ? (e.error ?? 'ボイス候補の取得に失敗しました') : null
   }
+  const voiceOptionsLoaded = voiceOptions !== null || voiceOptionsError !== null
   const voiceErrors = [voiceOptionsError, engineError('fishs2pro')].filter((m): m is string => !!m)
 
   useEffect(() => {
@@ -253,7 +268,7 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
                 onChange={(e) => setVoiceFishs2pro(e.target.value)}
                 className={VOICE_SELECT_CLASS}
               >
-                <VoiceOptionItems engine={voiceOptions?.fishs2pro} />
+                <VoiceOptionItems engine={voiceOptions?.fishs2pro} current={voiceFishs2pro} loaded={voiceOptionsLoaded} />
               </select>
             </div>
             <div>
@@ -267,7 +282,7 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
                 aria-describedby={isAivispeechDisabled ? 'mc-form-tts-disabled-note' : undefined}
                 className={VOICE_SELECT_CLASS}
               >
-                <VoiceOptionItems engine={voiceOptions?.aivispeech} />
+                <VoiceOptionItems engine={voiceOptions?.aivispeech} current={voiceAivispeech} loaded={voiceOptionsLoaded} />
               </select>
             </div>
             <div>
@@ -281,7 +296,7 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
                 aria-describedby={isVoicevoxDisabled ? 'mc-form-tts-disabled-note' : undefined}
                 className={VOICE_SELECT_CLASS}
               >
-                <VoiceOptionItems engine={voiceOptions?.voicevox} />
+                <VoiceOptionItems engine={voiceOptions?.voicevox} current={voiceVoicevox} loaded={voiceOptionsLoaded} />
               </select>
             </div>
           </div>

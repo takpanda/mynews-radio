@@ -135,4 +135,66 @@ describe('AdminMcFormModal', () => {
       expect.objectContaining({ voice_fishs2pro: 'male', voice_aivispeech: 1310138976, voice_voicevox: 11 }),
     )
   })
+
+  describe('候補にない保存済みの値', () => {
+    const outMc: Mc = { ...existingMc, voice_fishs2pro: 'old_voice' }
+    const sel = (l: string) => screen.getByLabelText(l) as HTMLSelectElement
+
+    it('候補外の値は「現在の値: xxx（候補にありません）」で表示・選択され、無効エンジンはdisabledのまま', async () => {
+      render(<AdminMcFormModal mc={outMc} onClose={jest.fn()} onSuccess={jest.fn()} />)
+      await waitFor(() => expect(fish().options.length).toBeGreaterThan(2))
+      expect(fish().value).toBe('old_voice')
+      expect(fish().selectedOptions[0]).toHaveTextContent('現在の値: old_voice（候補にありません）')
+      expect(sel('AivisSpeech').value).toBe('1310138976')
+      expect(sel('AivisSpeech').selectedOptions[0]).toHaveTextContent('現在の値: 1310138976（候補にありません）')
+      expect(sel('VOICEVOX').value).toBe('11')
+      expect(sel('AivisSpeech')).toBeDisabled()
+      expect(sel('VOICEVOX')).toBeDisabled()
+    })
+
+    it('候補に同じIDがある場合は通常optionに一致し、重複optionを作らない', async () => {
+      render(<AdminMcFormModal mc={existingMc} onClose={jest.fn()} onSuccess={jest.fn()} />)
+      await waitFor(() => expect(fish().options).toHaveLength(FISH_VOICES.length + 1))
+      expect(fish().value).toBe('male')
+      expect(Array.from(fish().options).filter((o) => o.value === 'male')).toHaveLength(1)
+    })
+
+    it('取得失敗でも既存値を表示・保持して保存でき、エラー表示も維持される', async () => {
+      mockFetchVoiceOptions.mockRejectedValue(new Error('504'))
+      mockReplaceMc.mockResolvedValueOnce({ ...outMc })
+      const user = userEvent.setup()
+      render(<AdminMcFormModal mc={outMc} onClose={jest.fn()} onSuccess={jest.fn()} />)
+      expect(await screen.findByRole('alert')).toHaveTextContent('504')
+      expect(fish().value).toBe('old_voice')
+      expect(fish().selectedOptions[0]).toHaveTextContent('候補にありません')
+      await user.click(screen.getByRole('button', { name: '保存する' }))
+      expect(mockReplaceMc).toHaveBeenCalledWith(
+        'radio_male',
+        expect.objectContaining({ voice_fishs2pro: 'old_voice', voice_aivispeech: 1310138976, voice_voicevox: 11 }),
+      )
+    })
+
+    it('候補外の値から別候補・空選択へ変更でき、その値で保存される', async () => {
+      mockReplaceMc.mockResolvedValue({ ...outMc })
+      const user = userEvent.setup()
+      render(<AdminMcFormModal mc={outMc} onClose={jest.fn()} onSuccess={jest.fn()} />)
+      await waitFor(() => expect(fish().options.length).toBeGreaterThan(2))
+      await user.selectOptions(fish(), 'female')
+      await user.click(screen.getByRole('button', { name: '保存する' }))
+      expect(mockReplaceMc).toHaveBeenLastCalledWith('radio_male', expect.objectContaining({ voice_fishs2pro: 'female' }))
+      await user.selectOptions(fish(), '')
+      await user.click(screen.getByRole('button', { name: '保存する' }))
+      expect(mockReplaceMc).toHaveBeenLastCalledWith('radio_male', expect.objectContaining({ voice_fishs2pro: null }))
+    })
+
+    it('候補空配列でも数値エンジンの既存値を保持して保存される', async () => {
+      mockReplaceMc.mockResolvedValue({ ...outMc })
+      const user = userEvent.setup()
+      render(<AdminMcFormModal mc={{ ...existingMc, voice_aivispeech: null }} onClose={jest.fn()} onSuccess={jest.fn()} />)
+      await waitFor(() => expect(fish().value).toBe('male'))
+      expect(sel('AivisSpeech').value).toBe('')
+      await user.click(screen.getByRole('button', { name: '保存する' }))
+      expect(mockReplaceMc).toHaveBeenCalledWith('radio_male', expect.objectContaining({ voice_aivispeech: null, voice_voicevox: 11 }))
+    })
+  })
 })
