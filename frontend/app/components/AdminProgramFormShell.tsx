@@ -9,7 +9,15 @@ import {
   MAX_SEGMENTS,
   SEGMENT_KINDS_BY_PROGRAM_KIND,
   SEGMENT_KIND_LABELS,
+  NEWS_SOURCE_LABELS,
+  THEME_LABELS,
+  DURATION_PRESET_LABELS,
+  MAX_PRIORITY_THEMES,
+  MAX_ARTICLES_LIMIT,
+  type DurationPreset,
   type Mc,
+  type NewsSource,
+  type ProgramTheme,
   type Program,
   type ProgramCastValue,
   type ProgramDefinitionValue,
@@ -57,6 +65,44 @@ function renumber(segments: ProgramSegmentValue[]): ProgramSegmentValue[] {
   return segments.map((segment, index) => ({ ...segment, order: index }))
 }
 
+interface SelectionInput {
+  newsSource: NewsSource | null
+  priorityThemes: ProgramTheme[]
+  excludedThemes: ProgramTheme[]
+  maxArticles: string
+  minImportance: string
+}
+
+/** ソース・選定ルールの入力チェック。問題がなければnullを返す。 */
+function validateSelection(kind: ProgramKind, input: SelectionInput): string | null {
+  if (input.newsSource === 'url' && kind !== 'commentary') {
+    return 'URL指定のニュースソースは解説番組のみ選べます'
+  }
+  if (kind === 'commentary' && input.newsSource !== null && input.newsSource !== 'url') {
+    return '解説番組のニュースソースはURL指定のみ選べます'
+  }
+  if (input.priorityThemes.length > MAX_PRIORITY_THEMES) {
+    return `優先テーマは最大${MAX_PRIORITY_THEMES}件までです`
+  }
+  const overlap = input.priorityThemes.filter((theme) => input.excludedThemes.includes(theme))
+  if (overlap.length > 0) {
+    return `優先テーマと除外テーマに同じテーマ（${overlap.map((t) => THEME_LABELS[t]).join('、')}）は指定できません`
+  }
+  const max = input.maxArticles.trim()
+  if (max !== '') {
+    const n = Number(max)
+    if (!Number.isInteger(n) || n < 1 || n > MAX_ARTICLES_LIMIT) {
+      return `記事の件数は1〜${MAX_ARTICLES_LIMIT}の整数で入力してください`
+    }
+  }
+  const min = input.minImportance.trim()
+  if (min !== '') {
+    const n = Number(min)
+    if (!Number.isInteger(n) || n < 1 || n > 5) return '最低重要度は1〜5で選択してください'
+  }
+  return null
+}
+
 function validate(program: ProgramDefinitionValue): string | null {
   if (!program.id.trim()) return 'IDを入力してください'
   if (!program.name.trim()) return '名前を入力してください'
@@ -93,6 +139,18 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
   const [cast, setCast] = useState<ProgramCastValue[]>(initialProgram.cast)
   const [segments, setSegments] = useState<ProgramSegmentValue[]>(initialProgram.segments)
   const [options, setOptions] = useState<ProgramOptionsValue>(initialProgram.options)
+  const [newsSource, setNewsSource] = useState<NewsSource | null>(initialProgram.news_source ?? null)
+  const [priorityThemes, setPriorityThemes] = useState<ProgramTheme[]>(initialProgram.priority_themes ?? [])
+  const [excludedThemes, setExcludedThemes] = useState<ProgramTheme[]>(initialProgram.excluded_themes ?? [])
+  const [maxArticles, setMaxArticles] = useState(
+    initialProgram.max_articles != null ? String(initialProgram.max_articles) : '',
+  )
+  const [minImportance, setMinImportance] = useState(
+    initialProgram.min_importance_score != null ? String(initialProgram.min_importance_score) : '',
+  )
+  const [durationPreset, setDurationPreset] = useState<DurationPreset | null>(
+    initialProgram.duration_preset ?? null,
+  )
 
   const [formError, setFormError] = useState<string | null>(null)
   const [segmentLimitError, setSegmentLimitError] = useState<string | null>(null)
@@ -175,6 +233,11 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
     )
   }
 
+  const toggleTheme = (target: 'priority' | 'excluded', theme: ProgramTheme) => {
+    const setter = target === 'priority' ? setPriorityThemes : setExcludedThemes
+    setter((prev) => (prev.includes(theme) ? prev.filter((t) => t !== theme) : [...prev, theme]))
+  }
+
   const handleKindChange = (nextKind: ProgramKind) => {
     setKind(nextKind)
     // commentaryはnarrative_arcを受け付けない（validate_program_profile）。
@@ -193,18 +256,27 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
     id: id.trim(),
     name: name.trim(),
     kind,
-    cast: cast.map((member) => ({ ...member, key: member.key.trim() })),
+    // personaはMC側で管理しサーバーが解決する値で、番組保存APIは受け付けないため送らない
+    cast: cast.map(({ persona: _persona, ...member }) => ({ ...member, key: member.key.trim() })),
     segments: renumber(segments).map((segment) => ({
       ...segment,
       id: segment.id.trim(),
       speaker_keys: segment.speaker_keys.filter((key) => castKeys.includes(key)),
     })),
     options,
+    news_source: newsSource,
+    priority_themes: priorityThemes.length > 0 ? priorityThemes : null,
+    excluded_themes: excludedThemes.length > 0 ? excludedThemes : null,
+    max_articles: maxArticles.trim() === '' ? null : Number(maxArticles),
+    min_importance_score: minImportance.trim() === '' ? null : Number(minImportance),
+    duration_preset: durationPreset,
   })
 
   const handleSaveClick = () => {
     const payload = buildPayload()
-    const error = validate(payload)
+    const error =
+      validate(payload) ??
+      validateSelection(kind, { newsSource, priorityThemes, excludedThemes, maxArticles, minImportance })
     if (error) {
       setFormError(error)
       return
@@ -249,6 +321,14 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
       setCast(updated.definition.cast)
       setSegments(updated.definition.segments)
       setOptions(updated.definition.options)
+      setNewsSource(updated.definition.news_source ?? null)
+      setPriorityThemes(updated.definition.priority_themes ?? [])
+      setExcludedThemes(updated.definition.excluded_themes ?? [])
+      setMaxArticles(updated.definition.max_articles != null ? String(updated.definition.max_articles) : '')
+      setMinImportance(
+        updated.definition.min_importance_score != null ? String(updated.definition.min_importance_score) : '',
+      )
+      setDurationPreset(updated.definition.duration_preset ?? null)
       router.refresh()
     } catch (err) {
       setNoteDialog({ ...noteDialog, error: err instanceof Error ? err.message : '保存に失敗しました' })
@@ -345,6 +425,94 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
           </div>
         </div>
 
+        {/* ソース・選定ルール */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6" data-testid="program-selection-card">
+          <h2 className="text-sm font-semibold text-slate-900">ソース・選定ルール</h2>
+          <p className="mt-1 text-xs text-slate-400">未設定の項目は従来の設定が使われます。</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor="program-news-source" className="mb-1 block text-xs font-medium text-slate-500">
+                ニュースソース
+              </label>
+              <select
+                id="program-news-source"
+                value={newsSource ?? ''}
+                onChange={(e) => setNewsSource((e.target.value || null) as NewsSource | null)}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+              >
+                <option value="">未設定（従来設定を使う）</option>
+                {(Object.keys(NEWS_SOURCE_LABELS) as NewsSource[]).map((source) => (
+                  <option key={source} value={source}>
+                    {NEWS_SOURCE_LABELS[source]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="program-duration-preset" className="mb-1 block text-xs font-medium text-slate-500">
+                尺プリセット
+              </label>
+              <select
+                id="program-duration-preset"
+                value={durationPreset ?? ''}
+                onChange={(e) => setDurationPreset((e.target.value || null) as DurationPreset | null)}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+              >
+                <option value="">未設定（従来設定を使う）</option>
+                {(Object.keys(DURATION_PRESET_LABELS) as DurationPreset[]).map((preset) => (
+                  <option key={preset} value={preset}>
+                    {DURATION_PRESET_LABELS[preset]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <ThemeCheckboxes
+              legend={`優先テーマ（最大${MAX_PRIORITY_THEMES}件）`}
+              selected={priorityThemes}
+              onToggle={(theme) => toggleTheme('priority', theme)}
+            />
+            <ThemeCheckboxes
+              legend="除外テーマ"
+              selected={excludedThemes}
+              onToggle={(theme) => toggleTheme('excluded', theme)}
+            />
+            <div>
+              <label htmlFor="program-max-articles" className="mb-1 block text-xs font-medium text-slate-500">
+                記事の件数（1〜{MAX_ARTICLES_LIMIT}）
+              </label>
+              <input
+                id="program-max-articles"
+                type="number"
+                min={1}
+                max={MAX_ARTICLES_LIMIT}
+                step={1}
+                value={maxArticles}
+                onChange={(e) => setMaxArticles(e.target.value)}
+                placeholder="未設定"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label htmlFor="program-min-importance" className="mb-1 block text-xs font-medium text-slate-500">
+                最低重要度（1〜5）
+              </label>
+              <select
+                id="program-min-importance"
+                value={minImportance}
+                onChange={(e) => setMinImportance(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+              >
+                <option value="">未設定</option>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <option key={n} value={String(n)}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
         {/* キャスト */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="flex items-center justify-between">
@@ -358,6 +526,9 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
             </button>
           </div>
           <div className="mt-3 space-y-3">
+            <p className="text-xs text-slate-400">
+              ペルソナ（話し方を含む）はMC編集画面で設定します。ここでは番組内での役割を編集できます。
+            </p>
             {cast.length === 0 && <p className="text-sm text-slate-400">キャストがまだありません。</p>}
             {cast.map((member, index) => (
               <div key={index} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
@@ -636,6 +807,35 @@ export default function AdminProgramFormShell({ mode, initialProgram, initialIsA
         </ConfirmDialog>
       )}
     </div>
+  )
+}
+
+function ThemeCheckboxes({
+  legend,
+  selected,
+  onToggle,
+}: {
+  legend: string
+  selected: ProgramTheme[]
+  onToggle: (theme: ProgramTheme) => void
+}) {
+  return (
+    <fieldset>
+      <legend className="mb-1 block text-xs font-medium text-slate-500">{legend}</legend>
+      <div className="flex flex-wrap gap-3">
+        {(Object.keys(THEME_LABELS) as ProgramTheme[]).map((theme) => (
+          <label key={theme} className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+            <input
+              type="checkbox"
+              checked={selected.includes(theme)}
+              onChange={() => onToggle(theme)}
+              className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-300"
+            />
+            {THEME_LABELS[theme]}
+          </label>
+        ))}
+      </div>
+    </fieldset>
   )
 }
 

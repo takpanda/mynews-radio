@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { createMc, replaceMc, type Mc, type McSaveInput } from '../lib/admin-programs'
+import { createMc, replaceMc, MAX_PERSONA_LENGTH, type Mc, type McSaveInput } from '../lib/admin-programs'
 import { DISABLED_TTS_ENGINES, DISABLED_TTS_ENGINE_MESSAGE } from '../lib/admin-voice-settings'
 
 interface Props {
@@ -10,7 +10,7 @@ interface Props {
   onSuccess: () => void
 }
 
-type FormErrors = Partial<Record<'id' | 'name' | 'role', string>>
+type FormErrors = Partial<Record<'id' | 'name' | 'role' | 'persona', string>>
 
 const MAX_ID = 100
 const MAX_NAME = 200
@@ -24,6 +24,7 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
   const [id, setId] = useState(mc?.id ?? '')
   const [name, setName] = useState(mc?.name ?? '')
   const [role, setRole] = useState(mc?.role ?? '')
+  const [persona, setPersona] = useState(mc?.persona ?? '')
   const [voiceFishs2pro, setVoiceFishs2pro] = useState(mc?.voice_fishs2pro ?? '')
   const [voiceAivispeech, setVoiceAivispeech] = useState(
     mc?.voice_aivispeech != null ? String(mc.voice_aivispeech) : '',
@@ -52,6 +53,8 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
     else if (id.length > MAX_ID) errs.id = `IDは${MAX_ID}文字以内で入力してください`
     if (name.length > MAX_NAME) errs.name = `名前は${MAX_NAME}文字以内で入力してください`
     if (role.length > MAX_ROLE) errs.role = `役割は${MAX_ROLE}文字以内で入力してください`
+    if (persona.length > MAX_PERSONA_LENGTH)
+      errs.persona = `ペルソナは${MAX_PERSONA_LENGTH}文字以内で入力してください`
     setErrors(errs)
     return Object.keys(errs).length === 0
   }
@@ -65,6 +68,8 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
       id: id.trim(),
       name: name.trim(),
       role: role.trim(),
+      // BEのPUTはnullを「変更なし」として扱うため、削除は空文字で明示する
+      persona: persona.trim(),
       voice_fishs2pro: voiceFishs2pro.trim() || null,
       voice_aivispeech: voiceAivispeech.trim() === '' ? null : Number(voiceAivispeech),
       voice_voicevox: voiceVoicevox.trim() === '' ? null : Number(voiceVoicevox),
@@ -168,6 +173,31 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
               placeholder="例: メインMC"
             />
             {errors.role && <p className="mt-1 text-xs text-red-500">{errors.role}</p>}
+          </div>
+
+          <div>
+            <label htmlFor="mc-form-persona" className="mb-1 block text-xs font-medium text-slate-500">
+              ペルソナ（性格・話し方など）
+            </label>
+            <textarea
+              id="mc-form-persona"
+              value={persona}
+              onChange={(e) => setPersona(e.target.value)}
+              rows={6}
+              maxLength={MAX_PERSONA_LENGTH}
+              className={`w-full resize-y rounded-lg border px-3 py-2 text-sm text-slate-900 transition focus:outline-none focus:ring-2 ${
+                errors.persona
+                  ? 'border-red-300 bg-red-50 focus:border-red-400 focus:ring-red-100'
+                  : 'border-slate-200 bg-slate-50 focus:border-sky-400 focus:bg-white focus:ring-sky-100'
+              }`}
+              placeholder="例: 落ち着いた口調で、専門用語はかみ砕いて説明する"
+              aria-invalid={!!errors.persona}
+              aria-describedby="mc-form-persona-hint"
+            />
+            <p id="mc-form-persona-hint" className="mt-1 text-xs text-slate-400">
+              話し方もここで設定します。未入力の場合はペルソナなしで保存されます（{persona.length}/{MAX_PERSONA_LENGTH}文字）。
+            </p>
+            {errors.persona && <p className="mt-1 text-xs text-red-500">{errors.persona}</p>}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
