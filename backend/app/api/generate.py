@@ -288,12 +288,13 @@ def _resolve_program_profile(body: GenerateRequest) -> ProgramProfile:
                 )
                 with get_db_connection() as conn:
                     mc = conn.execute(
-                        "SELECT voice_fishs2pro, voice_aivispeech, voice_voicevox "
+                        "SELECT persona, voice_fishs2pro, voice_aivispeech, voice_voicevox "
                         "FROM mc_profiles WHERE id = 'commentary_female' AND is_active = 1"
                     ).fetchone()
                     if mc is not None:
                         cast_member = replace(
                             cast_member,
+                            persona=mc["persona"],
                             voice_fishs2pro=mc["voice_fishs2pro"],
                             voice_aivispeech=mc["voice_aivispeech"],
                             voice_voicevox=mc["voice_voicevox"],

@@ -2,7 +2,11 @@ import json
 from dataclasses import replace
 from unittest.mock import patch
 
+import pytest
+
 from app.programs.profiles import (
+    COMMENTARY_FEMALE_PERSONA,
+    COMMENTARY_MALE_PERSONA,
     COMMENTARY_ONE_PERSON,
     COMMENTARY_TWO_PERSON,
     ProgramSegment,
@@ -25,6 +29,60 @@ class _FakeClient:
     def generate_json(self, prompt):
         self.prompts.append(prompt)
         return self.response
+
+
+@pytest.mark.parametrize("database_available", [True, False])
+def test_legacy_female_solo_prompt_uses_female_persona(database_available, tmp_path):
+    from app.api.generate import GenerateRequest, _resolve_program_profile
+    from app.batch import generate_commentary_script as generation
+    from app.db.connection import get_db_connection
+    from app.db.migration import migrate_program_profiles
+
+    if database_available:
+        with get_db_connection() as conn:
+            migrate_program_profiles(conn)
+            conn.execute(
+                "UPDATE mc_profiles SET persona = ? WHERE id = 'commentary_female'",
+                ("F_PERSONA_FROM_DB_SENTINEL",),
+            )
+            conn.execute(
+                "UPDATE mc_profiles SET persona = ? WHERE id = 'commentary_male'",
+                ("M_PERSONA_FROM_DB_SENTINEL",),
+            )
+        profile = _resolve_program_profile(
+            GenerateRequest(date="2099-11-08", url="https://example.com/article", style="solo", mc_gender="female")
+        )
+        expected_persona = "F_PERSONA_FROM_DB_SENTINEL"
+        forbidden_persona = "M_PERSONA_FROM_DB_SENTINEL"
+    else:
+        with patch(
+            "app.api.generate.load_program_profile",
+            side_effect=RuntimeError("database unavailable"),
+        ):
+            profile = _resolve_program_profile(
+                GenerateRequest(date="2099-11-08", url="https://example.com/article", style="solo", mc_gender="female")
+            )
+        expected_persona = COMMENTARY_FEMALE_PERSONA
+        forbidden_persona = COMMENTARY_MALE_PERSONA
+
+    assert profile.cast[0].persona == expected_persona
+    client = _FakeClient({
+        "title": "記事タイトル",
+        "lines": [
+            {"speaker": "female", "text": "生活への影響を見ていきます。", "article_id": 7, "section": "news"},
+        ],
+    })
+    with patch.object(generation, "create_llm_client", return_value=client):
+        generation.generate_commentary_script(
+            str(tmp_path / "female-commentary.json"),
+            {"id": 7, "title": "記事タイトル", "text": "本文です。"},
+            program_profile=profile,
+            llm_provider="test",
+            llm_model="test-model",
+        )
+
+    assert expected_persona in client.prompts[0]
+    assert forbidden_persona not in client.prompts[0]
 
 
 def test_radio_generation_uses_custom_profile_and_segments_added_transitions(tmp_path):

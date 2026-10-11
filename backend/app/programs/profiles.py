@@ -305,6 +305,11 @@ def get_default_profile(
             "",
             "解説者",
             mc_id=f"commentary_{mc_gender}",
+            persona=(
+                COMMENTARY_FEMALE_PERSONA
+                if mc_gender == "female"
+                else COMMENTARY_MALE_PERSONA
+            ),
         ),)
         segments = tuple(replace(segment, speaker_keys=(mc_gender,)) for segment in COMMENTARY_ONE_PERSON.segments)
         return replace(
