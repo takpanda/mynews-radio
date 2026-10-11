@@ -95,7 +95,7 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
     const e = voiceOptions?.[key]
     return e?.status === 'error' ? (e.error ?? 'ボイス候補の取得に失敗しました') : null
   }
-  const voiceOptionsLoaded = voiceOptions !== null || voiceOptionsError !== null
+  const voiceOptionsLoaded = voiceOptions !== null
   const voiceErrors = [voiceOptionsError, engineError('fishs2pro')].filter((m): m is string => !!m)
 
   useEffect(() => {

@@ -166,7 +166,8 @@ describe('AdminMcFormModal', () => {
       render(<AdminMcFormModal mc={outMc} onClose={jest.fn()} onSuccess={jest.fn()} />)
       expect(await screen.findByRole('alert')).toHaveTextContent('504')
       expect(fish().value).toBe('old_voice')
-      expect(fish().selectedOptions[0]).toHaveTextContent('候補にありません')
+      expect(fish().selectedOptions[0]).toHaveTextContent('old_voice')
+      expect(fish().selectedOptions[0]).not.toHaveTextContent('候補にありません')
       await user.click(screen.getByRole('button', { name: '保存する' }))
       expect(mockReplaceMc).toHaveBeenCalledWith(
         'radio_male',
