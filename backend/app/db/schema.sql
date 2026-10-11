@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS mc_profiles (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT '',
+    persona TEXT NOT NULL DEFAULT '',
     voice_fishs2pro TEXT,
     voice_aivispeech INTEGER,
     voice_voicevox INTEGER,

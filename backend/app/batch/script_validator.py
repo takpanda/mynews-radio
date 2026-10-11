@@ -228,10 +228,17 @@ class ScriptValidator:
         """Check question-heavy news blocks for profiles with multiple speakers."""
         if len(self.profile.cast) < 2:
             return []
-        if self.profile.id == "radio_news_neighbor":
+        if self.profile.id in {"radio_news_neighbor", "radio_tech_news"}:
             from app.batch.review_script import check_dialogue_balance
 
-            return check_dialogue_balance(lines)
+            asker, responder = self.profile.cast[1], self.profile.cast[0]
+            return check_dialogue_balance(
+                lines,
+                ask_speaker=asker.key,
+                response_speaker=responder.key,
+                ask_label=asker.name or asker.role or asker.key,
+                response_label=responder.name or responder.role or responder.key,
+            )
         asker, responder = self.profile.cast[1], self.profile.cast[0]
         issues: list[str] = []
         blocks: list[list[tuple[int, dict[str, Any]]]] = []

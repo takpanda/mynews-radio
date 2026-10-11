@@ -89,7 +89,8 @@ class PromptBuilder:
         )
         return any(
             self.profile.kind == legacy.kind
-            and self.profile.cast == legacy.cast
+            and tuple((member.key, member.role) for member in self.profile.cast)
+            == tuple((member.key, member.role) for member in legacy.cast)
             and self.profile.segments == legacy.segments
             and self.profile.options == legacy.options
             for legacy in legacy_profiles

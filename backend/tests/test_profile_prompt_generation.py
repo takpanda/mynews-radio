@@ -2,7 +2,11 @@ import json
 from dataclasses import replace
 from unittest.mock import patch
 
+import pytest
+
 from app.programs.profiles import (
+    COMMENTARY_FEMALE_PERSONA,
+    COMMENTARY_MALE_PERSONA,
     COMMENTARY_ONE_PERSON,
     COMMENTARY_TWO_PERSON,
     ProgramSegment,
@@ -27,6 +31,60 @@ class _FakeClient:
         return self.response
 
 
+@pytest.mark.parametrize("database_available", [True, False])
+def test_legacy_female_solo_prompt_uses_female_persona(database_available, tmp_path):
+    from app.api.generate import GenerateRequest, _resolve_program_profile
+    from app.batch import generate_commentary_script as generation
+    from app.db.connection import get_db_connection
+    from app.db.migration import migrate_program_profiles
+
+    if database_available:
+        with get_db_connection() as conn:
+            migrate_program_profiles(conn)
+            conn.execute(
+                "UPDATE mc_profiles SET persona = ? WHERE id = 'commentary_female'",
+                ("F_PERSONA_FROM_DB_SENTINEL",),
+            )
+            conn.execute(
+                "UPDATE mc_profiles SET persona = ? WHERE id = 'commentary_male'",
+                ("M_PERSONA_FROM_DB_SENTINEL",),
+            )
+        profile = _resolve_program_profile(
+            GenerateRequest(date="2099-11-08", url="https://example.com/article", style="solo", mc_gender="female")
+        )
+        expected_persona = "F_PERSONA_FROM_DB_SENTINEL"
+        forbidden_persona = "M_PERSONA_FROM_DB_SENTINEL"
+    else:
+        with patch(
+            "app.api.generate.load_program_profile",
+            side_effect=RuntimeError("database unavailable"),
+        ):
+            profile = _resolve_program_profile(
+                GenerateRequest(date="2099-11-08", url="https://example.com/article", style="solo", mc_gender="female")
+            )
+        expected_persona = COMMENTARY_FEMALE_PERSONA
+        forbidden_persona = COMMENTARY_MALE_PERSONA
+
+    assert profile.cast[0].persona == expected_persona
+    client = _FakeClient({
+        "title": "記事タイトル",
+        "lines": [
+            {"speaker": "female", "text": "生活への影響を見ていきます。", "article_id": 7, "section": "news"},
+        ],
+    })
+    with patch.object(generation, "create_llm_client", return_value=client):
+        generation.generate_commentary_script(
+            str(tmp_path / "female-commentary.json"),
+            {"id": 7, "title": "記事タイトル", "text": "本文です。"},
+            program_profile=profile,
+            llm_provider="test",
+            llm_model="test-model",
+        )
+
+    assert expected_persona in client.prompts[0]
+    assert forbidden_persona not in client.prompts[0]
+
+
 def test_radio_generation_uses_custom_profile_and_segments_added_transitions(tmp_path):
     from app.batch import generate_script as generation
 
@@ -34,7 +92,7 @@ def test_radio_generation_uses_custom_profile_and_segments_added_transitions(tmp
         RADIO_TWO_PERSON,
         id="radio_solo_custom",
         name="一人語りラジオ",
-        cast=(ProgramCastMember("host", "司会", "一人語り"),),
+        cast=(ProgramCastMember("host", "司会", "一人語り", persona="PERSONA_SENTINEL"),),
         options=replace(RADIO_TWO_PERSON.options, narrative_arc=False),
         segments=tuple(
             replace(segment, speaker_keys=("host",))
@@ -69,6 +127,7 @@ def test_radio_generation_uses_custom_profile_and_segments_added_transitions(tmp
     assert count > 0
     prompt = client.prompts[0]
     assert "一人語り" in prompt
+    assert "PERSONA_SENTINEL" in prompt
     assert "記事間のtransitionは、各記事の間に独立した1行" in prompt
     assert "2人のMC" not in prompt
     assert "交互" not in prompt
@@ -100,7 +159,7 @@ def test_commentary_generation_inserts_profile_json_after_template_formatting(tm
     profile = replace(
         COMMENTARY_ONE_PERSON,
         id="commentary_custom",
-        cast=(ProgramCastMember("analyst", "カスタム解説者", "専門家"),),
+        cast=(ProgramCastMember("analyst", "カスタム解説者", "専門家", persona="COMMENTARY_PERSONA_SENTINEL"),),
         options=replace(COMMENTARY_ONE_PERSON.options, mc_gender="analyst"),
         segments=tuple(
             replace(segment, speaker_keys=("analyst",))
@@ -125,6 +184,7 @@ def test_commentary_generation_inserts_profile_json_after_template_formatting(tm
 
     assert count == 1
     assert "カスタム解説者" in client.prompts[0]
+    assert "COMMENTARY_PERSONA_SENTINEL" in client.prompts[0]
     assert '"lines"' in client.prompts[0]
     assert '"speaker": "analyst"' in client.prompts[0]
     script = json.loads((tmp_path / "commentary.json").read_text(encoding="utf-8"))
@@ -233,3 +293,28 @@ def test_review_keeps_generation_time_segment_labels():
     revised = _build_revised_script(source, {"lines": []})
 
     assert revised["segments"] == saved_segments
+
+
+def test_review_synthesis_receives_snapshot_cast_persona_and_role(tmp_path):
+    from app.batch import review_script as review
+
+    profile = replace(
+        RADIO_TWO_PERSON,
+        id="custom-review-profile",
+        cast=(ProgramCastMember("host", "司会", "ROLE_SENTINEL", persona="REVIEW_PERSONA_SENTINEL"),),
+        segments=tuple(replace(segment, speaker_keys=("host",)) for segment in RADIO_TWO_PERSON.segments),
+    )
+    source_path = tmp_path / "script.json"
+    source_path.write_text(json.dumps({
+        "program_profile_id": profile.id,
+        "style": "solo",
+        "mc_gender": "host",
+        "lines": [{"speaker": "host", "text": "ニュースです。", "section": "news"}],
+    }), encoding="utf-8")
+    client = _FakeClient({"lines": [{"speaker": "host", "text": "修正版です。", "section": "news"}]})
+
+    with patch.object(review, "OllamaClient", return_value=client):
+        review.review_script(str(source_path), str(tmp_path / "reviewed"), program_profile=profile)
+
+    assert "ROLE_SENTINEL" in client.prompts[-1]
+    assert "REVIEW_PERSONA_SENTINEL" in client.prompts[-1]

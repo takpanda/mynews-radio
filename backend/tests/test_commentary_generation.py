@@ -631,7 +631,7 @@ class TestBuildSectionDetails:
     def test_dialogue_contains_dialogue_guidance(self):
         from app.batch.generate_commentary_script import _build_section_details
         result = _build_section_details(8, "dialogue")
-        assert "田村と山口が掛け合い形式" in result
+        assert "2人のMCが番組内の役割に沿って掛け合い形式" in result
 
     def test_solo_default_matches_solo_behavior(self):
         from app.batch.generate_commentary_script import _build_section_details
@@ -894,11 +894,10 @@ class TestSoloStyleProhibitions:
 
         # template-level: dialogue section unchanged from original
         dialogue_in_prompt = captured_dialogue_prompt[0][captured_dialogue_prompt[0].find("## スタイル=dialogue（二人対談）の場合"):]
-        assert "田村" in dialogue_in_prompt
-        assert "山口" in dialogue_in_prompt
-        assert "役割分担の鉄則" in dialogue_in_prompt
-        assert "田村は「感情" in dialogue_in_prompt
-        assert "山口は「技術" in dialogue_in_prompt
+        assert "田村" not in dialogue_in_prompt
+        assert "山口" not in dialogue_in_prompt
+        assert "各MCは人物設定と番組内の役割" in dialogue_in_prompt
+        assert "人物設定はMC自身の経歴・性格・話し方" in dialogue_in_prompt
 
 
 class TestSoloDialogueSpeakerBehavior:
@@ -1329,8 +1328,8 @@ class TestPromptTemplateStyleFiltering:
         assert "一人語りの文体" in prompt
         assert "自問自答" in prompt
 
-    def test_dialogue_prompt_contains_tamura_yamaguchi(self, tmp_path):
-        """dialogue で組み立てた prompt に田村・山口が含まれる"""
+    def test_dialogue_prompt_uses_generic_cast_persona_context(self, tmp_path):
+        """dialogue では人物名でなく役割・ペルソナの一般指示を使う"""
         from app.batch.generate_commentary_script import generate_commentary_script
         article = {"id": 1, "title": "Test", "text": "x" * 500}
         output = tmp_path / "dialogue_out.json"
@@ -1338,11 +1337,11 @@ class TestPromptTemplateStyleFiltering:
             generate_commentary_script(str(output), article, style="dialogue", mc_gender="male")
         prompt = self.CAPTURED_DIALOGUE
         assert prompt is not None
-        assert "田村" in prompt, "dialogue prompt should contain 田村"
-        assert "山口" in prompt, "dialogue prompt should contain 山口"
+        assert "田村" not in prompt
+        assert "山口" not in prompt
         assert "dialogue の場合" in prompt, "dialogue prompt should contain dialogue sections"
         assert "掛け合い形式" in prompt, "dialogue prompt should contain 掛け合い形式"
-        assert "役割分担の鉄則" in prompt, "dialogue prompt should contain role rules"
+        assert "各MCは人物設定と番組内の役割" in prompt
 
     def test_solo_male_prompt_strips_dialogue(self, tmp_path):
         """solo+male でも dialogue セクションが含まれない"""
@@ -1386,8 +1385,9 @@ class TestLoadPromptTemplate:
     def test_load_dialogue_keeps_dialogue_section(self):
         from app.batch.generate_commentary_script import _load_prompt_template
         template = _load_prompt_template("dialogue")
-        assert "田村" in template
-        assert "山口" in template
+        assert "田村" not in template
+        assert "山口" not in template
+        assert "番組内の役割" in template
         assert "dialogue の場合" in template
 
     def test_load_default_is_solo(self):

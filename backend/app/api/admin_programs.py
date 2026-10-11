@@ -87,6 +87,7 @@ class McInput(StrictModel):
     id: str = Field(min_length=1, max_length=100)
     name: str = Field(max_length=200)
     role: str = Field(max_length=200)
+    persona: str | None = Field(default=None, max_length=4000)
     voice_fishs2pro: str | None = Field(default=None, max_length=200)
     voice_aivispeech: int | None = None
     voice_voicevox: int | None = None
@@ -238,9 +239,9 @@ def create_mc(body: McInput, admin: AdminContext) -> dict:
         if conn.execute("SELECT 1 FROM mc_profiles WHERE id = ?", (body.id,)).fetchone():
             raise HTTPException(status_code=409, detail="MC id already exists")
         conn.execute(
-            "INSERT INTO mc_profiles(id, name, role, voice_fishs2pro, voice_aivispeech, voice_voicevox, is_active) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (body.id, body.name, body.role, body.voice_fishs2pro, body.voice_aivispeech,
+            "INSERT INTO mc_profiles(id, name, role, persona, voice_fishs2pro, voice_aivispeech, voice_voicevox, is_active) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (body.id, body.name, body.role, body.persona or "", body.voice_fishs2pro, body.voice_aivispeech,
              body.voice_voicevox, int(body.is_active)),
         )
         _audit(conn, "admin_mc_create", admin[0], body.model_dump())
@@ -264,9 +265,10 @@ def replace_mc(mc_id: str, body: McInput, admin: AdminContext) -> dict:
         if conn.execute("SELECT 1 FROM mc_profiles WHERE id = ?", (mc_id,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="MC not found")
         conn.execute(
-            "UPDATE mc_profiles SET name = ?, role = ?, voice_fishs2pro = ?, voice_aivispeech = ?, "
+            "UPDATE mc_profiles SET name = ?, role = ?, persona = COALESCE(?, persona), "
+            "voice_fishs2pro = ?, voice_aivispeech = ?, "
             "voice_voicevox = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (body.name, body.role, body.voice_fishs2pro, body.voice_aivispeech,
+            (body.name, body.role, body.persona, body.voice_fishs2pro, body.voice_aivispeech,
              body.voice_voicevox, int(body.is_active), mc_id),
         )
         _audit(conn, "admin_mc_update", admin[0], body.model_dump())
