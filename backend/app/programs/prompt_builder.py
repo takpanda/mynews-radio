@@ -117,12 +117,16 @@ class PromptBuilder:
             task_description,
             "必ず JSON のみを返してください。",
             self.cast_section,
+        ]
+        if self.profile.tone:
+            content.extend(("# 話し方・口調", self.profile.tone))
+        content.extend((
             self.structure_section,
             "# 出力例（形式を守ること）",
             self.output_example,
             "# 出力ルール",
             *requirements,
-        ]
+        ))
         if additional_instructions:
             content.extend(("# 追加指示", additional_instructions))
         content.extend((input_description,))

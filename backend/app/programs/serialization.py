@@ -21,6 +21,7 @@ def program_profile_to_definition(profile: ProgramProfile) -> dict[str, Any]:
         "id": profile.id,
         "name": profile.name,
         "kind": profile.kind,
+        "tone": profile.tone,
         "cast": [
             {
                 "key": member.key,
@@ -61,6 +62,7 @@ def program_profile_from_definition(definition: dict[str, Any]) -> ProgramProfil
         id=definition["id"],
         name=definition["name"],
         kind=definition["kind"],
+        tone=definition.get("tone"),
         cast=tuple(ProgramCastMember(**item) for item in definition["cast"]),
         segments=tuple(
             ProgramSegment(
