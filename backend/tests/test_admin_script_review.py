@@ -594,21 +594,74 @@ def test_legacy_push_subscription_can_be_associated_with_admin_session(client):
 
 
 def test_preview_audio_enforces_admin_per_minute_quota(client):
+    from app.db.connection import get_db_connection
+
     episode_id, _ = _episode_with_script()
+    other_episode_id, _ = _episode_with_script()
+
+    with get_db_connection() as conn:
+        session_token = next(cookie.value for cookie in client.cookies.jar if cookie.name == "admin_session")
+        admin_id = conn.execute(
+            "SELECT admin_user_id FROM sessions WHERE token=?", (session_token,),
+        ).fetchone()["admin_user_id"]
+        other_admin_id = conn.execute(
+            "INSERT INTO admin_users (username, password_hash) VALUES (?, ?)",
+            ("other-preview-admin", "test-hash"),
+        ).lastrowid
+        # 4件を別エピソードに置き、管理者上限がエピソードをまたいで数えられることを確認する。
+        conn.executemany(
+            "INSERT INTO script_preview_rate_limits(admin_user_id, episode_id, created_at) "
+            "VALUES (?, ?, datetime('now', '-5 seconds'))",
+            [(admin_id, other_episode_id)] * 4,
+        )
+        # 別管理者の記録は、この管理者の1分上限に含まれないことを確認する。
+        conn.executemany(
+            "INSERT INTO script_preview_rate_limits(admin_user_id, episode_id, created_at) "
+            "VALUES (?, ?, datetime('now', '-5 seconds'))",
+            [(other_admin_id, episode_id)] * 24,
+        )
 
     def write_fake_audio(self, text, speaker, output_path, **kwargs):
         Path(output_path).write_bytes(b"RIFF-preview")
         return True
 
     with (
-        patch("app.services.voicevox_client.VoicevoxClient.synthesize_line", write_fake_audio),
-        patch("app.services.fishs2pro_client.FishS2ProClient.synthesize_line", write_fake_audio),
+        patch("app.services.voicevox_client.VoicevoxClient.synthesize_line", autospec=True) as voicevox_synthesize,
+        patch("app.services.fishs2pro_client.FishS2ProClient.synthesize_line", autospec=True) as fish_synthesize,
     ):
-        responses = [client.post(f"/admin/episodes/{episode_id}/lines/0/preview-audio") for _ in range(5)]
+        voicevox_synthesize.side_effect = write_fake_audio
+        fish_synthesize.side_effect = write_fake_audio
+        allowed = client.post(f"/admin/episodes/{episode_id}/lines/0/preview-audio")
         limited = client.post(f"/admin/episodes/{episode_id}/lines/0/preview-audio")
 
-    assert all(response.status_code == 200 for response in responses)
+    assert allowed.status_code == 200
     assert limited.status_code == 429
+    assert voicevox_synthesize.call_count + fish_synthesize.call_count == 1
+
+
+def test_preview_audio_ignores_admin_entries_older_than_one_minute(client):
+    from app.db.connection import get_db_connection
+
+    episode_id, _ = _episode_with_script()
+    with get_db_connection() as conn:
+        session_token = next(cookie.value for cookie in client.cookies.jar if cookie.name == "admin_session")
+        admin_id = conn.execute(
+            "SELECT admin_user_id FROM sessions WHERE token=?", (session_token,),
+        ).fetchone()["admin_user_id"]
+        conn.executemany(
+            "INSERT INTO script_preview_rate_limits(admin_user_id, episode_id, created_at) "
+            "VALUES (?, ?, datetime('now', '-61 seconds'))",
+            [(admin_id, episode_id)] * 5,
+        )
+
+    def write_fake_audio(self, text, speaker, output_path, **kwargs):
+        Path(output_path).write_bytes(b"RIFF-preview")
+        return True
+
+    with patch("app.services.fishs2pro_client.FishS2ProClient.synthesize_line", write_fake_audio):
+        response = client.post(f"/admin/episodes/{episode_id}/lines/0/preview-audio")
+
+    assert response.status_code == 200
 
 
 def test_script_revision_migration_keeps_existing_episode_states():

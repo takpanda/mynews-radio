@@ -1,11 +1,58 @@
 """生成開始時の利用上限・冪等性の受入テスト。"""
 
 from datetime import datetime, timedelta, timezone
+import threading
 import time
+from unittest.mock import Mock
 import pytest
 
 from app.services.generation_control import GenerationControlError, claim_job, finish_job
 from app.db.connection import get_db_connection
+
+
+def test_client_joins_generation_worker_before_pipeline_mock_is_restored(
+    client, api_worker_teardown_state, monkeypatch
+):
+    from app.api import generate as generate_api
+    from app.services.episode_service import EpisodeService
+
+    release_worker = threading.Event()
+    worker_entered = threading.Event()
+    api_worker_teardown_state["expect_pipeline_mock"] = True
+    api_worker_teardown_state["before_join"] = release_worker.set
+    api_worker_teardown_state["release_on_cleanup"] = release_worker.set
+
+    def delayed_generation(episode_id, _body):
+        worker_entered.set()
+        assert release_worker.wait(timeout=2)
+        api_worker_teardown_state["pipeline_mock_active"] = isinstance(
+            generate_api.run_radio_pipeline, Mock
+        )
+        EpisodeService().update_episode_status(episode_id, "completed")
+
+    monkeypatch.setattr(generate_api, "_run_generation", delayed_generation)
+    response = client.post("/generate", json={"date": "2099-01-09"})
+
+    assert response.status_code == 200
+    if not worker_entered.wait(timeout=1):
+        release_worker.set()
+        pytest.fail("generation worker did not start")
+
+
+def test_thread_join_timeout_fails_when_worker_is_still_alive():
+    from conftest import _join_thread_group
+
+    release_worker = threading.Event()
+    worker = threading.Thread(target=release_worker.wait, name="held-test-worker")
+    worker.start()
+    try:
+        with pytest.raises(pytest.fail.Exception, match="held-test-worker"):
+            _join_thread_group([worker], timeout=0.01)
+    finally:
+        release_worker.set()
+        worker.join(timeout=1)
+
+    assert not worker.is_alive()
 
 
 def test_idempotency_replays_same_episode_and_rejects_changed_input(client):

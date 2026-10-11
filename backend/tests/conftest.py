@@ -103,6 +103,23 @@ def test_env(tmp_path, monkeypatch):
         cfg_mod.get_settings.cache_clear()
 
 
+def _join_thread_group(threads, timeout):
+    deadline = time.monotonic() + timeout
+    for thread in threads:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        if thread.is_alive():
+            thread.join(timeout=remaining)
+
+    alive = [thread.name for thread in threads if thread.is_alive()]
+    if alive:
+        pytest.fail(
+            f"background worker threads still alive after {timeout:.2f}s: {', '.join(alive)}",
+            pytrace=False,
+        )
+
+
 @pytest.fixture(autouse=True)
 def no_daemon_thread_leaks(test_env):
     """Make all threads non-daemon so background threads from API tests
@@ -117,16 +134,37 @@ def no_daemon_thread_leaks(test_env):
         return original_start(self)
 
     threading.Thread.start = _tracked_start
-    yield
-    threading.Thread.start = original_start
+    deadline = None
+    timeout_reported = False
 
-    deadline = time.monotonic() + 5.0
-    for t in threads:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            break
-        if t.is_alive():
-            t.join(timeout=max(0.01, remaining))
+    def _join_started_threads():
+        nonlocal deadline, timeout_reported
+        if deadline is None:
+            deadline = time.monotonic() + 5.0
+        try:
+            _join_thread_group(threads, max(0.0, deadline - time.monotonic()))
+        except pytest.fail.Exception:
+            if timeout_reported:
+                return
+            timeout_reported = True
+            raise
+
+    yield _join_started_threads
+    threading.Thread.start = original_start
+    _join_started_threads()
+
+
+@pytest.fixture
+def api_worker_teardown_state():
+    state = {}
+    yield state
+    release_worker = state.get("release_on_cleanup")
+    if release_worker:
+        release_worker()
+    if state.get("expect_pipeline_mock"):
+        assert state.get("pipeline_mock_active") is True, (
+            "API generation worker completed after the pipeline mock was restored"
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -148,7 +186,7 @@ def isolate_external_telegram_notifications(test_env, monkeypatch):
 
 
 @pytest.fixture
-def client():
+def client(api_worker_teardown_state, no_daemon_thread_leaks):
     from app.main import app
     from fastapi.testclient import TestClient
     from unittest.mock import patch
@@ -186,3 +224,10 @@ def client():
         # Secure CookieはHTTPのTestClientから自動送信されないため明示的に設定する。
         test_client.cookies.set("admin_session", login.cookies["admin_session"])
         yield test_client
+        # Keep the generation-pipeline mock installed until API background
+        # workers finish; otherwise they can enter the real pipeline after
+        # this fixture restores it and outlive the per-test DB configuration.
+        before_join = api_worker_teardown_state.get("before_join")
+        if before_join:
+            before_join()
+        no_daemon_thread_leaks()
