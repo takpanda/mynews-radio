@@ -1,0 +1,7 @@
+-r requirements.txt
+
+# CI and local backend test tooling; these are not installed in the runtime image.
+pytest
+pytest-xdist
+pytest-timeout
+ruff
