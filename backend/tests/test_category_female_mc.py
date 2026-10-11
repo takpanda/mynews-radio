@@ -318,3 +318,71 @@ def test_fishs2pro_explicit_speakers_take_precedence_over_category_settings(monk
     assert captured["tts_engine"] == "fishs2pro"
     assert captured["speaker_male"] == "explicit-male"
     assert captured["speaker_female"] == "explicit-female"
+
+
+@pytest.mark.parametrize(
+    ("program_id_selected", "expected_voice", "category_call_count"),
+    [(True, "cast-female", 0), (False, "category-female", 1)],
+)
+def test_fishs2pro_category_voice_only_overrides_legacy_program_selection(
+    monkeypatch, tmp_path, program_id_selected, expected_voice, category_call_count,
+):
+    from dataclasses import replace
+
+    from app.batch import radio_pipeline
+    from app.programs.profiles import RADIO_TWO_PERSON
+    from app.services.episode_service import EpisodeService
+
+    profile = replace(
+        RADIO_TWO_PERSON,
+        cast=(
+            RADIO_TWO_PERSON.cast[0],
+            replace(RADIO_TWO_PERSON.cast[1], voice_fishs2pro="cast-female"),
+        ),
+    )
+    episode_id, _ = EpisodeService().create_radio_episode("2099-04-02")
+    captured = {}
+    category_calls = []
+
+    def write_script(path, **_kwargs):
+        with open(path, "w", encoding="utf-8") as output:
+            json.dump({"lines": [{"article_id": None, "text": "本文"}]}, output)
+        return 1
+
+    def capture_synthesis(*_args, **kwargs):
+        captured.update(kwargs)
+        return 1
+
+    monkeypatch.setattr(radio_pipeline, "import_articles_by_source", lambda _source: (1, 0))
+    monkeypatch.setattr(radio_pipeline, "summarize_articles", lambda *_args, **_kwargs: 1)
+    monkeypatch.setattr(radio_pipeline, "generate_script", write_script)
+    monkeypatch.setattr(
+        radio_pipeline, "review_script",
+        lambda *_args, **_kwargs: {"revised": False, "review_count": 0},
+    )
+    monkeypatch.setattr(radio_pipeline, "select_episode_categories", lambda *_args: ["テック・IT"])
+    monkeypatch.setattr(radio_pipeline, "synthesize_episode", capture_synthesis)
+    monkeypatch.setattr(
+        radio_pipeline, "build_episode",
+        lambda *_args, **_kwargs: {"audio_path": "episode.mp3"},
+    )
+
+    def resolve_category(*_args, **_kwargs):
+        category_calls.append(True)
+        return "category-female"
+
+    monkeypatch.setattr(
+        radio_pipeline, "_resolve_fishs2pro_category_female_voice", resolve_category,
+    )
+    result = radio_pipeline.run_radio_pipeline(
+        episode_id,
+        episode_date="2099-04-02",
+        tts_engine="fishs2pro",
+        default_episodes_dir=str(tmp_path),
+        program_profile=profile,
+        program_id_selected=program_id_selected,
+    )
+
+    assert result is not None
+    assert captured["speaker_female"] == expected_voice
+    assert len(category_calls) == category_call_count

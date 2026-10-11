@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from dataclasses import replace
 import json
 import os
 
@@ -50,6 +51,8 @@ def test_applied_settings_are_kept_in_episode_metadata(tmp_path):
                 "priority_themes": ["business"],
                 "excluded_themes": ["sports"],
                 "duration_preset": "short",
+                "max_articles": 6,
+                "min_importance_score": 4,
             },
         }),
         encoding="utf-8",
@@ -62,6 +65,8 @@ def test_applied_settings_are_kept_in_episode_metadata(tmp_path):
         "priority_themes": ["business"],
         "excluded_themes": ["sports"],
         "duration_preset": "short",
+        "max_articles": 6,
+        "min_importance_score": 4,
     }
 
 
@@ -72,7 +77,11 @@ def test_radio_pipeline_persists_applied_settings(monkeypatch, tmp_path):
 
     episode_id = EpisodeService().create_episode("2099-02-01", status="generating")
     episode_dir = tmp_path / str(episode_id)
-    profile = validate_settings(["business"], ["sports"], "short")
+    profile = replace(
+        validate_settings(["business"], ["sports"], "short"),
+        max_articles=9,
+        min_importance_score=2,
+    )
 
     monkeypatch.setattr(radio_pipeline, "import_articles_by_source", lambda _: (1, 0))
     llm_calls = []
@@ -106,7 +115,7 @@ def test_radio_pipeline_persists_applied_settings(monkeypatch, tmp_path):
         tts_speaker_female=2,
     )
 
-    expected = profile.to_dict()
+    expected = profile.applied_dict()
     assert result["applied_settings"] == expected
     assert [(call["llm_provider"], call["llm_model"]) for call in llm_calls] == [
         ("ollama", "qwen3.6:35b"),
@@ -132,6 +141,8 @@ def test_episode_list_and_detail_expose_applied_settings_only_when_present(clien
         "priority_themes": ["business"],
         "excluded_themes": ["sports"],
         "duration_preset": "short",
+        "max_articles": 5,
+        "min_importance_score": 3,
     }
     with open(os.path.join(configured_dir, "metadata.json"), "w", encoding="utf-8") as f:
         json.dump({"duration_seconds": 90.0, "applied_settings": applied}, f)

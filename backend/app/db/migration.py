@@ -102,6 +102,37 @@ def migrate_program_profiles(conn: sqlite3.Connection) -> bool:
                 "UPDATE programs SET definition = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (json.dumps(definition, ensure_ascii=False), program_id),
             )
+    # Enrich definitions written by earlier versions while preserving any
+    # program edits already stored by administrators.
+    seeded_sources = {
+        "radio_tech_news": "hatena_bookmark",
+        "radio_news_neighbor": "hatena_hotentry_all",
+        "commentary_solo": "url",
+        "commentary_dialogue": "url",
+    }
+    for program_id, source in seeded_sources.items():
+        row = conn.execute(
+            "SELECT definition FROM programs WHERE id = ?", (program_id,)
+        ).fetchone()
+        if row is None:
+            continue
+        definition = json.loads(row["definition"])
+        changed = False
+        if "news_source" not in definition:
+            definition["news_source"] = source
+            changed = True
+        for key in (
+            "priority_themes", "excluded_themes", "max_articles",
+            "min_importance_score", "duration_preset",
+        ):
+            if key not in definition:
+                definition[key] = None
+                changed = True
+        if changed:
+            conn.execute(
+                "UPDATE programs SET definition = ? WHERE id = ?",
+                (json.dumps(definition, ensure_ascii=False, separators=(",", ":")), program_id),
+            )
     return True
 
 

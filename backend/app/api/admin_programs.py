@@ -55,7 +55,18 @@ class ProgramOptionsInput(StrictModel):
     review_mode: str = "on_failure"
 
 
-class ProgramFields(StrictModel):
+class ProgramSelectionInput(StrictModel):
+    news_source: Literal[
+        "hatena_bookmark", "hatena_hotentry_all", "yahoo_news", "url"
+    ] | None = None
+    priority_themes: list[str] | None = None
+    excluded_themes: list[str] | None = None
+    max_articles: int | None = Field(default=None, ge=1, le=50)
+    min_importance_score: int | None = Field(default=None, ge=1, le=5)
+    duration_preset: Literal["short", "normal", "long"] | None = None
+
+
+class ProgramFields(ProgramSelectionInput):
     id: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=200)
     kind: Literal["radio", "commentary"]
@@ -94,6 +105,12 @@ def _profile(body: ProgramFields) -> ProgramProfile:
             for item in body.segments
         ),
         options=ProgramOptions(**body.options.model_dump()),
+        news_source=body.news_source,
+        priority_themes=tuple(body.priority_themes) if body.priority_themes is not None else None,
+        excluded_themes=tuple(body.excluded_themes) if body.excluded_themes is not None else None,
+        max_articles=body.max_articles,
+        min_importance_score=body.min_importance_score,
+        duration_preset=body.duration_preset,
     )
     try:
         validate_program_profile(profile)

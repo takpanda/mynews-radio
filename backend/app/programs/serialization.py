@@ -58,6 +58,18 @@ def program_profile_to_definition(profile: ProgramProfile) -> dict[str, Any]:
             "narrative_arc": profile.options.narrative_arc,
             "review_mode": profile.options.review_mode,
         },
+        "news_source": profile.news_source,
+        "priority_themes": (
+            list(profile.priority_themes)
+            if profile.priority_themes is not None else None
+        ),
+        "excluded_themes": (
+            list(profile.excluded_themes)
+            if profile.excluded_themes is not None else None
+        ),
+        "max_articles": profile.max_articles,
+        "min_importance_score": profile.min_importance_score,
+        "duration_preset": profile.duration_preset,
     }
 
 
@@ -105,6 +117,18 @@ def program_profile_from_definition(definition: dict[str, Any]) -> ProgramProfil
             narrative_arc=options.get("narrative_arc", False),
             review_mode=options.get("review_mode", "on_failure"),
         ),
+        news_source=definition.get("news_source"),
+        priority_themes=(
+            tuple(definition["priority_themes"])
+            if definition.get("priority_themes") is not None else None
+        ),
+        excluded_themes=(
+            tuple(definition["excluded_themes"])
+            if definition.get("excluded_themes") is not None else None
+        ),
+        max_articles=definition.get("max_articles"),
+        min_importance_score=definition.get("min_importance_score"),
+        duration_preset=definition.get("duration_preset"),
     )
     validate_program_profile(profile)
     return profile
