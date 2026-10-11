@@ -2,7 +2,6 @@
 
 import json
 import logging
-import os
 import tempfile
 from pathlib import Path
 from typing import Annotated
@@ -35,29 +34,30 @@ class DryRunInput(StrictModel):
     input_episode_id: int | None = Field(default=None, ge=1)
 
 
-def _get_input_summaries(program_id: str, input_episode_id: int | None) -> list[dict]:
+def _get_input_summaries(profile, input_episode_id: int | None) -> list[dict]:
     if input_episode_id is not None:
         return _load_episode_summaries(input_episode_id)
 
-    with get_db_connection() as conn:
-        row = conn.execute("SELECT definition FROM programs WHERE id=? AND is_active=1", (program_id,)).fetchone()
-    if row is None:
-        raise ValueError("番組が見つからないか無効です")
     settings_module = __import__("app.services.settings_service", fromlist=["get_settings_or_default"])
     settings = settings_module.get_settings_or_default()
-    from app.api.generate import RADIO_PROGRAM_NEWS_SOURCES
-    news_source = RADIO_PROGRAM_NEWS_SOURCES.get(program_id, "hatena_hotentry_all")
+    from app.api.generate import RADIO_PROGRAM_NEWS_SOURCES, _resolve_program_settings
+    news_source = profile.news_source or RADIO_PROGRAM_NEWS_SOURCES.get(
+        profile.id, "hatena_hotentry_all"
+    )
+    selection = _resolve_program_settings(profile, settings, None).generation_params()
     from app.batch.summarize_articles import summarize_articles
     with tempfile.TemporaryDirectory(prefix="dry-run-summaries-") as tmp:
         summarize_articles(
-            str(Path(tmp) / "summaries.json"), news_source=news_source, program_id=program_id,
+            str(Path(tmp) / "summaries.json"),
+            news_source=news_source,
+            program_id=profile.id,
         )
     return ArticleService().fetch_summaries_for_script(
-        max_articles=int(os.getenv("MAX_SCRIPT_ARTICLES", "8")),
-        min_importance_score=int(os.getenv("MIN_IMPORTANCE_SCORE", "1")),
+        max_articles=selection["max_articles"],
+        min_importance_score=selection["min_importance_score"],
         source=news_source,
-        priority_themes=settings.priority_themes,
-        excluded_themes=settings.excluded_themes,
+        priority_themes=selection["priority_themes"],
+        excluded_themes=selection["excluded_themes"],
     )
 
 
@@ -164,9 +164,6 @@ def execute_dry_run(dry_run_id: int, payload: dict) -> bool:
     with get_db_connection() as conn:
         conn.execute("UPDATE dry_runs SET status='running', updated_at=CURRENT_TIMESTAMP WHERE id=?", (dry_run_id,))
     try:
-        summaries = _get_input_summaries(payload["program_id"], payload.get("input_episode_id"))
-        if not summaries:
-            raise ValueError("台本生成に使える記事要約がありません")
         current = program_profile_from_definition(payload["current_definition"])
         draft = (
             program_profile_from_definition(payload["draft_definition"])
@@ -180,6 +177,9 @@ def execute_dry_run(dry_run_id: int, payload: dict) -> bool:
         ):
             if name == "draft" and payload.get("draft_definition") is None and version is None:
                 continue
+            summaries = _get_input_summaries(profile, payload.get("input_episode_id"))
+            if not summaries:
+                raise ValueError(f"{profile.name} の台本生成に使える記事要約がありません")
             from app.batch.generate_script import generate_script
             from app.batch.final_validation import validate_final_script_file
             with tempfile.TemporaryDirectory(prefix="dry-run-") as tmp:

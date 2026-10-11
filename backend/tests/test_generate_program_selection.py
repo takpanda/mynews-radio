@@ -30,6 +30,16 @@ def _seed_program_profiles():
 
 def test_program_id_controls_radio_source_and_snapshot_is_immutable(client, monkeypatch):
     _seed_program_profiles()
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT definition FROM programs WHERE id='radio_news_neighbor'"
+        ).fetchone()
+        definition = json.loads(row["definition"])
+        definition["max_articles"] = 7
+        conn.execute(
+            "UPDATE programs SET definition=? WHERE id='radio_news_neighbor'",
+            (json.dumps(definition, ensure_ascii=False),),
+        )
     _suppress_generation_worker(monkeypatch)
     response = client.post(
         "/generate",
@@ -37,6 +47,7 @@ def test_program_id_controls_radio_source_and_snapshot_is_immutable(client, monk
             "date": "2099-11-01",
             "program_id": "radio_news_neighbor",
             "news_source": "hatena_bookmark",
+            "max_articles": 2,
         },
     )
 
@@ -67,11 +78,14 @@ def test_program_id_controls_radio_source_and_snapshot_is_immutable(client, monk
                 date="2099-11-01",
                 program_id="radio_news_neighbor",
                 news_source="hatena_bookmark",
+                max_articles=2,
             ),
         )
 
     assert pipeline.call_args.kwargs["news_source"] == "hatena_hotentry_all"
     assert pipeline.call_args.kwargs["program_profile"].name == "ニュースのとなり"
+    assert pipeline.call_args.kwargs["max_articles"] == 7
+    assert pipeline.call_args.kwargs["program_settings"].generation_params()["max_articles"] == 7
 
 
 def test_program_id_missing_or_inactive_returns_400_without_fallback(client, monkeypatch):

@@ -341,7 +341,9 @@ def _resolve_program_settings(
         resolved = validate_settings(priority, excluded, duration_preset)
     except ValueError as exc:
         raise HTTPException(status_code=503, detail="Program selection rules are invalid") from exc
-    max_articles = profile.max_articles if profile.max_articles is not None else request_max_articles
+    max_articles = profile.max_articles
+    if max_articles is None and profile.duration_preset is None:
+        max_articles = request_max_articles
     min_importance_score = profile.min_importance_score
     return ProgramSettings(
         resolved.priority_themes,
@@ -360,6 +362,16 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> dict[str, Any] | 
     seq = ep.get("seq", 0) if ep else 0
 
     program_profile = _episode_program_profile(episode_id)
+    pipeline_max_articles = body.max_articles
+    if (
+        body.program_id is not None
+        and program_profile is not None
+        and (
+            program_profile.max_articles is not None
+            or program_profile.duration_preset is not None
+        )
+    ):
+        pipeline_max_articles = program_profile.max_articles
     if body.program_id is not None and program_profile is not None and program_profile.news_source:
         news_source = program_profile.news_source
     elif body.program_id is not None and program_profile is not None:
@@ -377,7 +389,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> dict[str, Any] | 
         episode_date=body.date,
         news_source=news_source,
         seq=seq,
-        max_articles=body.max_articles,
+        max_articles=pipeline_max_articles,
         program_settings=_resolve_program_settings(
             program_profile if body.program_id is not None else None,
             validate_settings(**body.settings_snapshot)
@@ -396,6 +408,7 @@ def _run_generation(episode_id: int, body: GenerateRequest) -> dict[str, Any] | 
         content_model=body.content_model,
         generation_job_id=_active_generation_job_id(episode_id),
         program_profile=program_profile,
+        program_id_selected=body.program_id is not None,
     )
 
     if result is None:

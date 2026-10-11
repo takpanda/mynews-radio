@@ -182,6 +182,7 @@ def run_radio_pipeline(
     content_model: str | None = None,
     generation_job_id: int | None = None,
     program_profile: ProgramProfile | None = None,
+    program_id_selected: bool = False,
 ) -> dict[str, Any] | PipelineResult | None:
     """Run the full radio generation pipeline for an episode.
 
@@ -492,9 +493,13 @@ def run_radio_pipeline(
         except Exception:
             logger.warning("episode category persistence failed (non-fatal)", exc_info=True)
 
-        # カテゴリ別女性MCはFish S2 Proの新規生成だけに適用する。
-        # 他エンジンは従来どおり、また男性MCの設定は変更しない。
-        if tts_config["tts_engine"] == "fishs2pro" and not explicit_tts_speakers:
+        # カテゴリ別女性MCは従来の番組未指定経路だけに適用する。
+        # 番組指定時はcastの声を維持し、他エンジンや明示話者も変更しない。
+        if (
+            not program_id_selected
+            and tts_config["tts_engine"] == "fishs2pro"
+            and not explicit_tts_speakers
+        ):
             effective_tts_female = _resolve_fishs2pro_category_female_voice(
                 categories,
                 effective_tts_base_url,

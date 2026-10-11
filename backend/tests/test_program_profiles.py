@@ -155,6 +155,14 @@ def test_program_selection_rules_override_legacy_settings_and_keep_fallbacks():
     assert fallback.duration_preset == "long"
     assert fallback.generation_params()["max_articles"] == 14
 
+    preset_profile = replace(
+        get_default_profile(kind="radio"), duration_preset="short"
+    )
+    preset_resolved = _resolve_program_settings(preset_profile, legacy, 2)
+    assert preset_resolved.max_articles is None
+    assert preset_resolved.generation_params()["max_articles"] == 6
+    assert preset_resolved.generation_params()["min_importance_score"] == 4
+
 
 @pytest.mark.parametrize(
     "profile",

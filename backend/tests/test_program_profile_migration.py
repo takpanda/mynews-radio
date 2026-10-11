@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from dataclasses import replace
 
 from app.db.migration import migrate_program_profiles
 from app.programs.profiles import get_default_profile, validate_program_profile
@@ -58,6 +59,11 @@ def test_program_profile_migration_backfills_selection_contract_on_legacy_defini
     conn = _conn()
     conn.execute("CREATE TABLE programs (id TEXT PRIMARY KEY, name TEXT, kind TEXT, definition TEXT, is_active INTEGER DEFAULT 1)")
     legacy = get_default_profile(kind="radio")
+    legacy = replace(
+        legacy,
+        cast=(replace(legacy.cast[0], name="編集済みホスト", role="番組編集者"), *legacy.cast[1:]),
+        options=replace(legacy.options, review_mode="always"),
+    )
     definition = program_profile_to_definition(legacy)
     for key in ("news_source", "priority_themes", "excluded_themes", "max_articles",
                 "min_importance_score", "duration_preset"):
@@ -72,6 +78,9 @@ def test_program_profile_migration_backfills_selection_contract_on_legacy_defini
     assert restored.priority_themes is None
     assert restored.excluded_themes is None
     assert restored.duration_preset is None
+    assert restored.cast[0].name == "編集済みホスト"
+    assert restored.cast[0].role == "番組編集者"
+    assert restored.options.review_mode == "always"
 
 
 def test_program_profile_cannot_load_when_referenced_mc_is_inactive_or_missing():

@@ -148,6 +148,7 @@ def run_daily_job(job) -> bool:
         tts_engine=payload.get("tts_engine"),
         default_episodes_dir="data/episodes",
         program_profile=program_profile,
+        program_id_selected=payload.get("program_id") is not None,
     )
     if metadata is PipelineResult.NO_CONTENT:
         logger.info("=== daily batch complete - no new articles ===")
