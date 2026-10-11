@@ -8,6 +8,7 @@ import { DISABLED_TTS_ENGINES, DISABLED_TTS_ENGINE_MESSAGE } from '../lib/admin-
 import DuplicateUrlConfirmDialog from './DuplicateUrlConfirmDialog'
 import ProgramSettingsPanel from './ProgramSettingsPanel'
 import type { ProgramSettings } from '../lib/api'
+import { fetchPrograms, type Program } from '../lib/admin-programs'
 
 type PhaseCode =
   | 'waiting'
@@ -309,9 +310,7 @@ function RadioDot({ checked }: { checked: boolean }) {
 
 interface GenerationParams {
   url: string
-  newsSource: 'hatena_bookmark' | 'hatena_hotentry_all' | 'yahoo_news'
-  commentaryStyle: 'solo' | 'dialogue'
-  mcGender: 'male' | 'female'
+  programId: string
   ttsEngine: 'voicevox' | 'aivispeech' | 'fishs2pro'
   maxArticles: number
   recreateSummary: boolean
@@ -340,7 +339,10 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   const [progress, setProgress] = useState<ProgressEntry[]>([])
   const [message, setMessage] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
-  const [newsSource, setNewsSource] = useState<'hatena_bookmark' | 'hatena_hotentry_all' | 'yahoo_news'>('hatena_bookmark')
+  const [programs, setPrograms] = useState<Program[]>([])
+  const [programsLoading, setProgramsLoading] = useState(true)
+  const [programsError, setProgramsError] = useState<string | null>(null)
+  const [programId, setProgramId] = useState('')
   const [recreateSummary, setRecreateSummary] = useState(false)
   const [ttsEngine, setTtsEngine] = useState<'voicevox' | 'aivispeech' | 'fishs2pro'>('fishs2pro')
   const [maxArticles, setMaxArticles] = useState(5)
@@ -350,8 +352,6 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   const [hasError, setHasError] = useState(false)
   const [canRetry, setCanRetry] = useState(true)
   const [urlInput, setUrlInput] = useState('')
-  const [commentaryStyle, setCommentaryStyle] = useState<'solo' | 'dialogue'>('solo')
-  const [mcGender, setMcGender] = useState<'male' | 'female'>('male')
   const [llmProviders, setLlmProviders] = useState<LlmProvider[]>([])
   const [llmLoading, setLlmLoading] = useState(true)
   const [llmError, setLlmError] = useState<string | null>(null)
@@ -382,7 +382,9 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   const shouldScrollToProgress = useRef(false)
   const idempotencyKeyRef = useRef<string | null>(null)
 
-  const isUrlMode = urlInput.trim().length > 0
+  const selectedProgram = programs.find((program) => program.id === programId)
+  // 解説番組（kind=commentary）を選んだときだけURL入力を表示し、URL付きで生成する。
+  const isUrlMode = selectedProgram?.kind === 'commentary'
   const isVoicevoxDisabled = DISABLED_TTS_ENGINES.includes('voicevox')
   const isAivispeechDisabled = DISABLED_TTS_ENGINES.includes('aivispeech')
 
@@ -392,6 +394,25 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   useEffect(() => {
     isLoadingRef.current = isLoading
   }, [isLoading])
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setProgramsLoading(false)
+      return
+    }
+    const controller = new AbortController()
+    fetchPrograms(false, controller.signal).then((items) => {
+      const active = items.filter((item) => item.is_active)
+      setPrograms(active)
+      setProgramId(active[0]?.id ?? '')
+    }).catch((error) => {
+      if (controller.signal.aborted) return
+      setProgramsError(error instanceof Error ? `番組一覧を読み込めません: ${error.message}` : '番組一覧を読み込めません')
+    }).finally(() => {
+      if (!controller.signal.aborted) setProgramsLoading(false)
+    })
+    return () => controller.abort()
+  }, [isAuthenticated])
 
   useEffect(() => {
     let cancelled = false
@@ -589,9 +610,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
 
   const runGeneration = async (params?: GenerationParams) => {
     const url = params ? params.url : (isUrlMode ? urlInput.trim() : undefined)
-    const source = params ? params.newsSource : newsSource
-    const style = params ? params.commentaryStyle : commentaryStyle
-    const gender = params ? params.mcGender : mcGender
+    const selectedProgramId = params ? params.programId : programId
     const requestedEngine = params ? params.ttsEngine : ttsEngine
     // 無効化エンジン（DISABLED_TTS_ENGINES）はUI上も選択できないが、念のため送信直前にもfishs2proへ強制する（BEE-1075）。
     const engine = DISABLED_TTS_ENGINES.includes(requestedEngine) ? 'fishs2pro' : requestedEngine
@@ -635,7 +654,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
         : undefined)
       setAppliedSettings(settingsSnapshot ?? null)
       if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID()
-      const { episode_id } = await generateEpisode(today, articles, source, engine, recreate, url, url ? style : undefined, url && style === 'solo' ? gender : undefined, settingsSnapshot, idempotencyKeyRef.current, selectedLlmProvider || undefined, selectedLlmModel || undefined, selectedSummarizeProvider || undefined, selectedSummarizeModel || undefined, selectedContentProvider || undefined, selectedContentModel || undefined)
+      const { episode_id } = await generateEpisode(today, articles, undefined, engine, recreate, url, undefined, undefined, settingsSnapshot, idempotencyKeyRef.current, selectedLlmProvider || undefined, selectedLlmModel || undefined, selectedSummarizeProvider || undefined, selectedSummarizeModel || undefined, selectedContentProvider || undefined, selectedContentModel || undefined, selectedProgramId || undefined)
       idempotencyKeyRef.current = null
       localStorage.setItem(STORAGE_KEY, String(episode_id))
       setEpisodeId(episode_id)
@@ -653,10 +672,8 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
 
   const checkDuplicateAndRun = async () => {
     const snapshot: GenerationParams = {
-      url: urlInput.trim(),
-      newsSource,
-      commentaryStyle,
-      mcGender,
+      url: isUrlMode ? urlInput.trim() : '',
+      programId,
       ttsEngine,
       maxArticles,
       recreateSummary,
@@ -706,7 +723,15 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
       setMessage(blockingEpisode.status === 'waiting' ? '先に生成待ちのタスクがあります' : '先に生成中のタスクがあります')
       return
     }
-    if (isUrlMode && !isValidUrl(urlInput)) {
+    if (!selectedProgram) {
+      setMessage('生成する番組を選択してください')
+      return
+    }
+    if (isUrlMode && urlInput.trim() === '') {
+      setUrlError('解説する記事のURLを入力してください')
+      return
+    }
+    if (isUrlMode && !isValidUrl(urlInput.trim())) {
       setUrlError('「http(s)://...」の形式で有効なURLを入力してください')
       return
     }
@@ -775,7 +800,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
           <p className="mt-1 text-xs leading-5 text-slate-500">
             {isUrlMode
               ? 'URLから記事を取得して解説音声を生成します。'
-              : 'ニュースの種類と読み上げエンジンを選ぶと、取得から音声化までの進行をこの場で確認できます。'}
+              : '番組と読み上げエンジンを選ぶと、取得から音声化までの進行をこの場で確認できます。'}
           </p>
         </div>
         <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-500">
@@ -784,14 +809,55 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
       </div>
 
       <div className="mt-5">
+        <label htmlFor="generate-program-select" className="block text-sm font-medium text-slate-900">
+          番組
+        </label>
+        {programsLoading ? (
+          <p className="mt-2 text-xs text-slate-500" aria-live="polite">番組一覧を読み込み中…</p>
+        ) : programsError ? (
+          <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700" role="alert">
+            {programsError}
+          </p>
+        ) : programs.length === 0 ? (
+          <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800" role="status">
+            有効な番組がありません。管理画面の「番組」から番組を作成・有効化してください。
+          </p>
+        ) : (
+          <>
+            <select
+              id="generate-program-select"
+              value={programId}
+              onChange={(e) => {
+                setProgramId(e.target.value)
+                setUrlError(null)
+              }}
+              disabled={isLoading}
+              className="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-50"
+            >
+              {programs.map((program) => (
+                <option key={program.id} value={program.id}>
+                  {program.name}{program.kind === 'commentary' ? '（解説）' : ''}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs leading-5 text-slate-400">
+              ニュースソース・MC・構成・スタイルは、選択した番組の設定が使われます。
+            </p>
+          </>
+        )}
+      </div>
+
+      {isUrlMode && (
+      <div className="mt-5">
         <label htmlFor="generate-url-input" className="block text-sm font-medium text-slate-900">
-          URLから解説を生成
+          解説する記事のURL
         </label>
         <div className="mt-2">
           <div className="relative">
             <input
               id="generate-url-input"
               type="url"
+              required
               value={urlInput}
               onChange={(e) => {
                 setUrlInput(e.target.value)
@@ -824,11 +890,9 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
           {urlError && (
             <p className="mt-1.5 text-xs text-red-500">{urlError}</p>
           )}
-          <p className="mt-1.5 text-xs leading-5 text-slate-400">
-            URLを入力すると自動的に解説モードに切り替わり、ニュースソース選択が無効になります。
-          </p>
         </div>
       </div>
+      )}
 
       <div className="mt-5 space-y-5">
           <ProgramSettingsPanel
@@ -1030,68 +1094,6 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
             )}
           </fieldset>
           <fieldset>
-            <legend className="text-sm font-medium text-slate-900">ニュースソース</legend>
-            <div className="mt-2 grid gap-2 sm:grid-cols-3">
-              <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(newsSource === 'hatena_bookmark', isLoading, isUrlMode)}`}>
-                <input
-                  type="radio"
-                  name="newsSource"
-                  value="hatena_bookmark"
-                  checked={newsSource === 'hatena_bookmark'}
-                  onChange={() => setNewsSource('hatena_bookmark')}
-                  disabled={isLoading || isUrlMode}
-                  className="sr-only"
-                />
-                <span>
-                  <span className="block text-sm font-medium text-slate-900">テックニュース</span>
-                  <span className="mt-0.5 block text-xs leading-5 text-slate-500">
-                    はてなブックマークのテック面を中心に収集します。
-                  </span>
-                </span>
-                <RadioDot checked={newsSource === 'hatena_bookmark'} />
-              </label>
-
-              <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(newsSource === 'hatena_hotentry_all', isLoading, isUrlMode)}`}>
-                <input
-                  type="radio"
-                  name="newsSource"
-                  value="hatena_hotentry_all"
-                  checked={newsSource === 'hatena_hotentry_all'}
-                  onChange={() => setNewsSource('hatena_hotentry_all')}
-                  disabled={isLoading || isUrlMode}
-                  className="sr-only"
-                />
-                <span>
-                  <span className="block text-sm font-medium text-slate-900">一般ニュース</span>
-                  <span className="mt-0.5 block text-xs leading-5 text-slate-500">
-                    幅広い話題をまとめて、日次のダイジェストとして届けます。
-                  </span>
-                </span>
-                <RadioDot checked={newsSource === 'hatena_hotentry_all'} />
-              </label>
-
-              <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(newsSource === 'yahoo_news', isLoading, isUrlMode)}`}>
-                <input
-                  type="radio"
-                  name="newsSource"
-                  value="yahoo_news"
-                  checked={newsSource === 'yahoo_news'}
-                  onChange={() => setNewsSource('yahoo_news')}
-                  disabled={isLoading || isUrlMode}
-                  className="sr-only"
-                />
-                <span>
-                  <span className="block text-sm font-medium text-slate-900">Yahoo!ニュース</span>
-                  <span className="mt-0.5 block text-xs leading-5 text-slate-500">
-                    Yahoo!ニュース・トピックスの主要ニュースをお届けします。
-                  </span>
-                </span>
-                <RadioDot checked={newsSource === 'yahoo_news'} />
-              </label>
-            </div>
-          </fieldset>
-
-          <fieldset>
             <legend className="text-sm font-medium text-slate-900">音声エンジン</legend>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
               <label
@@ -1185,92 +1187,6 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
             </div>
           </fieldset>
 
-          {isUrlMode && (
-            <fieldset>
-              <legend className="text-sm font-medium text-slate-900">解説スタイル</legend>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(commentaryStyle === 'solo', isLoading)}`}>
-                  <input
-                    type="radio"
-                    name="commentaryStyle"
-                    value="solo"
-                    checked={commentaryStyle === 'solo'}
-                    onChange={() => setCommentaryStyle('solo')}
-                    disabled={isLoading}
-                    className="sr-only"
-                  />
-                  <span>
-                    <span className="block text-sm font-medium text-slate-900">一人解説</span>
-                    <span className="mt-0.5 block text-xs leading-5 text-slate-500">
-                      1人のナレーターが記事を読み上げます。
-                    </span>
-                  </span>
-                  <RadioDot checked={commentaryStyle === 'solo'} />
-                </label>
-
-                <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(commentaryStyle === 'dialogue', isLoading)}`}>
-                  <input
-                    type="radio"
-                    name="commentaryStyle"
-                    value="dialogue"
-                    checked={commentaryStyle === 'dialogue'}
-                    onChange={() => setCommentaryStyle('dialogue')}
-                    disabled={isLoading}
-                    className="sr-only"
-                  />
-                  <span>
-                    <span className="block text-sm font-medium text-slate-900">対談解説</span>
-                    <span className="mt-0.5 block text-xs leading-5 text-slate-500">
-                      2人のパーソナリティが対談形式で解説します。
-                    </span>
-                  </span>
-                  <RadioDot checked={commentaryStyle === 'dialogue'} />
-                </label>
-              </div>
-
-              {commentaryStyle === 'solo' && (
-                <div className="mt-3">
-                  <p className="text-sm font-medium text-slate-900">MCの性別</p>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(mcGender === 'male', isLoading)}`}>
-                      <input
-                        type="radio"
-                        name="mcGender"
-                        value="male"
-                        checked={mcGender === 'male'}
-                        onChange={() => setMcGender('male')}
-                        disabled={isLoading}
-                        className="sr-only"
-                      />
-                      <span>
-                        <span className="block text-sm font-medium text-slate-900">男性</span>
-                        <span className="mt-0.5 block text-xs leading-5 text-slate-500">男性のナレーター音声で生成します。</span>
-                      </span>
-                      <RadioDot checked={mcGender === 'male'} />
-                    </label>
-
-                    <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(mcGender === 'female', isLoading)}`}>
-                      <input
-                        type="radio"
-                        name="mcGender"
-                        value="female"
-                        checked={mcGender === 'female'}
-                        onChange={() => setMcGender('female')}
-                        disabled={isLoading}
-                        className="sr-only"
-                      />
-                      <span>
-                        <span className="block text-sm font-medium text-slate-900">女性</span>
-                        <span className="mt-0.5 block text-xs leading-5 text-slate-500">女性のナレーター音声で生成します。</span>
-                      </span>
-                      <RadioDot checked={mcGender === 'female'} />
-                    </label>
-                  </div>
-                </div>
-              )}
-            </fieldset>
-          )}
-
           <label className={`flex cursor-pointer items-start justify-between gap-2 rounded-xl border p-3 transition ${optionCardClass(recreateSummary, isLoading)}`}>
             <input
               type="checkbox"
@@ -1298,7 +1214,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
             <button
               type="button"
               onClick={handleClick}
-              disabled={isLoading || isCheckingDuplicate}
+              disabled={isLoading || isCheckingDuplicate || programsLoading || !selectedProgram}
               className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {(isLoading || isCheckingDuplicate) && <span className="h-2 w-2 animate-pulse rounded-full bg-white/90" />}

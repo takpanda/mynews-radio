@@ -9,6 +9,17 @@ import { DISABLED_TTS_ENGINE_MESSAGE } from '../lib/admin-voice-settings'
 const mockSearchEpisodesBySourceUrl = jest.fn()
 const mockGenerateEpisode = jest.fn()
 const mockFetchLlmProviders = jest.fn()
+const mockFetchPrograms = jest.fn()
+
+jest.mock('../lib/admin-programs', () => ({
+  ...jest.requireActual('../lib/admin-programs'),
+  fetchPrograms: (...args: unknown[]) => mockFetchPrograms(...args),
+}))
+
+const PROGRAMS = [
+  { id: 'radio_tech_news', name: 'テックニュース', kind: 'radio', is_active: true },
+  { id: 'commentary_solo', name: 'ひとり解説', kind: 'commentary', is_active: true },
+]
 
 jest.mock('../lib/api', () => ({
   ...jest.requireActual('../lib/api'),
@@ -31,11 +42,21 @@ jest.mock('react-hot-toast', () => {
 })
 
 const urlInput = () => screen.getByPlaceholderText('https://example.com/article')
+const radioButton = async () => {
+  const button = screen.getByRole('button', { name: 'この設定で番組を生成する' })
+  await waitFor(() => expect(button).toBeEnabled())
+  return button
+}
+const selectCommentary = async (user: ReturnType<typeof userEvent.setup>, id = 'commentary_solo') => {
+  await waitFor(() => expect(screen.getByLabelText('番組')).toBeInTheDocument())
+  await user.selectOptions(screen.getByLabelText('番組'), id)
+}
 const submitButton = () => screen.getByRole('button', { name: /このURLで解説を生成する/ })
 
 describe('GenerateEpisodeButton — 解説モード重複チェック', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockFetchPrograms.mockResolvedValue(PROGRAMS)
     mockGenerateEpisode.mockResolvedValue({ episode_id: 100 })
     mockFetchLlmProviders.mockResolvedValue({ providers: [
       { provider: 'ollama', models: ['qwen3:8b', 'llama3.2'], available: true },
@@ -104,7 +125,7 @@ describe('GenerateEpisodeButton — 解説モード重複チェック', () => {
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
     await waitFor(() => expect(screen.getByText(/利用可能なプロバイダー・モデルがありません/)).toBeInTheDocument())
-    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+    await user.click(await radioButton())
     await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
     expect(mockGenerateEpisode.mock.calls[0][10]).toBeUndefined()
     expect(mockGenerateEpisode.mock.calls[0][11]).toBeUndefined()
@@ -118,6 +139,7 @@ describe('GenerateEpisodeButton — 解説モード重複チェック', () => {
     render(<GenerateEpisodeButton />)
     await waitFor(() => expect(screen.getByLabelText('LLMプロバイダー')).toHaveValue('ollama'))
     await user.selectOptions(screen.getByLabelText('LLMプロバイダー'), 'lm_studio')
+    await selectCommentary(user)
     await user.type(urlInput(), 'https://example.com/article')
     await user.click(submitButton())
     await waitFor(() => expect(screen.getByText('URLの重複を検出しました')).toBeInTheDocument())
@@ -133,6 +155,7 @@ describe('GenerateEpisodeButton — 解説モード重複チェック', () => {
 
     render(<GenerateEpisodeButton />)
 
+    await selectCommentary(user)
     await user.type(urlInput(), 'https://example.com/article')
     await user.click(submitButton())
 
@@ -152,6 +175,7 @@ describe('GenerateEpisodeButton — 解説モード重複チェック', () => {
 
     render(<GenerateEpisodeButton />)
 
+    await selectCommentary(user)
     await user.type(urlInput(), 'https://example.com/article')
     await user.click(submitButton())
 
@@ -176,6 +200,7 @@ describe('GenerateEpisodeButton — 解説モード重複チェック', () => {
 
     render(<GenerateEpisodeButton />)
 
+    await selectCommentary(user)
     await user.type(urlInput(), 'https://example.com/article')
     await user.click(submitButton())
 
@@ -195,6 +220,7 @@ describe('GenerateEpisodeButton — 解説モード重複チェック', () => {
 
     render(<GenerateEpisodeButton />)
 
+    await selectCommentary(user)
     await user.type(urlInput(), 'https://example.com/article')
     await user.click(submitButton())
 
@@ -217,6 +243,7 @@ describe('GenerateEpisodeButton — 解説モード重複チェック', () => {
 
     render(<GenerateEpisodeButton />)
 
+    await selectCommentary(user)
     await user.type(urlInput(), 'https://example.com/article')
     await user.click(submitButton())
 
@@ -233,6 +260,7 @@ describe('GenerateEpisodeButton — 解説モード重複チェック', () => {
 describe('GenerateEpisodeButton — LLMプロバイダー・モデルの既定選択', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockFetchPrograms.mockResolvedValue(PROGRAMS)
     mockGenerateEpisode.mockResolvedValue({ episode_id: 100 })
     mockFetchLlmProviders.mockResolvedValue({ providers: [
       { provider: 'ollama', models: ['gemma4:26b-mlx', 'qwen3.8:27b-mlx'], available: true },
@@ -247,7 +275,7 @@ describe('GenerateEpisodeButton — LLMプロバイダー・モデルの既定�
     // 表示上は一覧の先頭（gemma4:26b-mlx）が補完表示される
     await waitFor(() => expect(screen.getByLabelText('LLMモデル')).toHaveValue('gemma4:26b-mlx'))
 
-    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+    await user.click(await radioButton())
 
     await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
     expect(mockGenerateEpisode.mock.calls[0][10]).toBeUndefined()
@@ -261,7 +289,7 @@ describe('GenerateEpisodeButton — LLMプロバイダー・モデルの既定�
     await waitFor(() => expect(screen.getByLabelText('LLMモデル')).toHaveValue('gemma4:26b-mlx'))
     await user.selectOptions(screen.getByLabelText('LLMモデル'), 'qwen3.8:27b-mlx')
 
-    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+    await user.click(await radioButton())
 
     await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
     expect(mockGenerateEpisode.mock.calls[0][10]).toBe('ollama')
@@ -280,7 +308,7 @@ describe('GenerateEpisodeButton — LLMプロバイダー・モデルの既定�
     await user.selectOptions(screen.getByLabelText('LLMプロバイダー'), 'lm_studio')
     await waitFor(() => expect(screen.getByLabelText('LLMモデル')).toHaveValue('local-model-a'))
 
-    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+    await user.click(await radioButton())
 
     await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
     expect(mockGenerateEpisode.mock.calls[0][10]).toBe('lm_studio')
@@ -291,6 +319,7 @@ describe('GenerateEpisodeButton — LLMプロバイダー・モデルの既定�
 describe('GenerateEpisodeButton — 要約用/台本生成・レビュー用LLMの個別指定', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockFetchPrograms.mockResolvedValue(PROGRAMS)
     mockGenerateEpisode.mockResolvedValue({ episode_id: 100 })
     mockFetchLlmProviders.mockResolvedValue({ providers: [
       { provider: 'ollama', models: ['qwen3:8b', 'llama3.2'], available: true },
@@ -309,7 +338,7 @@ describe('GenerateEpisodeButton — 要約用/台本生成・レビュー用LLM�
     render(<GenerateEpisodeButton />)
     await openPhasePanel(user)
 
-    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+    await user.click(await radioButton())
 
     await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
     expect(mockGenerateEpisode.mock.calls[0][12]).toBeUndefined()
@@ -326,7 +355,7 @@ describe('GenerateEpisodeButton — 要約用/台本生成・レビュー用LLM�
     await user.selectOptions(screen.getByLabelText('要約用LLMプロバイダー'), 'lm_studio')
     await waitFor(() => expect(screen.getByLabelText('要約用LLMモデル')).toHaveValue('local-model'))
 
-    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+    await user.click(await radioButton())
 
     await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
     expect(mockGenerateEpisode.mock.calls[0][12]).toBe('lm_studio')
@@ -343,7 +372,7 @@ describe('GenerateEpisodeButton — 要約用/台本生成・レビュー用LLM�
     await user.selectOptions(screen.getByLabelText('コンテンツ用LLMプロバイダー'), 'lm_studio')
     await waitFor(() => expect(screen.getByLabelText('コンテンツ用LLMモデル')).toHaveValue('local-model'))
 
-    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+    await user.click(await radioButton())
 
     await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
     expect(mockGenerateEpisode.mock.calls[0][12]).toBeUndefined()
@@ -361,7 +390,7 @@ describe('GenerateEpisodeButton — 要約用/台本生成・レビュー用LLM�
     await user.selectOptions(screen.getByLabelText('要約用LLMモデル'), 'llama3.2')
     await user.selectOptions(screen.getByLabelText('コンテンツ用LLMプロバイダー'), 'lm_studio')
 
-    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+    await user.click(await radioButton())
 
     await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
     expect(mockGenerateEpisode.mock.calls[0][12]).toBe('ollama')
@@ -379,7 +408,7 @@ describe('GenerateEpisodeButton — 要約用/台本生成・レビュー用LLM�
     await waitFor(() => expect(screen.getByLabelText('要約用LLMモデル')).toHaveValue('local-model'))
     await user.selectOptions(screen.getByLabelText('要約用LLMプロバイダー'), '')
 
-    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+    await user.click(await radioButton())
 
     await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
     expect(mockGenerateEpisode.mock.calls[0][12]).toBeUndefined()
@@ -390,6 +419,7 @@ describe('GenerateEpisodeButton — 要約用/台本生成・レビュー用LLM�
 describe('GenerateEpisodeButton — パラメータすり替え防止', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockFetchPrograms.mockResolvedValue(PROGRAMS)
     mockGenerateEpisode.mockResolvedValue({ episode_id: 100 })
     localStorage.clear()
   })
@@ -401,10 +431,12 @@ describe('GenerateEpisodeButton — パラメータすり替え防止', () => {
 
     render(<GenerateEpisodeButton />)
 
+    await selectCommentary(user)
     await user.type(urlInput(), 'https://example.com/original')
     await user.click(submitButton())
 
     await user.clear(urlInput())
+    await selectCommentary(user)
     await user.type(urlInput(), 'https://example.com/changed')
 
     resolveSearch([
@@ -428,37 +460,6 @@ describe('GenerateEpisodeButton — パラメータすり替え防止', () => {
     expect(args[5]).toBe('https://example.com/original')
   })
 
-  it('検索中にスタイルが変更されても続行時は検索開始時のスタイルで生成される', async () => {
-    let resolveSearch!: (value: unknown) => void
-    mockSearchEpisodesBySourceUrl.mockReturnValue(new Promise((resolve) => { resolveSearch = resolve }))
-    const user = userEvent.setup()
-
-    render(<GenerateEpisodeButton />)
-
-    await user.type(urlInput(), 'https://example.com/article')
-    await user.click(screen.getByText('対談解説'))
-    await user.click(submitButton())
-
-    await user.click(screen.getByText('一人解説'))
-
-    resolveSearch([
-      { id: 42, title: '既存解説', status: 'completed', type: 'commentary', source_url: 'https://example.com/article', episode_date: '2026-07-15', created_at: '', has_script: true },
-    ])
-
-    await waitFor(() => {
-      expect(screen.getByText('URLの重複を検出しました')).toBeInTheDocument()
-    })
-
-    await user.click(screen.getByText('生成を続行'))
-
-    await waitFor(() => {
-      expect(mockGenerateEpisode).toHaveBeenCalled()
-    })
-
-    const args = mockGenerateEpisode.mock.calls[0]
-    expect(args[6]).toBe('dialogue')
-  })
-
   it('検索中にURLを空にしても、続行時は解説モードのパラメータが維持される（通常モードに切り替わらない）', async () => {
     let resolveSearch!: (value: unknown) => void
     mockSearchEpisodesBySourceUrl.mockReturnValue(new Promise((resolve) => { resolveSearch = resolve }))
@@ -466,6 +467,7 @@ describe('GenerateEpisodeButton — パラメータすり替え防止', () => {
 
     render(<GenerateEpisodeButton />)
 
+    await selectCommentary(user)
     await user.type(urlInput(), 'https://example.com/article')
     await user.click(submitButton())
 
@@ -496,10 +498,12 @@ describe('GenerateEpisodeButton — パラメータすり替え防止', () => {
 
     render(<GenerateEpisodeButton />)
 
+    await selectCommentary(user)
     await user.type(urlInput(), 'https://example.com/article')
     await user.click(submitButton())
 
     await user.clear(urlInput())
+    await selectCommentary(user)
     await user.type(urlInput(), 'https://example.com/different')
 
     rejectSearch(new Error('Network error'))
@@ -518,19 +522,21 @@ describe('GenerateEpisodeButton — パラメータすり替え防止', () => {
     expect(args[5]).toBe('https://example.com/article')
   })
 
-  it('検索中に全パラメータを変更しても続行時はスナップショット値が固定される（newsSource含む）', async () => {
+  it('検索中に全パラメータを変更しても続行時はスナップショット値が固定される（番組含む）', async () => {
     let resolveSearch!: (value: unknown) => void
     mockSearchEpisodesBySourceUrl.mockReturnValue(new Promise((resolve) => { resolveSearch = resolve }))
     const user = userEvent.setup()
 
     render(<GenerateEpisodeButton />)
 
+    await selectCommentary(user)
     await user.type(urlInput(), 'https://example.com/original')
     await user.click(submitButton())
 
     await user.clear(urlInput())
+    await selectCommentary(user)
     await user.type(urlInput(), 'https://example.com/changed')
-    await user.click(screen.getByText('対談解説'))
+    await user.selectOptions(screen.getByLabelText('番組'), 'radio_tech_news')
     await user.click(screen.getByText('VOICEVOX'))
 
     resolveSearch([
@@ -550,18 +556,20 @@ describe('GenerateEpisodeButton — パラメータすり替え防止', () => {
     const args = mockGenerateEpisode.mock.calls[0]
     expect(args[0]).toBeDefined()
     expect(args[1]).toBe(5)
-    expect(args[2]).toBe('hatena_bookmark')
+    expect(args[2]).toBeUndefined()
     expect(args[3]).toBe('fishs2pro')
     expect(args[4]).toBe(false)
     expect(args[5]).toBe('https://example.com/original')
-    expect(args[6]).toBe('solo')
-    expect(args[7]).toBe('male')
+    expect(args[6]).toBeUndefined()
+    expect(args[7]).toBeUndefined()
+    expect(args[16]).toBe('commentary_solo')
   })
 })
 
 describe('GenerateEpisodeButton — 通常ラジオ生成（回帰）', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockFetchPrograms.mockResolvedValue(PROGRAMS)
     mockGenerateEpisode.mockResolvedValue({ episode_id: 100 })
     localStorage.clear()
   })
@@ -590,7 +598,7 @@ describe('GenerateEpisodeButton — 通常ラジオ生成（回帰）', () => {
     expect(screen.getByRole('radio', { name: /^VOICEVOX/ })).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: /^AivisSpeech/ })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+    await user.click(await radioButton())
 
     await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
     expect(mockGenerateEpisode.mock.calls[0][3]).toBe('fishs2pro')
@@ -611,7 +619,7 @@ describe('GenerateEpisodeButton — 通常ラジオ生成（回帰）', () => {
     await user.click(voicevoxRadio)
     expect(voicevoxRadio.checked).toBe(false)
 
-    await user.click(screen.getByRole('button', { name: 'この設定で番組を生成する' }))
+    await user.click(await radioButton())
 
     await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
     expect(mockGenerateEpisode.mock.calls[0][3]).toBe('fishs2pro')
@@ -621,6 +629,7 @@ describe('GenerateEpisodeButton — 通常ラジオ生成（回帰）', () => {
 describe('GenerateEpisodeButton — 存在しない生成エピソードの終端処理', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockFetchPrograms.mockResolvedValue(PROGRAMS)
     localStorage.clear()
     mockGenerateEpisode.mockResolvedValue({ episode_id: 100 })
   })
@@ -691,6 +700,7 @@ describe('GenerateEpisodeButton — 存在しない生成エピソードの終�
 describe('GenerateEpisodeButton — URLクリアボタン', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockFetchPrograms.mockResolvedValue(PROGRAMS)
     mockGenerateEpisode.mockResolvedValue({ episode_id: 100 })
     localStorage.clear()
   })
@@ -703,6 +713,7 @@ describe('GenerateEpisodeButton — URLクリアボタン', () => {
 
     expect(clearButton()).not.toBeInTheDocument()
 
+    await selectCommentary(user)
     await user.type(screen.getByPlaceholderText('https://example.com/article'), 'https://example.com/test')
 
     expect(clearButton()).toBeInTheDocument()
@@ -712,6 +723,7 @@ describe('GenerateEpisodeButton — URLクリアボタン', () => {
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
+    await selectCommentary(user)
     await user.type(screen.getByPlaceholderText('https://example.com/article'), '   ')
 
     expect(clearButton()).not.toBeInTheDocument()
@@ -730,6 +742,7 @@ describe('GenerateEpisodeButton — URLクリアボタン', () => {
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
+    await selectCommentary(user)
     await user.type(screen.getByPlaceholderText('https://example.com/article'), 'https://example.com/test')
     await user.click(screen.getByRole('button', { name: /このURLで解説を生成する/ }))
 
@@ -744,6 +757,7 @@ describe('GenerateEpisodeButton — URLクリアボタン', () => {
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
+    await selectCommentary(user)
     const input = screen.getByPlaceholderText('https://example.com/article')
     await user.type(input, 'invalid-url')
 
@@ -758,38 +772,11 @@ describe('GenerateEpisodeButton — URLクリアボタン', () => {
     expect(screen.queryByText('「http(s)://...」の形式で入力してください')).not.toBeInTheDocument()
   })
 
-  it('クリア後にニュースソースのラジオボタンが選択可能になる', async () => {
-    const user = userEvent.setup()
-    render(<GenerateEpisodeButton />)
-
-    const input = screen.getByPlaceholderText('https://example.com/article')
-    await user.type(input, 'https://example.com/test')
-
-    const techRadio = screen.getByDisplayValue('hatena_bookmark')
-    expect(techRadio).toBeDisabled()
-
-    await user.click(clearButton()!)
-
-    expect(techRadio).not.toBeDisabled()
-  })
-
-  it('クリア後も最後に選択していたニュースソースが維持される', async () => {
-    const user = userEvent.setup()
-    render(<GenerateEpisodeButton />)
-
-    await user.click(screen.getByText('一般ニュース'))
-    const input = screen.getByPlaceholderText('https://example.com/article')
-    await user.type(input, 'https://example.com/test')
-
-    await user.click(clearButton()!)
-
-    expect(screen.getByDisplayValue('hatena_hotentry_all')).toBeChecked()
-  })
-
   it('クリアボタンにaria-labelが付与されている', async () => {
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
+    await selectCommentary(user)
     await user.type(screen.getByPlaceholderText('https://example.com/article'), 'https://example.com/test')
 
     const btn = clearButton()
@@ -801,6 +788,7 @@ describe('GenerateEpisodeButton — URLクリアボタン', () => {
 describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockFetchPrograms.mockResolvedValue(PROGRAMS)
     localStorage.clear()
   })
 
@@ -813,7 +801,7 @@ describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', ()
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
-    await user.click(radioSubmit())
+    await user.click(await radioButton())
 
     expect(await screen.findByText('ログインが必要です。再度ログインしてください。')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'ログインする' })).toHaveAttribute('href', '/admin/login')
@@ -828,7 +816,7 @@ describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', ()
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
-    await user.click(radioSubmit())
+    await user.click(await radioButton())
 
     expect(await screen.findByText('この操作を実行する権限がありません。')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument()
@@ -843,7 +831,7 @@ describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', ()
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
-    await user.click(radioSubmit())
+    await user.click(await radioButton())
 
     expect(await screen.findByText('同じ操作が競合しています。入力内容を確認して再試行してください。')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument()
@@ -857,7 +845,7 @@ describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', ()
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
-    await user.click(radioSubmit())
+    await user.click(await radioButton())
 
     expect(await screen.findByText('指定されたTTSエンジンは無効です。')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument()
@@ -870,7 +858,7 @@ describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', ()
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
-    await user.click(radioSubmit())
+    await user.click(await radioButton())
 
     expect(await screen.findByText('利用制限に達しました。約2分後に再試行できます。')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument()
@@ -885,7 +873,7 @@ describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', ()
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
-    await user.click(radioSubmit())
+    await user.click(await radioButton())
 
     expect(await screen.findByText(message)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument()
@@ -898,7 +886,7 @@ describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', ()
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
-    await user.click(radioSubmit())
+    await user.click(await radioButton())
     expect(await screen.findByRole('button', { name: '再試行' })).toBeInTheDocument()
     const firstKey = mockGenerateEpisode.mock.calls[0][9]
 
@@ -914,6 +902,7 @@ describe('GenerateEpisodeButton — 生成エラー表示と再試行導線', ()
 describe('GenerateEpisodeButton — 生成状態バッジの表示分岐', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockFetchPrograms.mockResolvedValue(PROGRAMS)
     localStorage.clear()
     mockGenerateEpisode.mockResolvedValue({ episode_id: 100 })
     mockFetchLlmProviders.mockResolvedValue({ providers: [
@@ -929,7 +918,7 @@ describe('GenerateEpisodeButton — 生成状態バッジの表示分岐', () =>
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
-    await user.click(radioSubmit())
+    await user.click(await radioButton())
 
     expect(await screen.findByRole('status')).toHaveTextContent('生成中・音声を準備しています')
 
@@ -941,7 +930,7 @@ describe('GenerateEpisodeButton — 生成状態バッジの表示分岐', () =>
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
-    await user.click(radioSubmit())
+    await user.click(await radioButton())
 
     expect(await screen.findByRole('status')).toHaveTextContent('完了・再生できます')
   })
@@ -953,7 +942,7 @@ describe('GenerateEpisodeButton — 生成状態バッジの表示分岐', () =>
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
-    await user.click(radioSubmit())
+    await user.click(await radioButton())
 
     expect(await screen.findByRole('status')).toHaveTextContent('生成待ち・順番にご案内します')
     expect(screen.queryByText('工程の進み具合')).not.toBeInTheDocument()
@@ -982,7 +971,7 @@ describe('GenerateEpisodeButton — 生成状態バッジの表示分岐', () =>
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
-    await user.click(radioSubmit())
+    await user.click(await radioButton())
 
     expect(await screen.findByRole('status')).toHaveTextContent('生成できませんでした。再試行できます')
     expect(screen.getByRole('button', { name: '再試行' })).toBeEnabled()
@@ -997,7 +986,7 @@ describe('GenerateEpisodeButton — 生成状態バッジの表示分岐', () =>
     const user = userEvent.setup()
     render(<GenerateEpisodeButton />)
 
-    await user.click(radioSubmit())
+    await user.click(await radioButton())
 
     await screen.findByText(message)
     expect(screen.queryByText('生成できませんでした。再試行できます')).not.toBeInTheDocument()
@@ -1008,6 +997,7 @@ describe('GenerateEpisodeButton — 生成状態バッジの表示分岐', () =>
 describe('GenerateEpisodeButton — 新規生成の排他ブロック時のメッセージ分岐', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockFetchPrograms.mockResolvedValue(PROGRAMS)
     localStorage.clear()
   })
 
@@ -1017,7 +1007,7 @@ describe('GenerateEpisodeButton — 新規生成の排他ブロック時のメ�
     const user = userEvent.setup()
     render(<GenerateEpisodeButton episodes={[{ id: 1, title: '', subtitle: '', date: '2026-09-18', duration: 0, audio_url: '', status: 'generating' }]} />)
 
-    await user.click(radioSubmit())
+    await user.click(await radioButton())
 
     expect(await screen.findByText('先に生成中のタスクがあります。完了をお待ちください。')).toBeInTheDocument()
     expect(mockGenerateEpisode).not.toHaveBeenCalled()
@@ -1027,9 +1017,106 @@ describe('GenerateEpisodeButton — 新規生成の排他ブロック時のメ�
     const user = userEvent.setup()
     render(<GenerateEpisodeButton episodes={[{ id: 1, title: '', subtitle: '', date: '2026-09-18', duration: 0, audio_url: '', status: 'waiting' }]} />)
 
-    await user.click(radioSubmit())
+    await user.click(await radioButton())
 
     expect(await screen.findByText('先に生成待ちのタスクがあります。開始までお待ちください。')).toBeInTheDocument()
     expect(mockGenerateEpisode).not.toHaveBeenCalled()
+  })
+})
+
+describe('GenerateEpisodeButton — 番組選択式の生成UI', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockFetchPrograms.mockResolvedValue(PROGRAMS)
+    mockGenerateEpisode.mockResolvedValue({ episode_id: 100 })
+    mockSearchEpisodesBySourceUrl.mockResolvedValue([])
+    mockFetchLlmProviders.mockResolvedValue({ providers: [] })
+    localStorage.clear()
+  })
+
+  it('有効な番組のみ一覧に表示し、個別のソース・MC・スタイル選択は表示しない', async () => {
+    mockFetchPrograms.mockResolvedValue([...PROGRAMS, { id: 'old', name: '無効番組', kind: 'radio', is_active: false }])
+    render(<GenerateEpisodeButton />)
+    await waitFor(() => expect(screen.getByRole('option', { name: 'テックニュース' })).toBeInTheDocument())
+    expect(screen.getByRole('option', { name: 'ひとり解説（解説）' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /無効番組/ })).toBeNull()
+    expect(mockFetchPrograms).toHaveBeenCalledWith(false, expect.anything())
+    expect(screen.queryByText('ニュースソース')).toBeNull()
+    expect(screen.queryByText('解説スタイル')).toBeNull()
+    expect(screen.queryByText('MCの性別')).toBeNull()
+  })
+
+  it('番組を選んで生成するとprogram_idを送り、ソース・スタイル・MC性別は渡さない', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+    await user.click(await radioButton())
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    const args = mockGenerateEpisode.mock.calls[0]
+    expect(args[16]).toBe('radio_tech_news')
+    expect(args[2]).toBeUndefined()
+    expect(args[5]).toBeUndefined()
+    expect(args[6]).toBeUndefined()
+    expect(args[7]).toBeUndefined()
+    expect(args[3]).toBe('fishs2pro')
+  })
+
+  it('解説番組を選んだ時だけURL入力が表示される', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+    await waitFor(() => expect(screen.getByLabelText('番組')).toBeInTheDocument())
+    expect(screen.queryByPlaceholderText('https://example.com/article')).toBeNull()
+    await selectCommentary(user)
+    expect(urlInput()).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('番組'), 'radio_tech_news')
+    expect(screen.queryByPlaceholderText('https://example.com/article')).toBeNull()
+  })
+
+  it('解説番組でURL未入力のまま生成するとエラーを表示し生成しない', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+    await selectCommentary(user)
+    await user.click(submitButton())
+    expect(screen.getByText('解説する記事のURLを入力してください')).toBeInTheDocument()
+    expect(mockGenerateEpisode).not.toHaveBeenCalled()
+    expect(mockSearchEpisodesBySourceUrl).not.toHaveBeenCalled()
+  })
+
+  it('解説番組でURLを入力して生成するとurlとprogram_idを送る', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+    await selectCommentary(user)
+    await user.type(urlInput(), 'https://example.com/article')
+    await user.click(submitButton())
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    const args = mockGenerateEpisode.mock.calls[0]
+    expect(args[5]).toBe('https://example.com/article')
+    expect(args[16]).toBe('commentary_solo')
+    expect(args[6]).toBeUndefined()
+  })
+
+  it('解説番組でURLを入力後にラジオ番組へ切り替えるとURLは送らない', async () => {
+    const user = userEvent.setup()
+    render(<GenerateEpisodeButton />)
+    await selectCommentary(user)
+    await user.type(urlInput(), 'https://example.com/article')
+    await user.selectOptions(screen.getByLabelText('番組'), 'radio_tech_news')
+    await user.click(await radioButton())
+    await waitFor(() => expect(mockGenerateEpisode).toHaveBeenCalled())
+    expect(mockGenerateEpisode.mock.calls[0][5]).toBeUndefined()
+    expect(mockSearchEpisodesBySourceUrl).not.toHaveBeenCalled()
+  })
+
+  it('有効な番組が無い場合は案内を表示し生成ボタンを無効にする', async () => {
+    mockFetchPrograms.mockResolvedValue([{ id: 'old', name: '無効番組', kind: 'radio', is_active: false }])
+    render(<GenerateEpisodeButton />)
+    await waitFor(() => expect(screen.getByText(/有効な番組がありません/)).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'この設定で番組を生成する' })).toBeDisabled()
+  })
+
+  it('番組一覧の取得に失敗した場合はエラーを表示し生成ボタンを無効にする', async () => {
+    mockFetchPrograms.mockRejectedValue(new Error('boom'))
+    render(<GenerateEpisodeButton />)
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('番組一覧を読み込めません: boom'))
+    expect(screen.getByRole('button', { name: 'この設定で番組を生成する' })).toBeDisabled()
   })
 })

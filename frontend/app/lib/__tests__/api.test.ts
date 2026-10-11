@@ -76,6 +76,21 @@ describe('generateEpisode settings snapshot', () => {
     global.fetch = previousFetch
   })
 
+  it('programId指定時はprogram_idを送り、news_source・style・mc_genderは送らない', async () => {
+    const previousFetch = global.fetch
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ episode_id: 12 }) })
+    global.fetch = fetchMock as typeof fetch
+    await generateEpisode('2026-07-25', 6, 'yahoo_news', 'fishs2pro', false, 'https://example.com/a', 'solo', 'female', undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'commentary_solo')
+
+    const request = JSON.parse((fetchMock.mock.calls[0][1]?.body as string))
+    expect(request.program_id).toBe('commentary_solo')
+    expect(request.url).toBe('https://example.com/a')
+    expect(request).not.toHaveProperty('news_source')
+    expect(request).not.toHaveProperty('style')
+    expect(request).not.toHaveProperty('mc_gender')
+    global.fetch = previousFetch
+  })
+
   it('maxArticlesを省略した場合はデフォルトの5件をリクエストへ含める', async () => {
     const previousFetch = global.fetch
     const fetchMock = jest.fn().mockResolvedValue(
