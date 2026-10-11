@@ -175,6 +175,25 @@ describe('AdminMcFormModal', () => {
       )
     })
 
+    it('HTTP成功でもFishがstatus:errorなら既存値を表示・保持し、候補外とは断定せずエラーを表示する', async () => {
+      mockFetchVoiceOptions.mockResolvedValue({
+        ...voiceOptionsOk(),
+        fishs2pro: { status: 'error', error: 'fish unavailable', options: [] },
+      })
+      mockReplaceMc.mockResolvedValueOnce({ ...outMc })
+      const user = userEvent.setup()
+      render(<AdminMcFormModal mc={outMc} onClose={jest.fn()} onSuccess={jest.fn()} />)
+      expect(await screen.findByRole('alert')).toHaveTextContent('fish unavailable')
+      expect(fish().value).toBe('old_voice')
+      expect(fish().selectedOptions[0]).toHaveTextContent('old_voice')
+      expect(fish().selectedOptions[0]).not.toHaveTextContent('候補にありません')
+      await user.click(screen.getByRole('button', { name: '保存する' }))
+      expect(mockReplaceMc).toHaveBeenCalledWith(
+        'radio_male',
+        expect.objectContaining({ voice_fishs2pro: 'old_voice' }),
+      )
+    })
+
     it('候補外の値から別候補・空選択へ変更でき、その値で保存される', async () => {
       mockReplaceMc.mockResolvedValue({ ...outMc })
       const user = userEvent.setup()

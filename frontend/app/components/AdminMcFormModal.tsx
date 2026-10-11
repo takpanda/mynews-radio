@@ -29,13 +29,13 @@ const VOICE_SELECT_CLASS =
 function VoiceOptionItems({
   engine,
   current,
-  loaded,
 }: {
   engine: EngineVoiceOptions | undefined
   current: string
-  loaded: boolean
 }) {
   const options = engine?.options ?? []
+  // 候補を確認できた（status が ok）場合のみ「候補にありません」と断定する
+  const loaded = engine?.status === 'ok'
   // 候補にない保存済みの値は、値を失わないよう専用optionで表示する（取得完了前は値のみ表示）
   const isOutOfCandidates = current !== '' && !options.some((o) => String(o.value) === current)
   return (
@@ -95,7 +95,6 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
     const e = voiceOptions?.[key]
     return e?.status === 'error' ? (e.error ?? 'ボイス候補の取得に失敗しました') : null
   }
-  const voiceOptionsLoaded = voiceOptions !== null
   const voiceErrors = [voiceOptionsError, engineError('fishs2pro')].filter((m): m is string => !!m)
 
   useEffect(() => {
@@ -268,7 +267,7 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
                 onChange={(e) => setVoiceFishs2pro(e.target.value)}
                 className={VOICE_SELECT_CLASS}
               >
-                <VoiceOptionItems engine={voiceOptions?.fishs2pro} current={voiceFishs2pro} loaded={voiceOptionsLoaded} />
+                <VoiceOptionItems engine={voiceOptions?.fishs2pro} current={voiceFishs2pro} />
               </select>
             </div>
             <div>
@@ -282,7 +281,7 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
                 aria-describedby={isAivispeechDisabled ? 'mc-form-tts-disabled-note' : undefined}
                 className={VOICE_SELECT_CLASS}
               >
-                <VoiceOptionItems engine={voiceOptions?.aivispeech} current={voiceAivispeech} loaded={voiceOptionsLoaded} />
+                <VoiceOptionItems engine={voiceOptions?.aivispeech} current={voiceAivispeech} />
               </select>
             </div>
             <div>
@@ -296,7 +295,7 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
                 aria-describedby={isVoicevoxDisabled ? 'mc-form-tts-disabled-note' : undefined}
                 className={VOICE_SELECT_CLASS}
               >
-                <VoiceOptionItems engine={voiceOptions?.voicevox} current={voiceVoicevox} loaded={voiceOptionsLoaded} />
+                <VoiceOptionItems engine={voiceOptions?.voicevox} current={voiceVoicevox} />
               </select>
             </div>
           </div>
