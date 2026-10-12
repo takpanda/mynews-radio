@@ -89,7 +89,7 @@ export default function FemaleMcCandidatesPanel({ initialData }: Props) {
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-slate-900">女性MC候補マスタ</h2>
+          <h2 className="text-sm font-semibold text-slate-900">MC候補マスタ</h2>
           <p className="mt-1 text-xs text-slate-500">
             候補を追加・編集し、有効/無効を切り替えます。無効な候補はカテゴリ別設定の選択肢に表示されません。
           </p>

@@ -34,16 +34,16 @@ beforeEach(() => {
 })
 
 describe('FemaleMcCandidatesSection', () => {
-  it('初期取得成功：女性MC候補マスタパネルが表示される', () => {
+  it('初期取得成功：MC候補マスタパネルが表示される', () => {
     render(<FemaleMcCandidatesSection initialData={sampleData} initialError={null} />)
-    expect(screen.getByText('女性MC候補マスタ')).toBeInTheDocument()
+    expect(screen.getByText('MC候補マスタ')).toBeInTheDocument()
   })
 
   it('初期取得失敗：エラーメッセージと再試行ボタンが表示される', () => {
-    render(<FemaleMcCandidatesSection initialData={null} initialError="女性MC候補マスタを取得できませんでした。しばらく後でもう一度お試しください。" />)
-    expect(screen.getByRole('alert')).toHaveTextContent('女性MC候補マスタを取得できませんでした。しばらく後でもう一度お試しください。')
-    expect(screen.getByRole('button', { name: '女性MC候補マスタを再試行' })).toBeInTheDocument()
-    expect(screen.queryByText('女性MC候補マスタ')).not.toBeInTheDocument()
+    render(<FemaleMcCandidatesSection initialData={null} initialError="MC候補マスタを取得できませんでした。しばらく後でもう一度お試しください。" />)
+    expect(screen.getByRole('alert')).toHaveTextContent('MC候補マスタを取得できませんでした。しばらく後でもう一度お試しください。')
+    expect(screen.getByRole('button', { name: 'MC候補マスタを再試行' })).toBeInTheDocument()
+    expect(screen.queryByText('MC候補マスタ')).not.toBeInTheDocument()
   })
 
   it('再試行成功：取得できたデータでパネルが表示される', async () => {
@@ -51,10 +51,10 @@ describe('FemaleMcCandidatesSection', () => {
     const user = userEvent.setup()
     render(<FemaleMcCandidatesSection initialData={null} initialError="取得できませんでした" />)
 
-    await user.click(screen.getByRole('button', { name: '女性MC候補マスタを再試行' }))
+    await user.click(screen.getByRole('button', { name: 'MC候補マスタを再試行' }))
 
     await waitFor(() => {
-      expect(screen.getByText('女性MC候補マスタ')).toBeInTheDocument()
+      expect(screen.getByText('MC候補マスタ')).toBeInTheDocument()
     })
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
@@ -64,12 +64,12 @@ describe('FemaleMcCandidatesSection', () => {
     const user = userEvent.setup()
     render(<FemaleMcCandidatesSection initialData={null} initialError="取得できませんでした" />)
 
-    await user.click(screen.getByRole('button', { name: '女性MC候補マスタを再試行' }))
+    await user.click(screen.getByRole('button', { name: 'MC候補マスタを再試行' }))
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('保存できませんでした。しばらく後でもう一度お試しください。')
     })
-    expect(screen.getByRole('button', { name: '女性MC候補マスタを再試行' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'MC候補マスタを再試行' })).toBeInTheDocument()
   })
 
   it('再試行中は再試行ボタンが無効化され1回しか呼ばれない', async () => {
@@ -80,14 +80,14 @@ describe('FemaleMcCandidatesSection', () => {
     const user = userEvent.setup()
     render(<FemaleMcCandidatesSection initialData={null} initialError="取得できませんでした" />)
 
-    const button = screen.getByRole('button', { name: '女性MC候補マスタを再試行' })
+    const button = screen.getByRole('button', { name: 'MC候補マスタを再試行' })
     await user.click(button)
-    expect(screen.getByRole('button', { name: '女性MC候補マスタを再試行中' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'MC候補マスタを再試行中' })).toBeDisabled()
 
-    await user.click(screen.getByRole('button', { name: '女性MC候補マスタを再試行中' }))
+    await user.click(screen.getByRole('button', { name: 'MC候補マスタを再試行中' }))
     expect(mockFetch).toHaveBeenCalledTimes(1)
 
     resolveFetch(sampleData)
-    await waitFor(() => expect(screen.getByText('女性MC候補マスタ')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('MC候補マスタ')).toBeInTheDocument())
   })
 })

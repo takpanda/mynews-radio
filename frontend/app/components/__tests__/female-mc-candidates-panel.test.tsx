@@ -66,7 +66,7 @@ beforeEach(() => {
 describe('FemaleMcCandidatesPanel', () => {
   it('正常系：候補一覧と有効/無効状態が表示される', () => {
     render(<FemaleMcCandidatesPanel initialData={sampleCandidates} />)
-    expect(screen.getByText('女性MC候補マスタ')).toBeInTheDocument()
+    expect(screen.getByText('MC候補マスタ')).toBeInTheDocument()
     expect(screen.getByText('もりかわ')).toBeInTheDocument()
     expect(screen.getAllByText('有効').length).toBeGreaterThan(0)
     expect(screen.getAllByText('無効').length).toBeGreaterThan(0)

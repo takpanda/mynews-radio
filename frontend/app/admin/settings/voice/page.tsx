@@ -32,7 +32,7 @@ export default async function AdminVoiceSettingsPage() {
   try {
     initialFemaleMcCandidates = await fetchFemaleMcCandidates()
   } catch {
-    candidatesError = '女性MC候補マスタを取得できませんでした。しばらく後でもう一度お試しください。'
+    candidatesError = 'MC候補マスタを取得できませんでした。しばらく後でもう一度お試しください。'
   }
 
   return (

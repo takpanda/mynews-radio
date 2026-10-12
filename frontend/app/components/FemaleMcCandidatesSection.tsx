@@ -22,7 +22,7 @@ export default function FemaleMcCandidatesSection({ initialData, initialError }:
       setData(fresh)
       setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '女性MC候補マスタを取得できませんでした。しばらく後でもう一度お試しください。')
+      setError(err instanceof Error ? err.message : 'MC候補マスタを取得できませんでした。しばらく後でもう一度お試しください。')
     } finally {
       setRetrying(false)
     }
@@ -41,7 +41,7 @@ export default function FemaleMcCandidatesSection({ initialData, initialError }:
         type="button"
         onClick={handleRetry}
         disabled={retrying}
-        aria-label={retrying ? '女性MC候補マスタを再試行中' : '女性MC候補マスタを再試行'}
+        aria-label={retrying ? 'MC候補マスタを再試行中' : 'MC候補マスタを再試行'}
         className="mt-3 rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {retrying ? '再試行中…' : '再試行'}
