@@ -141,11 +141,16 @@ function toAbsoluteAudioUrl(episode) {
 - `AudioPlayer.PlaybackFinished` / `PlaybackStopped`: 状態をクリア。
 - `AudioPlayer.PlaybackFailed`: ログ + 次のエピソードへスキップするリカバリ。
 
-## 6. カテゴリ設計
+## 6. カテゴリ設計（2026-10-12 実動作確認済み）
 
-- `commentary`（解説）: 短め（2-4分）。通しで聴く想定。
-- `radio`（テック本編）: テックニュース。`category=tech` / `category=general` でも絞れる。
-- UX 方針: まず「最新を再生」+ 連続再生で動かし、後からカテゴリ切替（「解説を続けて」「テックのニュースを続けて」）を足す。
+- `type` の区分: `commentary`（解説）/ `radio`（ニュース本編）。
+- `category=commentary` は `type=commentary` を**直接参照**（現在 17件）。
+- `category=general` / `category=tech` は `type=radio` の下を `categories` フィールドで**分割**する。
+  - `general`: radio かつ categories が非テック（現 22件）
+  - `tech`: radio かつ categories がテック（現 12件）
+  - 22 + 12 = 34 = radio 全件。
+- スキルの API 呼び出しは `?category=commentary`（解説連続再生）を基本とし、`?category=tech` / `?category=general` はテック切替用に用意。
+- UX 方針: 「最新を再生」+ 連続再生で動かし、後からカテゴリ切替（「解説を続けて」「テックを続けて」）を足す。
 
 ## 7. エラー処理と再生状態管理
 
