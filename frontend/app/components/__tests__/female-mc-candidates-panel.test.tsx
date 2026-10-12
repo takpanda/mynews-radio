@@ -66,7 +66,7 @@ beforeEach(() => {
 describe('FemaleMcCandidatesPanel', () => {
   it('正常系：候補一覧と有効/無効状態が表示される', () => {
     render(<FemaleMcCandidatesPanel initialData={sampleCandidates} />)
-    expect(screen.getByText('女性MC候補マスタ')).toBeInTheDocument()
+    expect(screen.getByText('MC候補マスタ')).toBeInTheDocument()
     expect(screen.getByText('もりかわ')).toBeInTheDocument()
     expect(screen.getAllByText('有効').length).toBeGreaterThan(0)
     expect(screen.getAllByText('無効').length).toBeGreaterThan(0)
@@ -185,5 +185,50 @@ describe('FemaleMcCandidatesPanel', () => {
         sample_text: '更新後のサンプル文です。',
       })
     })
+  })
+
+  const legacyMessage = '女性MC候補を保存できませんでした'
+
+  it('503エラー（旧文言）：有効切替失敗時も「MC候補」表記で表示する', async () => {
+    mockUpdate.mockRejectedValueOnce(new Error(legacyMessage))
+    const user = userEvent.setup()
+    render(<FemaleMcCandidatesPanel initialData={sampleCandidates} />)
+
+    await user.click(screen.getByRole('switch', { name: 'もりかわを無効にする' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('MC候補を保存できませんでした')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/女性MC候補/)).not.toBeInTheDocument()
+  })
+
+  it('503エラー（旧文言）：追加失敗時も「MC候補」表記で表示する', async () => {
+    mockCreate.mockRejectedValueOnce(new Error(legacyMessage))
+    const user = userEvent.setup()
+    render(<FemaleMcCandidatesPanel initialData={sampleCandidates} />)
+
+    await user.click(screen.getByRole('button', { name: '候補を追加' }))
+    await user.type(screen.getByPlaceholderText('例: morigawa'), 'newvoice')
+    await user.type(screen.getByPlaceholderText('例: もりかわ'), '新しい候補')
+    await user.click(screen.getByRole('button', { name: '追加する' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('MC候補を保存できませんでした')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/女性MC候補/)).not.toBeInTheDocument()
+  })
+
+  it('503エラー（旧文言）：編集失敗時も「MC候補」表記で表示する', async () => {
+    mockUpdate.mockRejectedValueOnce(new Error(legacyMessage))
+    const user = userEvent.setup()
+    render(<FemaleMcCandidatesPanel initialData={sampleCandidates} />)
+
+    await user.click(screen.getAllByRole('button', { name: /編集/ })[0])
+    await user.click(screen.getByRole('button', { name: /保存/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('MC候補を保存できませんでした')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/女性MC候補/)).not.toBeInTheDocument()
   })
 })

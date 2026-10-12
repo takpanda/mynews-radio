@@ -108,6 +108,11 @@ export async function updateFemaleMcCandidateClient(
   return withRelaySampleUrl((await res.json()) as FemaleMcCandidate)
 }
 
+/** UI表示用：API由来のメッセージに含まれる旧表記「女性MC候補」を「MC候補」へ置き換える */
+export function toNeutralMcCandidateMessage(message: string): string {
+  return message.replace(/女性MC候補/g, 'MC候補')
+}
+
 function parseFemaleMcCandidateError(status: number, body: string): string {
   try {
     const parsed = JSON.parse(body)
