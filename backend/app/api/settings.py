@@ -284,6 +284,21 @@ def _fetch_fishs2pro_options(base_url: str) -> EngineVoiceOptions:
     return EngineVoiceOptions(status="ok", options=options)
 
 
+def _active_fishs2pro_options(options: EngineVoiceOptions) -> EngineVoiceOptions:
+    """Fish S2 Pro の候補をMC候補マスタで有効なボイスに限定する。"""
+    if options.status != "ok":
+        return options
+    active_voice_names = {
+        item["voice_name"] for item in get_female_mc_candidates(active_only=True)
+    }
+    return options.model_copy(update={
+        "options": [
+            option for option in options.options
+            if str(option.value) in active_voice_names
+        ],
+    })
+
+
 @router.get(
     "/voices/options",
     response_model=VoiceOptionsResponse,
@@ -310,7 +325,9 @@ def get_voice_options() -> dict:
         "fishs2pro": (
             EngineVoiceOptions(status="ok", options=[]).model_dump()
             if "fishs2pro" in DISABLED_TTS_ENGINES
-            else _fetch_fishs2pro_options(cfg.fishs2pro_base_url).model_dump()
+            else _active_fishs2pro_options(
+                _fetch_fishs2pro_options(cfg.fishs2pro_base_url)
+            ).model_dump()
         ),
     }
 
