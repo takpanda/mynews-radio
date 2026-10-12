@@ -338,9 +338,67 @@ class TestVoiceOptionsApi:
         assert data["voicevox"]["status"] == "ok"
         assert data["fishs2pro"]["status"] == "ok"
         assert data["fishs2pro"]["options"] == [
-            {"display_name": "male", "value": "male", "speaker_name": None, "style_name": None},
             {"display_name": "morigawa", "value": "morigawa", "speaker_name": None, "style_name": None},
         ]
+
+    def test_fishs2pro_options_include_only_active_registered_candidates(self, client, monkeypatch):
+        from app.api import settings as settings_api
+
+        settings_service.update_female_mc_candidate("morigawa", {"is_active": False})
+        monkeypatch.setattr(settings_api.FishS2ProClient, "list_voices", lambda self: [
+            "female", "morigawa", "unregistered",
+        ])
+        monkeypatch.setattr(settings_api.FishS2ProClient, "close", lambda self: None)
+
+        response = client.get("/settings/voices/options")
+
+        assert response.status_code == 200
+        assert response.json()["fishs2pro"]["options"] == [
+            {"display_name": "female", "value": "female", "speaker_name": None, "style_name": None},
+        ]
+
+    def test_fishs2pro_options_are_empty_when_no_candidates_are_active(self, client, monkeypatch):
+        from app.api import settings as settings_api
+
+        settings_service.update_female_mc_candidate("female", {"is_active": False})
+        settings_service.update_female_mc_candidate("morigawa", {"is_active": False})
+        monkeypatch.setattr(settings_api.FishS2ProClient, "list_voices", lambda self: ["female", "morigawa"])
+        monkeypatch.setattr(settings_api.FishS2ProClient, "close", lambda self: None)
+
+        response = client.get("/settings/voices/options")
+
+        assert response.status_code == 200
+        assert response.json()["fishs2pro"] == {"status": "ok", "options": [], "error": None}
+
+    def test_candidate_master_failure_returns_engine_error_without_failing_endpoint(
+        self, client, monkeypatch
+    ):
+        from app.api import settings as settings_api
+
+        monkeypatch.setattr(settings_api, "DISABLED_TTS_ENGINES", frozenset())
+        monkeypatch.setattr(settings_api.VoicevoxClient, "list_speakers", lambda self: [
+            {"speaker_name": "s", "style_name": "st", "value": 1},
+        ])
+        monkeypatch.setattr(settings_api.VoicevoxClient, "close", lambda self: None)
+        monkeypatch.setattr(settings_api.FishS2ProClient, "list_voices", lambda self: ["morigawa"])
+        monkeypatch.setattr(settings_api.FishS2ProClient, "close", lambda self: None)
+
+        def broken_candidates(*, active_only=False):
+            raise sqlite3.OperationalError("database unavailable")
+
+        monkeypatch.setattr(settings_api, "get_female_mc_candidates", broken_candidates)
+
+        response = client.get("/settings/voices/options")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["aivispeech"]["status"] == "ok"
+        assert data["voicevox"]["status"] == "ok"
+        assert data["fishs2pro"] == {
+            "status": "error",
+            "options": [],
+            "error": "話者一覧を取得できませんでした",
+        }
 
     def test_one_engine_failure_does_not_fail_whole_response(self, client, monkeypatch):
         from app.api import settings as settings_api
@@ -425,7 +483,7 @@ class TestVoiceOptionsApi:
 
         monkeypatch.setattr(settings_api.VoicevoxClient, "list_speakers", unexpected_speakers)
         monkeypatch.setattr(settings_api.VoicevoxClient, "close", lambda self: None)
-        monkeypatch.setattr(settings_api.FishS2ProClient, "list_voices", lambda self: ["male"])
+        monkeypatch.setattr(settings_api.FishS2ProClient, "list_voices", lambda self: ["morigawa"])
         monkeypatch.setattr(settings_api.FishS2ProClient, "close", lambda self: None)
 
         response = client.get("/settings/voices/options")
@@ -436,7 +494,7 @@ class TestVoiceOptionsApi:
             assert data[engine] == {"status": "ok", "options": [], "error": None}
         assert data["fishs2pro"]["status"] == "ok"
         assert data["fishs2pro"]["options"] == [
-            {"display_name": "male", "value": "male", "speaker_name": None, "style_name": None}
+            {"display_name": "morigawa", "value": "morigawa", "speaker_name": None, "style_name": None}
         ]
 
     def test_fetches_engine_when_removed_from_disabled_engines(self, client, monkeypatch):
