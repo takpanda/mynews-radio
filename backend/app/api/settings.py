@@ -288,9 +288,15 @@ def _active_fishs2pro_options(options: EngineVoiceOptions) -> EngineVoiceOptions
     """Fish S2 Pro の候補をMC候補マスタで有効なボイスに限定する。"""
     if options.status != "ok":
         return options
-    active_voice_names = {
-        item["voice_name"] for item in get_female_mc_candidates(active_only=True)
-    }
+    try:
+        active_voice_names = {
+            item["voice_name"] for item in get_female_mc_candidates(active_only=True)
+        }
+    except (sqlite3.Error, OSError) as exc:
+        logger.warning("Fish S2 Pro のMC候補マスタ取得に失敗しました: %s", type(exc).__name__)
+        return EngineVoiceOptions(
+            status="error", options=[], error=_VOICE_LIST_FAILURE_MESSAGE
+        )
     return options.model_copy(update={
         "options": [
             option for option in options.options

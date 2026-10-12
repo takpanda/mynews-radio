@@ -370,6 +370,36 @@ class TestVoiceOptionsApi:
         assert response.status_code == 200
         assert response.json()["fishs2pro"] == {"status": "ok", "options": [], "error": None}
 
+    def test_candidate_master_failure_returns_engine_error_without_failing_endpoint(
+        self, client, monkeypatch
+    ):
+        from app.api import settings as settings_api
+
+        monkeypatch.setattr(settings_api, "DISABLED_TTS_ENGINES", frozenset())
+        monkeypatch.setattr(settings_api.VoicevoxClient, "list_speakers", lambda self: [
+            {"speaker_name": "s", "style_name": "st", "value": 1},
+        ])
+        monkeypatch.setattr(settings_api.VoicevoxClient, "close", lambda self: None)
+        monkeypatch.setattr(settings_api.FishS2ProClient, "list_voices", lambda self: ["morigawa"])
+        monkeypatch.setattr(settings_api.FishS2ProClient, "close", lambda self: None)
+
+        def broken_candidates(*, active_only=False):
+            raise sqlite3.OperationalError("database unavailable")
+
+        monkeypatch.setattr(settings_api, "get_female_mc_candidates", broken_candidates)
+
+        response = client.get("/settings/voices/options")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["aivispeech"]["status"] == "ok"
+        assert data["voicevox"]["status"] == "ok"
+        assert data["fishs2pro"] == {
+            "status": "error",
+            "options": [],
+            "error": "話者一覧を取得できませんでした",
+        }
+
     def test_one_engine_failure_does_not_fail_whole_response(self, client, monkeypatch):
         from app.api import settings as settings_api
 
