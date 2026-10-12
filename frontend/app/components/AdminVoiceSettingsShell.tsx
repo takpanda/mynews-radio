@@ -1,20 +1,19 @@
 'use client'
 
 import { useState } from 'react'
+import { fetchVoiceOptionsClient, saveVoiceSettingsClient } from '../lib/admin-voice-settings'
 import {
-  DISABLED_TTS_ENGINES,
   DISABLED_TTS_ENGINE_MESSAGE,
   VOICE_ENGINES,
   VOICE_FIELD_MAP,
-  fetchVoiceOptionsClient,
-  saveVoiceSettingsClient,
+  isTtsDisabled,
   type EngineVoiceOptions,
   type VoiceEngineKey,
   type VoiceGender,
   type VoiceOption,
   type VoiceOptionsResponse,
   type VoiceSettings,
-} from '../lib/admin-voice-settings'
+} from '../lib/tts-engines'
 
 interface Props {
   initialSettings: VoiceSettings
@@ -86,7 +85,7 @@ export default function AdminVoiceSettingsShell({ initialSettings, initialOption
 
   // 無効化エンジン（AivisSpeech/VOICEVOX）は編集不可のため、一覧取得エラーや旧値があっても
   // Fish S2 Proの保存まで止めない。保存対象の検証は有効なエンジンだけに絞る。
-  const hasUnsavableValues = VOICE_ENGINES.filter((engine) => !DISABLED_TTS_ENGINES.includes(engine.key)).some(
+  const hasUnsavableValues = VOICE_ENGINES.filter((engine) => !isTtsDisabled(engine.key)).some(
     (engine) => engineHasUnsavableValue(engine.key, settings, options),
   )
 
@@ -130,7 +129,7 @@ export default function AdminVoiceSettingsShell({ initialSettings, initialOption
           const engineOptions = options[engine.key]
           const isError = engineOptions.status === 'error'
           const isRetrying = retryingEngines.has(engine.key)
-          const isDisabledEngine = DISABLED_TTS_ENGINES.includes(engine.key)
+          const isDisabledEngine = isTtsDisabled(engine.key)
           return (
             <div
               key={engine.key}

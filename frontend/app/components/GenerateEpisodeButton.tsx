@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'react-hot-toast'
 import { generateEpisode, fetchEpisode, fetchLlmProviders, searchEpisodesBySourceUrl, GenerationError, type EpisodeListItem, type DuplicateEpisodeInfo, type LlmProvider } from '../lib/api'
-import { DISABLED_TTS_ENGINES, DISABLED_TTS_ENGINE_MESSAGE } from '../lib/admin-voice-settings'
+import { DISABLED_TTS_ENGINE_MESSAGE, isTtsDisabled } from '../lib/tts-engines'
 import DuplicateUrlConfirmDialog from './DuplicateUrlConfirmDialog'
 import ProgramSettingsPanel from './ProgramSettingsPanel'
 import type { ProgramSettings } from '../lib/api'
@@ -385,8 +385,8 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   const selectedProgram = programs.find((program) => program.id === programId)
   // 解説番組（kind=commentary）を選んだときだけURL入力を表示し、URL付きで生成する。
   const isUrlMode = selectedProgram?.kind === 'commentary'
-  const isVoicevoxDisabled = DISABLED_TTS_ENGINES.includes('voicevox')
-  const isAivispeechDisabled = DISABLED_TTS_ENGINES.includes('aivispeech')
+  const isVoicevoxDisabled = isTtsDisabled('voicevox')
+  const isAivispeechDisabled = isTtsDisabled('aivispeech')
 
   const isValidUrl = (value: string): boolean => {
     if (value === '') return true
@@ -620,7 +620,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
     const selectedProgramId = params ? params.programId : programId
     const requestedEngine = params ? params.ttsEngine : ttsEngine
     // 無効化エンジン（DISABLED_TTS_ENGINES）はUI上も選択できないが、念のため送信直前にもfishs2proへ強制する（BEE-1075）。
-    const engine = DISABLED_TTS_ENGINES.includes(requestedEngine) ? 'fishs2pro' : requestedEngine
+    const engine = isTtsDisabled(requestedEngine) ? 'fishs2pro' : requestedEngine
     const articles = params ? params.maxArticles : maxArticles
     const recreate = params ? params.recreateSummary : recreateSummary
     const llmWasTouched = params ? params.llmTouched : llmTouched
