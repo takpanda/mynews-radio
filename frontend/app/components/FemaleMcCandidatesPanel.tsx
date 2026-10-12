@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import FemaleMcCandidateFormModal from './FemaleMcCandidateFormModal'
 import {
+  toNeutralMcCandidateMessage,
   updateFemaleMcCandidateClient,
   type FemaleMcCandidate,
 } from '../lib/admin-female-mc-candidates'
@@ -51,7 +52,7 @@ export default function FemaleMcCandidatesPanel({ initialData }: Props) {
     } catch (err) {
       setToggleErrors((prev) => ({
         ...prev,
-        [candidate.voice_name]: err instanceof Error ? err.message : '更新できませんでした',
+        [candidate.voice_name]: err instanceof Error ? toNeutralMcCandidateMessage(err.message) : '更新できませんでした',
       }))
     } finally {
       setTogglingVoices((prev) => {

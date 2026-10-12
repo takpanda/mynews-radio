@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import {
   createFemaleMcCandidateClient,
+  toNeutralMcCandidateMessage,
   updateFemaleMcCandidateClient,
   type FemaleMcCandidate,
 } from '../lib/admin-female-mc-candidates'
@@ -74,7 +75,7 @@ export default function FemaleMcCandidateFormModal({ candidate, onClose, onSucce
       }
       onSuccess(saved)
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : '保存に失敗しました')
+      setSubmitError(err instanceof Error ? toNeutralMcCandidateMessage(err.message) : '保存に失敗しました')
     } finally {
       setSubmitting(false)
     }
