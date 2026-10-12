@@ -26,7 +26,8 @@ import {
   type ProgramSegmentValue,
   type ReviewMode,
 } from '../lib/admin-programs'
-import { fetchVoiceOptionsClient, type VoiceOption, type VoiceOptionsResponse } from '../lib/admin-voice-settings'
+import { fetchVoiceOptionsClient } from '../lib/admin-voice-settings'
+import type { VoiceOption, VoiceOptionsResponse } from '../lib/tts-engines'
 import ConfirmDialog from './ConfirmDialog'
 
 /** 名前selectで、mcsに存在しない既存値を保持するための疑似value */

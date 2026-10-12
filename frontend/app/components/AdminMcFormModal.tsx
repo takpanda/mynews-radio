@@ -2,14 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createMc, replaceMc, MAX_PERSONA_LENGTH, type Mc, type McSaveInput } from '../lib/admin-programs'
+import { fetchVoiceOptionsClient } from '../lib/admin-voice-settings'
 import {
-  DISABLED_TTS_ENGINES,
   DISABLED_TTS_ENGINE_MESSAGE,
-  fetchVoiceOptionsClient,
+  isTtsDisabled,
   type EngineVoiceOptions,
   type VoiceEngineKey,
   type VoiceOptionsResponse,
-} from '../lib/admin-voice-settings'
+} from '../lib/tts-engines'
 
 interface Props {
   mc: Mc | null
@@ -55,8 +55,8 @@ function VoiceOptionItems({
 
 export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
   const isEdit = mc !== null
-  const isAivispeechDisabled = DISABLED_TTS_ENGINES.includes('aivispeech')
-  const isVoicevoxDisabled = DISABLED_TTS_ENGINES.includes('voicevox')
+  const isAivispeechDisabled = isTtsDisabled('aivispeech')
+  const isVoicevoxDisabled = isTtsDisabled('voicevox')
   const [id, setId] = useState(mc?.id ?? '')
   const [name, setName] = useState(mc?.name ?? '')
   const [role, setRole] = useState(mc?.role ?? '')
