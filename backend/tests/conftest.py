@@ -83,6 +83,8 @@ def test_env(tmp_path, monkeypatch):
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_file}")
     monkeypatch.setenv("EPISODES_DIR", str(ep_dir))
+    # Tests must never mutate or depend on the real shared .102 busy counter.
+    monkeypatch.setenv("THUMBNAIL_SERVICE_URL", "http://127.0.0.1:1")
     monkeypatch.setenv("GENERATE_RATE_LIMIT", "100/minute")
     # 既存の管理APIテストは有効なAPI_KEYを標準資格情報として使用する。
     # 未認証境界は専用の認証テストで明示的に確認する。

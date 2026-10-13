@@ -388,6 +388,14 @@ class EpisodeService:
             )
 
     @retry_on_busy()
+    def update_episode_thumbnail_path(self, episode_id: int, thumbnail_path: str) -> None:
+        with get_db_connection() as conn:
+            conn.execute(
+                "UPDATE episodes SET thumbnail_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (thumbnail_path, episode_id),
+            )
+
+    @retry_on_busy()
     def update_episode_mc_voice_name(self, episode_id: int, voice_name: str | None) -> None:
         """実際に合成で使用した女性MCのvoice_nameを保存する。"""
         with get_db_connection() as conn:
