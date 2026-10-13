@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import EpisodeDetailShell, { type DetailEpisode } from '../EpisodeDetailShell'
 
 jest.mock('../EpisodeAudioPlayer', () => ({ __esModule: true, default: () => <div data-testid="audio-player" /> }))
@@ -54,5 +54,30 @@ describe('EpisodeDetailShell 生成待ち表示', () => {
 
     expect(screen.getByText('音声ファイルを準備中です')).toBeInTheDocument()
     expect(screen.queryByText('生成待ち')).not.toBeInTheDocument()
+  })
+})
+
+describe('EpisodeDetailShell サムネイル表示', () => {
+  const renderShell = (ep: DetailEpisode) =>
+    render(<EpisodeDetailShell episode={ep} script={null} articles={[]} episodeItems={[]} summary={null} />)
+
+  it('thumbnailUrl がある場合はその画像を lazy load で表示する', () => {
+    const { container } = renderShell(episode({ thumbnailUrl: '/api/episodes/1/thumbnail' }))
+    const img = container.querySelector('[data-testid="episode-thumbnail"] img')
+    expect(img?.getAttribute('src')).toBe('/api/episodes/1/thumbnail')
+    expect(img?.getAttribute('loading')).toBe('lazy')
+  })
+
+  it('thumbnailUrl が null の場合はカテゴリ別のデフォルト画像を表示する', () => {
+    const { container } = renderShell(episode({ thumbnailUrl: null }))
+    const img = container.querySelector('[data-testid="episode-thumbnail"] img')
+    expect(img?.getAttribute('src')).toBe('/images/categories/general.png')
+  })
+
+  it('画像の読み込みに失敗した場合はデフォルト画像に切り替える', () => {
+    const { container } = renderShell(episode({ thumbnailUrl: '/api/episodes/1/thumbnail', categories: ['テック・IT'] }))
+    const img = container.querySelector('[data-testid="episode-thumbnail"] img') as HTMLImageElement
+    fireEvent.error(img)
+    expect(img.getAttribute('src')).toBe('/images/categories/tech.jpg')
   })
 })

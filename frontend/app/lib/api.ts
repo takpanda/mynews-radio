@@ -24,6 +24,8 @@ export interface EpisodeListItem {
   categories?: string[]
   /** 生成開始時刻（UTC）。未設定の既存データでは省略／空文字。 */
   generated_at?: string
+  /** サムネイル配信URL。サムネイルが無い回は null／省略。 */
+  thumbnail_url?: string | null
 }
 
 export interface Episode {
@@ -47,6 +49,8 @@ export interface Episode {
   mc_display_name?: string | null
   /** 保存順のエピソードカテゴリ。未設定の既存データでは省略／空配列。 */
   categories?: string[]
+  /** サムネイル配信URL。サムネイルが無い回は null／省略。 */
+  thumbnail_url?: string | null
   source_articles?: SourceArticle[]
   topics?: EpisodeTopic[]
   corrections?: EpisodeCorrection[]

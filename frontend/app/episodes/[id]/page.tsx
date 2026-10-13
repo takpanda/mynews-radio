@@ -146,6 +146,8 @@ function toDetailEpisode(episode: Episode): DetailEpisode {
     sourceArticles: episode.source_articles ?? [],
     topics: episode.topics ?? [],
     corrections: episode.corrections ?? [],
+    categories: episode.categories ?? [],
+    thumbnailUrl: episode.thumbnail_url ?? null,
   }
 }
 
