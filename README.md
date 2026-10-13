@@ -55,6 +55,10 @@
 | `FISHS2PRO_BASE_URL` | Fish S2 Pro TTS API のエンドポイント | `http://192.168.1.102:8000` |
 | `FISHS2PRO_VOICE_MALE` | Fish S2 Pro 男性ボイス名（論理話者 `male` → 送信するサーバーボイス名） | `male` |
 | `FISHS2PRO_VOICE_FEMALE` | Fish S2 Pro 女性ボイス名（論理話者 `female` → 送信するサーバーボイス名） | `morigawa`（森川夕貴クローン） |
+| `THUMBNAIL_SERVICE_URL` | .102 サムネイル生成サービスのベースURL | `http://192.168.1.102:8501` |
+| `THUMBNAIL_HTTP_TIMEOUT` | サムネイルサービスへの1 HTTPリクエストのタイムアウト（秒） | `10` |
+| `THUMBNAIL_POLL_INTERVAL` | サムネイルjob状態のポーリング間隔（秒） | `5` |
+| `THUMBNAIL_JOB_TIMEOUT` | 1サムネイルjobの最大待機時間（秒） | `900` |
 | `API_KEY` | API キー（辞書・レポート等の管理API向け。手動の生成開始・再音声合成は管理者セッションが必要） | 空文字 |
 | `GENERATE_RATE_LIMIT` | 生成系 API のリクエストレート制限（管理者セッション単位。例: `5/minute`, `100/hour`） | `5/minute` |
 | `PROXY_CLIENT_IP_HMAC_SECRET` | 検証済みクライアントIPのリレー署名検証用HMAC秘密鍵。Next.js（リレー）とバックエンドで同一値を設定する。値は公開しない | 空文字（未設定時はリレー署名を検証せずTCP接続元IPを使用） |
@@ -232,6 +236,29 @@ import_articles
 
 音声合成エンジンを明示指定したリクエスト（`tts_engine` パラメータ）は、
 上記の既定値設定に関わらず指定されたエンジンをそのまま使用します。
+
+## サムネイル生成
+
+エピソード完成後、サムネイル生成をバックグラウンドで開始します。完了通知はサムネイルを待ちません。
+.102 が停止中または生成に失敗した場合はログに記録し、エピソードは完成状態のままサムネイルなしで配信されます。
+LLM/TTS 実行時には `THUMBNAIL_SERVICE_URL` の `/busy/up` と `/busy/down` を best-effort で呼び出します。
+確認できた `.102` の OpenAPI は `/busy/up`・`/busy/down` と busy カウンタの読み取りを公開していますが、
+`/busy/up` が実行中の画像生成を待つのか、単にカウンタを加算するのかは契約に記載されていません。
+そのためクライアント側は LLM/TTS 各フェーズをカウンタで囲みますが、処理中のサムネイルとの厳密な相互排他は未確認です。
+実機での排他検証は BEE-1130 の結合確認で行います。busy 通信に失敗した場合は生成を継続するため、その障害中の排他は保証しません。
+
+特定のエピソードだけ手動で再生成する場合:
+
+```bash
+cd backend
+python scripts/regenerate_thumbnail.py 588
+```
+
+既存画像を置き換える場合のみ `--overwrite` を指定します。上書き生成に失敗した場合は旧画像と旧 `thumbnail_path` を維持します。
+この上書き方針は人間の確認待ちです。スクリプトは指定IDの `script.json` を読み、
+同じ生成サービス経由で `thumbnail.png` と `episodes.thumbnail_path` だけを更新します。
+エピソード生成・完了通知は再実行しません。実機確認では `EPISODES_DIR` と `DATABASE_URL` を本番データ領域に合わせ、
+`python scripts/regenerate_thumbnail.py 588` を実行後に `GET /api/episodes/588/thumbnail` が画像を返すことを確認してください。
 
 Fish S2 Pro の専用HTTPクライアントは `backend/app/services/fishs2pro_client.py` にあります。
 既定の接続先は `http://192.168.1.102:8000` で、`FISHS2PRO_BASE_URL` で上書きできます。

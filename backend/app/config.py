@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     fishs2pro_voice_male: str = "male"
     fishs2pro_voice_female: str = "morigawa"
     fishs2pro_voice_sample_dir: str = "/app/data/voice-samples"
+    thumbnail_service_url: str = "http://192.168.1.102:8501"
+    thumbnail_http_timeout: float = Field(default=10.0, gt=0)
+    thumbnail_poll_interval: float = Field(default=5.0, gt=0)
+    thumbnail_job_timeout: float = Field(default=900.0, gt=0)
     api_key: str = ""
     proxy_client_ip_hmac_secret: str = ""
     cookie_secure: bool = True

@@ -30,6 +30,8 @@ from app.config import DISABLED_TTS_ENGINES, get_settings, resolve_default_tts_e
 from app.db.connection import get_db_connection
 from app.services.article_service import ArticleService
 from app.services.episode_service import EpisodeService
+from app.services.dgx_busy import run_with_dgx_busy
+from app.services.thumbnail_service import start_thumbnail_generation
 from app.services.telegram_notifier import notify_failure, notify_success
 from app.services.hatena_fetcher import _validate_url_public, fetch_article_by_url
 from app.services.settings_service import ProgramSettings, get_settings_or_default, resolve_tts_speakers, validate_settings
@@ -532,9 +534,17 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             logger.exception("commentary content LLM is unavailable")
             _fail("generate_commentary", "解説台本生成用LLMを利用できません")
             return
-        line_count = generate_commentary_script(script_path, article, style=style, mc_gender=mc_gender,
-                                                program_profile=program_profile,
-                                                llm_provider=content_llm.name, llm_model=content_llm.model)
+        line_count = run_with_dgx_busy(
+            "generate_commentary",
+            generate_commentary_script,
+            script_path,
+            article,
+            style=style,
+            mc_gender=mc_gender,
+            program_profile=program_profile,
+            llm_provider=content_llm.name,
+            llm_model=content_llm.model,
+        )
 
         if line_count <= 0:
             _fail("generate_commentary", "解説台本を生成できませんでした")
@@ -548,11 +558,18 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
             reviewed_episode_dir = os.path.join(base_dir, "review")
             Path(reviewed_episode_dir).mkdir(parents=True, exist_ok=True)
             Path(os.path.join(reviewed_episode_dir, "lines")).mkdir(exist_ok=True)
-            review_result = review_script(script_path, reviewed_episode_dir,
-                                          program_name="ニュースのとなり",
-                                          commentary=True,
-                                          llm_provider=content_llm.name, llm_model=content_llm.model,
-                                          article=article, program_profile=program_profile)
+            review_result = run_with_dgx_busy(
+                "review_script",
+                review_script,
+                script_path,
+                reviewed_episode_dir,
+                program_name="ニュースのとなり",
+                commentary=True,
+                llm_provider=content_llm.name,
+                llm_model=content_llm.model,
+                article=article,
+                program_profile=program_profile,
+            )
             logger.info(
                 "review_script: revised=%s review_count=%d",
                 review_result["revised"],
@@ -611,7 +628,7 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         service.update_episode_phase(episode_id, "synthesize", "音声を合成しています…")
         try:
             job_id = _active_generation_job_id(episode_id)
-            success_count = synthesize_episode(
+            success_count = run_with_dgx_busy("synthesize", synthesize_episode,
                 base_dir,
                 base_url=tts_base_url,
                 speaker_male=tts_speaker_male,
@@ -673,6 +690,14 @@ def _run_commentary_generation(episode_id: int, body: GenerateRequest) -> None:
         service.complete_radio_episode_with_notification(episode_id)
         if script.get("title"):
             notification_title = str(script["title"])
+        try:
+            start_thumbnail_generation(
+                episode_id,
+                title=str(script.get("title") or notification_title),
+                topic=str(script.get("subtitle") or script.get("topic") or article.get("title") or ""),
+            )
+        except Exception:
+            logger.exception("[%d] failed to start thumbnail generation", episode_id)
         _notify_success(notification_title)
         service.update_episode_phase(episode_id, "complete", "解説の生成が完了しました")
         logger.info("[%d] commentary completed successfully", episode_id)
@@ -943,7 +968,7 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
     yield _format_sse("progress", _build_progress_payload("synthesize", f"音声を合成しています... ({tts_engine_label})", engine=tts_engine))
     job_id = _active_generation_job_id(episode_id)
     try:
-        success_count = synthesize_episode(
+        success_count = run_with_dgx_busy("synthesize", synthesize_episode,
             base_dir,
             base_url=tts_base_url,
             speaker_male=tts_speaker_male,
@@ -988,6 +1013,10 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
 
     service.update_episode_audio_path(episode_id, ep_metadata.get("audio_path") or "")
     service.complete_radio_episode_with_notification(episode_id)
+    try:
+        start_thumbnail_generation(episode_id)
+    except Exception:
+        logger.exception("[%d] failed to start thumbnail generation", episode_id)
 
     yield _format_sse(
         "complete",

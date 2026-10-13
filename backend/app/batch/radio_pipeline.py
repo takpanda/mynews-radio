@@ -28,6 +28,8 @@ from app.config import (
 )
 from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService, override_script_title, build_radio_title
+from app.services.dgx_busy import run_with_dgx_busy
+from app.services.thumbnail_service import start_thumbnail_generation
 from app.services.article_service import ArticleService, write_fallback_summaries
 from app.services.episode_category_service import select_episode_categories
 from app.services.fishs2pro_client import FishS2ProClient
@@ -286,7 +288,7 @@ def run_radio_pipeline(
             summaries_path = os.path.join(base_dir, "summaries.json")
             if summarize_llm is None:
                 raise RuntimeError("summary LLM is unavailable")
-            summarized = summarize_articles(
+            summarized = run_with_dgx_busy("summarize", summarize_articles,
                 summaries_path,
                 llm_provider=summarize_llm.name,
                 llm_model=summarize_llm.model,
@@ -345,7 +347,7 @@ def run_radio_pipeline(
                 program_profile=program_profile,
             )
             script_kwargs.update(llm_provider=content_llm.name, llm_model=content_llm.model)
-            line_count = generate_script(script_path, **script_kwargs)
+            line_count = run_with_dgx_busy("generate_script", generate_script, script_path, **script_kwargs)
         finally:
             if old_max is None:
                 os.environ.pop("MAX_SCRIPT_ARTICLES", None)
@@ -404,7 +406,7 @@ def run_radio_pipeline(
             Path(reviewed_episode_dir).mkdir(parents=True, exist_ok=True)
             Path(os.path.join(reviewed_episode_dir, "lines")).mkdir(exist_ok=True)
             if content_llm is not None:
-                review_result = review_script(
+                review_result = run_with_dgx_busy("review_script", review_script,
                     script_path, reviewed_episode_dir,
                     program_name=effective_program_name,
                     commentary=False,
@@ -509,7 +511,7 @@ def run_radio_pipeline(
         # -- SYNTHESIZE TTS --
         _progress("synthesize", "音声を合成しています…")
         try:
-            success_count = synthesize_episode(
+            success_count = run_with_dgx_busy("synthesize", synthesize_episode,
                 base_dir,
                 base_url=effective_tts_base_url,
                 speaker_male=effective_tts_male,
@@ -584,6 +586,14 @@ def run_radio_pipeline(
             return None
 
         service.complete_radio_episode_with_notification(episode_id)
+        try:
+            start_thumbnail_generation(
+                episode_id,
+                title=str(ep_metadata.get("title") or effective_program_name),
+                topic=str(script_revision.get("subtitle") or script_revision.get("topic") or ""),
+            )
+        except Exception:
+            logger.exception("[%d] failed to start thumbnail generation", episode_id)
         if not notification_sent:
             notification_sent = True
             _notify_success(str(ep_metadata.get("title") or effective_program_name))
