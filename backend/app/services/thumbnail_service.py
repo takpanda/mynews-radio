@@ -29,7 +29,11 @@ def _get_image(title: str, topic: str, settings) -> bytes:
     timeout = settings.thumbnail_http_timeout
     started = time.monotonic()
     with httpx.Client(timeout=timeout) as client:
-        response = client.post(f"{base_url}/thumbnail", json={"title": title, "topic": topic})
+        response = client.post(
+            f"{base_url}/thumbnail",
+            json={"title": title, "topic": topic},
+            timeout=settings.thumbnail_enqueue_timeout,
+        )
         response.raise_for_status()
         data = response.json()
         job_id = data.get("job_id") if isinstance(data, dict) else None

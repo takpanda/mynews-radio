@@ -83,6 +83,15 @@ class TestConfigDefaults:
         assert settings.fishs2pro_voice_male == "kenji"
         assert settings.fishs2pro_voice_female == "yuki"
 
+    def test_thumbnail_enqueue_timeout_default_and_override(self, monkeypatch):
+        from app.config import Settings
+
+        monkeypatch.delenv("THUMBNAIL_ENQUEUE_TIMEOUT", raising=False)
+        assert Settings().thumbnail_enqueue_timeout == 120.0
+
+        monkeypatch.setenv("THUMBNAIL_ENQUEUE_TIMEOUT", "180")
+        assert Settings().thumbnail_enqueue_timeout == 180.0
+
     def test_default_tts_engine_is_fishs2pro(self):
         """手動生成系の未指定時に使う既定値。"""
         from app.config import Settings, resolve_default_tts_engine

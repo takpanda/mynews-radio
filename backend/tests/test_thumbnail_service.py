@@ -65,15 +65,73 @@ def test_generate_thumbnail_saves_image_and_updates_path(tmp_path, monkeypatch):
         _Response({"status": "completed"}),
         _Response(content=b"png-bytes"),
     ])
-    monkeypatch.setattr(thumbnail_service.httpx, "Client", lambda **_kwargs: client)
-    monkeypatch.setattr(thumbnail_service.time, "sleep", lambda _seconds: None)
+    client_options = []
+    monkeypatch.setattr(
+        thumbnail_service.httpx,
+        "Client",
+        lambda **kwargs: (client_options.append(kwargs) or client),
+    )
+    monkeypatch.setattr(
+        thumbnail_service,
+        "get_settings",
+        lambda: SimpleNamespace(
+            thumbnail_service_url="http://thumbnail.invalid",
+            thumbnail_http_timeout=10.0,
+            thumbnail_enqueue_timeout=120.0,
+            thumbnail_poll_interval=5.0,
+            thumbnail_job_timeout=900.0,
+        ),
+    )
+    monkeypatch.setattr(
+        thumbnail_service,
+        "time",
+        SimpleNamespace(
+            monotonic=Mock(side_effect=[0.0, 11.0, 11.0, 11.0]),
+            sleep=lambda _seconds: None,
+        ),
+    )
 
     path = thumbnail_service.generate_thumbnail(episode_id, episodes_dir=str(tmp_path))
 
     assert open(path, "rb").read() == b"png-bytes"
     assert EpisodeService().get_episode(episode_id)["thumbnail_path"] == "thumbnail.png"
     assert client.calls[0][2]["json"] == {"title": "Episode title", "topic": "Episode topic"}
+    assert client_options == [{"timeout": 10.0}]
+    assert client.calls[0][2]["timeout"] == 120.0
+    assert all("timeout" not in call[2] for call in client.calls[1:])
     assert [call[0] for call in client.calls] == ["post", "get", "get", "get"]
+
+
+def test_enqueue_timeout_does_not_poll_or_persist_thumbnail(tmp_path, monkeypatch):
+    episode_id = _episode(tmp_path)
+
+    client = _ThumbnailClient([])
+
+    def enqueue_timed_out(url, **kwargs):
+        client.calls.append(("post", url, kwargs))
+        raise httpx.TimeoutException("enqueue timed out")
+
+    client.post = enqueue_timed_out
+    monkeypatch.setattr(thumbnail_service.httpx, "Client", lambda **_kwargs: client)
+    monkeypatch.setattr(
+        thumbnail_service,
+        "get_settings",
+        lambda: SimpleNamespace(
+            thumbnail_service_url="http://thumbnail.invalid",
+            thumbnail_http_timeout=10.0,
+            thumbnail_enqueue_timeout=120.0,
+            thumbnail_poll_interval=5.0,
+            thumbnail_job_timeout=900.0,
+        ),
+    )
+
+    with pytest.raises(httpx.TimeoutException, match="enqueue timed out"):
+        thumbnail_service.generate_thumbnail(episode_id, episodes_dir=str(tmp_path))
+
+    assert len(client.calls) == 1
+    assert client.calls[0][2]["timeout"] == 120.0
+    assert EpisodeService().get_episode(episode_id)["thumbnail_path"] is None
+    assert not (tmp_path / str(episode_id) / "thumbnail.png").exists()
 
 
 def test_service_stop_does_not_change_thumbnail_path(tmp_path, monkeypatch):
