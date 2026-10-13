@@ -242,6 +242,10 @@ import_articles
 エピソード完成後、サムネイル生成をバックグラウンドで開始します。完了通知はサムネイルを待ちません。
 .102 が停止中または生成に失敗した場合はログに記録し、エピソードは完成状態のままサムネイルなしで配信されます。
 LLM/TTS 実行時には `THUMBNAIL_SERVICE_URL` の `/busy/up` と `/busy/down` を best-effort で呼び出します。
+確認できた `.102` の OpenAPI は `/busy/up`・`/busy/down` と busy カウンタの読み取りを公開していますが、
+`/busy/up` が実行中の画像生成を待つのか、単にカウンタを加算するのかは契約に記載されていません。
+そのためクライアント側は LLM/TTS 各フェーズをカウンタで囲みますが、処理中のサムネイルとの厳密な相互排他は未確認です。
+実機での排他検証は BEE-1130 の結合確認で行います。busy 通信に失敗した場合は生成を継続するため、その障害中の排他は保証しません。
 
 特定のエピソードだけ手動で再生成する場合:
 
@@ -250,7 +254,8 @@ cd backend
 python scripts/regenerate_thumbnail.py 588
 ```
 
-既存画像を置き換える場合のみ `--overwrite` を指定します。スクリプトは指定IDの `script.json` を読み、
+既存画像を置き換える場合のみ `--overwrite` を指定します。上書き生成に失敗した場合は旧画像と旧 `thumbnail_path` を維持します。
+この上書き方針は人間の確認待ちです。スクリプトは指定IDの `script.json` を読み、
 同じ生成サービス経由で `thumbnail.png` と `episodes.thumbnail_path` だけを更新します。
 エピソード生成・完了通知は再実行しません。実機確認では `EPISODES_DIR` と `DATABASE_URL` を本番データ領域に合わせ、
 `python scripts/regenerate_thumbnail.py 588` を実行後に `GET /api/episodes/588/thumbnail` が画像を返すことを確認してください。
