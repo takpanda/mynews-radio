@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS episodes (
     status TEXT NOT NULL DEFAULT 'pending',
     type TEXT NOT NULL DEFAULT 'radio',
     source_url TEXT,
+    thumbnail_path TEXT,
     categories TEXT NOT NULL DEFAULT '[]',
     mc_voice_name TEXT,
     review_mode TEXT NOT NULL DEFAULT 'on_failure',

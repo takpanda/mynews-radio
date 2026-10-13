@@ -7,6 +7,15 @@ from pathlib import Path
 SYSTEM_OWNER_USERNAME = "__generation_queue_system__"
 
 
+def migrate_episode_thumbnail(conn: sqlite3.Connection) -> bool:
+    """既存 episodes テーブルにサムネイルパスを追加する。"""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(episodes)").fetchall()}
+    if "thumbnail_path" in columns:
+        return False
+    conn.execute("ALTER TABLE episodes ADD COLUMN thumbnail_path TEXT")
+    return True
+
+
 def migrate_program_profiles(conn: sqlite3.Connection) -> bool:
     """番組・MC定義を追加し、現行の4番組を未登録時のみ初期投入する。"""
     from app.programs.profiles import get_default_profile

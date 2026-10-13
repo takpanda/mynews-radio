@@ -214,7 +214,8 @@ class EpisodeService:
     ) -> list[dict[str, Any]]:
         with get_db_connection() as conn:
             query = """
-                SELECT id, episode_date, audio_path, status, type, source_url, categories, created_at
+                SELECT id, episode_date, audio_path, status, type, source_url,
+                       thumbnail_path, categories, created_at
                 FROM episodes
                 ORDER BY episode_date DESC, id DESC
             """
@@ -280,7 +281,7 @@ class EpisodeService:
     def get_episodes_by_source_url(self, source_url: str) -> list[dict[str, Any]]:
         with get_db_connection() as conn:
             rows = conn.execute(
-                "SELECT id, episode_date, status, type, source_url, audio_path, created_at FROM episodes WHERE source_url = ? AND type = 'commentary'",
+                "SELECT id, episode_date, status, type, source_url, audio_path, thumbnail_path, created_at FROM episodes WHERE source_url = ? AND type = 'commentary'",
                 (source_url,),
             ).fetchall()
             return [dict(row) for row in rows]
