@@ -6,6 +6,7 @@ import urllib.parse
 from typing import Optional, Union
 
 from fastapi import APIRouter, Cookie, HTTPException, Query
+from fastapi.responses import FileResponse
 
 from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService
@@ -154,6 +155,26 @@ def _build_audio_url(episode: dict) -> Optional[str]:
     return f"/audio/{dir_name}/{audio_path}"
 
 
+def _thumbnail_file_path(episode: dict) -> Optional[str]:
+    """DBにパスがあるエピソードの固定サムネイルファイルを安全に解決する。"""
+    episode_id = episode.get("id")
+    if not episode.get("thumbnail_path") or not isinstance(episode_id, int) or episode_id <= 0:
+        return None
+
+    episodes_dir = os.path.realpath(_episodes_base_dir())
+    candidate = os.path.realpath(os.path.join(episodes_dir, str(episode_id), "thumbnail.png"))
+    if candidate == episodes_dir or not candidate.startswith(episodes_dir + os.sep):
+        return None
+    return candidate
+
+
+def _build_thumbnail_url(episode: dict) -> Optional[str]:
+    path = _thumbnail_file_path(episode)
+    if path and os.path.isfile(path):
+        return f"/api/episodes/{episode['id']}/thumbnail"
+    return None
+
+
 def _is_failed_episode(entry: dict) -> bool:
     """音声がなくタイトルも空のエピソードを失敗痕跡と判定する。"""
     has_audio = bool(entry.get("audio_path"))
@@ -238,6 +259,7 @@ def list_episodes(
                 "date": ep["episode_date"],
                 "duration": 0.0,
                 "audio_url": None,
+                "thumbnail_path": ep.get("thumbnail_path"),
                 "status": ep.get("status", "pending"),
                 "audio_path": ep.get("audio_path"),
                 "type": ep.get("type", "radio"),
@@ -252,6 +274,8 @@ def list_episodes(
         audio = _build_audio_url(entry)
         if audio:
             entry["audio_url"] = audio
+        entry["thumbnail_url"] = _build_thumbnail_url(entry)
+        entry.pop("thumbnail_path", None)
         _enrich_episode(entry)
 
     # 公開アーカイブは完成済みで、再生できる音声を持つ回だけを返す。
@@ -306,6 +330,7 @@ def search_episodes_by_source_url(
             "source_url": ep["source_url"],
             "episode_date": ep["episode_date"],
             "created_at": ep["created_at"],
+            "thumbnail_url": _build_thumbnail_url(ep),
             "title": None,
             "has_script": False,
         }
@@ -335,6 +360,7 @@ def get_latest_episode() -> dict:
             "generated_at": episode.get("created_at", ""),
             "article_count": 0,
             "audio_url": None,
+            "thumbnail_url": _build_thumbnail_url(episode),
             "articles": [],
             "key_points": _parse_key_points(full_ep),
             "categories": parse_episode_categories(full_ep.get("categories")),
@@ -402,6 +428,7 @@ def get_episode(episode_id: int, admin_session: Optional[str] = Cookie(None)) ->
         "generated_at": episode.get("updated_at", ""),
         "article_count": len(items),
         "audio_url": None,
+        "thumbnail_url": _build_thumbnail_url(episode),
         "articles": items,
         "key_points": _parse_key_points(episode),
         "categories": categories,
@@ -416,6 +443,21 @@ def get_episode(episode_id: int, admin_session: Optional[str] = Cookie(None)) ->
 
     _enrich_episode(result)
     return result
+
+
+@router.get("/episodes/{episode_id}/thumbnail", summary="エピソードのサムネイル画像を取得")
+def get_episode_thumbnail(
+    episode_id: int,
+    admin_session: Optional[str] = Cookie(None),
+) -> FileResponse:
+    """thumbnail_path が設定された回の thumbnail.png を配信する。"""
+    episode = _require_episode(episode_id)
+    if not has_owner_session(admin_session) and not _is_public_episode(episode):
+        raise HTTPException(status_code=404, detail="Episode not found")
+    path = _thumbnail_file_path(episode)
+    if not path or not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    return FileResponse(path, media_type="image/png")
 
 
 @router.get("/episodes/{episode_id}/script", summary="エピソードの台本JSONを取得")

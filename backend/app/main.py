@@ -91,6 +91,8 @@ def _apply_db_migrations() -> None:
         migrate_script_revisions(conn)
         from app.db.migration import migrate_program_profiles
         migrate_program_profiles(conn)
+        from app.db.migration import migrate_episode_thumbnail
+        migrate_episode_thumbnail(conn)
         ensure_generation_system_owner(conn)
         # schema.sql適用前の既存DBにも公開訂正テーブルを追加する。
         conn.execute(
