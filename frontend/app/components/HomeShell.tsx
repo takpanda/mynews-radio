@@ -8,6 +8,8 @@ import type { Chapter } from '../lib/chapters'
 import EpisodeAudioPlayer from './EpisodeAudioPlayer'
 import SynthesizeAudioButton from './SynthesizeAudioButton'
 import PushSubscriptionToggle from './PushSubscriptionToggle'
+import EpisodeThumbnail from './EpisodeThumbnail'
+import { CATEGORY_THUMBNAIL_IMAGE, thumbnailCategoryKey, type ThumbnailCategoryKey } from '../lib/thumbnail'
 
 export interface HeroEpisode {
   id: number
@@ -45,9 +47,7 @@ const CATEGORY_TABS: Array<{ key: CategoryKey; label: string }> = [
 const PAGE_SIZE = 20
 
 function categorize(ep: EpisodeListItem): Exclude<CategoryKey, 'all'> {
-  if (ep.type === 'commentary') return 'commentary'
-  if ((ep.categories ?? []).some((c) => TECH_CATEGORY_LABELS.has(c))) return 'tech'
-  return 'general'
+  return thumbnailCategoryKey(ep)
 }
 
 function monthLabel(dateStr: string): string {
@@ -88,19 +88,8 @@ function heroMetaLabel(latest: HeroEpisode): string {
   return `最新エピソード ・ ${latest.dateLabel}`
 }
 
-const CATEGORY_THUMBNAIL_IMAGE: Record<Exclude<CategoryKey, 'all'>, string> = {
-  general: '/images/categories/general.png',
-  tech: '/images/categories/tech.jpg',
-  commentary: '/images/categories/commentary.png',
-}
-
-// サムネイル画像の出し分けは保存済み categories を根拠にする（タイトル文字列は使わない）。
-const TECH_CATEGORY_LABELS = new Set(['テック・IT', 'AI・先端技術'])
-
-function cardCategoryKey(ep: EpisodeListItem): Exclude<CategoryKey, 'all'> {
-  if (ep.type === 'commentary') return 'commentary'
-  if ((ep.categories ?? []).some((c) => TECH_CATEGORY_LABELS.has(c))) return 'tech'
-  return 'general'
+function cardCategoryKey(ep: EpisodeListItem): ThumbnailCategoryKey {
+  return thumbnailCategoryKey(ep)
 }
 
 function cardThumbnailLabel(ep: EpisodeListItem): string | null {
@@ -385,11 +374,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                         className="block h-full"
                       >
                         <div className="archive-thumb">
-                          <img
-                            src={thumbnailImage}
-                            alt=""
-                            className="absolute inset-0 h-full w-full object-contain"
-                          />
+                          <EpisodeThumbnail src={ep.thumbnail_url} fallbackSrc={thumbnailImage} />
                           <span className="archive-thumb-date">{dayLabel(ep.date)}</span>
                           {thumbnailLabel && (
                             <span className="archive-thumb-category">{thumbnailLabel}</span>

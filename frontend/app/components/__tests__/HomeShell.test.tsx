@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import HomeShell, { type HeroEpisode } from '../HomeShell'
 import type { EpisodeListItem } from '../../lib/api'
 
@@ -76,6 +76,27 @@ describe('HomeShell archive category badges', () => {
   it('4件以上のカテゴリを表示しない', () => {
     renderArchive(['政治・行政', '経済・金融', '社会・暮らし', '国際'])
     expect(screen.getByLabelText('カテゴリ').children).toHaveLength(3)
+  })
+})
+
+describe('HomeShell archive thumbnail（配信サムネイル）', () => {
+  it('thumbnail_url がある回はその画像を lazy load で表示する', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), thumbnail_url: '/api/episodes/1/thumbnail' }])
+    const img = container.querySelector('.archive-thumb img')
+    expect(img?.getAttribute('src')).toBe('/api/episodes/1/thumbnail')
+    expect(img?.getAttribute('loading')).toBe('lazy')
+  })
+
+  it('thumbnail_url が null の回はカテゴリ別画像を表示する', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), thumbnail_url: null }])
+    expect(container.querySelector('.archive-thumb img')?.getAttribute('src')).toBe('/images/categories/general.png')
+  })
+
+  it('読み込み失敗時はカテゴリ別画像に切り替える', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), thumbnail_url: '/api/episodes/1/thumbnail' }])
+    const img = container.querySelector('.archive-thumb img') as HTMLImageElement
+    fireEvent.error(img)
+    expect(img.getAttribute('src')).toBe('/images/categories/general.png')
   })
 })
 

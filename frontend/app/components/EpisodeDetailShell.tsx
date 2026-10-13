@@ -15,6 +15,8 @@ import ScriptViewer from './ScriptViewer'
 import ArticleLinks from './ArticleLinks'
 import SynthesizeAudioButton from './SynthesizeAudioButton'
 import MisreadingReportForm from './MisreadingReportForm'
+import EpisodeThumbnail from './EpisodeThumbnail'
+import { CATEGORY_THUMBNAIL_IMAGE, thumbnailCategoryKey } from '../lib/thumbnail'
 
 export interface DetailEpisode {
   id: number
@@ -35,6 +37,8 @@ export interface DetailEpisode {
   sourceArticles?: SourceArticle[]
   topics?: EpisodeTopic[]
   corrections?: EpisodeCorrection[]
+  categories?: string[]
+  thumbnailUrl?: string | null
 }
 
 export interface EpisodeSummary {
@@ -102,6 +106,12 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
     <div className="space-y-6">
       {/* エピソード概要 */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="relative mb-4 aspect-video w-full max-w-xl overflow-hidden rounded-xl bg-slate-900" data-testid="episode-thumbnail">
+          <EpisodeThumbnail
+            src={episode.thumbnailUrl}
+            fallbackSrc={CATEGORY_THUMBNAIL_IMAGE[thumbnailCategoryKey({ type: episode.isCommentary ? 'commentary' : undefined, categories: episode.categories })]}
+          />
+        </div>
         <div className="flex flex-wrap items-start justify-between gap-2">
           <p className="text-xs text-slate-400">エピソード ・ {episode.dateLabel}{episode.generatedAtLabel ? ` ・ 生成 ${episode.generatedAtLabel}` : ''}</p>
           {isAuthenticated && (
