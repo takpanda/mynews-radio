@@ -57,6 +57,7 @@
 | `FISHS2PRO_VOICE_FEMALE` | Fish S2 Pro 女性ボイス名（論理話者 `female` → 送信するサーバーボイス名） | `morigawa`（森川夕貴クローン） |
 | `THUMBNAIL_SERVICE_URL` | .102 サムネイル生成サービスのベースURL | `http://192.168.1.102:8501` |
 | `THUMBNAIL_HTTP_TIMEOUT` | サムネイルサービスへの1 HTTPリクエストのタイムアウト（秒） | `10` |
+| `THUMBNAIL_ENQUEUE_TIMEOUT` | サムネイル生成開始（`POST /thumbnail`）のタイムアウト（秒） | `120` |
 | `THUMBNAIL_POLL_INTERVAL` | サムネイルjob状態のポーリング間隔（秒） | `5` |
 | `THUMBNAIL_JOB_TIMEOUT` | 1サムネイルjobの最大待機時間（秒） | `900` |
 | `API_KEY` | API キー（辞書・レポート等の管理API向け。手動の生成開始・再音声合成は管理者セッションが必要） | 空文字 |

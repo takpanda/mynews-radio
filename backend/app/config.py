@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     fishs2pro_voice_sample_dir: str = "/app/data/voice-samples"
     thumbnail_service_url: str = "http://192.168.1.102:8501"
     thumbnail_http_timeout: float = Field(default=10.0, gt=0)
+    thumbnail_enqueue_timeout: float = Field(default=120.0, gt=0)
     thumbnail_poll_interval: float = Field(default=5.0, gt=0)
     thumbnail_job_timeout: float = Field(default=900.0, gt=0)
     api_key: str = ""
