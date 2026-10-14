@@ -58,21 +58,39 @@ def test_non_radio_completion_does_not_enqueue_notification():
         assert conn.execute("SELECT COUNT(*) FROM notification_outbox").fetchone()[0] == 0
 
 
-def test_synthesize_radio_completion_uses_outbox_completion_path():
+def test_synthesize_radio_completion_uses_outbox_completion_path(monkeypatch):
     from app.api.generate import SynthesizeRequest, _stream_synthesize
     from app.db.connection import get_db_connection
     from app.services.episode_service import EpisodeService
+    from app.services import telegram_notifier
+    from unittest.mock import Mock
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-bot-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "test-chat-id")
+    from app.config import get_settings
+    get_settings.cache_clear()
 
     service = EpisodeService()
     episode_id = service.create_episode("2099-07-07", status="completed", type="radio")
     base_dir = Path(os.environ["EPISODES_DIR"]) / str(episode_id)
     base_dir.mkdir(parents=True)
     (base_dir / "script.json").write_text('{"lines": [{"text": "hello"}]}', encoding="utf-8")
+    telegram_requests = []
+    original_post = telegram_notifier.httpx.post
+
+    def guarded_post(url, *args, **kwargs):
+        if url.startswith("https://api.telegram.org/"):
+            telegram_requests.append(url)
+            return Mock()
+        return original_post(url, *args, **kwargs)
 
     with patch("app.api.generate.DEFAULT_EPISODES_DIR", os.environ["EPISODES_DIR"]), \
          patch("app.api.generate.synthesize_episode", return_value=1), \
-         patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}):
+         patch("app.api.generate.build_episode", return_value={"audio_path": "episode.mp3"}), \
+         patch.object(telegram_notifier.httpx, "post", side_effect=guarded_post):
         list(_stream_synthesize(episode_id, SynthesizeRequest(tts_engine="fishs2pro")))
+
+    assert telegram_requests == []
 
     with get_db_connection() as conn:
         assert conn.execute("SELECT status FROM episodes WHERE id = ?", (episode_id,)).fetchone()["status"] == "completed"
