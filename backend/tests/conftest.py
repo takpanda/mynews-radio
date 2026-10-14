@@ -177,12 +177,13 @@ def isolate_external_telegram_notifications(test_env, monkeypatch):
     tests that need to assert a pipeline notification can override these
     module-level seams with monkeypatch or patch.object.
     """
+    from app.api import generate
     from app.batch import orchestrate, radio_pipeline
 
     def _blocked_notification(**_kwargs):
         return False
 
-    for module in (radio_pipeline, orchestrate):
+    for module in (generate, radio_pipeline, orchestrate):
         monkeypatch.setattr(module, "notify_failure", _blocked_notification)
         monkeypatch.setattr(module, "notify_success", _blocked_notification)
 

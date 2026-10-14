@@ -1013,6 +1013,35 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
 
     service.update_episode_audio_path(episode_id, ep_metadata.get("audio_path") or "")
     service.complete_radio_episode_with_notification(episode_id)
+    notification_title = None
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            script = json.load(f)
+        notification_title = script.get("title") if isinstance(script, dict) else None
+    except Exception:
+        logger.warning("[%d] failed to read script title for Telegram notification", episode_id)
+    if not notification_title:
+        try:
+            program_snapshot = episode.get("program_snapshot")
+            if isinstance(program_snapshot, str):
+                program_snapshot = json.loads(program_snapshot)
+            notification_title = (program_snapshot or {}).get("name")
+        except Exception:
+            logger.warning("[%d] failed to read program name for Telegram notification", episode_id)
+        if not notification_title:
+            notification_title = (
+                "テックニュース"
+                if episode.get("program_id") == "radio_tech_news"
+                else "ニュースのとなり"
+            )
+    try:
+        notify_success(
+            title=str(notification_title),
+            episode_id=episode_id,
+            seq=episode.get("seq", 0),
+        )
+    except Exception:
+        logger.warning("[%d] Telegram success notification could not be sent", episode_id)
     try:
         start_thumbnail_generation(episode_id)
     except Exception:
