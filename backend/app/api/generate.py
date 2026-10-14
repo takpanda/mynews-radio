@@ -1013,6 +1013,25 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
 
     service.update_episode_audio_path(episode_id, ep_metadata.get("audio_path") or "")
     service.complete_radio_episode_with_notification(episode_id)
+    # 強制合成(synthesize)でも通常生成と同じ Telegram 完了通知を送る。
+    # best-effort: 通知失敗で生成結果は変更しない。
+    try:
+        _ep = service.get_episode(episode_id) or {}
+        _seq = _ep.get("seq") or 0
+        try:
+            _title = ""
+            with open(script_path, "r", encoding="utf-8") as _f:
+                _s = json.load(_f)
+                _title = _s.get("title") or ""
+        except Exception:
+            _title = ""
+        notify_success(
+            title=_title or f"エピソード {episode_id}",
+            episode_id=episode_id,
+            seq=_seq,
+        )
+    except Exception:
+        logger.warning("[%d] Telegram success notification could not be sent", episode_id)
     try:
         start_thumbnail_generation(episode_id)
     except Exception:
