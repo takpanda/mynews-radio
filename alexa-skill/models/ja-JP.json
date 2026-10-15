@@ -1,0 +1,46 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "マイ ニュース ラジオ",
+      "intents": [
+        {
+          "name": "PlayLatestIntent",
+          "slots": [],
+          "samples": [
+            "再生",
+            "最新を再生",
+            "最新のエピソードを再生",
+            "最新のニュースを再生",
+            "今日のエピソードを再生",
+            "再生して"
+          ]
+        },
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.PauseIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.ResumeIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.FallbackIntent",
+          "samples": []
+        }
+      ],
+      "types": []
+    }
+  }
+}
