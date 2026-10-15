@@ -31,7 +31,7 @@ export default function EpisodeThumbnail({ src, fallbackSrc, className = '' }: P
       loading="lazy"
       decoding="async"
       onError={useThumbnail ? () => setFailedSrc(src ?? null) : undefined}
-      className={`absolute inset-0 h-full w-full ${useThumbnail ? 'object-cover' : 'object-contain'} ${className}`.trim()}
+      className={`absolute inset-0 h-full w-full object-contain ${className}`.trim()}
     />
   )
 }
