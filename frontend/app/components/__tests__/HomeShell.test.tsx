@@ -87,6 +87,13 @@ describe('HomeShell archive thumbnail（配信サムネイル）', () => {
     expect(img?.getAttribute('loading')).toBe('lazy')
   })
 
+  it('thumbnail_url がある回の画像もトリミングせず全体を表示する(object-contain)', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), thumbnail_url: '/api/episodes/1/thumbnail' }])
+    const img = container.querySelector('.archive-thumb img')
+    expect(img?.className).toContain('object-contain')
+    expect(img?.className).not.toContain('object-cover')
+  })
+
   it('thumbnail_url が null の回はカテゴリ別画像を表示する', () => {
     const { container } = renderArchiveEpisodes([{ ...episode(), thumbnail_url: null }])
     expect(container.querySelector('.archive-thumb img')?.getAttribute('src')).toBe('/images/categories/general.png')
