@@ -12,6 +12,7 @@ from urllib.parse import quote
 import httpx
 
 from app.config import get_settings
+from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService
 
 logger = logging.getLogger(__name__)
@@ -24,14 +25,14 @@ def _load_script(episode_id: int, episodes_dir: str | None = None) -> dict:
         return json.load(f)
 
 
-def _get_image(title: str, topic: str, settings) -> bytes:
+def _get_image(title: str, topic: str, settings, brand: str | None = None) -> bytes:
     base_url = settings.thumbnail_service_url.rstrip("/")
     timeout = settings.thumbnail_http_timeout
     started = time.monotonic()
     with httpx.Client(timeout=timeout) as client:
         response = client.post(
             f"{base_url}/thumbnail",
-            json={"title": title, "topic": topic},
+            json={"title": title, "topic": topic, "brand": brand},
             timeout=settings.thumbnail_enqueue_timeout,
         )
         response.raise_for_status()
@@ -66,6 +67,28 @@ def _get_image(title: str, topic: str, settings) -> bytes:
         return image_response.content
 
 
+def _resolve_brand(episode: dict) -> str | None:
+    snapshot = episode.get("program_snapshot")
+    if isinstance(snapshot, str):
+        try:
+            snapshot = json.loads(snapshot)
+        except (TypeError, ValueError):
+            snapshot = None
+    if isinstance(snapshot, dict):
+        name = snapshot.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+
+    program_id = episode.get("program_id")
+    if program_id is None:
+        return None
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT name FROM programs WHERE id = ?", (program_id,)).fetchone()
+    if row and isinstance(row["name"], str) and row["name"].strip():
+        return row["name"].strip()
+    return None
+
+
 def generate_thumbnail(
     episode_id: int,
     *,
@@ -94,7 +117,7 @@ def generate_thumbnail(
     if not overwrite and (output.exists() or episode.get("thumbnail_path")):
         raise FileExistsError(f"episode {episode_id} already has a thumbnail; pass --overwrite")
 
-    image = _get_image(resolved_title, resolved_topic, get_settings())
+    image = _get_image(resolved_title, resolved_topic, get_settings(), _resolve_brand(episode))
     temp_path = None
     try:
         with tempfile.NamedTemporaryFile(dir=output.parent, prefix=".thumbnail-", suffix=".tmp", delete=False) as f:
