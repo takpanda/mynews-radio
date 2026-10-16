@@ -195,34 +195,39 @@ def compose(scene, headline, highlight_kw, brand=None):
     else:
         top_line, bottom_line = hl, ""
 
-    # 見出しが画像幅を超えないよう、文字幅に応じてフォントを動的縮小する。
-    MAX_W = W - 80                      # 左右マージン(40pxずつ)
-    MIN_FONT = 32
-    def _fit_font(txt):
-        """txt が MAX_W に収まるフォントを 104px から段階的に縮小して返す。"""
-        size = 104
-        while size > MIN_FONT:
-            f = F(GOTH, size)
-            if f.getlength(txt) <= MAX_W:
-                return f
-            size -= 4
-        return F(GOTH, MIN_FONT)
+    # 文字と装飾を左右40pxの内側に収める。短い行は従来どおり104pxを使う。
+    MAX_W = W - 80
+    BASE_FONT = 104
+    MIN_FONT = 28
+    FONT_STEP = 2
 
-    def _fit_font(txt):
-        """txt が MAX_W に収まるフォントを 104px から段階的に縮小して返す。"""
-        size = 104
-        while size > MIN_FONT:
-            f = F(GOTH, size)
-            if f.getlength(txt) <= MAX_W:
-                return f
-            size -= 4
-        return F(GOTH, MIN_FONT)
+    def _fits(txt, font, highlight=False):
+        # 枠または縁取りの幅も含めて判定する。
+        decoration = 20 if highlight else 16  # highlight枠の左右10px / strokeの左右8px
+        return font.getlength(txt) + decoration <= MAX_W
+
+    def _truncate(txt, font, highlight=False):
+        """最小フォントでも収まらない行を末尾の三点リーダーで省略する。"""
+        suffix = "…"
+        result = txt
+        while result and not _fits(result + suffix, font, highlight):
+            result = result[:-1]
+        return result + suffix if result else suffix
+
+    def _fit_line(txt, highlight=False):
+        """104pxから2px刻みで縮小し、最小サイズでも超える場合は省略する。"""
+        for size in range(BASE_FONT, MIN_FONT - 1, -FONT_STEP):
+            font = F(GOTH, size)
+            if _fits(txt, font, highlight):
+                return txt, font
+        font = F(GOTH, MIN_FONT)
+        return _truncate(txt, font, highlight), font
 
     def draw_line(txt, y, highlight=False, font=None):
         if not txt: return
-        f = font or _fit_font(txt)       # 指定が無ければ自動縮小
-        w = int(f.getlength(txt))
-        x = max(40, (W - w) // 2)        # 中央揃えだが左マージン40pxは確保
+        f = font or F(GOTH, BASE_FONT)
+        w = int(f.getlength(txt) + 0.999)
+        x = (W - w) // 2
         d.text((x+5, y+5), txt, font=f, fill=(0, 0, 0, 150))
         d.text((x, y), txt, font=f, fill=(255, 255, 255, 255),
                stroke_width=8, stroke_fill=(0, 0, 0, 255))
@@ -235,23 +240,29 @@ def compose(scene, headline, highlight_kw, brand=None):
 
 
     if bottom_line:
-        # two lines: top (if any) + highlighted bottom; draw bottom even if top empty
-        # 両行のフォントサイズを統一するため、長い方の行に合わせて縮小する。
-        candidates = [t for t in (top_line, bottom_line) if t.strip()]
-        size = 104
-        while size > MIN_FONT:
-            f = F(GOTH, size)
-            if all(f.getlength(t) <= MAX_W for t in candidates):
-                break
-            size -= 4
-        common_font = F(GOTH, max(MIN_FONT, size))
-        y1 = 190
-        if top_line:
-            draw_line(top_line, y1, highlight=bool(hi and hi in top_line), font=common_font)
-        draw_line(bottom_line, y1 + 120, highlight=bool(hi and hi in bottom_line), font=common_font)
+        # 各行に最適なフォントを選び、縮小後の高さで2行を縦方向に配置する。
+        top_highlight = bool(hi and hi in top_line)
+        bottom_highlight = bool(hi and hi in bottom_line)
+        fitted_top = _fit_line(top_line, top_highlight) if top_line else ("", None)
+        fitted_bottom = _fit_line(bottom_line, bottom_highlight)
+        top_text, top_font = fitted_top
+        bottom_text, bottom_font = fitted_bottom
+        top_height = textbox(top_font, top_text)[1] if top_text else 0
+        bottom_height = textbox(bottom_font, bottom_text)[1]
+        sizes = [font.size for font in (top_font, bottom_font) if font]
+        average_size = sum(sizes) / len(sizes)
+        line_step = max(max(top_height, bottom_height), round(120 * average_size / BASE_FONT))
+        # 104px時は従来のy=190/310を維持（本文の基準中心は310px）。
+        y1 = 190 + round((120 - line_step) / 2) if top_text else 310
+        y2 = y1 + line_step if top_text else y1
+        if top_text:
+            draw_line(top_text, y1, highlight=top_highlight, font=top_font)
+        draw_line(bottom_text, y2, highlight=bottom_highlight, font=bottom_font)
     else:
-        draw_line(top_line, (H - textbox(_fit_font(top_line), top_line)[1]) // 2,
-                  highlight=bool(hi and hi in top_line))
+        line_text, line_font = _fit_line(top_line)
+        line_height = textbox(line_font, line_text)[1]
+        y = max(40, min(H - 40 - line_height, (H - line_height) // 2))
+        draw_line(line_text, y, highlight=bool(hi and hi in top_line), font=line_font)
     return img
 
 # ---------- worker ----------
