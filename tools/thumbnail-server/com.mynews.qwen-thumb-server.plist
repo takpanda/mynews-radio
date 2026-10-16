@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.mynews.qwen-thumb-server</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>__PYTHON_BIN__</string>
+		<string>__SERVER_SCRIPT__</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PORT</key>
+		<string>__PORT__</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>__LOG_FILE__</string>
+	<key>StandardErrorPath</key>
+	<string>__LOG_FILE__</string>
+</dict>
+</plist>

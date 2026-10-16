@@ -12,9 +12,11 @@ bash scripts/deploy_thumbnail_server.sh
 ```
 
 The script saves a timestamped copy of the existing remote source under
-`/Users/tak/apps/qwen-thumb-server/backups/`, syncs this repository's source,
-stops the existing `thumbnail_server.py` process, starts it with `nohup`, and
-checks `GET /busy` up to 20 times.
+`/Users/tak/apps/qwen-thumb-server/backups/`, syncs this repository's source
+and LaunchAgent definition, waits for `GET /busy` to report idle, then restarts
+the service through `launchctl`. The LaunchAgent uses `RunAtLoad` and `KeepAlive`
+so launchd starts it at login and restarts it after an unexpected exit. Its
+stdout and stderr are written to `server.log` in the service directory.
 
 The default SSH target is `tak@192.168.1.102` and the default interpreter is
 `/Users/tak/.qwen-venv/bin/python`. Before taking a backup or stopping the
@@ -41,19 +43,26 @@ the configured Python interpreter and dependencies on the remote Mac, and
 `curl` on the machine running the script. Each `/busy` request has a default
 2-second connection timeout and 3-second total timeout; the timeout values can
 be changed with `THUMBNAIL_HEALTH_CONNECT_TIMEOUT` and
-`THUMBNAIL_HEALTH_MAX_TIME`. The script only deploys `thumbnail_server.py`; it
-does not install Python dependencies.
+`THUMBNAIL_HEALTH_MAX_TIME`. The script waits up to 600 seconds by default for
+`/busy` to report `{"busy":0}` before restarting; set
+`THUMBNAIL_DEPLOY_IDLE_TIMEOUT` to change that limit. If the service remains
+busy or `/busy` cannot be reached, the script exits without stopping the
+running process. The script only deploys `thumbnail_server.py`; it does not
+install Python dependencies. Because this is a LaunchAgent, it starts when the
+`tak` user logs in; a LaunchAgent does not start before a GUI login. Confirm
+the host's login policy before relying on it after a reboot.
 
-## Manual start
+## Service inspection
 
-On the Mac mini, run from the server directory:
+On the Mac mini, inspect the loaded service and process with:
 
 ```bash
-cd /Users/tak/apps/qwen-thumb-server
-nohup /Users/tak/.qwen-venv/bin/python thumbnail_server.py > thumbnail_server.log 2>&1 < /dev/null &
+launchctl list | grep com.mynews.qwen-thumb-server
+pgrep -fl thumbnail_server.py
 ```
 
-To check the service manually:
+The user LaunchAgent plist is installed at
+`~/Library/LaunchAgents/com.mynews.qwen-thumb-server.plist`. To check the API:
 
 ```bash
 curl --fail http://192.168.1.102:8501/busy
