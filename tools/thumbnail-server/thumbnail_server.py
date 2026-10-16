@@ -200,6 +200,7 @@ def compose(scene, headline, highlight_kw, brand=None):
     BASE_FONT = 104
     MIN_FONT = 28
     FONT_STEP = 2
+    MIN_LINE_GAP = 2
 
     def _fits(txt, font, highlight=False):
         # 枠または縁取りの幅も含めて判定する。
@@ -238,9 +239,21 @@ def compose(scene, headline, highlight_kw, brand=None):
             d.text((x, y), txt, font=f, fill=(15, 15, 15, 255),
                    stroke_width=2, stroke_fill=(90, 60, 0, 120))
 
+    def _vertical_bounds(txt, font, highlight=False):
+        """縁取り・影・ハイライト枠を含む、描画アンカー基準の上下端を返す。"""
+        text_box = d.textbbox((0, 0), txt, font=font, stroke_width=8)
+        shadow_box = d.textbbox((5, 5), txt, font=font)
+        top = min(text_box[1], shadow_box[1])
+        bottom = max(text_box[3], shadow_box[3])
+        if highlight:
+            box_height = textbox(font, txt)[1]
+            top = min(top, -8)
+            bottom = max(bottom, box_height + 10)
+        return top, bottom
+
 
     if bottom_line:
-        # 各行に最適なフォントを選び、縮小後の高さで2行を縦方向に配置する。
+        # 各行に最適なフォントを選び、描画範囲が重ならないよう縦方向に配置する。
         top_highlight = bool(hi and hi in top_line)
         bottom_highlight = bool(hi and hi in bottom_line)
         fitted_top = _fit_line(top_line, top_highlight) if top_line else ("", None)
@@ -252,9 +265,19 @@ def compose(scene, headline, highlight_kw, brand=None):
         sizes = [font.size for font in (top_font, bottom_font) if font]
         average_size = sum(sizes) / len(sizes)
         line_step = max(max(top_height, bottom_height), round(120 * average_size / BASE_FONT))
-        # 104px時は従来のy=190/310を維持（本文の基準中心は310px）。
-        y1 = 190 + round((120 - line_step) / 2) if top_text else 310
+        # 104px行は従来の上段y=190を維持し、標準サイズ同士の基準間隔は120px。
+        y1 = 190 if top_text else 310
         y2 = y1 + line_step if top_text else y1
+        if top_text:
+            _, top_bottom = _vertical_bounds(top_text, top_font, top_highlight)
+            bottom_top, _ = _vertical_bounds(bottom_text, bottom_font, bottom_highlight)
+            y2 = max(y2, y1 + top_bottom + MIN_LINE_GAP - bottom_top)
+        # 下段を押し下げた場合も画像下端の40pxマージンを保つよう、必要なら全体を上げる。
+        _, bottom_bottom = _vertical_bounds(bottom_text, bottom_font, bottom_highlight)
+        overflow = y2 + bottom_bottom - (H - 40)
+        if overflow > 0:
+            y1 -= overflow
+            y2 -= overflow
         if top_text:
             draw_line(top_text, y1, highlight=top_highlight, font=top_font)
         draw_line(bottom_text, y2, highlight=bottom_highlight, font=bottom_font)
