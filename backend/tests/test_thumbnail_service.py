@@ -11,6 +11,7 @@ import pytest
 
 from app.services import dgx_busy, thumbnail_service
 from app.services.episode_service import EpisodeService
+from app.db.connection import get_db_connection
 
 
 class _Response:
@@ -59,6 +60,11 @@ def _episode(tmp_path, title="Episode title", topic="Episode topic"):
 
 def test_generate_thumbnail_saves_image_and_updates_path(tmp_path, monkeypatch):
     episode_id = _episode(tmp_path)
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE episodes SET program_snapshot = ? WHERE id = ?",
+            (json.dumps({"name": "ニュースのとなり"}), episode_id),
+        )
     client = _ThumbnailClient([
         _Response({"job_id": "job-123"}),
         _Response({"status": "queued"}),
@@ -95,11 +101,33 @@ def test_generate_thumbnail_saves_image_and_updates_path(tmp_path, monkeypatch):
 
     assert open(path, "rb").read() == b"png-bytes"
     assert EpisodeService().get_episode(episode_id)["thumbnail_path"] == "thumbnail.png"
-    assert client.calls[0][2]["json"] == {"title": "Episode title", "topic": "Episode topic"}
+    assert client.calls[0][2]["json"] == {
+        "title": "Episode title",
+        "topic": "Episode topic",
+        "brand": "ニュースのとなり",
+    }
     assert client_options == [{"timeout": 10.0}]
     assert client.calls[0][2]["timeout"] == 120.0
     assert all("timeout" not in call[2] for call in client.calls[1:])
     assert [call[0] for call in client.calls] == ["post", "get", "get", "get"]
+
+
+def test_resolve_brand_uses_program_name_when_snapshot_is_missing():
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO programs (id, name, kind, definition) VALUES (?, ?, ?, ?)",
+            ("tech-news", "テックニュース", "radio", "{}"),
+        )
+
+    assert thumbnail_service._resolve_brand(
+        {"program_snapshot": None, "program_id": "tech-news"}
+    ) == "テックニュース"
+
+
+def test_resolve_brand_returns_none_for_legacy_episode():
+    assert thumbnail_service._resolve_brand(
+        {"program_snapshot": None, "program_id": None}
+    ) is None
 
 
 def test_enqueue_timeout_does_not_poll_or_persist_thumbnail(tmp_path, monkeypatch):
