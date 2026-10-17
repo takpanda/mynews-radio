@@ -1,4 +1,7 @@
+from contextlib import contextmanager
 from unittest.mock import Mock, patch
+
+import pytest
 
 
 def test_success_message_contains_required_fields(monkeypatch):
@@ -60,6 +63,133 @@ def test_pipeline_failure_notifies_once_and_keeps_failed_status(monkeypatch):
     assert radio_pipeline.run_radio_pipeline(episode_id, episode_date="2099-01-01") is None
     assert failure.call_count == 1
     assert EpisodeService().get_episode(episode_id)["status"] == "failed"
+
+
+def test_pipeline_notifies_when_new_articles_have_no_summaries(monkeypatch, tmp_path, caplog):
+    from app.batch import radio_pipeline
+    from app.batch.radio_pipeline import PipelineResult
+    from app.services.article_service import ArticleService
+    from app.services.episode_service import EpisodeService
+
+    episode_id = EpisodeService().create_episode("2099-01-03", status="generating", type="radio")
+    failure = Mock()
+    monkeypatch.setattr(radio_pipeline, "import_articles_by_source", Mock(return_value=(1, 0)))
+    monkeypatch.setattr(radio_pipeline, "summarize_articles", Mock(return_value=0))
+    monkeypatch.setattr(radio_pipeline, "generate_script", Mock(return_value=0))
+    monkeypatch.setattr(radio_pipeline, "notify_failure", failure)
+    monkeypatch.setattr(ArticleService, "fetch_summaries_for_script", Mock(return_value=[]))
+
+    with caplog.at_level("WARNING"):
+        result = radio_pipeline.run_radio_pipeline(
+            episode_id,
+            episode_date="2099-01-03",
+            default_episodes_dir=str(tmp_path),
+        )
+
+    assert result is PipelineResult.NO_CONTENT
+    failure.assert_called_once_with(
+        episode_id=episode_id,
+        phase="summarize",
+        error="新規記事の要約に成功しませんでした",
+    )
+    assert "新規記事の要約成功件数が0件" in caplog.text
+    assert "No new articles to summarize" not in caplog.text
+    assert EpisodeService().get_episode(episode_id) is None
+
+
+def test_pipeline_does_not_notify_when_no_new_articles_were_imported(monkeypatch, tmp_path):
+    from app.batch import radio_pipeline
+    from app.batch.radio_pipeline import PipelineResult
+    from app.services.article_service import ArticleService
+    from app.services.episode_service import EpisodeService
+
+    episode_id = EpisodeService().create_episode("2099-01-04", status="generating", type="radio")
+    failure = Mock()
+    monkeypatch.setattr(radio_pipeline, "import_articles_by_source", Mock(return_value=(0, 1)))
+    monkeypatch.setattr(radio_pipeline, "summarize_articles", Mock(return_value=0))
+    monkeypatch.setattr(radio_pipeline, "generate_script", Mock(return_value=0))
+    monkeypatch.setattr(radio_pipeline, "notify_failure", failure)
+    monkeypatch.setattr(ArticleService, "fetch_summaries_for_script", Mock(return_value=[]))
+
+    result = radio_pipeline.run_radio_pipeline(
+        episode_id,
+        episode_date="2099-01-04",
+        default_episodes_dir=str(tmp_path),
+    )
+
+    assert result is PipelineResult.NO_CONTENT
+    failure.assert_not_called()
+    assert EpisodeService().get_episode(episode_id) is None
+
+
+@pytest.mark.parametrize("followup_failure", ["script_revision", "final_validation"])
+def test_pipeline_suppresses_followup_failure_notification_after_summary_failure(
+    monkeypatch, tmp_path, followup_failure
+):
+    from app.batch import radio_pipeline
+    from app.db.connection import get_db_connection as real_get_db_connection
+    from app.services.article_service import ArticleService
+    from app.services.episode_service import EpisodeService
+
+    service = EpisodeService()
+    episode_id = service.create_episode("2099-01-05", status="generating", type="radio")
+    with real_get_db_connection() as conn:
+        conn.execute("UPDATE episodes SET review_mode='auto' WHERE id=?", (episode_id,))
+
+    def write_script(path, **_kwargs):
+        from pathlib import Path
+
+        script_path = Path(path)
+        script_path.parent.mkdir(parents=True, exist_ok=True)
+        script_path.write_text('{"style":"solo","lines":[{"text":"台本"}]}', encoding="utf-8")
+        return 1
+
+    if followup_failure == "script_revision":
+        @contextmanager
+        def fail_revision_insert():
+            with real_get_db_connection() as conn:
+                class ConnectionProxy:
+                    def execute(self, sql, params=()):
+                        if sql.lstrip().upper().startswith("INSERT INTO SCRIPT_REVISIONS"):
+                            raise RuntimeError("simulated revision persistence failure")
+                        return conn.execute(sql, params)
+
+                yield ConnectionProxy()
+
+        monkeypatch.setattr(radio_pipeline, "get_db_connection", fail_revision_insert)
+
+    failure = Mock()
+    monkeypatch.setattr(radio_pipeline, "notify_failure", failure)
+    monkeypatch.setattr(radio_pipeline, "import_articles_by_source", Mock(return_value=(1, 0)))
+    monkeypatch.setattr(radio_pipeline, "summarize_articles", Mock(return_value=0))
+    monkeypatch.setattr(
+        ArticleService,
+        "fetch_summaries_for_script",
+        Mock(return_value=[{"id": 1, "article_id": 1, "title": "既存記事", "summary": "既存要約", "importance_score": 5}]),
+    )
+    monkeypatch.setattr(radio_pipeline, "generate_script", write_script)
+    monkeypatch.setattr(radio_pipeline, "override_script_title", Mock())
+    monkeypatch.setattr(radio_pipeline, "review_script", Mock(return_value={"revised": False, "review_count": 0}))
+    monkeypatch.setattr(radio_pipeline, "should_run_final_validation", Mock(return_value=True))
+    monkeypatch.setattr(
+        radio_pipeline,
+        "validate_final_script_file",
+        Mock(return_value={"can_synthesize": False, "critical_issues": [{"message": "検証失敗"}], "warnings": []}),
+    )
+
+    result = radio_pipeline.run_radio_pipeline(
+        episode_id,
+        episode_date="2099-01-05",
+        default_episodes_dir=str(tmp_path),
+    )
+
+    assert result is None
+    failure.assert_called_once_with(
+        episode_id=episode_id,
+        phase="summarize",
+        error="新規記事の要約に成功しませんでした",
+    )
+    assert service.get_episode(episode_id)["status"] == "failed"
 
 
 def test_radio_pipeline_success_keeps_completed_when_notification_raises(monkeypatch, tmp_path):
