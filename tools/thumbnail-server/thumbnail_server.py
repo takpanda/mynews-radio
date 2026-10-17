@@ -78,6 +78,18 @@ def busy_count():
     with _busy_lock:
         return _busy
 
+def wait_for_idle_and_claim(job_id):
+    """Wait for an idle gate and claim it atomically for the thumbnail job."""
+    global _busy
+    while True:
+        with _busy_lock:
+            if _busy == 0:
+                _busy += 1
+                return
+            current = _busy
+        log.info("job %s waiting for server to be idle (busy=%d)", job_id, current)
+        time.sleep(5)
+
 def F(path, size, idx=0):
     return ImageFont.truetype(path, size, index=idx)
 def textbox(font, s):
@@ -113,16 +125,13 @@ def derive(title, topic):
         "\"headline\":\"日本語の短い見出し（15文字以内、1行で読めるインパクトのある表現）\","
         "\"highlight\":\"見出しの中で黄色ハイライトで強調するキーワード（見出しに必ず含まれる単語）\"}" )
     user_prompt = f"タイトル: {title}\nトピック: {topic}\n"
-    try:
-        out = _ollama_chat(sys_prompt + "\n" + user_prompt)
-        d = _extract_json(out) or {}
-        scene_prompt = (d.get("scene_prompt") or "").strip()
-        headline = (d.get("headline") or "").strip()
-        highlight = (d.get("highlight") or "").strip()
-        if scene_prompt and headline:
-            return scene_prompt, headline, (highlight or ""), ""
-    except Exception as e:
-        log.warning("derive LLM failed: %s", e)
+    out = _ollama_chat(sys_prompt + "\n" + user_prompt)
+    d = _extract_json(out) or {}
+    scene_prompt = (d.get("scene_prompt") or "").strip()
+    headline = (d.get("headline") or "").strip()
+    highlight = (d.get("highlight") or "").strip()
+    if scene_prompt and headline:
+        return scene_prompt, headline, (highlight or ""), ""
     # fallback: keyword/template
     kw = (title or "ニュース")[:6]
     scene_prompt = (f"a bold editorial illustration about {kw}, warm palette, "
@@ -289,32 +298,36 @@ def compose(scene, headline, highlight_kw, brand=None):
     return img
 
 # ---------- worker ----------
+def process_job(job_id):
+    j = jobs[job_id]
+    # Keep Ollama derive inside the same busy window as image generation.
+    wait_for_idle_and_claim(job_id)
+    try:
+        j["status"] = "derive"
+        scene_prompt, headline, highlight, _ = derive(j["title"], j["topic"])
+        j["scene_prompt"] = scene_prompt
+        j["headline"] = headline
+        j["highlight"] = highlight
+        with gen_lock:
+            j["status"] = "scene"
+            scene = gen_scene(scene_prompt)
+            j["status"] = "compose"
+            img = compose(scene, headline, highlight, j.get("brand"))
+        path = OUT_DIR / f"{job_id}.png"
+        img.save(path)
+        j["path"] = str(path)
+        j["status"] = "done"
+    except Exception as e:
+        log.exception("job %s failed", job_id)
+        j["status"] = "failed"; j["error"] = str(e)
+    finally:
+        busy_down()
+        touch_activity()   # last activity = job completion (watchdog refresh)
+        j["done_at"] = time.time()
+
 def worker_loop():
     while True:
-        job_id = job_q.get()
-        j = jobs[job_id]
-        # gate: wait until no other heavy .102 work is running
-        while busy_count() > 0:
-            log.info("job %s waiting for server to be idle (busy=%d)", job_id, busy_count())
-            time.sleep(5)
-        try:
-            busy_up()   # mark server busy (don't let LLM/TTS start during render)
-            with gen_lock:
-                j["status"] = "scene"
-                scene = gen_scene(j["scene_prompt"])
-                j["status"] = "compose"
-                img = compose(scene, j["headline"], j["highlight"], j.get("brand"))
-            path = OUT_DIR / f"{job_id}.png"
-            img.save(path)
-            j["path"] = str(path)
-            j["status"] = "done"
-        except Exception as e:
-            log.exception("job %s failed", job_id)
-            j["status"] = "failed"; j["error"] = str(e)
-        finally:
-            busy_down()
-            touch_activity()   # last activity = job completion (watchdog refresh)
-            j["done_at"] = time.time()
+        process_job(job_q.get())
 
 threading.Thread(target=worker_loop, daemon=True).start()
 
@@ -351,13 +364,13 @@ class Req(BaseModel):
 
 @app.post("/thumbnail")
 def enqueue(req: Req):
-    scene_prompt, headline, highlight, kw = derive(req.title, req.topic)
     job_id = uuid.uuid4().hex[:12]
-    jobs[job_id] = {"status": "queued", "scene_prompt": scene_prompt,
-                    "headline": headline, "highlight": highlight, "path": None, "error": None, "brand": req.brand}
+    jobs[job_id] = {"status": "queued", "title": req.title, "topic": req.topic,
+                    "scene_prompt": None, "headline": None, "highlight": None,
+                    "path": None, "error": None, "brand": req.brand}
     job_q.put(job_id)
     touch_activity()   # incoming job refreshes idle-watchdog timer
-    log.info("enqueued %s title=%r headline=%r", job_id, req.title, headline)
+    log.info("enqueued %s title=%r", job_id, req.title)
     return {"job_id": job_id, "status": "queued"}
 
 @app.get("/thumbnail/{job_id}")
