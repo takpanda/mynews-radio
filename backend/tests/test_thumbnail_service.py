@@ -239,7 +239,7 @@ def test_overwrite_failure_preserves_existing_image_and_path(tmp_path, monkeypat
     assert output.read_bytes() == b"previous"
 
 
-def test_busy_gate_does_not_run_operation_when_acquisition_fails(monkeypatch, caplog):
+def test_busy_gate_does_not_run_operation_when_acquisition_fails(monkeypatch, caplog, real_dgx_busy):
     endpoints = []
     operation = Mock(return_value=42)
 
@@ -258,7 +258,7 @@ def test_busy_gate_does_not_run_operation_when_acquisition_fails(monkeypatch, ca
     assert "offline" not in caplog.text
 
 
-def test_busy_gate_wait_request_has_no_client_timeout(monkeypatch):
+def test_busy_gate_wait_request_has_no_client_timeout(monkeypatch, real_dgx_busy):
     calls = []
 
     class _OkResponse:
@@ -274,7 +274,7 @@ def test_busy_gate_wait_request_has_no_client_timeout(monkeypatch):
     assert calls == [("up", None), ("down", 10.0)]
 
 
-def test_busy_gate_returns_operation_result_and_brackets_success(monkeypatch):
+def test_busy_gate_returns_operation_result_and_brackets_success(monkeypatch, real_dgx_busy):
     endpoints = []
 
     class _OkResponse:

@@ -105,6 +105,22 @@ def test_env(tmp_path, monkeypatch):
         cfg_mod.get_settings.cache_clear()
 
 
+@pytest.fixture
+def real_dgx_busy():
+    """Opt out of the default successful .102 busy-gate stub for unit tests."""
+
+
+@pytest.fixture(autouse=True)
+def isolate_dgx_busy(request, monkeypatch, test_env):
+    """Treat .102 as idle by default; dedicated tests opt into HTTP behavior."""
+    if "real_dgx_busy" in request.fixturenames:
+        return
+
+    from app.services import dgx_busy
+
+    monkeypatch.setattr(dgx_busy, "_set_busy", lambda _endpoint, _stage: True)
+
+
 def _join_thread_group(threads, timeout):
     deadline = time.monotonic() + timeout
     for thread in threads:
