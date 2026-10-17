@@ -62,6 +62,63 @@ def test_pipeline_failure_notifies_once_and_keeps_failed_status(monkeypatch):
     assert EpisodeService().get_episode(episode_id)["status"] == "failed"
 
 
+def test_pipeline_notifies_when_new_articles_have_no_summaries(monkeypatch, tmp_path, caplog):
+    from app.batch import radio_pipeline
+    from app.batch.radio_pipeline import PipelineResult
+    from app.services.article_service import ArticleService
+    from app.services.episode_service import EpisodeService
+
+    episode_id = EpisodeService().create_episode("2099-01-03", status="generating", type="radio")
+    failure = Mock()
+    monkeypatch.setattr(radio_pipeline, "import_articles_by_source", Mock(return_value=(1, 0)))
+    monkeypatch.setattr(radio_pipeline, "summarize_articles", Mock(return_value=0))
+    monkeypatch.setattr(radio_pipeline, "generate_script", Mock(return_value=0))
+    monkeypatch.setattr(radio_pipeline, "notify_failure", failure)
+    monkeypatch.setattr(ArticleService, "fetch_summaries_for_script", Mock(return_value=[]))
+
+    with caplog.at_level("WARNING"):
+        result = radio_pipeline.run_radio_pipeline(
+            episode_id,
+            episode_date="2099-01-03",
+            default_episodes_dir=str(tmp_path),
+        )
+
+    assert result is PipelineResult.NO_CONTENT
+    failure.assert_called_once_with(
+        episode_id=episode_id,
+        phase="summarize",
+        error="新規記事の要約に成功しませんでした",
+    )
+    assert "新規記事の要約成功件数が0件" in caplog.text
+    assert "No new articles to summarize" not in caplog.text
+    assert EpisodeService().get_episode(episode_id) is None
+
+
+def test_pipeline_does_not_notify_when_no_new_articles_were_imported(monkeypatch, tmp_path):
+    from app.batch import radio_pipeline
+    from app.batch.radio_pipeline import PipelineResult
+    from app.services.article_service import ArticleService
+    from app.services.episode_service import EpisodeService
+
+    episode_id = EpisodeService().create_episode("2099-01-04", status="generating", type="radio")
+    failure = Mock()
+    monkeypatch.setattr(radio_pipeline, "import_articles_by_source", Mock(return_value=(0, 1)))
+    monkeypatch.setattr(radio_pipeline, "summarize_articles", Mock(return_value=0))
+    monkeypatch.setattr(radio_pipeline, "generate_script", Mock(return_value=0))
+    monkeypatch.setattr(radio_pipeline, "notify_failure", failure)
+    monkeypatch.setattr(ArticleService, "fetch_summaries_for_script", Mock(return_value=[]))
+
+    result = radio_pipeline.run_radio_pipeline(
+        episode_id,
+        episode_date="2099-01-04",
+        default_episodes_dir=str(tmp_path),
+    )
+
+    assert result is PipelineResult.NO_CONTENT
+    failure.assert_not_called()
+    assert EpisodeService().get_episode(episode_id) is None
+
+
 def test_radio_pipeline_success_keeps_completed_when_notification_raises(monkeypatch, tmp_path):
     from app.batch import radio_pipeline
     from app.services.episode_service import EpisodeService

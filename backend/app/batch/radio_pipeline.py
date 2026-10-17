@@ -251,6 +251,14 @@ def run_radio_pipeline(
         except Exception:
             logger.warning("[%d] Telegram failure notification could not be sent", episode_id)
 
+    def _notify_failure_once(phase: str, error: object) -> None:
+        """Emit at most one failure notification without changing episode status."""
+        nonlocal notification_sent
+        if notification_sent:
+            return
+        notification_sent = True
+        _notify_failure(phase, error)
+
     def _notify_success(title: str) -> None:
         try:
             notify_success(title=title, episode_id=episode_id, seq=seq)
@@ -259,11 +267,8 @@ def run_radio_pipeline(
 
     def _fail(phase: str, error: object = "処理に失敗しました") -> None:
         """Keep the original failed state and emit at most one notification."""
-        nonlocal notification_sent
         service.update_episode_status(episode_id, "failed")
-        if not notification_sent:
-            notification_sent = True
-            _notify_failure(phase, error)
+        _notify_failure_once(phase, error)
 
     try:
         _progress("start", "番組の生成を準備しています…")
@@ -295,6 +300,9 @@ def run_radio_pipeline(
             )
             logger.info("summarize done: count=%d", summarized)
             if summarized == 0:
+                logger.warning("新規記事の要約成功件数が0件です")
+                if ins > 0:
+                    _notify_failure_once("summarize", "新規記事の要約に成功しませんでした")
                 existing_summaries = ArticleService().fetch_summaries_for_script(
                     max_articles=effective_max_articles,
                     min_importance_score=effective_min_score,
@@ -304,11 +312,13 @@ def run_radio_pipeline(
                 )
                 write_fallback_summaries(summaries_path, existing_summaries)
                 logger.info(
-                    "No new articles to summarize; wrote %d existing summaries for review evidence",
+                    "要約成功件数0件のため、レビュー根拠として既存要約%d件を書き込みました",
                     len(existing_summaries),
                 )
         except Exception:
             logger.exception("summarize failed")
+            if ins > 0:
+                _notify_failure_once("summarize", "新規記事の要約に成功しませんでした")
             if llm_selection.legacy_common:
                 _fail("summarize", "記事の要約に失敗しました")
                 return None
@@ -355,6 +365,11 @@ def run_radio_pipeline(
                 os.environ["MAX_SCRIPT_ARTICLES"] = old_max
 
         if line_count <= 0:
+            if ins > 0:
+                _notify_failure_once(
+                    "generate_script",
+                    "記事は取り込まれましたが、台本を生成できませんでした",
+                )
             service.delete_episode(episode_id)
             return PipelineResult.NO_CONTENT
 
