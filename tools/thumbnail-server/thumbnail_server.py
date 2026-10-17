@@ -13,7 +13,7 @@ Endpoints:
   GET  /thumbnail/{job_id}               -> {status, ...} (poll)
   GET  /files/{job_id}.png               -> the rendered PNG (when done)
 """
-import os, re, json, time, uuid, queue, threading, logging, tempfile, sys
+import os, re, json, time, uuid, queue, threading, logging, tempfile, sys, asyncio
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from fastapi import FastAPI, HTTPException
@@ -75,6 +75,15 @@ def busy_down():
 def busy_count():
     with _busy_lock:
         return _busy
+
+def try_claim_busy():
+    """Claim the shared gate without waiting for a blocking worker thread."""
+    global _busy
+    with _busy_lock:
+        if _busy != 0:
+            return False
+        _busy = 1
+        return True
 
 def wait_for_idle_and_claim(job_id):
     """Wait for an idle gate and claim it atomically for one heavy operation."""
@@ -343,8 +352,11 @@ def idle_watchdog():
 threading.Thread(target=idle_watchdog, daemon=True).start()
 
 @app.post("/busy/up")
-def busy_up_ep():
-    wait_for_idle_and_claim("LLM/TTS")
+async def busy_up_ep():
+    # Keep waiting requests on the event loop so they cannot consume Starlette's
+    # finite sync-endpoint thread pool needed by /busy/down.
+    while not try_claim_busy():
+        await asyncio.sleep(0.05)
     return {"busy": busy_count()}
 @app.post("/busy/down")
 def busy_down_ep():

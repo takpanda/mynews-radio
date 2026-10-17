@@ -1,9 +1,12 @@
+import asyncio
 import importlib.util
 import threading
 import time
 from pathlib import Path
 from unittest.mock import Mock
 
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -136,7 +139,7 @@ def test_thumbnail_claim_blocks_busy_up_until_thumbnail_releases(monkeypatch):
     assert thumbnail_server.busy_count() == 1
 
     def acquire_llm_gate():
-        thumbnail_server.busy_up_ep()
+        asyncio.run(thumbnail_server.busy_up_ep())
         up_acquired.set()
 
     llm_worker = threading.Thread(target=acquire_llm_gate)
@@ -174,7 +177,7 @@ def test_busy_claim_keeps_thumbnail_job_queued_until_llm_releases(monkeypatch):
     with thumbnail_server._busy_lock:
         thumbnail_server._busy = 0
 
-    thumbnail_server.busy_up_ep()
+    asyncio.run(thumbnail_server.busy_up_ep())
     assert thumbnail_server.busy_count() == 1
     thumbnail_worker = threading.Thread(target=thumbnail_server.process_job, args=(job_id,))
     thumbnail_worker.start()
@@ -190,6 +193,55 @@ def test_busy_claim_keeps_thumbnail_job_queued_until_llm_releases(monkeypatch):
     assert job.transitions == ["queued", "derive", "scene", "compose", "done"]
     assert thumbnail_server.busy_count() == 0
     thumbnail_server.jobs.pop(job_id)
+
+
+@pytest.mark.asyncio
+async def test_busy_up_waiters_do_not_starve_http_thread_pool(monkeypatch):
+    waiter_count = 45
+    attempted = 0
+    real_try_claim_busy = thumbnail_server.try_claim_busy
+
+    def track_try_claim():
+        nonlocal attempted
+        attempted += 1
+        return real_try_claim_busy()
+
+    monkeypatch.setattr(thumbnail_server, "try_claim_busy", track_try_claim)
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy = 0
+
+    transport = httpx.ASGITransport(app=thumbnail_server.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://thumbnail.test") as client:
+        first = await client.post("/busy/up")
+        assert first.status_code == 200
+        assert first.json() == {"busy": 1}
+
+        waiters = [asyncio.create_task(client.post("/busy/up")) for _ in range(waiter_count)]
+        try:
+            deadline = asyncio.get_running_loop().time() + 2
+            while attempted < waiter_count and asyncio.get_running_loop().time() < deadline:
+                await asyncio.sleep(0.01)
+            assert attempted >= waiter_count
+
+            # This sync endpoint uses Starlette's thread pool. It must remain
+            # serviceable while more than the default 40 acquisitions wait.
+            released = await asyncio.wait_for(client.post("/busy/down"), timeout=1)
+            assert released.status_code == 200
+
+            done, _pending = await asyncio.wait(
+                waiters, timeout=1, return_when=asyncio.FIRST_COMPLETED
+            )
+            assert done, "no waiting /busy/up request acquired the released gate"
+            response = done.pop().result()
+            assert response.status_code == 200
+            assert response.json() == {"busy": 1}
+        finally:
+            for waiter in waiters:
+                if not waiter.done():
+                    waiter.cancel()
+            await asyncio.gather(*waiters, return_exceptions=True)
+            with thumbnail_server._busy_lock:
+                thumbnail_server._busy = 0
 
 
 class _Font:
