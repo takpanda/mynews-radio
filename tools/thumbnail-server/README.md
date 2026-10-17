@@ -1,7 +1,7 @@
 # Thumbnail server
 
-`thumbnail_server.py` is the current source copied from `/Users/tak/apps/qwen-thumb-server/thumbnail_server.py` on `192.168.1.102`.
-The source is kept unchanged. The server listens on port `8501` by default and reads `PORT` when overridden.
+`thumbnail_server.py` in this repository is the deployment source for `/Users/tak/apps/qwen-thumb-server/thumbnail_server.py` on `192.168.1.102`.
+Keep service changes in this file so the deploy script preserves them. Thumbnail requests enqueue immediately; the worker derives the prompt and renders the image. The server listens on port `8501` by default and reads `PORT` when overridden.
 
 ## Deployment
 
