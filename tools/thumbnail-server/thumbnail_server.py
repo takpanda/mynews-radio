@@ -13,7 +13,7 @@ Endpoints:
   GET  /thumbnail/{job_id}               -> {status, ...} (poll)
   GET  /files/{job_id}.png               -> the rendered PNG (when done)
 """
-import os, re, json, time, uuid, queue, threading, logging, tempfile, sys
+import os, re, json, time, uuid, queue, threading, logging, tempfile, sys, asyncio
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from fastapi import FastAPI, HTTPException
@@ -65,30 +65,34 @@ def idle_for_seconds():
 #      /busy/down after. This service increments its own while rendering and
 #      waits for the counter to hit 0 before starting a job. ----
 _busy = 0
-_busy_lock = threading.Lock()
-def busy_up():
-    global _busy
-    with _busy_lock:
-        _busy += 1
+_busy_lock = threading.Condition()
 def busy_down():
     global _busy
     with _busy_lock:
-        _busy = max(0, _busy - 1)
+        if _busy > 0:
+            _busy -= 1
+            _busy_lock.notify_all()
 def busy_count():
     with _busy_lock:
         return _busy
 
-def wait_for_idle_and_claim(job_id):
-    """Wait for an idle gate and claim it atomically for the thumbnail job."""
+def try_claim_busy():
+    """Claim the shared gate without waiting for a blocking worker thread."""
     global _busy
-    while True:
-        with _busy_lock:
-            if _busy == 0:
-                _busy += 1
-                return
-            current = _busy
-        log.info("job %s waiting for server to be idle (busy=%d)", job_id, current)
-        time.sleep(5)
+    with _busy_lock:
+        if _busy != 0:
+            return False
+        _busy = 1
+        return True
+
+def wait_for_idle_and_claim(job_id):
+    """Wait for an idle gate and claim it atomically for one heavy operation."""
+    global _busy
+    with _busy_lock:
+        while _busy != 0:
+            log.info("%s waiting for server to be idle (busy=%d)", job_id, _busy)
+            _busy_lock.wait()
+        _busy = 1
 
 def F(path, size, idx=0):
     return ImageFont.truetype(path, size, index=idx)
@@ -348,8 +352,12 @@ def idle_watchdog():
 threading.Thread(target=idle_watchdog, daemon=True).start()
 
 @app.post("/busy/up")
-def busy_up_ep():
-    busy_up(); return {"busy": busy_count()}
+async def busy_up_ep():
+    # Keep waiting requests on the event loop so they cannot consume Starlette's
+    # finite sync-endpoint thread pool needed by /busy/down.
+    while not try_claim_busy():
+        await asyncio.sleep(0.05)
+    return {"busy": busy_count()}
 @app.post("/busy/down")
 def busy_down_ep():
     busy_down(); return {"busy": busy_count()}
