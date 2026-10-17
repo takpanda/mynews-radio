@@ -239,8 +239,9 @@ def test_overwrite_failure_preserves_existing_image_and_path(tmp_path, monkeypat
     assert output.read_bytes() == b"previous"
 
 
-def test_busy_gate_brackets_operation_exception_and_continues_on_http_failure(monkeypatch, caplog):
+def test_busy_gate_does_not_run_operation_when_acquisition_fails(monkeypatch, caplog):
     endpoints = []
+    operation = Mock(return_value=42)
 
     def busy_call(url, **_kwargs):
         endpoints.append(url.rsplit("/", 1)[-1])
@@ -248,13 +249,29 @@ def test_busy_gate_brackets_operation_exception_and_continues_on_http_failure(mo
 
     monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
     with caplog.at_level(logging.WARNING):
-        with pytest.raises(ValueError, match="phase failed"):
-            dgx_busy.run_with_dgx_busy("script", lambda: (_ for _ in ()).throw(ValueError("phase failed")))
+        with pytest.raises(RuntimeError, match="Failed to acquire"):
+            dgx_busy.run_with_dgx_busy("script", operation)
 
-    assert endpoints == ["up", "down"]
+    assert endpoints == ["up"]
+    operation.assert_not_called()
     assert "busy/up request failed" in caplog.text
-    assert "busy/down request failed" in caplog.text
     assert "offline" not in caplog.text
+
+
+def test_busy_gate_wait_request_has_no_client_timeout(monkeypatch):
+    calls = []
+
+    class _OkResponse:
+        def raise_for_status(self):
+            return None
+
+    def busy_call(url, **kwargs):
+        calls.append((url.rsplit("/", 1)[-1], kwargs["timeout"]))
+        return _OkResponse()
+
+    monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
+    assert dgx_busy.run_with_dgx_busy("tts", lambda: 42) == 42
+    assert calls == [("up", None), ("down", 10.0)]
 
 
 def test_busy_gate_returns_operation_result_and_brackets_success(monkeypatch):
@@ -306,6 +323,11 @@ def _run_successful_pipeline_with_thumbnail(
 ):
     from app.batch import radio_pipeline
 
+    monkeypatch.setattr(
+        radio_pipeline,
+        "run_with_dgx_busy",
+        lambda _stage, operation, *args, **kwargs: operation(*args, **kwargs),
+    )
     monkeypatch.setattr(radio_pipeline, "import_articles_by_source", lambda _source: (1, 0))
     monkeypatch.setattr(radio_pipeline, "summarize_articles", lambda *_args, **_kwargs: 1)
 
