@@ -471,7 +471,7 @@ def run_radio_pipeline(
             logger.exception("[%d] failed to persist generated script revision", episode_id)
             service.update_episode_status(episode_id, "failed")
             service.update_episode_phase(episode_id, "failed", "生成台本の保存に失敗しました")
-            _notify_failure("script_revision", "生成台本の保存に失敗しました")
+            _notify_failure_once("script_revision", "生成台本の保存に失敗しました")
             return None
 
         has_validation_errors = bool(final_validation and not final_validation["can_synthesize"])
@@ -489,7 +489,7 @@ def run_radio_pipeline(
         if next_review_state == "failed":
             reason = human_review_message(final_validation)
             service.update_episode_status(episode_id, "failed")
-            _notify_failure("final_validation", reason)
+            _notify_failure_once("final_validation", reason)
             return None
 
         if final_validation:
