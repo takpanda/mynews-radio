@@ -1,0 +1,13 @@
+{
+  "name": "mynews-radio-skill",
+  "version": "1.0.0",
+  "description": "MyNews Radio AudioPlayer skill for Alexa",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"no tests yet\""
+  },
+  "dependencies": {
+    "ask-sdk-core": "^2.12.0",
+    "ask-sdk-model": "^1.55.0"
+  }
+}

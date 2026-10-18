@@ -1,0 +1,46 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "my news radio",
+      "intents": [
+        {
+          "name": "PlayLatestIntent",
+          "slots": [],
+          "samples": [
+            "play",
+            "play the latest",
+            "play the latest episode",
+            "play the latest news",
+            "play today's episode",
+            "play the newest episode"
+          ]
+        },
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.PauseIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.ResumeIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.FallbackIntent",
+          "samples": []
+        }
+      ],
+      "types": []
+    }
+  }
+}
