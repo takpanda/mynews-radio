@@ -36,6 +36,14 @@ GOTH  = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc"
 MINCHO = "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc"
 GREEN=(47,91,58); GOLD=(176,132,34); WHITE=(255,255,255)
 HIGHLIGHT=(255,205,60); RED=(220,40,40)
+DIN = "/System/Library/Fonts/Supplemental/DIN Condensed Bold.ttf"
+
+def _font_path(*candidates):
+    return next((path for path in candidates if Path(path).is_file()), GOTH)
+
+GOTH = _font_path(GOTH, "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
+                  "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc")
+DIN = _font_path(DIN, "/Library/Fonts/DIN Condensed Bold.ttf", GOTH)
 
 app = FastAPI(title="qwen-thumbnail-service")
 jobs = {}            # job_id -> dict(status, path, error)
@@ -95,9 +103,37 @@ def wait_for_idle_and_claim(job_id):
         _busy = 1
 
 def F(path, size, idx=0):
-    return ImageFont.truetype(path, size, index=idx)
+    try:
+        return ImageFont.truetype(path, size, index=idx)
+    except OSError:
+        return ImageFont.load_default(size=size)
 def textbox(font, s):
     b = font.getbbox(s); return b[2]-b[0], b[3]-b[1]
+
+def fit_text(text, path, max_width, max_size, min_size):
+    """Shrink and, if needed, ellipsize one line so its measured width fits."""
+    text = str(text).strip()
+    for size in range(max_size, min_size - 1, -1):
+        font = F(path, size)
+        if font.getlength(text) <= max_width:
+            return text, font
+    font = F(path, min_size)
+    suffix = "…"
+    fitted = text
+    while fitted and font.getlength(fitted + suffix) > max_width:
+        fitted = fitted[:-1]
+    return (fitted + suffix if fitted else suffix), font
+
+def _contrast_text_color(rgb):
+    """Pick black or white based on the stronger WCAG contrast ratio."""
+    channels = [value / 255 for value in rgb]
+    linear = [value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+              for value in channels]
+    luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+    black_contrast = (luminance + 0.05) / 0.05
+    white_contrast = 1.05 / (luminance + 0.05)
+    return (20, 22, 24) if black_contrast >= white_contrast else (255, 255, 255)
+
 
 # ---------- 1) derive art direction from episode ----------
 def _ollama_chat(prompt, max_tokens=900):
@@ -274,139 +310,89 @@ def gen_scene(scene_prompt):
         return Image.open(p).convert("RGB").resize((WIDTH, HEIGHT))
     raise RuntimeError("scene generation returned no image")
 
-# ---------- 3) composite YT-style thumbnail ----------
-def compose(scene, headline, highlight_kw, brand=None):
-    img = scene.copy()
-    W, H = img.size
-    # dark gradient band (top) for headline readability
-    grad = Image.new("L", (1, H), 0)
-    for y in range(H):
-        v = int(205 * (1 - y/500)) if y <= 500 else 0
-        grad.putpixel((0, y), v)
-    grad = grad.resize((W, H))
-    black = Image.new("RGB", (W, H), (8, 8, 12))
-    img = Image.composite(black, img, grad)
+# ---------- 3) composite editorial thumbnail ----------
+def compose(scene, art_direction, brand=None):
+    """Burn a left-aligned editorial cover into a scene image."""
+    spec = dict(art_direction or {})
+    W, H = scene.size if scene is not None else (WIDTH, HEIGHT)
+    spec.setdefault("headline", "今日の話題")
+    spec.setdefault("tone", "bright-warm")
+    spec.setdefault("accent", GOLD)
+    spec.setdefault("tag", "ニュース")
+    spec.setdefault("kicker", "SPECIAL REPORT")
+    spec.setdefault("brand", brand or DEFAULT_BRAND)
+    if brand:
+        spec["brand"] = brand
+    tone = spec["tone"] if spec["tone"] in {"bright-warm", "bright-cool", "moody-dark"} else "bright-warm"
+    accent = spec["accent"]
+    if not isinstance(accent, (tuple, list)) or len(accent) != 3:
+        accent = GOLD
+    accent = tuple(max(0, min(255, int(c))) for c in accent)
+    dark = tone == "moody-dark"
+    text_color = (250, 248, 242) if dark else (32, 35, 38)
+    muted_color = (205, 207, 203) if dark else (87, 89, 89)
+    panel = (17, 20, 24) if dark else ((246, 239, 222) if tone == "bright-warm" else (230, 241, 245))
+
+    if scene is None:
+        img = Image.new("RGB", (W, H), panel)
+        # A restrained geometric field gives typography-only covers a designed background.
+        bg = ImageDraw.Draw(img)
+        bg.polygon([(W * .58, 0), (W, 0), (W, H), (W * .75, H)], fill=accent)
+        bg.ellipse((W * .69, -H * .14, W * 1.1, H * .52), fill=tuple((c + 28) // 2 for c in panel))
+    else:
+        img = scene.convert("RGB").resize((W, H)).copy()
     d = ImageDraw.Draw(img, "RGBA")
+    # The editorial panel reserves the right third for the generated subject.
+    panel_right = int(W * 2 / 3)
+    d.rectangle((0, 0, panel_right, H), fill=(*panel, 242 if scene is not None else 255))
+    d.rectangle((0, 0, 12, H), fill=(*accent, 255))
 
-    # logo top-left (brand), white + gold, black outline
-    f_logo = F(GOTH, 60)
-    parts = brand or DEFAULT_BRAND
-    # split brand into first color-part and rest if possible; simple: all gold
-    lx, ly = 40, 26
-    d.text((lx, ly), parts, font=f_logo, fill=(255, 255, 255, 255),
-           stroke_width=4, stroke_fill=(0, 0, 0, 255))
-    # small gold "解説バッジ" accent
-    # (kept minimal; brand already shown)
+    left, right = 48, panel_right - 40
+    max_width = right - left
+    brand_text, brand_font = fit_text(spec["brand"], GOTH, max_width, 27, 15)
+    d.text((left, 28), brand_text, font=brand_font, fill=text_color)
+    d.rectangle((left, 70, left + min(74, max_width), 74), fill=accent)
+    kicker_text, kicker_font = fit_text(str(spec["kicker"]).upper(), DIN, max_width, 29, 14)
+    d.text((left, 91), kicker_text, font=kicker_font, fill=muted_color)
 
-    # headline: split into two lines around highlight keyword
-    f_head = F(GOTH, 104)
-    hl = headline or "今日の話題"
-    # build line arrangement: if highlight present and in hl, emphasize it
-    hi = highlight_kw.strip()
-    top_line, bottom_line = hl, None
-    if hi and hi in hl:
-        idx = hl.find(hi)
-        left, right = hl[:idx], hl[idx:]
-        # put non-highlight part on line1, highlight (plus remainder) on line2
-        # simple: line1 = left, line2 = right
-        if left.strip():
-            top_line, bottom_line = left.strip(), right.strip()
-        else:
-            top_line, bottom_line = "", right.strip()
-    else:
-        top_line, bottom_line = hl, ""
+    headline = str(spec["headline"]).strip() or "今日の話題"
+    # Prefer a balanced two-line Japanese split; reduce type size until both lines fit.
+    chars = list(headline)
+    split = max(1, min(len(chars) - 1, round(len(chars) / 2))) if len(chars) > 1 else len(chars)
+    lines = ["".join(chars[:split]), "".join(chars[split:])] if len(chars) > 1 else [headline]
+    size = 88
+    while size > 30 and any(F(GOTH, size).getlength(line) > max_width for line in lines):
+        size -= 2
+    font = F(GOTH, size)
+    # If even the minimum is too wide, fit by character count without allowing bleed.
+    wrapped = []
+    for line in lines:
+        current = ""
+        for char in line:
+            if current and font.getlength(current + char) > max_width:
+                wrapped.append(current)
+                current = char
+            else:
+                current += char
+        if current:
+            wrapped.append(current)
+    lines = wrapped[:3]
+    y = int(H * .34)
+    line_height = max(36, int(size * 1.12))
+    for line in lines:
+        d.text((left, y), line, font=font, fill=text_color)
+        y += line_height
 
-    # 文字と装飾を左右40pxの内側に収める。短い行は従来どおり104pxを使う。
-    MAX_W = W - 80
-    BASE_FONT = 104
-    MIN_FONT = 28
-    FONT_STEP = 2
-    MIN_LINE_GAP = 2
-
-    def _fits(txt, font, highlight=False):
-        # 枠または縁取りの幅も含めて判定する。
-        decoration = 20 if highlight else 16  # highlight枠の左右10px / strokeの左右8px
-        return font.getlength(txt) + decoration <= MAX_W
-
-    def _truncate(txt, font, highlight=False):
-        """最小フォントでも収まらない行を末尾の三点リーダーで省略する。"""
-        suffix = "…"
-        result = txt
-        while result and not _fits(result + suffix, font, highlight):
-            result = result[:-1]
-        return result + suffix if result else suffix
-
-    def _fit_line(txt, highlight=False):
-        """104pxから2px刻みで縮小し、最小サイズでも超える場合は省略する。"""
-        for size in range(BASE_FONT, MIN_FONT - 1, -FONT_STEP):
-            font = F(GOTH, size)
-            if _fits(txt, font, highlight):
-                return txt, font
-        font = F(GOTH, MIN_FONT)
-        return _truncate(txt, font, highlight), font
-
-    def draw_line(txt, y, highlight=False, font=None):
-        if not txt: return
-        f = font or F(GOTH, BASE_FONT)
-        w = int(f.getlength(txt) + 0.999)
-        x = (W - w) // 2
-        d.text((x+5, y+5), txt, font=f, fill=(0, 0, 0, 150))
-        d.text((x, y), txt, font=f, fill=(255, 255, 255, 255),
-               stroke_width=8, stroke_fill=(0, 0, 0, 255))
-        if highlight:
-            bh = textbox(f, txt)[1]
-            d.rounded_rectangle([x-10, y-8, x+w+10, y+bh+10], radius=10,
-                                fill=(HIGHLIGHT[0], HIGHLIGHT[1], HIGHLIGHT[2], 245))
-            d.text((x, y), txt, font=f, fill=(15, 15, 15, 255),
-                   stroke_width=2, stroke_fill=(90, 60, 0, 120))
-
-    def _vertical_bounds(txt, font, highlight=False):
-        """縁取り・影・ハイライト枠を含む、描画アンカー基準の上下端を返す。"""
-        text_box = d.textbbox((0, 0), txt, font=font, stroke_width=8)
-        shadow_box = d.textbbox((5, 5), txt, font=font)
-        top = min(text_box[1], shadow_box[1])
-        bottom = max(text_box[3], shadow_box[3])
-        if highlight:
-            box_height = textbox(font, txt)[1]
-            top = min(top, -8)
-            bottom = max(bottom, box_height + 10)
-        return top, bottom
-
-
-    if bottom_line:
-        # 各行に最適なフォントを選び、描画範囲が重ならないよう縦方向に配置する。
-        top_highlight = bool(hi and hi in top_line)
-        bottom_highlight = bool(hi and hi in bottom_line)
-        fitted_top = _fit_line(top_line, top_highlight) if top_line else ("", None)
-        fitted_bottom = _fit_line(bottom_line, bottom_highlight)
-        top_text, top_font = fitted_top
-        bottom_text, bottom_font = fitted_bottom
-        top_height = textbox(top_font, top_text)[1] if top_text else 0
-        bottom_height = textbox(bottom_font, bottom_text)[1]
-        sizes = [font.size for font in (top_font, bottom_font) if font]
-        average_size = sum(sizes) / len(sizes)
-        line_step = max(max(top_height, bottom_height), round(120 * average_size / BASE_FONT))
-        # 104px行は従来の上段y=190を維持し、標準サイズ同士の基準間隔は120px。
-        y1 = 190 if top_text else 310
-        y2 = y1 + line_step if top_text else y1
-        if top_text:
-            _, top_bottom = _vertical_bounds(top_text, top_font, top_highlight)
-            bottom_top, _ = _vertical_bounds(bottom_text, bottom_font, bottom_highlight)
-            y2 = max(y2, y1 + top_bottom + MIN_LINE_GAP - bottom_top)
-        # 下段を押し下げた場合も画像下端の40pxマージンを保つよう、必要なら全体を上げる。
-        _, bottom_bottom = _vertical_bounds(bottom_text, bottom_font, bottom_highlight)
-        overflow = y2 + bottom_bottom - (H - 40)
-        if overflow > 0:
-            y1 -= overflow
-            y2 -= overflow
-        if top_text:
-            draw_line(top_text, y1, highlight=top_highlight, font=top_font)
-        draw_line(bottom_text, y2, highlight=bottom_highlight, font=bottom_font)
-    else:
-        line_text, line_font = _fit_line(top_line)
-        line_height = textbox(line_font, line_text)[1]
-        y = max(40, min(H - 40 - line_height, (H - line_height) // 2))
-        draw_line(line_text, y, highlight=bool(hi and hi in top_line), font=line_font)
+    tag_y = min(H - 83, y + 8)
+    tag, tag_font = fit_text(spec["tag"], GOTH, max_width - 24, 23, 13)
+    tag_width = int(tag_font.getlength(tag) + 24)
+    d.rounded_rectangle((left, tag_y, left + tag_width, tag_y + 38), radius=4,
+                        fill=(*accent, 255))
+    d.text((left + 12, tag_y + 5), tag, font=tag_font, fill=_contrast_text_color(accent))
+    footer_y = H - 39
+    d.line((left, footer_y - 11, right, footer_y - 11), fill=(*accent, 200), width=2)
+    footer, footer_font = fit_text("WAKARU  /  EXPLAINED", DIN, max_width, 18, 14)
+    d.text((left, footer_y), footer, font=footer_font, fill=muted_color)
     return img
 
 # ---------- worker ----------
@@ -416,32 +402,24 @@ def process_job(job_id):
     wait_for_idle_and_claim(job_id)
     try:
         j["status"] = "derive"
-        derived = derive(
-            episode_id=j.get("episode_id"), title=j["title"], subtitle=j.get("subtitle", j.get("topic", "")),
+        direction = derive(
+            episode_id=j.get("episode_id"), title=j["title"],
+            subtitle=j.get("subtitle", j.get("topic", "")),
             key_points=j.get("key_points"), source_articles=j.get("source_articles"), brand=j.get("brand"),
         )
-        if isinstance(derived, dict):
-            direction = derived
-        else:
-            # Older in-process callers may still return the legacy tuple shape.
-            scene, headline, tag, _theme = derived
-            direction = _fallback_direction(
-                j["title"], j.get("subtitle", j.get("topic", "")),
-                j.get("key_points", []), [], j.get("brand"),
-            )
-            direction.update(scene_prompt=scene, headline=headline, tag=tag)
         scene_prompt = direction["scene_prompt"]
-        headline = direction["headline"]
-        highlight = direction["tag"]
         j["scene_prompt"] = scene_prompt
-        j["headline"] = headline
-        j["highlight"] = highlight
         j["art_direction"] = direction
-        with gen_lock:
-            j["status"] = "scene"
-            scene = gen_scene(scene_prompt)
-            j["status"] = "compose"
-            img = compose(scene, headline, highlight, j.get("brand"))
+        j["headline"] = direction["headline"]
+        j["highlight"] = direction["tag"]
+        if direction.get("visual_style") == "typography":
+            scene = None
+        else:
+            with gen_lock:
+                j["status"] = "scene"
+                scene = gen_scene(scene_prompt)
+        j["status"] = "compose"
+        img = compose(scene, direction, j.get("brand"))
         path = OUT_DIR / f"{job_id}.png"
         img.save(path)
         j["path"] = str(path)
