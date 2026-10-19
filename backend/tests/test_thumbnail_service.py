@@ -102,8 +102,12 @@ def test_generate_thumbnail_saves_image_and_updates_path(tmp_path, monkeypatch):
     assert open(path, "rb").read() == b"png-bytes"
     assert EpisodeService().get_episode(episode_id)["thumbnail_path"] == "thumbnail.png"
     assert client.calls[0][2]["json"] == {
+        "episode_id": episode_id,
         "title": "Episode title",
         "topic": "Episode topic",
+        "subtitle": "Episode topic",
+        "key_points": [],
+        "source_articles": [],
         "brand": "ニュースのとなり",
     }
     assert client_options == [{"timeout": 10.0}]
