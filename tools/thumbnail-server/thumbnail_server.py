@@ -415,7 +415,7 @@ def _cancel_and_confirm_comfyui_job(prompt_id):
 
 def _wait_until_comfyui_idle():
     """Resolve a submission with no known prompt ID by requiring a quiet queue."""
-    deadline = time.monotonic() + COMFYUI_CLEANUP_TIMEOUT
+    deadline = None
     idle_since = None
     with httpx.Client(timeout=COMFYUI_REQUEST_TIMEOUT) as client:
         while True:
@@ -429,16 +429,25 @@ def _wait_until_comfyui_idle():
             active = _queue_ids(queue_data["queue_running"])
             pending = _queue_ids(queue_data["queue_pending"])
             now = time.monotonic()
-            if not active and not pending:
+            if active or pending:
+                idle_since = None
+                if deadline is None:
+                    deadline = now + COMFYUI_CLEANUP_TIMEOUT
+            else:
                 if idle_since is None:
                     idle_since = now
+                    # Start the timeout with the quiet observation window. The
+                    # HTTP request that produced this first empty snapshot is
+                    # outside the interval being measured.
+                    deadline = now + max(
+                        COMFYUI_CLEANUP_TIMEOUT, COMFYUI_UNKNOWN_QUIET_PERIOD
+                    )
                 elif now - idle_since >= COMFYUI_UNKNOWN_QUIET_PERIOD:
                     return
-            else:
-                idle_since = None
-            if now >= deadline:
+            if deadline is not None and now >= deadline:
                 raise TimeoutError("ComfyUI idle state could not be confirmed")
-            time.sleep(min(0.25, max(0, deadline - now)))
+            sleep_for = 0.25 if deadline is None else min(0.25, max(0, deadline - now))
+            time.sleep(sleep_for)
 
 
 def _cleanup_comfyui_state(state):

@@ -339,6 +339,131 @@ def test_comfyui_recovery_keeps_busy_claimed_until_connection_returns(monkeypatc
     thumbnail_server.jobs.pop(job_id)
 
 
+def test_comfyui_lost_prompt_response_recovers_with_default_quiet_period(
+    monkeypatch, tmp_path
+):
+    job_id = "comfy-lost-prompt-response"
+    state_path = tmp_path / "active.json"
+    job = _TrackingJob(status="queued", title="title", topic="topic", brand=None,
+                       path=None, error=None, scene_prompt=None, headline=None,
+                       highlight=None)
+    thumbnail_server.jobs[job_id] = job
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_STATE_PATH", state_path)
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_CLEANUP_TIMEOUT", 30)
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_UNKNOWN_QUIET_PERIOD", 30)
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_REQUEST_TIMEOUT", 30)
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_JOB_TIMEOUT", 900)
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_POLL_INTERVAL", 2)
+    monkeypatch.setattr(thumbnail_server, "derive", lambda **_kwargs: {
+        "scene_prompt": "scene", "headline": "headline", "tag": "tag",
+        "visual_style": "person", "tone": "bright-warm", "accent": [196, 166, 96],
+        "kicker": "FEATURE", "brand": thumbnail_server.DEFAULT_BRAND,
+    })
+    clock = {"now": 0.0, "queue_reads": 0}
+    monkeypatch.setattr(thumbnail_server.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(thumbnail_server.time, "sleep", lambda seconds: clock.__setitem__(
+        "now", clock["now"] + seconds
+    ))
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy = 0
+
+    class _Response:
+        def __init__(self, data=None):
+            self.data = data or {}
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return self.data
+
+    class _Client:
+        def __init__(self, **_kwargs):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+        def post(self, url, **_kwargs):
+            assert url.endswith("/prompt")
+            # The remote accepted the prompt, but the response was lost.
+            clock["now"] += 0.1
+            raise httpx.ReadTimeout("prompt response was lost")
+        def get(self, url, **_kwargs):
+            assert url.endswith("/queue")
+            clock["queue_reads"] += 1
+            clock["now"] += 0.1 if clock["queue_reads"] == 1 else 0.001
+            # The first two snapshots show the unknown job; it then completes.
+            running = [[1, "unknown-remote-job"]] if clock["queue_reads"] <= 2 else []
+            return _Response({"queue_running": running, "queue_pending": []})
+
+    monkeypatch.setattr(thumbnail_server.httpx, "Client", _Client)
+
+    thumbnail_server.process_job(job_id)
+
+    assert job["status"] == "failed"
+    assert "timed out" in job["error"]
+    assert clock["queue_reads"] > 30
+    assert clock["now"] >= 30
+    assert not state_path.exists()
+    assert thumbnail_server.busy_count() == 0
+    assert thumbnail_server.try_claim_busy() is True
+    thumbnail_server.busy_down()
+    thumbnail_server.jobs.pop(job_id)
+
+
+def test_comfyui_restart_recovers_marker_with_default_quiet_period_and_delayed_http(
+    monkeypatch, tmp_path
+):
+    state_path = tmp_path / "active.json"
+    state_path.write_text(json.dumps({"prompt_id": "unknown", "submitted": False}))
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_STATE_PATH", state_path)
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_CLEANUP_TIMEOUT", 30)
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_UNKNOWN_QUIET_PERIOD", 30)
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_REQUEST_TIMEOUT", 30)
+    clock = {"now": 0.0, "queue_reads": 0}
+    monkeypatch.setattr(thumbnail_server.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(thumbnail_server.time, "sleep", lambda seconds: clock.__setitem__(
+        "now", clock["now"] + seconds
+    ))
+    recovery_states = []
+    monkeypatch.setattr(
+        thumbnail_server, "_start_comfyui_recovery", lambda state: recovery_states.append(state)
+    )
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy = 1
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return {"queue_running": [], "queue_pending": []}
+
+    class _Client:
+        def __init__(self, **_kwargs):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+        def get(self, url, **_kwargs):
+            assert url.endswith("/queue")
+            clock["queue_reads"] += 1
+            clock["now"] += 0.1 if clock["queue_reads"] == 1 else 0.001
+            return _Response()
+
+    monkeypatch.setattr(thumbnail_server.httpx, "Client", _Client)
+
+    thumbnail_server._resume_comfyui_recovery()
+    assert recovery_states == [{"prompt_id": "unknown", "submitted": False}]
+    thumbnail_server._recover_comfyui_state(recovery_states[0])
+
+    assert clock["now"] >= 30
+    assert clock["queue_reads"] > 30
+    assert not state_path.exists()
+    assert thumbnail_server.busy_count() == 0
+    assert thumbnail_server.try_claim_busy() is True
+    thumbnail_server.busy_down()
+
+
 def test_derive_validates_schema_and_builds_style_specific_prompts(monkeypatch):
     monkeypatch.setattr(thumbnail_server, "_ollama_chat", lambda _prompt: "not json")
     cases = [
