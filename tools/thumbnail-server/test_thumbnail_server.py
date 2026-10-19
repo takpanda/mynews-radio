@@ -4,6 +4,7 @@ import io
 import json
 import threading
 import time
+import uuid
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -144,6 +145,7 @@ def test_gen_scene_submits_qwen_workflow_and_downloads_saved_image(monkeypatch, 
 
     calls = clients[0].calls
     submitted = calls[0][2]["json"]["prompt"]
+    assert uuid.UUID(calls[0][2]["json"]["prompt_id"])
     assert submitted["452"]["inputs"]["prompt"] == "editorial scene prompt"
     assert submitted["452"]["inputs"]["resolution"] == 1024
     assert submitted["456"]["inputs"]["width"] == 1280
@@ -181,6 +183,159 @@ def test_comfyui_failure_marks_job_failed_and_releases_busy(monkeypatch):
     assert job["status"] == "failed"
     assert job["error"] == "ComfyUI is unavailable"
     assert thumbnail_server.busy_count() == 0
+    thumbnail_server.jobs.pop(job_id)
+
+
+@pytest.mark.parametrize("failure_mode", ["job_timeout", "history_timeout"])
+def test_comfyui_timeout_cancels_active_job_before_releasing_busy(
+    monkeypatch, tmp_path, failure_mode
+):
+    job_id = f"comfy-{failure_mode}"
+    prompt_id = "12345678-1234-5678-1234-567812345678"
+    job = _TrackingJob(status="queued", title="title", topic="topic", brand=None,
+                       path=None, error=None, scene_prompt=None, headline=None,
+                       highlight=None)
+    thumbnail_server.jobs[job_id] = job
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_STATE_PATH", tmp_path / "active.json")
+    monkeypatch.setattr(thumbnail_server.uuid, "uuid4", lambda: uuid.UUID(prompt_id))
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_JOB_TIMEOUT", 0 if failure_mode == "job_timeout" else 30)
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_CLEANUP_TIMEOUT", 1)
+    monkeypatch.setattr(thumbnail_server.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(thumbnail_server, "derive", lambda **_kwargs: {
+        "scene_prompt": "scene", "headline": "headline", "tag": "tag",
+        "visual_style": "person", "tone": "bright-warm", "accent": [196, 166, 96],
+        "kicker": "FEATURE", "brand": thumbnail_server.DEFAULT_BRAND,
+    })
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy = 0
+    remote_active = {"value": True}
+    client_index = {"value": 0}
+
+    class _Response:
+        def __init__(self, data=None):
+            self.data = data or {}
+            self.content = b""
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return self.data
+
+    class _Client:
+        def __init__(self, **_kwargs):
+            self.index = client_index["value"]
+            client_index["value"] += 1
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+        def post(self, url, **kwargs):
+            if url.endswith("/prompt"):
+                return _Response({"prompt_id": prompt_id})
+            assert url.endswith("/interrupt")
+            assert kwargs["json"] == {"prompt_id": prompt_id}
+            remote_active["value"] = False
+            return _Response()
+        def get(self, url, **_kwargs):
+            if url.endswith(f"/history/{prompt_id}"):
+                if self.index == 0 and failure_mode == "history_timeout":
+                    raise httpx.ReadTimeout("history request timed out")
+                if not remote_active["value"]:
+                    return _Response({prompt_id: {"status": {"status_str": "error"}}})
+                return _Response()
+            assert url.endswith("/queue")
+            running = [[1, prompt_id]] if remote_active["value"] else []
+            return _Response({"queue_running": running, "queue_pending": []})
+
+    monkeypatch.setattr(thumbnail_server.httpx, "Client", _Client)
+
+    thumbnail_server.process_job(job_id)
+
+    assert job["status"] == "failed"
+    assert remote_active["value"] is False
+    assert thumbnail_server.busy_count() == 0
+    assert thumbnail_server.try_claim_busy() is True
+    thumbnail_server.busy_down()
+    thumbnail_server.jobs.pop(job_id)
+
+
+def test_comfyui_recovery_keeps_busy_claimed_until_connection_returns(monkeypatch, tmp_path):
+    job_id = "comfy-disconnected"
+    prompt_id = "12345678-1234-5678-1234-567812345678"
+    job = _TrackingJob(status="queued", title="title", topic="topic", brand=None,
+                       path=None, error=None, scene_prompt=None, headline=None,
+                       highlight=None)
+    thumbnail_server.jobs[job_id] = job
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_STATE_PATH", tmp_path / "active.json")
+    monkeypatch.setattr(thumbnail_server.uuid, "uuid4", lambda: uuid.UUID(prompt_id))
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_CLEANUP_TIMEOUT", 1)
+    monkeypatch.setattr(thumbnail_server.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(thumbnail_server, "derive", lambda **_kwargs: {
+        "scene_prompt": "scene", "headline": "headline", "tag": "tag",
+        "visual_style": "person", "tone": "bright-warm", "accent": [196, 166, 96],
+        "kicker": "FEATURE", "brand": thumbnail_server.DEFAULT_BRAND,
+    })
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy = 0
+    recovery_states = []
+    monkeypatch.setattr(
+        thumbnail_server, "_start_comfyui_recovery", lambda state: recovery_states.append(state)
+    )
+    remote_active = {"value": True}
+    client_index = {"value": 0}
+
+    class _Response:
+        def __init__(self, data=None):
+            self.data = data or {}
+            self.content = b""
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return self.data
+
+    class _Client:
+        def __init__(self, **_kwargs):
+            self.index = client_index["value"]
+            client_index["value"] += 1
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+        def post(self, url, **kwargs):
+            if url.endswith("/prompt"):
+                return _Response({"prompt_id": prompt_id})
+            assert url.endswith("/interrupt")
+            assert kwargs["json"] == {"prompt_id": prompt_id}
+            remote_active["value"] = False
+            return _Response()
+        def get(self, url, **_kwargs):
+            if self.index == 0 and url.endswith(f"/history/{prompt_id}"):
+                raise httpx.ReadTimeout("history is disconnected")
+            if self.index == 1:
+                raise httpx.ConnectError("ComfyUI is unreachable")
+            if url.endswith(f"/history/{prompt_id}"):
+                if not remote_active["value"]:
+                    return _Response({prompt_id: {"status": {"status_str": "error"}}})
+                return _Response()
+            running = [[1, prompt_id]] if remote_active["value"] else []
+            return _Response({"queue_running": running, "queue_pending": []})
+
+    monkeypatch.setattr(thumbnail_server.httpx, "Client", _Client)
+
+    thumbnail_server.process_job(job_id)
+
+    assert job["status"] == "failed"
+    assert remote_active["value"] is True
+    assert thumbnail_server.busy_count() == 1
+    assert thumbnail_server.try_claim_busy() is False
+    assert recovery_states == [{"prompt_id": prompt_id, "submitted": True}]
+
+    client_index["value"] = 2
+    thumbnail_server._recover_comfyui_state(recovery_states[0])
+
+    assert remote_active["value"] is False
+    assert thumbnail_server.busy_count() == 0
+    assert thumbnail_server.try_claim_busy() is True
+    thumbnail_server.busy_down()
     thumbnail_server.jobs.pop(job_id)
 
 

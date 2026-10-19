@@ -21,13 +21,22 @@ Configuration environment variables:
 - `COMFYUI_REQUEST_TIMEOUT` (default `30` seconds per HTTP request)
 - `COMFYUI_JOB_TIMEOUT` (default `900` seconds for submission, generation, and download)
 - `COMFYUI_POLL_INTERVAL` (default `2` seconds)
+- `COMFYUI_CLEANUP_TIMEOUT` (default `30` seconds to confirm cancellation)
+- `COMFYUI_RECOVERY_RETRY` (default `5` seconds between recovery attempts)
+- `COMFYUI_UNKNOWN_QUIET_PERIOD` (default `30` seconds of an empty queue when the submitted prompt ID is unknown)
+- `COMFYUI_STATE_PATH` (default: `OUT_DIR/comfyui-active-job.json`)
 
 The thumbnail worker holds the shared `/busy` gate from art-direction generation
-through ComfyUI rendering and composition. A ComfyUI connection error, API error,
-failed history status, or job timeout marks the thumbnail job `failed`; the gate
-is still released in the worker's `finally` block. The backend auto-generation
-path treats thumbnail generation as best-effort and persists `thumbnail.png` and
-the episode path only after it receives the completed image.
+through ComfyUI rendering and composition. If a submitted job times out or its
+history connection fails, the server removes it from the pending queue or sends
+a prompt-targeted interrupt, then confirms that it is terminal or absent from
+the ComfyUI queue. If ComfyUI is unreachable during cleanup, the job is marked
+`failed` but the busy gate stays held. A recovery worker retries; the active-job
+marker also restores the gate after a thumbnail-server restart. For an uncertain
+submission with no known prompt ID, recovery waits for the ComfyUI queue to stay
+empty for the configured quiet period. The backend auto-generation path treats
+thumbnail generation as best-effort and persists `thumbnail.png` and the episode
+path only after it receives the completed image.
 
 ## Deployment
 
