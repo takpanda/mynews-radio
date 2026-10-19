@@ -124,7 +124,7 @@ def test_thumbnail_claim_blocks_busy_up_until_thumbnail_releases(monkeypatch):
     def blocked_derive(*_args):
         derive_started.set()
         assert release_derive.wait(timeout=2)
-        return "scene", "headline", "", ""
+        return "scene", {"headline": "headline", "visual_style": "object"}
 
     monkeypatch.setattr(thumbnail_server, "derive", blocked_derive)
     monkeypatch.setattr(thumbnail_server, "gen_scene", lambda prompt: prompt)
@@ -169,7 +169,9 @@ def test_busy_claim_keeps_thumbnail_job_queued_until_llm_releases(monkeypatch):
     monkeypatch.setattr(
         thumbnail_server,
         "derive",
-        lambda *_args: (derive_started.set() or ("scene", "headline", "", "")),
+        lambda *_args: (derive_started.set() or (
+            "scene", {"headline": "headline", "visual_style": "object"}
+        )),
     )
     monkeypatch.setattr(thumbnail_server, "gen_scene", lambda prompt: prompt)
     monkeypatch.setattr(thumbnail_server, "compose", lambda *_args: Mock(save=Mock()))
@@ -244,75 +246,51 @@ async def test_busy_up_waiters_do_not_starve_http_thread_pool(monkeypatch):
                 thumbnail_server._busy = 0
 
 
-class _Font:
-    def __init__(self, size):
-        self.size = size
-
-    def getlength(self, text):
-        return len(text) * 10
-
-    def getbbox(self, text):
-        return (0, 0, self.getlength(text), 20)
-
-
 class _DrawSpy:
     def __init__(self):
         self.texts = []
-        self.banners = []
 
     def text(self, position, text, **kwargs):
         self.texts.append((position, text, kwargs))
 
-    def rounded_rectangle(self, bounds, **kwargs):
-        self.banners.append((bounds, kwargs))
-
-    def textbbox(self, position, text, font, stroke_width=0):
-        x, y = position
-        return (
-            x - stroke_width,
-            y - stroke_width,
-            x + font.getlength(text) + stroke_width,
-            y + font.getbbox(text)[3] + stroke_width,
-        )
+    def __getattr__(self, _name):
+        return lambda *_args, **_kwargs: None
 
 
-def _compose(monkeypatch, headline, highlight):
+def test_compose_draws_headline_inside_left_editorial_column(monkeypatch):
     draw = _DrawSpy()
-    monkeypatch.setattr(thumbnail_server, "F", lambda _path, size, **_kwargs: _Font(size))
-    monkeypatch.setattr(thumbnail_server.ImageDraw, "Draw", lambda *_args: draw)
+    monkeypatch.setattr(thumbnail_server.ImageDraw, "Draw", lambda *_args, **_kwargs: draw)
+    spec = {"headline": "物価高の影響", "tag": "経済", "kicker": "ECONOMY", "tone": "bright-warm"}
 
-    image = thumbnail_server.compose(Image.new("RGB", (960, 540)), headline, highlight)
-    return image, draw
-
-
-def _headline_texts(draw):
-    texts = [text for _position, text, _kwargs in draw.texts if text != thumbnail_server.DEFAULT_BRAND]
-    return list(dict.fromkeys(texts))
-
-
-def test_compose_draws_highlight_at_start_when_top_line_is_empty(monkeypatch):
-    image, draw = _compose(monkeypatch, "円安ショック！食費が激増", "円安")
+    image = thumbnail_server.compose(Image.new("RGB", (960, 540)), spec)
 
     assert image.size == (960, 540)
-    assert _headline_texts(draw) == ["円安ショック！食費が激増"]
-    assert len(draw.banners) == 1
+    headline_calls = [(pos, text, kw["font"]) for pos, text, kw in draw.texts if text in "物価高の影響"]
+    assert len(headline_calls) == 2
+    for (x, _y), text, font in headline_calls:
+        assert x >= 48
+        assert x + font.getlength(text) <= 960 * 2 / 3 - 40
 
 
-def test_compose_keeps_two_lines_for_middle_and_trailing_highlights(monkeypatch):
-    for headline, highlight, expected_lines in (
-        ("物価高の影響", "高", ["物価", "高の影響"]),
-        ("物価への影響", "響", ["物価への影", "響"]),
-    ):
-        _image, draw = _compose(monkeypatch, headline, highlight)
+@pytest.mark.parametrize("tone", ["bright-warm", "bright-cool", "moody-dark"])
+@pytest.mark.parametrize("visual_style", ["person", "object", "symbol", "environment", "typography"])
+def test_compose_supports_art_direction_combinations(tone, visual_style):
+    scene = None if visual_style == "typography" else Image.new("RGB", (960, 540), (120, 120, 120))
+    result = thumbnail_server.compose(scene, {
+        "visual_style": visual_style, "tone": tone, "accent": [24, 130, 190],
+        "headline": "新しい視点", "tag": "特集", "kicker": "FEATURE", "brand": "わかる解説",
+    })
 
-        assert _headline_texts(draw) == expected_lines
-        assert len(draw.banners) == 1
+    assert result.size == (960, 540)
 
 
-def test_compose_centers_single_line_without_highlight(monkeypatch):
-    _image, draw = _compose(monkeypatch, "音声合成が使える", "")
+def test_compose_long_headline_stays_within_reserved_text_width(monkeypatch):
+    draw = _DrawSpy()
+    monkeypatch.setattr(thumbnail_server.ImageDraw, "Draw", lambda *_args, **_kwargs: draw)
+    headline = "これは非常に長い見出しで文字領域からはみ出さないことを確認します"
+    result = thumbnail_server.compose(Image.new("RGB", (960, 540)), {"headline": headline})
 
-    headline_calls = [call for call in draw.texts if call[1] != thumbnail_server.DEFAULT_BRAND]
-    assert _headline_texts(draw) == ["音声合成が使える"]
-    assert headline_calls[1][0][1] == (540 - 20) // 2
-    assert draw.banners == []
+    assert result.size == (960, 540)
+    for (x, _y), text, kwargs in draw.texts:
+        if text in headline:
+            assert x + kwargs["font"].getlength(text) <= 960 * 2 / 3 - 40
