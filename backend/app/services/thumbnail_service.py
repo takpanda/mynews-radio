@@ -25,14 +25,25 @@ def _load_script(episode_id: int, episodes_dir: str | None = None) -> dict:
         return json.load(f)
 
 
-def _get_image(title: str, topic: str, settings, brand: str | None = None) -> bytes:
+def _get_image(
+    title: str, topic: str, settings, brand: str | None = None, *, episode_id: int | None = None,
+    key_points: list[str] | None = None, source_articles: list[dict] | None = None,
+) -> bytes:
     base_url = settings.thumbnail_service_url.rstrip("/")
     timeout = settings.thumbnail_http_timeout
     started = time.monotonic()
     with httpx.Client(timeout=timeout) as client:
         response = client.post(
             f"{base_url}/thumbnail",
-            json={"title": title, "topic": topic, "brand": brand},
+            json={
+                "episode_id": episode_id,
+                "title": title,
+                "topic": topic,
+                "subtitle": topic,
+                "key_points": key_points or [],
+                "source_articles": source_articles or [],
+                "brand": brand,
+            },
             timeout=settings.thumbnail_enqueue_timeout,
         )
         response.raise_for_status()
@@ -89,6 +100,22 @@ def _resolve_brand(episode: dict) -> str | None:
     return None
 
 
+def _resolve_source_articles(episode_id: int) -> list[dict]:
+    """Return the episode's source article titles in their displayed order."""
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT a.id, a.title
+            FROM episode_items ei JOIN articles a ON a.id = ei.article_id
+            WHERE ei.episode_id = ?
+            ORDER BY ei.item_order ASC
+            LIMIT 8
+            """,
+            (episode_id,),
+        ).fetchall()
+    return [{"id": row["id"], "title": row["title"]} for row in rows]
+
+
 def generate_thumbnail(
     episode_id: int,
     *,
@@ -117,7 +144,22 @@ def generate_thumbnail(
     if not overwrite and (output.exists() or episode.get("thumbnail_path")):
         raise FileExistsError(f"episode {episode_id} already has a thumbnail; pass --overwrite")
 
-    image = _get_image(resolved_title, resolved_topic, get_settings(), _resolve_brand(episode))
+    raw_key_points = episode.get("key_points")
+    if isinstance(raw_key_points, str):
+        try:
+            raw_key_points = json.loads(raw_key_points)
+        except (TypeError, ValueError):
+            raw_key_points = []
+    key_points = raw_key_points if isinstance(raw_key_points, list) else []
+    image = _get_image(
+        resolved_title,
+        resolved_topic,
+        get_settings(),
+        _resolve_brand(episode),
+        episode_id=episode_id,
+        key_points=key_points,
+        source_articles=_resolve_source_articles(episode_id),
+    )
     temp_path = None
     try:
         with tempfile.NamedTemporaryFile(dir=output.parent, prefix=".thumbnail-", suffix=".tmp", delete=False) as f:
