@@ -157,7 +157,9 @@ def _validate_direction(data, fallback):
         return fallback
     style = data.get("visual_style")
     tone = data.get("tone")
-    if style not in VISUAL_STYLES or tone not in TONES:
+    if not isinstance(style, str) or style not in VISUAL_STYLES:
+        return fallback
+    if not isinstance(tone, str) or tone not in TONES:
         return fallback
     # Use the palette contract consistently; the LLM chooses tone, not arbitrary RGB.
     accent = list(ACCENTS[tone])
@@ -195,13 +197,16 @@ def _scene_prompt(direction, subject):
     )
 
 
-def derive(episode_id=None, title="", subtitle="", key_points=None, source_articles=None, brand=None, **legacy):
+def derive(*args, episode_id=None, title="", subtitle="", key_points=None, source_articles=None, brand=None, **legacy):
     """Return the validated art direction and a style-specific ComfyUI scene prompt."""
-    # Keep compatibility with older callers that supplied title/topic positionally.
-    if isinstance(episode_id, str):
-        old_topic = title if title and not subtitle else ""
-        title, episode_id = episode_id, None
-        subtitle = subtitle or old_topic
+    # The legacy signature was derive(title, topic); distinguish it by position,
+    # since episode IDs are valid strings in the current request schema.
+    if args:
+        if len(args) > 2 or episode_id is not None or title or subtitle:
+            raise TypeError("derive accepts at most legacy positional title and topic")
+        title = args[0]
+        if len(args) == 2:
+            subtitle = args[1]
     subtitle = subtitle or legacy.get("topic", "")
     title = (title or "").strip()
     subtitle = (subtitle or "").strip()

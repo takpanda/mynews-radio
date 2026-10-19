@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import json
 import threading
 import time
 from pathlib import Path
@@ -104,6 +105,99 @@ def test_derive_validates_schema_and_builds_style_specific_prompts(monkeypatch):
         assert direction["tag"]
         assert "right third" in direction["scene_prompt"]
         assert "left two thirds" in direction["scene_prompt"]
+
+
+def test_derive_accepts_valid_schema_for_all_five_styles(monkeypatch):
+    responses = [
+        ("person", "bright-warm", "Japanese"),
+        ("object", "bright-cool", "editorial still life"),
+        ("symbol", "bright-cool", "abstract luminous symbol"),
+        ("environment", "moody-dark", "Japanese city"),
+        ("typography", "bright-warm", "abstract editorial background"),
+    ]
+    for index, (style, tone, prompt_fragment) in enumerate(responses):
+        expected = {
+            "visual_style": style,
+            "tone": tone,
+            "accent": [1, 2, 3],
+            "headline": f"有効見出し{index}",
+            "tag": f"タグ{index}",
+            "kicker": "FEATURE",
+            "brand": "番組名",
+        }
+        monkeypatch.setattr(
+            thumbnail_server,
+            "_ollama_chat",
+            lambda _prompt, payload=expected: json.dumps(payload, ensure_ascii=False),
+        )
+
+        direction = thumbnail_server.derive(episode_id="episode-1", title="都市の未来")
+
+        assert direction["visual_style"] == style
+        assert direction["tone"] == tone
+        assert direction["accent"] == list(thumbnail_server.ACCENTS[tone])
+        assert direction["headline"] == expected["headline"]
+        assert direction["tag"] == expected["tag"]
+        assert direction["kicker"] == expected["kicker"]
+        assert direction["brand"] == expected["brand"]
+        assert prompt_fragment in direction["scene_prompt"]
+
+
+def test_derive_string_episode_id_preserves_title_and_605_direction(monkeypatch):
+    prompts = []
+    monkeypatch.setattr(
+        thumbnail_server,
+        "_ollama_chat",
+        lambda prompt: (prompts.append(prompt) or "{}"),
+    )
+
+    direction = thumbnail_server.derive(episode_id="605", title="都市の未来", subtitle="都市計画")
+
+    assert "episode_id: 605" in prompts[0]
+    assert "title: 都市の未来" in prompts[0]
+    assert "subtitle: 都市計画" in prompts[0]
+    assert direction["visual_style"] == "person"
+    assert direction["tone"] == "bright-warm"
+    assert direction["headline"] == "AIが進めば、信頼は、どこへ。"
+
+
+def test_derive_rejects_invalid_schema_values_and_bounds_headline(monkeypatch):
+    monkeypatch.setattr(
+        thumbnail_server,
+        "_ollama_chat",
+        lambda _prompt: json.dumps({
+            "visual_style": "object", "tone": "bright-warm", "headline": ["見出し"],
+            "tag": [], "kicker": None, "brand": 42,
+        }, ensure_ascii=False),
+    )
+    invalid_field_types = thumbnail_server.derive(title="製品ニュース")
+    assert invalid_field_types["visual_style"] == "object"
+    assert invalid_field_types["headline"] == "製品ニュース"
+    assert invalid_field_types["tag"] == "製品ニュース"
+    assert invalid_field_types["kicker"] == "SPECIAL REPORT"
+    assert invalid_field_types["brand"] == thumbnail_server.DEFAULT_BRAND
+
+    monkeypatch.setattr(
+        thumbnail_server,
+        "_ollama_chat",
+        lambda _prompt: json.dumps({
+            "visual_style": "object", "tone": "ultraviolet", "headline": "長い見出し" * 10,
+        }, ensure_ascii=False),
+    )
+    invalid_enum = thumbnail_server.derive(title="都市の未来")
+    assert invalid_enum["visual_style"] == "environment"
+
+    monkeypatch.setattr(
+        thumbnail_server,
+        "_ollama_chat",
+        lambda _prompt: json.dumps({
+            "visual_style": "object", "tone": "bright-cool", "headline": "長い見出し" * 10,
+            "tag": "スマートフォン", "kicker": "FEATURE", "brand": "番組名",
+        }, ensure_ascii=False),
+    )
+    bounded = thumbnail_server.derive(title="製品ニュース")
+    assert len(bounded["headline"]) == thumbnail_server.MAX_HEADLINE_CHARS
+    assert bounded["visual_style"] == "object"
 
 
 def test_derive_person_prompt_requires_japanese_and_keeps_face_clear(monkeypatch):
