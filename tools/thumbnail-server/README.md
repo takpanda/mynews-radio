@@ -1,7 +1,33 @@
 # Thumbnail server
 
 `thumbnail_server.py` in this repository is the deployment source for `/Users/tak/apps/qwen-thumb-server/thumbnail_server.py` on `192.168.1.102`.
-Keep service changes in this file so the deploy script preserves them. Thumbnail requests enqueue immediately; the worker derives the prompt and renders the image. The server listens on port `8501` by default and reads `PORT` when overridden.
+Keep service changes and the API workflow in this repository so the deploy script preserves them. Thumbnail requests enqueue immediately; the worker derives the art direction, generates a scene with ComfyUI, then composites and saves the image. The server listens on port `8501` by default and reads `PORT` when overridden.
+
+## ComfyUI scene generation
+
+The service submits the API-format workflow at
+`workflows/qwen_image_2_1_turbo_t2i.json` to `POST /prompt`, waits for
+`GET /history/{prompt_id}`, and downloads the `SaveImage` result through
+`GET /view`. The workflow uses the Qwen-Image 2.1 Turbo models installed on
+`192.168.1.102`; node `452` receives the generated scene prompt and the
+service sets its required `resolution` to `1024`. The output latent is
+1280×720 and the Turbo sampler uses the workflow's fixed eight-step sigmas.
+Each job gets a fresh noise seed.
+
+Configuration environment variables:
+
+- `COMFYUI_URL` (default `http://192.168.1.102:8188`)
+- `COMFYUI_WORKFLOW_PATH` (default: the workflow file above)
+- `COMFYUI_REQUEST_TIMEOUT` (default `30` seconds per HTTP request)
+- `COMFYUI_JOB_TIMEOUT` (default `900` seconds for submission, generation, and download)
+- `COMFYUI_POLL_INTERVAL` (default `2` seconds)
+
+The thumbnail worker holds the shared `/busy` gate from art-direction generation
+through ComfyUI rendering and composition. A ComfyUI connection error, API error,
+failed history status, or job timeout marks the thumbnail job `failed`; the gate
+is still released in the worker's `finally` block. The backend auto-generation
+path treats thumbnail generation as best-effort and persists `thumbnail.png` and
+the episode path only after it receives the completed image.
 
 ## Deployment
 
@@ -12,8 +38,8 @@ bash scripts/deploy_thumbnail_server.sh
 ```
 
 The script saves a timestamped copy of the existing remote source under
-`/Users/tak/apps/qwen-thumb-server/backups/`, syncs this repository's source
-and LaunchAgent definition, waits for `GET /busy` to report idle, then restarts
+`/Users/tak/apps/qwen-thumb-server/backups/`, syncs this repository's source,
+workflow, and LaunchAgent definition, waits for `GET /busy` to report idle, then restarts
 the service through `launchctl`. The LaunchAgent uses `RunAtLoad` and `KeepAlive`
 so launchd starts it at login and restarts it after an unexpected exit. Its
 stdout and stderr are written to `server.log` in the service directory.
@@ -21,7 +47,7 @@ stdout and stderr are written to `server.log` in the service directory.
 The default SSH target is `tak@192.168.1.102` and the default interpreter is
 `/Users/tak/.qwen-venv/bin/python`. Before taking a backup or stopping the
 service, the script checks that this interpreter can find `PIL`, `fastapi`,
-`httpx`, and `qwenimage2mlx`. If a dependency is missing, it exits before
+and `httpx`. ComfyUI runs separately on the configured host. If a dependency is missing, it exits before
 stopping the existing process. Override the target, paths, Python interpreter,
 and health-check timeouts with environment variables, or pass a host as the
 first argument:

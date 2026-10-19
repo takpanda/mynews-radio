@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Qwen thumbnail service — builds a per-episode "わかる解説" YouTube-style
-thumbnail from episode title/topic.
+"""Qwen thumbnail service — builds an editorial thumbnail per episode.
 
-Runs on .102 (Mac-mini-M4Pro) where qwenimage2mlx (MLX) + Ollama live.
-Flow per job: Ollama derive (scene prompt + headline + highlight keyword)
-              -> qwenimage2mlx scene gen (turbo) -> PIL composite (YT style).
-Jobs are queued and processed ONE at a time (single worker + lock).
+Flow per job: Ollama art direction -> ComfyUI scene generation -> PIL composite.
+Jobs are queued and processed ONE at a time (single worker + shared busy gate).
 
 Endpoints:
   POST /thumbnail {title, topic, brand?} -> {job_id}
   GET  /thumbnail/{job_id}               -> {status, ...} (poll)
   GET  /files/{job_id}.png               -> the rendered PNG (when done)
 """
-import os, re, json, time, uuid, queue, threading, logging, tempfile, sys, asyncio
+import os, re, json, time, uuid, queue, threading, logging, tempfile, asyncio, secrets
+from io import BytesIO
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from fastapi import FastAPI, HTTPException
@@ -28,6 +26,14 @@ log = logging.getLogger("qwen-thumb")
 # ---------- config ----------
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:e2b-mlx")
+COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://192.168.1.102:8188").rstrip("/")
+COMFYUI_WORKFLOW_PATH = Path(os.environ.get(
+    "COMFYUI_WORKFLOW_PATH",
+    str(Path(__file__).with_name("workflows") / "qwen_image_2_1_turbo_t2i.json"),
+))
+COMFYUI_REQUEST_TIMEOUT = float(os.environ.get("COMFYUI_REQUEST_TIMEOUT", "30"))
+COMFYUI_JOB_TIMEOUT = float(os.environ.get("COMFYUI_JOB_TIMEOUT", "900"))
+COMFYUI_POLL_INTERVAL = float(os.environ.get("COMFYUI_POLL_INTERVAL", "2"))
 OUT_DIR = Path(os.environ.get("OUT_DIR", "/tmp/qwen-thumb"))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_BRAND = os.environ.get("BRAND", "わかる解説")
@@ -49,24 +55,6 @@ app = FastAPI(title="qwen-thumbnail-service")
 jobs = {}            # job_id -> dict(status, path, error)
 job_q = queue.Queue()
 gen_lock = threading.Lock()
-_pipe = None
-_pipe_lock = threading.Lock()
-
-# ---- idle watchdog: Qwen-Image-2.1 holds ~50GB resident and _pipe=None does NOT
-#      return it to the OS (MLX/Metal buffers). Only a process restart frees it.
-#      So after the model has been loaded and then been idle for IDLE_RESTART_MINUTES,
-#      we execv a fresh copy of this script (replaces the process → model freed). ----
-IDLE_RESTART_MINUTES = float(os.environ.get("IDLE_RESTART_MINUTES", "15"))
-_last_activity = time.time()
-_last_ts_lock = threading.Lock()
-def touch_activity():
-    global _last_activity
-    with _last_ts_lock:
-        _last_activity = time.time()
-def idle_for_seconds():
-    with _last_ts_lock:
-        return time.time() - _last_activity
-
 # ---- shared "server busy" gate: ALL heavy .102 work (script LLM / audio TTS /
 #      image gen) must NOT run simultaneously. Counter-based gate.
 #      mynews-radio pipeline calls /busy/up before its .102 LLM/TTS phases and
@@ -287,28 +275,99 @@ def derive(*args, episode_id=None, title="", subtitle="", key_points=None, sourc
     direction["scene_prompt"] = _scene_prompt(direction, subject)
     return direction
 
-# ---------- 2) generate scene via qwenimage2mlx ----------
-def get_pipe():
-    global _pipe
-    with _pipe_lock:
-        if _pipe is None:
-            from qwenimage2mlx import QwenImage21
-            log.info("loading QwenImage21(turbo=True) ...")
-            _pipe = QwenImage21(turbo=True)
-            log.info("model ready")
-        return _pipe
+# ---------- 2) generate scene via ComfyUI ----------
+def _comfyui_workflow(scene_prompt):
+    try:
+        workflow = json.loads(COMFYUI_WORKFLOW_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"ComfyUI workflow could not be loaded: {COMFYUI_WORKFLOW_PATH}") from exc
+    if not isinstance(workflow, dict):
+        raise RuntimeError("ComfyUI workflow must be an API-format object")
+    try:
+        encoder = workflow["452"]
+        latent = workflow["456"]
+        noise = workflow["488"]
+        save = workflow["462"]
+        if (encoder.get("class_type") != "TextEncodeQwenImage21"
+                or latent.get("class_type") != "EmptyLatentImage"
+                or noise.get("class_type") != "RandomNoise"
+                or save.get("class_type") != "SaveImage"):
+            raise KeyError("unexpected node types")
+        encoder["inputs"]["prompt"] = scene_prompt
+        # The ComfyUI node rejects missing resolution even though the template
+        # JSON omits it. Keep the required text-encoder setting explicit.
+        encoder["inputs"]["resolution"] = 1024
+        noise["inputs"]["noise_seed"] = secrets.randbelow(2**64)
+        save["inputs"]["filename_prefix"] = "thumb_mag"
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise RuntimeError("ComfyUI workflow is missing the expected Qwen node inputs") from exc
+    return workflow
+
+
+def _comfyui_error_message(history_entry):
+    status = history_entry.get("status", {})
+    messages = status.get("messages", []) if isinstance(status, dict) else []
+    for message in messages:
+        if isinstance(message, (list, tuple)) and len(message) > 1:
+            detail = message[1]
+            if isinstance(detail, dict) and detail.get("exception_message"):
+                return str(detail["exception_message"])
+    return "ComfyUI reported a generation error"
+
 
 def gen_scene(scene_prompt):
-    pipe = get_pipe()
-    img = pipe.generate(scene_prompt, width=WIDTH, height=HEIGHT,
-                        steps=6, seed=42, save=False)
-    if isinstance(img, Image.Image):
-        return img.convert("RGB").resize((WIDTH, HEIGHT))
-    # generate() may return a path or None; fallback
-    p = img if isinstance(img, str) else None
-    if p and Path(p).exists():
-        return Image.open(p).convert("RGB").resize((WIDTH, HEIGHT))
-    raise RuntimeError("scene generation returned no image")
+    deadline = time.monotonic() + COMFYUI_JOB_TIMEOUT
+    try:
+        with httpx.Client(timeout=COMFYUI_REQUEST_TIMEOUT) as client:
+            response = client.post(
+                f"{COMFYUI_URL}/prompt",
+                json={"prompt": _comfyui_workflow(scene_prompt), "extra_data": {}},
+            )
+            response.raise_for_status()
+            data = response.json()
+            prompt_id = data.get("prompt_id") if isinstance(data, dict) else None
+            if not isinstance(prompt_id, str) or not prompt_id:
+                raise RuntimeError("ComfyUI /prompt returned no prompt_id")
+
+            while True:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("ComfyUI scene generation timed out")
+                history_response = client.get(f"{COMFYUI_URL}/history/{prompt_id}")
+                history_response.raise_for_status()
+                history = history_response.json()
+                entry = history.get(prompt_id) if isinstance(history, dict) else None
+                if entry:
+                    status = entry.get("status", {})
+                    status_str = status.get("status_str") if isinstance(status, dict) else None
+                    if status_str == "error":
+                        raise RuntimeError(_comfyui_error_message(entry))
+                    if status_str == "success":
+                        images = entry.get("outputs", {}).get("462", {}).get("images", [])
+                        if not images or not isinstance(images[0], dict):
+                            raise RuntimeError("ComfyUI completed without a SaveImage output")
+                        image_info = images[0]
+                        image_response = client.get(
+                            f"{COMFYUI_URL}/view",
+                            params={
+                                "filename": image_info.get("filename", ""),
+                                "subfolder": image_info.get("subfolder", ""),
+                                "type": image_info.get("type", "output"),
+                            },
+                        )
+                        image_response.raise_for_status()
+                        if not image_response.content:
+                            raise RuntimeError("ComfyUI returned an empty scene image")
+                        return Image.open(BytesIO(image_response.content)).convert("RGB").resize(
+                            (WIDTH, HEIGHT)
+                        )
+                time.sleep(min(COMFYUI_POLL_INTERVAL, max(0, deadline - time.monotonic())))
+    except httpx.TimeoutException as exc:
+        raise TimeoutError("ComfyUI request timed out") from exc
+    except httpx.HTTPStatusError as exc:
+        detail = exc.response.text[:500]
+        raise RuntimeError(f"ComfyUI returned HTTP {exc.response.status_code}: {detail}") from exc
+    except httpx.RequestError as exc:
+        raise RuntimeError(f"ComfyUI is unavailable: {exc}") from exc
 
 # ---------- 3) composite editorial thumbnail ----------
 def compose(scene, art_direction, brand=None):
@@ -429,7 +488,6 @@ def process_job(job_id):
         j["status"] = "failed"; j["error"] = str(e)
     finally:
         busy_down()
-        touch_activity()   # last activity = job completion (watchdog refresh)
         j["done_at"] = time.time()
 
 def worker_loop():
@@ -437,22 +495,6 @@ def worker_loop():
         process_job(job_q.get())
 
 threading.Thread(target=worker_loop, daemon=True).start()
-
-# idle watchdog: if the model is loaded (50GB) and the server has been idle
-# (busy=0, no recent job) for IDLE_RESTART_MINUTES, execv a fresh copy to free RAM.
-def idle_watchdog():
-    while True:
-        if _pipe is not None and busy_count() == 0 and idle_for_seconds() > IDLE_RESTART_MINUTES * 60:
-            log.info("model loaded but idle %.0f min -> restarting to free 50GB RAM",
-                     idle_for_seconds() / 60.0)
-            try:
-                os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
-            except Exception as e:
-                log.exception("execv failed: %s", e)
-                time.sleep(60)
-        time.sleep(20)
-
-threading.Thread(target=idle_watchdog, daemon=True).start()
 
 @app.post("/busy/up")
 async def busy_up_ep():
@@ -486,7 +528,6 @@ def enqueue(req: Req):
                     "scene_prompt": None, "headline": None, "highlight": None,
                     "path": None, "error": None, "brand": req.brand}
     job_q.put(job_id)
-    touch_activity()   # incoming job refreshes idle-watchdog timer
     log.info("enqueued %s title=%r", job_id, req.title)
     return {"job_id": job_id, "status": "queued"}
 

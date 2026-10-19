@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_FILE="${SCRIPT_DIR}/../tools/thumbnail-server/thumbnail_server.py"
+WORKFLOW_DIR="${SCRIPT_DIR}/../tools/thumbnail-server/workflows"
 PLIST_TEMPLATE="${SCRIPT_DIR}/../tools/thumbnail-server/com.mynews.qwen-thumb-server.plist"
 
 HOST="${THUMBNAIL_SERVER_HOST:-192.168.1.102}"
@@ -28,8 +29,8 @@ if [[ $# -eq 1 ]]; then
     HEALTH_URL="http://${HOST}:${PORT}/busy"
   fi
 fi
-if [[ ! -f "$SOURCE_FILE" || ! -f "$PLIST_TEMPLATE" ]]; then
-  echo "Thumbnail server source or LaunchAgent template not found." >&2
+if [[ ! -f "$SOURCE_FILE" || ! -f "$PLIST_TEMPLATE" || ! -f "${WORKFLOW_DIR}/qwen_image_2_1_turbo_t2i.json" ]]; then
+  echo "Thumbnail server source, workflow, or LaunchAgent template not found." >&2
   exit 1
 fi
 if ! [[ "$PORT" =~ ^[0-9]+$ ]]; then
@@ -68,13 +69,16 @@ pathlib.Path(output_path).write_text(data, encoding="utf-8")
 PY
 
 echo "Checking Python dependencies on ${SSH_TARGET}..."
-ssh "$SSH_TARGET" "${PYTHON_BIN_Q} -c 'import importlib.util, sys; modules = (\"PIL\", \"fastapi\", \"httpx\", \"qwenimage2mlx\"); missing = [name for name in modules if importlib.util.find_spec(name) is None]; print(\"Missing required Python modules: \" + \", \".join(missing), file=sys.stderr) if missing else print(\"Python dependencies: OK\"); sys.exit(bool(missing))'"
+ssh "$SSH_TARGET" "${PYTHON_BIN_Q} -c 'import importlib.util, sys; modules = (\"PIL\", \"fastapi\", \"httpx\"); missing = [name for name in modules if importlib.util.find_spec(name) is None]; print(\"Missing required Python modules: \" + \", \".join(missing), file=sys.stderr) if missing else print(\"Python dependencies: OK\"); sys.exit(bool(missing))'"
 
 echo "Backing up existing server source on ${SSH_TARGET}..."
 ssh "$SSH_TARGET" "mkdir -p ${REMOTE_DIR_Q}/backups && if [[ -f ${REMOTE_DIR_Q}/thumbnail_server.py ]]; then cp ${REMOTE_DIR_Q}/thumbnail_server.py ${REMOTE_DIR_Q}/backups/${BACKUP_NAME_Q}; fi"
 
 echo "Synchronizing thumbnail server source..."
 rsync -av "$SOURCE_FILE" "${SSH_TARGET}:${REMOTE_DIR}/thumbnail_server.py"
+echo "Synchronizing ComfyUI workflow..."
+ssh "$SSH_TARGET" "mkdir -p ${REMOTE_DIR_Q}/workflows"
+rsync -av "${WORKFLOW_DIR}/" "${SSH_TARGET}:${REMOTE_DIR}/workflows/"
 echo "Installing the launchd LaunchAgent definition..."
 rsync -av "$LOCAL_PLIST" "${SSH_TARGET}:${REMOTE_DIR}/com.mynews.qwen-thumb-server.plist"
 

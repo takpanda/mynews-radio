@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import io
 import json
 import threading
 import time
@@ -43,7 +44,6 @@ def test_thumbnail_http_enqueue_returns_queued_without_running_derive(monkeypatc
     derive = Mock(side_effect=AssertionError("derive must run in the worker"))
     monkeypatch.setattr(thumbnail_server, "derive", derive)
     monkeypatch.setattr(thumbnail_server.uuid, "uuid4", lambda: Mock(hex="job-123"))
-    monkeypatch.setattr(thumbnail_server, "touch_activity", lambda: None)
 
     started = time.monotonic()
     with TestClient(thumbnail_server.app) as client:
@@ -75,7 +75,6 @@ def test_worker_falls_back_after_ollama_failure_and_releases_busy(monkeypatch):
     )
     monkeypatch.setattr(thumbnail_server, "gen_scene", lambda prompt: prompt)
     monkeypatch.setattr(thumbnail_server, "compose", lambda *_args: Mock(save=Mock()))
-    monkeypatch.setattr(thumbnail_server, "touch_activity", lambda: None)
     with thumbnail_server._busy_lock:
         thumbnail_server._busy = 0
 
@@ -84,6 +83,103 @@ def test_worker_falls_back_after_ollama_failure_and_releases_busy(monkeypatch):
     assert job["status"] == "done"
     assert job["art_direction"]["visual_style"] == "person"
     assert job.transitions == ["queued", "derive", "scene", "compose", "done"]
+    assert thumbnail_server.busy_count() == 0
+    thumbnail_server.jobs.pop(job_id)
+
+
+def test_gen_scene_submits_qwen_workflow_and_downloads_saved_image(monkeypatch, tmp_path):
+    workflow_path = tmp_path / "workflow.json"
+    source = json.loads((SERVER_PATH.parent / "workflows" / "qwen_image_2_1_turbo_t2i.json").read_text())
+    workflow_path.write_text(json.dumps(source), encoding="utf-8")
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_WORKFLOW_PATH", workflow_path)
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (1280, 720), (12, 34, 56)).save(image_buffer, format="PNG")
+
+    class _Response:
+        def __init__(self, data=None, content=b""):
+            self.data = data
+            self.content = content
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.data
+
+    class _Client:
+        def __init__(self, **_kwargs):
+            self.calls = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, url, **kwargs):
+            self.calls.append(("post", url, kwargs))
+            return _Response({"prompt_id": "comfy-job"})
+
+        def get(self, url, **kwargs):
+            self.calls.append(("get", url, kwargs))
+            if url.endswith("/history/comfy-job"):
+                return _Response({"comfy-job": {
+                    "status": {"status_str": "success"},
+                    "outputs": {"462": {"images": [{
+                        "filename": "thumb_mag_00001.png", "subfolder": "", "type": "output",
+                    }]}},
+                }})
+            return _Response(content=image_buffer.getvalue())
+
+    clients = []
+
+    def make_client(**kwargs):
+        client = _Client(**kwargs)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(thumbnail_server.httpx, "Client", make_client)
+
+    result = thumbnail_server.gen_scene("editorial scene prompt")
+
+    calls = clients[0].calls
+    submitted = calls[0][2]["json"]["prompt"]
+    assert submitted["452"]["inputs"]["prompt"] == "editorial scene prompt"
+    assert submitted["452"]["inputs"]["resolution"] == 1024
+    assert submitted["456"]["inputs"]["width"] == 1280
+    assert submitted["456"]["inputs"]["height"] == 720
+    assert submitted["488"]["inputs"]["noise_seed"] != source["488"]["inputs"]["noise_seed"]
+    assert calls[1][1].endswith("/history/comfy-job")
+    assert calls[2][1].endswith("/view")
+    assert calls[2][2]["params"] == {
+        "filename": "thumb_mag_00001.png", "subfolder": "", "type": "output",
+    }
+    assert result.size == (960, 540)
+    assert result.getpixel((10, 10)) == (12, 34, 56)
+    assert json.loads(workflow_path.read_text())["452"]["inputs"]["prompt"] == ""
+
+
+def test_comfyui_failure_marks_job_failed_and_releases_busy(monkeypatch):
+    job_id = "comfy-failure"
+    job = _TrackingJob(status="queued", title="title", topic="topic", brand=None,
+                       path=None, error=None, scene_prompt=None, headline=None,
+                       highlight=None)
+    thumbnail_server.jobs[job_id] = job
+    monkeypatch.setattr(thumbnail_server, "derive", lambda **_kwargs: {
+        "scene_prompt": "scene", "headline": "headline", "tag": "tag",
+        "visual_style": "person", "tone": "bright-warm", "accent": [196, 166, 96],
+        "kicker": "FEATURE", "brand": thumbnail_server.DEFAULT_BRAND,
+    })
+    monkeypatch.setattr(
+        thumbnail_server, "gen_scene", Mock(side_effect=RuntimeError("ComfyUI is unavailable"))
+    )
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy = 0
+
+    thumbnail_server.process_job(job_id)
+
+    assert job["status"] == "failed"
+    assert job["error"] == "ComfyUI is unavailable"
     assert thumbnail_server.busy_count() == 0
     thumbnail_server.jobs.pop(job_id)
 
@@ -235,7 +331,6 @@ def test_worker_completes_after_successful_derive(monkeypatch, tmp_path):
     monkeypatch.setattr(thumbnail_server, "gen_scene", lambda prompt: prompt)
     monkeypatch.setattr(thumbnail_server, "compose", lambda *_args: Mock(save=Mock()))
     monkeypatch.setattr(thumbnail_server, "OUT_DIR", tmp_path)
-    monkeypatch.setattr(thumbnail_server, "touch_activity", lambda: None)
     with thumbnail_server._busy_lock:
         thumbnail_server._busy = 0
 
@@ -264,7 +359,6 @@ def test_typography_worker_skips_scene_generation(monkeypatch, tmp_path):
     compose = Mock(return_value=Image.new("RGB", (960, 540)))
     monkeypatch.setattr(thumbnail_server, "compose", compose)
     monkeypatch.setattr(thumbnail_server, "OUT_DIR", tmp_path)
-    monkeypatch.setattr(thumbnail_server, "touch_activity", lambda: None)
     with thumbnail_server._busy_lock:
         thumbnail_server._busy = 0
 
@@ -298,7 +392,6 @@ def test_thumbnail_claim_blocks_busy_up_until_thumbnail_releases(monkeypatch):
     monkeypatch.setattr(thumbnail_server, "derive", blocked_derive)
     monkeypatch.setattr(thumbnail_server, "gen_scene", lambda prompt: prompt)
     monkeypatch.setattr(thumbnail_server, "compose", lambda *_args: Mock(save=Mock()))
-    monkeypatch.setattr(thumbnail_server, "touch_activity", lambda: None)
     with thumbnail_server._busy_lock:
         thumbnail_server._busy = 0
 
@@ -346,7 +439,6 @@ def test_busy_claim_keeps_thumbnail_job_queued_until_llm_releases(monkeypatch):
     )
     monkeypatch.setattr(thumbnail_server, "gen_scene", lambda prompt: prompt)
     monkeypatch.setattr(thumbnail_server, "compose", lambda *_args: Mock(save=Mock()))
-    monkeypatch.setattr(thumbnail_server, "touch_activity", lambda: None)
     with thumbnail_server._busy_lock:
         thumbnail_server._busy = 0
 
