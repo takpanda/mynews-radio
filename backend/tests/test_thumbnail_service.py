@@ -61,9 +61,17 @@ def _episode(tmp_path, title="Episode title", topic="Episode topic"):
 def test_generate_thumbnail_saves_image_and_updates_path(tmp_path, monkeypatch):
     episode_id = _episode(tmp_path)
     with get_db_connection() as conn:
+        article_id = conn.execute(
+            "INSERT INTO articles (title, url) VALUES (?, ?)",
+            ("都市計画の最新動向", "https://example.test/city"),
+        ).lastrowid
         conn.execute(
-            "UPDATE episodes SET program_snapshot = ? WHERE id = ?",
-            (json.dumps({"name": "ニュースのとなり"}), episode_id),
+            "INSERT INTO episode_items (episode_id, article_id, item_order) VALUES (?, ?, ?)",
+            (episode_id, article_id, 0),
+        )
+        conn.execute(
+            "UPDATE episodes SET program_snapshot = ?, key_points = ? WHERE id = ?",
+            (json.dumps({"name": "ニュースのとなり"}), json.dumps(["都市の再開発", "交通網"]), episode_id),
         )
     client = _ThumbnailClient([
         _Response({"job_id": "job-123"}),
@@ -102,8 +110,12 @@ def test_generate_thumbnail_saves_image_and_updates_path(tmp_path, monkeypatch):
     assert open(path, "rb").read() == b"png-bytes"
     assert EpisodeService().get_episode(episode_id)["thumbnail_path"] == "thumbnail.png"
     assert client.calls[0][2]["json"] == {
+        "episode_id": episode_id,
         "title": "Episode title",
         "topic": "Episode topic",
+        "subtitle": "Episode topic",
+        "key_points": ["都市の再開発", "交通網"],
+        "source_articles": [{"id": article_id, "title": "都市計画の最新動向"}],
         "brand": "ニュースのとなり",
     }
     assert client_options == [{"timeout": 10.0}]

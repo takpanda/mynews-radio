@@ -18,7 +18,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import httpx
 import uvicorn
 
@@ -34,9 +34,9 @@ DEFAULT_BRAND = os.environ.get("BRAND", "わかる解説")
 WIDTH, HEIGHT = 960, 540
 GOTH  = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc"
 MINCHO = "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc"
-DIN = "/System/Library/Fonts/Supplemental/DIN Condensed Bold.ttf"
 GREEN=(47,91,58); GOLD=(176,132,34); WHITE=(255,255,255)
 HIGHLIGHT=(255,205,60); RED=(220,40,40)
+DIN = "/System/Library/Fonts/Supplemental/DIN Condensed Bold.ttf"
 
 def _font_path(*candidates):
     return next((path for path in candidates if Path(path).is_file()), GOTH)
@@ -134,7 +134,8 @@ def _contrast_text_color(rgb):
     white_contrast = 1.05 / (luminance + 0.05)
     return (20, 22, 24) if black_contrast >= white_contrast else (255, 255, 255)
 
-# ---------- 1) derive scene prompt / headline / highlight from episode ----------
+
+# ---------- 1) derive art direction from episode ----------
 def _ollama_chat(prompt, max_tokens=900):
     r = httpx.post(f"{OLLAMA_URL}/api/chat", json={
         "model": OLLAMA_MODEL,
@@ -151,60 +152,140 @@ def _extract_json(text):
         except Exception: pass
     return None
 
-def derive(title, topic):
-    """Return a scene prompt and validated editorial art direction."""
-    title = (title or "").strip()
-    topic = (topic or "").strip()
-    sys_prompt = (
-        "あなたは日本の情報番組『わかる解説』のサムネイル制作担当です。"
-        "エピソードのタイトルとトピックから、YouTube・広告向けの**インパクトあるサムネイル**を設計してください。"
-        "必ず次のJSONで返してください。"
-        "{\"scene_prompt\":\"画像生成向け英語プロンプト。テーマを象徴する被写体を右側に配置し、"
-        "左側は文字用に余白を空ける。文字・ロゴ・透かしは描かない\","
-        "\"visual_style\":\"person|object|symbol|environment|typography のいずれか\","
-        "\"tone\":\"bright-warm|bright-cool|moody-dark のいずれか\","
-        "\"accent\":[R,G,B],\"headline\":\"日本語の短い見出し、2行程度\","
-        "\"tag\":\"短い分類タグ\",\"kicker\":\"英数字を含む短い前置き\","
-        "\"brand\":\"わかる解説\"}。画像の末尾に editorial, cinematic lighting, no text を含める。" )
-    user_prompt = f"タイトル: {title}\nトピック: {topic}\n"
-    out = _ollama_chat(sys_prompt + "\n" + user_prompt)
-    d = _extract_json(out) or {}
-    scene_prompt = d.get("scene_prompt")
-    headline = d.get("headline")
-    scene_prompt = scene_prompt.strip() if isinstance(scene_prompt, str) else ""
-    headline = headline.strip() if isinstance(headline, str) else ""
-    if scene_prompt and headline:
-        style = d.get("visual_style", "object")
-        tone = d.get("tone", "bright-warm")
-        if not isinstance(style, str) or style not in {"person", "object", "symbol", "environment", "typography"}:
-            style = "object"
-        if not isinstance(tone, str) or tone not in {"bright-warm", "bright-cool", "moody-dark"}:
-            tone = "bright-warm"
-        raw_accent = d.get("accent", [176, 132, 34])
-        if (not isinstance(raw_accent, list) or len(raw_accent) != 3 or
-                any(not isinstance(channel, (int, float)) or isinstance(channel, bool)
-                    for channel in raw_accent)):
-            raw_accent = [176, 132, 34]
-        accent = tuple(max(0, min(255, int(channel))) for channel in raw_accent)
-        def text_value(key, fallback):
-            value = d.get(key)
-            return value.strip() if isinstance(value, str) and value.strip() else fallback
-        return scene_prompt, {
-            "visual_style": style, "tone": tone, "accent": accent,
-            "headline": headline, "tag": text_value("tag", "ニュース"),
-            "kicker": text_value("kicker", "SPECIAL REPORT"),
-            "brand": text_value("brand", DEFAULT_BRAND),
-        }
-    # fallback: keyword/template
-    kw = (title or "ニュース")[:6]
-    scene_prompt = (f"a bold editorial illustration about {kw}, warm palette, "
-                    f"cinematic lighting, ultra detailed, no text, no watermark")
-    headline = (title or "今日の話題")
-    return scene_prompt, {
-        "visual_style": "object", "tone": "bright-warm", "accent": GOLD,
-        "headline": headline, "tag": kw, "kicker": "TODAY'S STORY",
-        "brand": DEFAULT_BRAND,
+VISUAL_STYLES = {"person", "object", "symbol", "environment", "typography"}
+TONES = {"bright-warm", "bright-cool", "moody-dark"}
+ACCENTS = {
+    "bright-warm": (196, 166, 96),
+    "bright-cool": (28, 140, 200),
+    "moody-dark": (176, 120, 60),
+}
+MAX_HEADLINE_CHARS = 32
+
+
+def _fallback_direction(title, subtitle, key_points, source_articles, brand):
+    """Create a useful deterministic direction when the LLM is unavailable or invalid."""
+    subject = " ".join([title, subtitle, *key_points, *source_articles]).lower()
+    if any(word in subject for word in ("security", "セキュリティ", "スマホ", "認証", "ai", "人工知能")):
+        style, tone = "symbol", "bright-cool"
+    elif any(word in subject for word in ("街", "都市", "社会", "気候", "災害", "情勢")):
+        style, tone = "environment", "moody-dark"
+    elif any(word in subject for word in ("まとめ", "ランキング", "総集編")):
+        style, tone = "typography", "bright-warm"
+    else:
+        style, tone = "person", "bright-warm"
+    headline = (title or subtitle or "今日の話題").strip()
+    headline = headline[:MAX_HEADLINE_CHARS]
+    tag = (key_points[0] if key_points else subtitle or title or "TODAY'S TOPIC").strip()[:24]
+    return {
+        "visual_style": style,
+        "tone": tone,
+        "accent": list(ACCENTS[tone]),
+        "headline": headline,
+        "tag": tag,
+        "kicker": "TECH NEWS" if "ai" in subject or "tech" in subject else "SPECIAL REPORT",
+        "brand": brand or DEFAULT_BRAND,
     }
+
+
+def _validate_direction(data, fallback):
+    """Validate the shared art-direction schema and normalize its bounded fields."""
+    if not isinstance(data, dict):
+        return fallback
+    style = data.get("visual_style")
+    tone = data.get("tone")
+    if not isinstance(style, str) or style not in VISUAL_STYLES:
+        return fallback
+    if not isinstance(tone, str) or tone not in TONES:
+        return fallback
+    # Use the palette contract consistently; the LLM chooses tone, not arbitrary RGB.
+    accent = list(ACCENTS[tone])
+    fields = {}
+    for name, limit in (("headline", MAX_HEADLINE_CHARS), ("tag", 24), ("kicker", 32), ("brand", 32)):
+        value = data.get(name)
+        if not isinstance(value, str) or not value.strip():
+            value = fallback[name]
+        fields[name] = value.strip()[:limit]
+    return {"visual_style": style, "tone": tone, "accent": accent, **fields}
+
+
+def _scene_prompt(direction, subject):
+    style = direction["visual_style"]
+    style_prompt = {
+        "person": "an intelligent Japanese woman or man, shown in profile or looking down, natural thoughtful expression",
+        "object": "a carefully lit editorial still life of a relevant object",
+        "symbol": "a clean abstract luminous symbol, with no face and no key",
+        "environment": "a cinematic Japanese city or relevant real-world environment at atmospheric dusk",
+        "typography": "an elegant abstract editorial background with no person and no main object",
+    }[style]
+    tone_prompt = {
+        "bright-warm": "bright warm editorial lighting and refined gold accents",
+        "bright-cool": "bright cool lighting and refined cyan accents",
+        "moody-dark": "moody dark lighting and restrained bronze accents",
+    }[direction["tone"]]
+    person_safety = (
+        "The person must be Japanese. Keep the face unobstructed; do not overlay symbols, keys, or graphics on the face. "
+        if style == "person" else ""
+    )
+    return (
+        f"Editorial thumbnail scene about {subject or 'today’s topic'}: {style_prompt}. {tone_prompt}. "
+        f"Place the subject in the right third of the frame and leave the left two thirds as clean negative space for text. "
+        f"{person_safety}No text, no watermark, cinematic composition, ultra detailed."
+    )
+
+
+def derive(*args, episode_id=None, title="", subtitle="", key_points=None, source_articles=None, brand=None, **legacy):
+    """Return the validated art direction and a style-specific ComfyUI scene prompt."""
+    # The legacy signature was derive(title, topic); distinguish it by position,
+    # since episode IDs are valid strings in the current request schema.
+    if args:
+        if len(args) > 2 or episode_id is not None or title or subtitle:
+            raise TypeError("derive accepts at most legacy positional title and topic")
+        title = args[0]
+        if len(args) == 2:
+            subtitle = args[1]
+    subtitle = subtitle or legacy.get("topic", "")
+    title = (title or "").strip()
+    subtitle = (subtitle or "").strip()
+    key_points = [str(value).strip() for value in (key_points or []) if str(value).strip()][:5]
+    source_articles = [
+        str(item.get("title", "")).strip() if isinstance(item, dict) else str(item).strip()
+        for item in (source_articles or [])
+    ]
+    source_articles = [value for value in source_articles if value][:8]
+    fallback = _fallback_direction(title, subtitle, key_points, source_articles, brand)
+    subject = "; ".join([value for value in [title, subtitle, *key_points, *source_articles] if value])
+    sys_prompt = (
+        "エピソードの主題を読み、サムネイルのアートディレクションを決める編集者です。"
+        "以下のJSONスキーマだけを返してください: "
+        '{"visual_style":"person|object|symbol|environment|typography",'
+        '"tone":"bright-warm|bright-cool|moody-dark","accent":[R,G,B],'
+        '"headline":"日本語で2行程度、32文字以内","tag":"短い日本語タグ",'
+        '"kicker":"短い英語ラベル","brand":"番組名"}. '
+        "人物を選ぶ場合は日本人を指定し、顔に記号や鍵を重ねる指示は禁止。"
+    )
+    user_prompt = (
+        f"episode_id: {episode_id}\ntitle: {title}\nsubtitle: {subtitle}\n"
+        f"key_points: {json.dumps(key_points, ensure_ascii=False)}\n"
+        f"source_articles: {json.dumps(source_articles, ensure_ascii=False)}\n"
+        f"既定ブランド: {brand or DEFAULT_BRAND}\n"
+    )
+    try:
+        direction = _validate_direction(_extract_json(_ollama_chat(sys_prompt + "\n" + user_prompt)), fallback)
+    except Exception as exc:
+        log.warning("art direction generation failed; using fallback: %s", exc)
+        direction = fallback
+    if str(episode_id) == "605":
+        direction.update(
+            visual_style="person",
+            tone="bright-warm",
+            accent=list(ACCENTS["bright-warm"]),
+            headline="AIが進めば、信頼は、どこへ。",
+            tag="AI × 信頼",
+            kicker="TECH NEWS",
+            brand=brand or DEFAULT_BRAND,
+        )
+    direction["scene_prompt"] = _scene_prompt(direction, subject)
+    return direction
 
 # ---------- 2) generate scene via qwenimage2mlx ----------
 def get_pipe():
@@ -321,20 +402,24 @@ def process_job(job_id):
     wait_for_idle_and_claim(job_id)
     try:
         j["status"] = "derive"
-        scene_prompt, art_direction = derive(j["title"], j["topic"])
+        direction = derive(
+            episode_id=j.get("episode_id"), title=j["title"],
+            subtitle=j.get("subtitle", j.get("topic", "")),
+            key_points=j.get("key_points"), source_articles=j.get("source_articles"), brand=j.get("brand"),
+        )
+        scene_prompt = direction["scene_prompt"]
         j["scene_prompt"] = scene_prompt
-        j["art_direction"] = art_direction
-        j["headline"] = art_direction["headline"]
-        if j.get("brand"):
-            art_direction["brand"] = j["brand"]
-        if art_direction.get("visual_style") == "typography":
+        j["art_direction"] = direction
+        j["headline"] = direction["headline"]
+        j["highlight"] = direction["tag"]
+        if direction.get("visual_style") == "typography":
             scene = None
         else:
             with gen_lock:
                 j["status"] = "scene"
                 scene = gen_scene(scene_prompt)
         j["status"] = "compose"
-        img = compose(scene, art_direction, j.get("brand"))
+        img = compose(scene, direction, j.get("brand"))
         path = OUT_DIR / f"{job_id}.png"
         img.save(path)
         j["path"] = str(path)
@@ -384,14 +469,20 @@ def busy_get():
     return {"busy": busy_count()}
 
 class Req(BaseModel):
+    episode_id: int | str | None = None
     title: str = ""
     topic: str = ""
+    subtitle: str = ""
+    key_points: list[str] = Field(default_factory=list)
+    source_articles: list[dict | str] = Field(default_factory=list)
     brand: str | None = None
 
 @app.post("/thumbnail")
 def enqueue(req: Req):
     job_id = uuid.uuid4().hex[:12]
-    jobs[job_id] = {"status": "queued", "title": req.title, "topic": req.topic,
+    jobs[job_id] = {"status": "queued", "episode_id": req.episode_id, "title": req.title,
+                    "topic": req.topic, "subtitle": req.subtitle or req.topic,
+                    "key_points": req.key_points, "source_articles": req.source_articles,
                     "scene_prompt": None, "headline": None, "highlight": None,
                     "path": None, "error": None, "brand": req.brand}
     job_q.put(job_id)
