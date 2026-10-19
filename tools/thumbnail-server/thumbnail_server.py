@@ -110,6 +110,30 @@ def F(path, size, idx=0):
 def textbox(font, s):
     b = font.getbbox(s); return b[2]-b[0], b[3]-b[1]
 
+def fit_text(text, path, max_width, max_size, min_size):
+    """Shrink and, if needed, ellipsize one line so its measured width fits."""
+    text = str(text).strip()
+    for size in range(max_size, min_size - 1, -1):
+        font = F(path, size)
+        if font.getlength(text) <= max_width:
+            return text, font
+    font = F(path, min_size)
+    suffix = "…"
+    fitted = text
+    while fitted and font.getlength(fitted + suffix) > max_width:
+        fitted = fitted[:-1]
+    return (fitted + suffix if fitted else suffix), font
+
+def _contrast_text_color(rgb):
+    """Pick black or white based on the stronger WCAG contrast ratio."""
+    channels = [value / 255 for value in rgb]
+    linear = [value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+              for value in channels]
+    luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+    black_contrast = (luminance + 0.05) / 0.05
+    white_contrast = 1.05 / (luminance + 0.05)
+    return (20, 22, 24) if black_contrast >= white_contrast else (255, 255, 255)
+
 # ---------- 1) derive scene prompt / headline / highlight from episode ----------
 def _ollama_chat(prompt, max_tokens=900):
     r = httpx.post(f"{OLLAMA_URL}/api/chat", json={
@@ -145,27 +169,31 @@ def derive(title, topic):
     user_prompt = f"タイトル: {title}\nトピック: {topic}\n"
     out = _ollama_chat(sys_prompt + "\n" + user_prompt)
     d = _extract_json(out) or {}
-    scene_prompt = (d.get("scene_prompt") or "").strip()
-    headline = (d.get("headline") or "").strip()
+    scene_prompt = d.get("scene_prompt")
+    headline = d.get("headline")
+    scene_prompt = scene_prompt.strip() if isinstance(scene_prompt, str) else ""
+    headline = headline.strip() if isinstance(headline, str) else ""
     if scene_prompt and headline:
         style = d.get("visual_style", "object")
         tone = d.get("tone", "bright-warm")
-        if style not in {"person", "object", "symbol", "environment", "typography"}:
+        if not isinstance(style, str) or style not in {"person", "object", "symbol", "environment", "typography"}:
             style = "object"
-        if tone not in {"bright-warm", "bright-cool", "moody-dark"}:
+        if not isinstance(tone, str) or tone not in {"bright-warm", "bright-cool", "moody-dark"}:
             tone = "bright-warm"
         raw_accent = d.get("accent", [176, 132, 34])
-        if not isinstance(raw_accent, list) or len(raw_accent) != 3:
+        if (not isinstance(raw_accent, list) or len(raw_accent) != 3 or
+                any(not isinstance(channel, (int, float)) or isinstance(channel, bool)
+                    for channel in raw_accent)):
             raw_accent = [176, 132, 34]
-        try:
-            accent = tuple(max(0, min(255, int(channel))) for channel in raw_accent)
-        except (TypeError, ValueError):
-            accent = (176, 132, 34)
+        accent = tuple(max(0, min(255, int(channel))) for channel in raw_accent)
+        def text_value(key, fallback):
+            value = d.get(key)
+            return value.strip() if isinstance(value, str) and value.strip() else fallback
         return scene_prompt, {
             "visual_style": style, "tone": tone, "accent": accent,
-            "headline": headline, "tag": str(d.get("tag") or "ニュース"),
-            "kicker": str(d.get("kicker") or "SPECIAL REPORT"),
-            "brand": str(d.get("brand") or DEFAULT_BRAND),
+            "headline": headline, "tag": text_value("tag", "ニュース"),
+            "kicker": text_value("kicker", "SPECIAL REPORT"),
+            "brand": text_value("brand", DEFAULT_BRAND),
         }
     # fallback: keyword/template
     kw = (title or "ニュース")[:6]
@@ -240,9 +268,11 @@ def compose(scene, art_direction, brand=None):
 
     left, right = 48, panel_right - 40
     max_width = right - left
-    d.text((left, 28), spec["brand"], font=F(GOTH, 27), fill=text_color)
+    brand_text, brand_font = fit_text(spec["brand"], GOTH, max_width, 27, 15)
+    d.text((left, 28), brand_text, font=brand_font, fill=text_color)
     d.rectangle((left, 70, left + min(74, max_width), 74), fill=accent)
-    d.text((left, 91), str(spec["kicker"]).upper(), font=F(DIN, 29), fill=muted_color)
+    kicker_text, kicker_font = fit_text(str(spec["kicker"]).upper(), DIN, max_width, 29, 14)
+    d.text((left, 91), kicker_text, font=kicker_font, fill=muted_color)
 
     headline = str(spec["headline"]).strip() or "今日の話題"
     # Prefer a balanced two-line Japanese split; reduce type size until both lines fit.
@@ -273,15 +303,15 @@ def compose(scene, art_direction, brand=None):
         y += line_height
 
     tag_y = min(H - 83, y + 8)
-    tag = str(spec["tag"])
-    tag_font = F(GOTH, 23)
-    tag_width = min(max_width, int(tag_font.getlength(tag) + 28))
+    tag, tag_font = fit_text(spec["tag"], GOTH, max_width - 24, 23, 13)
+    tag_width = int(tag_font.getlength(tag) + 24)
     d.rounded_rectangle((left, tag_y, left + tag_width, tag_y + 38), radius=4,
                         fill=(*accent, 255))
-    d.text((left + 12, tag_y + 5), tag, font=tag_font, fill=(255, 255, 255))
+    d.text((left + 12, tag_y + 5), tag, font=tag_font, fill=_contrast_text_color(accent))
     footer_y = H - 39
     d.line((left, footer_y - 11, right, footer_y - 11), fill=(*accent, 200), width=2)
-    d.text((left, footer_y), "WAKARU  /  EXPLAINED", font=F(DIN, 18), fill=muted_color)
+    footer, footer_font = fit_text("WAKARU  /  EXPLAINED", DIN, max_width, 18, 14)
+    d.text((left, footer_y), footer, font=footer_font, fill=muted_color)
     return img
 
 # ---------- worker ----------

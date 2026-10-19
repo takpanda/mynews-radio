@@ -111,6 +111,58 @@ def test_worker_completes_after_successful_derive(monkeypatch, tmp_path):
     thumbnail_server.jobs.pop(job_id)
 
 
+def test_derive_normalizes_invalid_art_direction_values(monkeypatch):
+    monkeypatch.setattr(
+        thumbnail_server,
+        "_ollama_chat",
+        lambda _prompt: (
+            '{"scene_prompt":"scene", "headline":"見出し", "visual_style":[], '
+            '"tone":null, "accent":["bad", -4, 280], "tag":42, '
+            '"kicker":["invalid"], "brand":null}'
+        ),
+    )
+
+    scene_prompt, spec = thumbnail_server.derive("title", "topic")
+
+    assert scene_prompt == "scene"
+    assert spec == {
+        "visual_style": "object",
+        "tone": "bright-warm",
+        "accent": (176, 132, 34),
+        "headline": "見出し",
+        "tag": "ニュース",
+        "kicker": "SPECIAL REPORT",
+        "brand": thumbnail_server.DEFAULT_BRAND,
+    }
+
+
+def test_typography_worker_skips_scene_generation(monkeypatch, tmp_path):
+    job_id = "typography-job"
+    job = _TrackingJob(status="queued", title="title", topic="topic", brand=None,
+                       path=None, error=None, scene_prompt=None, headline=None)
+    thumbnail_server.jobs[job_id] = job
+    spec = {"headline": "見出し", "visual_style": "typography"}
+    monkeypatch.setattr(thumbnail_server, "derive", lambda *_args: ("unused", spec))
+    monkeypatch.setattr(
+        thumbnail_server,
+        "gen_scene",
+        Mock(side_effect=AssertionError("typography must not generate a scene")),
+    )
+    compose = Mock(return_value=Image.new("RGB", (960, 540)))
+    monkeypatch.setattr(thumbnail_server, "compose", compose)
+    monkeypatch.setattr(thumbnail_server, "OUT_DIR", tmp_path)
+    monkeypatch.setattr(thumbnail_server, "touch_activity", lambda: None)
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy = 0
+
+    thumbnail_server.process_job(job_id)
+
+    assert job["status"] == "done"
+    assert job.transitions == ["queued", "derive", "compose", "done"]
+    compose.assert_called_once_with(None, spec, None)
+    thumbnail_server.jobs.pop(job_id)
+
+
 def test_thumbnail_claim_blocks_busy_up_until_thumbnail_releases(monkeypatch):
     job_id = "thumbnail-first"
     job = _TrackingJob(status="queued", title="title", topic="topic", brand=None,
@@ -294,3 +346,35 @@ def test_compose_long_headline_stays_within_reserved_text_width(monkeypatch):
     for (x, _y), text, kwargs in draw.texts:
         if text in headline:
             assert x + kwargs["font"].getlength(text) <= 960 * 2 / 3 - 40
+
+
+def test_compose_fits_every_text_element_inside_editorial_column(monkeypatch):
+    draw = _DrawSpy()
+    monkeypatch.setattr(thumbnail_server.ImageDraw, "Draw", lambda *_args, **_kwargs: draw)
+    spec = {
+        "brand": "毎日のニュースと暮らしに役立つ経済解説ラジオ特別版",
+        "kicker": "ECONOMY AND INTERNATIONAL POLITICS SPECIAL REPORT",
+        "headline": "見出しを左側の領域に配置する",
+        "tag": "国際政治と経済情勢から私たちの暮らしへの影響を読み解く",
+    }
+
+    thumbnail_server.compose(Image.new("RGB", (960, 540)), spec)
+
+    right = 960 * 2 / 3 - 40
+    assert len(draw.texts) >= 6
+    for (x, _y), text, kwargs in draw.texts:
+        assert x + kwargs["font"].getlength(text) <= right
+
+
+@pytest.mark.parametrize(
+    ("accent", "expected_text_color"),
+    [((255, 255, 255), (20, 22, 24)), ((255, 245, 170), (20, 22, 24)), ((20, 40, 90), (255, 255, 255))],
+)
+def test_compose_uses_contrasting_tag_text_for_accent(monkeypatch, accent, expected_text_color):
+    draw = _DrawSpy()
+    monkeypatch.setattr(thumbnail_server.ImageDraw, "Draw", lambda *_args, **_kwargs: draw)
+
+    thumbnail_server.compose(None, {"accent": accent, "headline": "見出し", "tag": "特集"})
+
+    tag_call = next(call for call in draw.texts if call[1] == "特集")
+    assert tag_call[2]["fill"] == expected_text_color
