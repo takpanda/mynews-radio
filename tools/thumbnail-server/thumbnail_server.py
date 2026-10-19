@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Qwen thumbnail service — builds a per-episode "わかる解説" YouTube-style
-thumbnail from episode title/topic.
+"""Qwen thumbnail service — builds an editorial thumbnail per episode.
 
-Runs on .102 (Mac-mini-M4Pro) where qwenimage2mlx (MLX) + Ollama live.
-Flow per job: Ollama derive (scene prompt + headline + highlight keyword)
-              -> qwenimage2mlx scene gen (turbo) -> PIL composite (YT style).
-Jobs are queued and processed ONE at a time (single worker + lock).
+Flow per job: Ollama art direction -> ComfyUI scene generation -> PIL composite.
+Jobs are queued and processed ONE at a time (single worker + shared busy gate).
 
 Endpoints:
   POST /thumbnail {title, topic, brand?} -> {job_id}
   GET  /thumbnail/{job_id}               -> {status, ...} (poll)
   GET  /files/{job_id}.png               -> the rendered PNG (when done)
 """
-import os, re, json, time, uuid, queue, threading, logging, tempfile, sys, asyncio
+import os, re, json, time, uuid, queue, threading, logging, tempfile, asyncio, secrets
+from io import BytesIO
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from fastapi import FastAPI, HTTPException
@@ -28,8 +26,22 @@ log = logging.getLogger("qwen-thumb")
 # ---------- config ----------
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:e2b-mlx")
+COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://192.168.1.102:8188").rstrip("/")
+COMFYUI_WORKFLOW_PATH = Path(os.environ.get(
+    "COMFYUI_WORKFLOW_PATH",
+    str(Path(__file__).with_name("workflows") / "qwen_image_2_1_turbo_t2i.json"),
+))
+COMFYUI_REQUEST_TIMEOUT = float(os.environ.get("COMFYUI_REQUEST_TIMEOUT", "30"))
+COMFYUI_JOB_TIMEOUT = float(os.environ.get("COMFYUI_JOB_TIMEOUT", "900"))
+COMFYUI_POLL_INTERVAL = float(os.environ.get("COMFYUI_POLL_INTERVAL", "2"))
+COMFYUI_CLEANUP_TIMEOUT = float(os.environ.get("COMFYUI_CLEANUP_TIMEOUT", "30"))
+COMFYUI_RECOVERY_RETRY = float(os.environ.get("COMFYUI_RECOVERY_RETRY", "5"))
+COMFYUI_UNKNOWN_QUIET_PERIOD = float(os.environ.get("COMFYUI_UNKNOWN_QUIET_PERIOD", "30"))
 OUT_DIR = Path(os.environ.get("OUT_DIR", "/tmp/qwen-thumb"))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+COMFYUI_STATE_PATH = Path(os.environ.get(
+    "COMFYUI_STATE_PATH", str(OUT_DIR / "comfyui-active-job.json")
+))
 DEFAULT_BRAND = os.environ.get("BRAND", "わかる解説")
 WIDTH, HEIGHT = 960, 540
 GOTH  = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc"
@@ -49,30 +61,12 @@ app = FastAPI(title="qwen-thumbnail-service")
 jobs = {}            # job_id -> dict(status, path, error)
 job_q = queue.Queue()
 gen_lock = threading.Lock()
-_pipe = None
-_pipe_lock = threading.Lock()
-
-# ---- idle watchdog: Qwen-Image-2.1 holds ~50GB resident and _pipe=None does NOT
-#      return it to the OS (MLX/Metal buffers). Only a process restart frees it.
-#      So after the model has been loaded and then been idle for IDLE_RESTART_MINUTES,
-#      we execv a fresh copy of this script (replaces the process → model freed). ----
-IDLE_RESTART_MINUTES = float(os.environ.get("IDLE_RESTART_MINUTES", "15"))
-_last_activity = time.time()
-_last_ts_lock = threading.Lock()
-def touch_activity():
-    global _last_activity
-    with _last_ts_lock:
-        _last_activity = time.time()
-def idle_for_seconds():
-    with _last_ts_lock:
-        return time.time() - _last_activity
-
 # ---- shared "server busy" gate: ALL heavy .102 work (script LLM / audio TTS /
 #      image gen) must NOT run simultaneously. Counter-based gate.
 #      mynews-radio pipeline calls /busy/up before its .102 LLM/TTS phases and
 #      /busy/down after. This service increments its own while rendering and
 #      waits for the counter to hit 0 before starting a job. ----
-_busy = 0
+_busy = 1 if COMFYUI_STATE_PATH.exists() else 0
 _busy_lock = threading.Condition()
 def busy_down():
     global _busy
@@ -287,28 +281,291 @@ def derive(*args, episode_id=None, title="", subtitle="", key_points=None, sourc
     direction["scene_prompt"] = _scene_prompt(direction, subject)
     return direction
 
-# ---------- 2) generate scene via qwenimage2mlx ----------
-def get_pipe():
-    global _pipe
-    with _pipe_lock:
-        if _pipe is None:
-            from qwenimage2mlx import QwenImage21
-            log.info("loading QwenImage21(turbo=True) ...")
-            _pipe = QwenImage21(turbo=True)
-            log.info("model ready")
-        return _pipe
+# ---------- 2) generate scene via ComfyUI ----------
+def _comfyui_workflow(scene_prompt):
+    try:
+        workflow = json.loads(COMFYUI_WORKFLOW_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"ComfyUI workflow could not be loaded: {COMFYUI_WORKFLOW_PATH}") from exc
+    if not isinstance(workflow, dict):
+        raise RuntimeError("ComfyUI workflow must be an API-format object")
+    try:
+        encoder = workflow["452"]
+        latent = workflow["456"]
+        noise = workflow["488"]
+        save = workflow["462"]
+        if (encoder.get("class_type") != "TextEncodeQwenImage21"
+                or latent.get("class_type") != "EmptyLatentImage"
+                or noise.get("class_type") != "RandomNoise"
+                or save.get("class_type") != "SaveImage"):
+            raise KeyError("unexpected node types")
+        encoder["inputs"]["prompt"] = scene_prompt
+        # The ComfyUI node rejects missing resolution even though the template
+        # JSON omits it. Keep the required text-encoder setting explicit.
+        encoder["inputs"]["resolution"] = 1024
+        noise["inputs"]["noise_seed"] = secrets.randbelow(2**64)
+        save["inputs"]["filename_prefix"] = "thumb_mag"
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise RuntimeError("ComfyUI workflow is missing the expected Qwen node inputs") from exc
+    return workflow
+
+
+def _comfyui_error_message(history_entry):
+    status = history_entry.get("status", {})
+    messages = status.get("messages", []) if isinstance(status, dict) else []
+    for message in messages:
+        if isinstance(message, (list, tuple)) and len(message) > 1:
+            detail = message[1]
+            if isinstance(detail, dict) and detail.get("exception_message"):
+                return str(detail["exception_message"])
+    return "ComfyUI reported a generation error"
+
+
+class ComfyUICleanupPending(RuntimeError):
+    """The submitted job may still be active, so the shared busy gate stays held."""
+
+    def __init__(self, state, cause):
+        self.state = state
+        prompt_id = state.get("prompt_id")
+        label = prompt_id if prompt_id else "unknown submission"
+        super().__init__(f"ComfyUI job cleanup is pending ({label}): {cause}")
+
+
+def _write_comfyui_state(state):
+    COMFYUI_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=COMFYUI_STATE_PATH.parent,
+        prefix=".comfyui-state-", suffix=".tmp", delete=False,
+    ) as state_file:
+        json.dump(state, state_file)
+        temp_path = state_file.name
+    os.replace(temp_path, COMFYUI_STATE_PATH)
+
+
+def _clear_comfyui_state():
+    try:
+        COMFYUI_STATE_PATH.unlink(missing_ok=True)
+    except OSError:
+        log.exception("could not clear ComfyUI recovery state")
+
+
+def _queue_ids(queue_entries):
+    if not isinstance(queue_entries, list):
+        raise RuntimeError("ComfyUI /queue returned an invalid queue")
+    ids = set()
+    for item in queue_entries:
+        if isinstance(item, (list, tuple)) and len(item) > 1 and isinstance(item[1], str):
+            ids.add(item[1])
+        elif isinstance(item, dict) and isinstance(item.get("prompt_id"), str):
+            ids.add(item["prompt_id"])
+        else:
+            raise RuntimeError("ComfyUI /queue returned an unrecognized job entry")
+    return ids
+
+
+def _history_entry(client, prompt_id):
+    response = client.get(f"{COMFYUI_URL}/history/{prompt_id}")
+    response.raise_for_status()
+    history = response.json()
+    return history.get(prompt_id) if isinstance(history, dict) else None
+
+
+def _cancel_and_confirm_comfyui_job(prompt_id):
+    """Cancel this job and wait until history is terminal or it leaves the queue."""
+    deadline = time.monotonic() + COMFYUI_CLEANUP_TIMEOUT
+    interrupt_sent = False
+    delete_sent = False
+    with httpx.Client(timeout=COMFYUI_REQUEST_TIMEOUT) as client:
+        while True:
+            entry = _history_entry(client, prompt_id)
+            status = entry.get("status", {}) if isinstance(entry, dict) else {}
+            status_str = status.get("status_str") if isinstance(status, dict) else None
+            if status_str in {"success", "error"}:
+                return
+
+            response = client.get(f"{COMFYUI_URL}/queue")
+            response.raise_for_status()
+            queue_data = response.json()
+            if (not isinstance(queue_data, dict)
+                    or "queue_running" not in queue_data
+                    or "queue_pending" not in queue_data):
+                raise RuntimeError("ComfyUI /queue returned an invalid response")
+            running = _queue_ids(queue_data["queue_running"])
+            pending = _queue_ids(queue_data["queue_pending"])
+
+            if prompt_id in pending and not delete_sent:
+                response = client.post(
+                    f"{COMFYUI_URL}/queue", json={"delete": [prompt_id]}
+                )
+                response.raise_for_status()
+                delete_sent = True
+            elif prompt_id in running and not interrupt_sent:
+                response = client.post(
+                    f"{COMFYUI_URL}/interrupt", json={"prompt_id": prompt_id}
+                )
+                response.raise_for_status()
+                interrupt_sent = True
+            elif prompt_id not in running and prompt_id not in pending:
+                return
+
+            if time.monotonic() >= deadline:
+                raise TimeoutError("ComfyUI job cancellation was not confirmed")
+            time.sleep(min(0.25, max(0, deadline - time.monotonic())))
+
+
+def _wait_until_comfyui_idle():
+    """Resolve a submission with no known prompt ID by requiring a quiet queue."""
+    deadline = None
+    idle_since = None
+    with httpx.Client(timeout=COMFYUI_REQUEST_TIMEOUT) as client:
+        while True:
+            response = client.get(f"{COMFYUI_URL}/queue")
+            response.raise_for_status()
+            queue_data = response.json()
+            if (not isinstance(queue_data, dict)
+                    or "queue_running" not in queue_data
+                    or "queue_pending" not in queue_data):
+                raise RuntimeError("ComfyUI /queue returned an invalid response")
+            active = _queue_ids(queue_data["queue_running"])
+            pending = _queue_ids(queue_data["queue_pending"])
+            now = time.monotonic()
+            if active or pending:
+                idle_since = None
+                if deadline is None:
+                    deadline = now + COMFYUI_CLEANUP_TIMEOUT
+            else:
+                if idle_since is None:
+                    idle_since = now
+                    # Start the timeout with the quiet observation window. The
+                    # HTTP request that produced this first empty snapshot is
+                    # outside the interval being measured.
+                    deadline = now + max(
+                        COMFYUI_CLEANUP_TIMEOUT, COMFYUI_UNKNOWN_QUIET_PERIOD
+                    )
+                elif now - idle_since >= COMFYUI_UNKNOWN_QUIET_PERIOD:
+                    return
+            if deadline is not None and now >= deadline:
+                raise TimeoutError("ComfyUI idle state could not be confirmed")
+            sleep_for = 0.25 if deadline is None else min(0.25, max(0, deadline - now))
+            time.sleep(sleep_for)
+
+
+def _cleanup_comfyui_state(state):
+    if state.get("submitted") and state.get("prompt_id"):
+        _cancel_and_confirm_comfyui_job(state["prompt_id"])
+    else:
+        _wait_until_comfyui_idle()
+
+
+def _recover_comfyui_state(state):
+    while True:
+        try:
+            _cleanup_comfyui_state(state)
+            _clear_comfyui_state()
+            log.info("ComfyUI job is confirmed inactive; releasing shared busy gate")
+            busy_down()
+            return
+        except Exception as exc:
+            log.warning("ComfyUI recovery is waiting for service availability: %s", exc)
+            time.sleep(COMFYUI_RECOVERY_RETRY)
+
+
+def _start_comfyui_recovery(state):
+    threading.Thread(
+        target=_recover_comfyui_state,
+        args=(state,),
+        name="comfyui-job-recovery",
+        daemon=True,
+    ).start()
+
 
 def gen_scene(scene_prompt):
-    pipe = get_pipe()
-    img = pipe.generate(scene_prompt, width=WIDTH, height=HEIGHT,
-                        steps=6, seed=42, save=False)
-    if isinstance(img, Image.Image):
-        return img.convert("RGB").resize((WIDTH, HEIGHT))
-    # generate() may return a path or None; fallback
-    p = img if isinstance(img, str) else None
-    if p and Path(p).exists():
-        return Image.open(p).convert("RGB").resize((WIDTH, HEIGHT))
-    raise RuntimeError("scene generation returned no image")
+    deadline = time.monotonic() + COMFYUI_JOB_TIMEOUT
+    workflow = _comfyui_workflow(scene_prompt)
+    prompt_id = str(uuid.uuid4())
+    state = {"prompt_id": prompt_id, "submitted": False}
+    _write_comfyui_state(state)
+    job_finished = False
+    try:
+        with httpx.Client(timeout=COMFYUI_REQUEST_TIMEOUT) as client:
+            response = client.post(
+                f"{COMFYUI_URL}/prompt",
+                json={
+                    "prompt": workflow,
+                    "extra_data": {},
+                    "prompt_id": prompt_id,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            returned_prompt_id = data.get("prompt_id") if isinstance(data, dict) else None
+            if not isinstance(returned_prompt_id, str) or not returned_prompt_id:
+                raise RuntimeError("ComfyUI /prompt returned no prompt_id")
+            prompt_id = returned_prompt_id
+            state = {"prompt_id": prompt_id, "submitted": True}
+            _write_comfyui_state(state)
+
+            while True:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("ComfyUI scene generation timed out")
+                entry = _history_entry(client, prompt_id)
+                if entry:
+                    status = entry.get("status", {})
+                    status_str = status.get("status_str") if isinstance(status, dict) else None
+                    if status_str == "error":
+                        job_finished = True
+                        _clear_comfyui_state()
+                        raise RuntimeError(_comfyui_error_message(entry))
+                    if status_str == "success":
+                        job_finished = True
+                        _clear_comfyui_state()
+                        images = entry.get("outputs", {}).get("462", {}).get("images", [])
+                        if not images or not isinstance(images[0], dict):
+                            raise RuntimeError("ComfyUI completed without a SaveImage output")
+                        image_info = images[0]
+                        image_response = client.get(
+                            f"{COMFYUI_URL}/view",
+                            params={
+                                "filename": image_info.get("filename", ""),
+                                "subfolder": image_info.get("subfolder", ""),
+                                "type": image_info.get("type", "output"),
+                            },
+                        )
+                        image_response.raise_for_status()
+                        if not image_response.content:
+                            raise RuntimeError("ComfyUI returned an empty scene image")
+                        return Image.open(BytesIO(image_response.content)).convert("RGB").resize(
+                            (WIDTH, HEIGHT)
+                        )
+                time.sleep(min(COMFYUI_POLL_INTERVAL, max(0, deadline - time.monotonic())))
+    except Exception as exc:
+        definitely_rejected = (
+            not state.get("submitted")
+            and isinstance(exc, httpx.HTTPStatusError)
+            and 400 <= exc.response.status_code < 500
+        )
+        if definitely_rejected:
+            _clear_comfyui_state()
+        elif not job_finished:
+            try:
+                _cleanup_comfyui_state(state)
+                _clear_comfyui_state()
+            except Exception as cleanup_exc:
+                try:
+                    _write_comfyui_state(state)
+                except OSError:
+                    log.exception("could not persist pending ComfyUI recovery state")
+                raise ComfyUICleanupPending(state, cleanup_exc) from exc
+        if isinstance(exc, httpx.TimeoutException):
+            raise TimeoutError("ComfyUI request timed out") from exc
+        if isinstance(exc, httpx.HTTPStatusError):
+            detail = exc.response.text[:500]
+            raise RuntimeError(
+                f"ComfyUI returned HTTP {exc.response.status_code}: {detail}"
+            ) from exc
+        if isinstance(exc, httpx.RequestError):
+            raise RuntimeError(f"ComfyUI is unavailable: {exc}") from exc
+        raise
 
 # ---------- 3) composite editorial thumbnail ----------
 def compose(scene, art_direction, brand=None):
@@ -398,6 +655,7 @@ def compose(scene, art_direction, brand=None):
 # ---------- worker ----------
 def process_job(job_id):
     j = jobs[job_id]
+    release_busy = True
     # Keep Ollama derive inside the same busy window as image generation.
     wait_for_idle_and_claim(job_id)
     try:
@@ -427,32 +685,34 @@ def process_job(job_id):
     except Exception as e:
         log.exception("job %s failed", job_id)
         j["status"] = "failed"; j["error"] = str(e)
+        if isinstance(e, ComfyUICleanupPending):
+            release_busy = False
+            _start_comfyui_recovery(e.state)
     finally:
-        busy_down()
-        touch_activity()   # last activity = job completion (watchdog refresh)
+        if release_busy:
+            busy_down()
         j["done_at"] = time.time()
 
 def worker_loop():
     while True:
         process_job(job_q.get())
 
+
+def _resume_comfyui_recovery():
+    if not COMFYUI_STATE_PATH.exists():
+        return
+    try:
+        state = json.loads(COMFYUI_STATE_PATH.read_text(encoding="utf-8"))
+        if not isinstance(state, dict):
+            raise ValueError("state file is not an object")
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        log.error("ComfyUI recovery state is unreadable; waiting for an idle queue: %s", exc)
+        state = {"prompt_id": None, "submitted": False}
+    _start_comfyui_recovery(state)
+
+
+_resume_comfyui_recovery()
 threading.Thread(target=worker_loop, daemon=True).start()
-
-# idle watchdog: if the model is loaded (50GB) and the server has been idle
-# (busy=0, no recent job) for IDLE_RESTART_MINUTES, execv a fresh copy to free RAM.
-def idle_watchdog():
-    while True:
-        if _pipe is not None and busy_count() == 0 and idle_for_seconds() > IDLE_RESTART_MINUTES * 60:
-            log.info("model loaded but idle %.0f min -> restarting to free 50GB RAM",
-                     idle_for_seconds() / 60.0)
-            try:
-                os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
-            except Exception as e:
-                log.exception("execv failed: %s", e)
-                time.sleep(60)
-        time.sleep(20)
-
-threading.Thread(target=idle_watchdog, daemon=True).start()
 
 @app.post("/busy/up")
 async def busy_up_ep():
@@ -486,7 +746,6 @@ def enqueue(req: Req):
                     "scene_prompt": None, "headline": None, "highlight": None,
                     "path": None, "error": None, "brand": req.brand}
     job_q.put(job_id)
-    touch_activity()   # incoming job refreshes idle-watchdog timer
     log.info("enqueued %s title=%r", job_id, req.title)
     return {"job_id": job_id, "status": "queued"}
 

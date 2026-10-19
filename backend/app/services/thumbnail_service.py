@@ -62,7 +62,10 @@ def _get_image(
             if status in {"completed", "complete", "succeeded", "success", "done"}:
                 break
             if status in {"failed", "error"}:
-                raise RuntimeError("thumbnail job failed")
+                detail = status_data.get("error") if isinstance(status_data, dict) else None
+                if not isinstance(detail, str) or not detail.strip():
+                    detail = "no error details"
+                raise RuntimeError(f"thumbnail job failed: {detail[:500]}")
             if not isinstance(status, str):
                 raise ValueError("thumbnail service returned an invalid job status")
             remaining = max(

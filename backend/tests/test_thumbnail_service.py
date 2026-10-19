@@ -189,10 +189,13 @@ def test_service_stop_does_not_change_thumbnail_path(tmp_path, monkeypatch):
 
 def test_failed_job_does_not_persist_thumbnail(tmp_path, monkeypatch):
     episode_id = _episode(tmp_path)
-    client = _ThumbnailClient([_Response({"job_id": "job-123"}), _Response({"status": "failed"})])
+    client = _ThumbnailClient([
+        _Response({"job_id": "job-123"}),
+        _Response({"status": "failed", "error": "ComfyUI is unavailable"}),
+    ])
     monkeypatch.setattr(thumbnail_service.httpx, "Client", lambda **_kwargs: client)
 
-    with pytest.raises(RuntimeError, match="job failed"):
+    with pytest.raises(RuntimeError, match="job failed: ComfyUI is unavailable"):
         thumbnail_service.generate_thumbnail(episode_id, episodes_dir=str(tmp_path))
     assert EpisodeService().get_episode(episode_id)["thumbnail_path"] is None
 
