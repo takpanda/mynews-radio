@@ -10,7 +10,7 @@ Endpoints:
   GET  /thumbnail/{job_id}               -> {status, ...} (poll)
   GET  /files/{job_id}.png               -> the rendered PNG (when done)
 """
-import os, re, json, time, uuid, queue, threading, logging, tempfile, asyncio, secrets
+import os, re, json, time, uuid, queue, threading, logging, tempfile, asyncio, secrets, unicodedata
 from io import BytesIO
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
@@ -158,6 +158,85 @@ ACCENTS = {
 MAX_HEADLINE_CHARS = 32
 
 
+def _subject_gender(subject):
+    """Infer a single explicit subject gender; ambiguous or mixed input stays unknown."""
+    text = unicodedata.normalize("NFKC", str(subject or "")).lower().replace("’", "'")
+    female = any(word in text for word in ("女性", "女優", "女性歌手", "女性アーティスト"))
+    male = any(word in text for word in ("男性", "男優", "男性歌手", "男性アーティスト"))
+    female |= re.search(r"\b(?:woman|women|female)\b", text) is not None
+    male |= re.search(r"\b(?:man|men|male)\b", text) is not None
+    # B'z and its two named members identify the male music subject of episode 587.
+    if "b'z" in text and ("松本孝弘" in text or "稲葉浩志" in text):
+        male = True
+    if female == male:
+        return None
+    return "woman" if female else "man"
+
+
+def _copy_for_subject(subject, banned_titles=()):
+    text = unicodedata.normalize("NFKC", str(subject or "")).lower().replace("’", "'")
+    if "b'z" in text and "松本孝弘" in text and "稲葉浩志" in text:
+        options = [("B'zをつなぐ音の絆", "音楽")]
+    elif any(word in text for word in ("音楽", "ミュージシャン", "アーティスト", "歌手", "バンド")):
+        options = [
+            ("音楽の話題を読み解く", "MUSIC"),
+            ("音楽の今を見つめる", "MUSIC"),
+            ("音楽の動きを探る", "FOCUS"),
+        ]
+    elif "国際" in text and "情勢" in text:
+        options = [("国際情勢を読み解く", "WORLD"), ("世界の動きを追う", "WORLD")]
+    elif any(word in text for word in ("security", "セキュリティ", "スマホ", "認証", "ai", "人工知能")):
+        options = [("技術と暮らしの今", "TECH"), ("技術の動きを読む", "TECH")]
+    elif any(word in text for word in ("街", "都市", "社会", "気候", "災害", "情勢")):
+        options = [("社会の動きを読み解く", "FOCUS"), ("今日の社会を考える", "TOPIC")]
+    elif any(word in text for word in ("ランキング", "総集編", "まとめ")):
+        options = [("今週の注目トピック", "WEEKLY"), ("話題のポイントを整理", "FOCUS")]
+    else:
+        options = [
+            ("今知りたい話題の核心", "TODAY"),
+            ("話題のポイントを解説", "FOCUS"),
+            ("今日の注目テーマ", "TOPIC"),
+        ]
+    options.extend([
+        ("内容を読み解く", "FOCUS"),
+        ("背景と要点を整理", "REPORT"),
+        ("注目点をチェック", "UPDATE"),
+        ("今のテーマを追う", "TOPIC"),
+    ])
+    titles = [value for value in banned_titles if value]
+    return next(
+        ((headline, tag) for headline, tag in options
+         if not any(_copy_overlaps(headline, title) for title in titles)),
+        ("話題を読み解く", "FOCUS"),
+    )
+
+
+def _normalize_copy(value):
+    normalized = unicodedata.normalize("NFKC", str(value or "")).replace("’", "'")
+    return re.sub(r"[^\w]", "", normalized).casefold()
+
+
+def _copy_overlaps(left, right):
+    left, right = _normalize_copy(left), _normalize_copy(right)
+    return bool(left and right and (left in right or right in left))
+
+
+def _distinct_tag(headline, *candidates):
+    for candidate in (*candidates, "FOCUS", "TOPIC", "UPDATE", "REPORT"):
+        tag = str(candidate or "").strip()[:24]
+        if tag and not _copy_overlaps(tag, headline):
+            return tag
+    for index in range(100):
+        tag = f"FOCUS{index}"
+        if not _copy_overlaps(tag, headline):
+            return tag
+    for codepoint in range(0x4E00, 0xA000):
+        tag = chr(codepoint)
+        if not _copy_overlaps(tag, headline):
+            return tag
+    return "注目"
+
+
 def _fallback_direction(title, subtitle, key_points, source_articles, brand):
     """Create a useful deterministic direction when the LLM is unavailable or invalid."""
     subject = " ".join([title, subtitle, *key_points, *source_articles]).lower()
@@ -167,11 +246,14 @@ def _fallback_direction(title, subtitle, key_points, source_articles, brand):
         style, tone = "environment", "moody-dark"
     elif any(word in subject for word in ("まとめ", "ランキング", "総集編")):
         style, tone = "typography", "bright-warm"
-    else:
+    elif _subject_gender(subject):
         style, tone = "person", "bright-warm"
-    headline = (title or subtitle or "今日の話題").strip()
-    headline = headline[:MAX_HEADLINE_CHARS]
-    tag = (key_points[0] if key_points else subtitle or title or "TODAY'S TOPIC").strip()[:24]
+    elif any(word in subject for word in ("音楽", "ミュージシャン", "アーティスト", "歌手", "バンド")):
+        style, tone = "object", "bright-warm"
+    else:
+        style, tone = "symbol", "bright-warm"
+    headline, tag = _copy_for_subject(subject, [title, *source_articles])
+    tag = _distinct_tag(headline, tag)
     return {
         "visual_style": style,
         "tone": tone,
@@ -183,7 +265,7 @@ def _fallback_direction(title, subtitle, key_points, source_articles, brand):
     }
 
 
-def _validate_direction(data, fallback):
+def _validate_direction(data, fallback, title="", source_titles=()):
     """Validate the shared art-direction schema and normalize its bounded fields."""
     if not isinstance(data, dict):
         return fallback
@@ -201,13 +283,21 @@ def _validate_direction(data, fallback):
         if not isinstance(value, str) or not value.strip():
             value = fallback[name]
         fields[name] = value.strip()[:limit]
+    llm_headline = fields["headline"]
+    tag_repeats_llm_headline = _copy_overlaps(fields["tag"], llm_headline)
+    titles = [value for value in (title, *source_titles) if value]
+    if any(_copy_overlaps(llm_headline, source_title) for source_title in titles):
+        fields["headline"] = fallback["headline"]
+    if tag_repeats_llm_headline or _copy_overlaps(fields["tag"], fields["headline"]):
+        fields["tag"] = fallback["tag"]
+    fields["tag"] = _distinct_tag(fields["headline"], fields["tag"], fallback["tag"])
     return {"visual_style": style, "tone": tone, "accent": accent, **fields}
 
 
-def _scene_prompt(direction, subject):
+def _scene_prompt(direction, subject, allow_unspecified_person=False):
     style = direction["visual_style"]
     style_prompt = {
-        "person": "an intelligent Japanese woman or man, shown in profile or looking down, natural thoughtful expression",
+        "person": "a Japanese adult, shown in profile or looking down, natural thoughtful expression",
         "object": "a carefully lit editorial still life of a relevant object",
         "symbol": "a clean abstract luminous symbol, with no face and no key",
         "environment": "a cinematic Japanese city or relevant real-world environment at atmospheric dusk",
@@ -218,10 +308,18 @@ def _scene_prompt(direction, subject):
         "bright-cool": "bright cool lighting and refined cyan accents",
         "moody-dark": "moody dark lighting and restrained bronze accents",
     }[direction["tone"]]
-    person_safety = (
-        "The person must be Japanese. Keep the face unobstructed; do not overlay symbols, keys, or graphics on the face. "
-        if style == "person" else ""
-    )
+    gender = _subject_gender(subject)
+    person_safety = ""
+    if style == "person":
+        person_safety = (
+            f"Depict a Japanese adult {gender}, matching the subject's stated gender. "
+            "Create a generic editorial person and do not imitate or reproduce any real person's face. "
+            "Keep the face unobstructed; do not overlay symbols, keys, or graphics on the face. "
+            if gender else
+            "Create only a generic Japanese adult; do not imitate or reproduce a real person's face. "
+            if allow_unspecified_person else
+            "Do not depict a person because the subject's gender is not established. "
+        )
     return (
         f"Editorial thumbnail scene about {subject or 'today’s topic'}: {style_prompt}. {tone_prompt}. "
         f"Place the subject in the right third of the frame and leave the left two thirds as clean negative space for text. "
@@ -257,7 +355,10 @@ def derive(*args, episode_id=None, title="", subtitle="", key_points=None, sourc
         '"tone":"bright-warm|bright-cool|moody-dark","accent":[R,G,B],'
         '"headline":"日本語で2行程度、32文字以内","tag":"短い日本語タグ",'
         '"kicker":"短い英語ラベル","brand":"番組名"}. '
-        "人物を選ぶ場合は日本人を指定し、顔に記号や鍵を重ねる指示は禁止。"
+        "記事タイトルを見出しに転記・短縮せず、話題を要約した独自の短文にしてください。"
+        "タグは見出しと異なる短い語句にし、見出し中の語句を繰り返さないでください。"
+        "人物を選べるのは主題の性別・属性が入力から明確な場合だけです。性別が判断できなければ object / symbol / environment を選んでください。"
+        "人物を描く場合は入力に明記された性別・属性に合わせ、実在人物の顔や肖像を再現しないでください。顔に記号や鍵を重ねる指示は禁止。"
     )
     user_prompt = (
         f"episode_id: {episode_id}\ntitle: {title}\nsubtitle: {subtitle}\n"
@@ -266,7 +367,14 @@ def derive(*args, episode_id=None, title="", subtitle="", key_points=None, sourc
         f"既定ブランド: {brand or DEFAULT_BRAND}\n"
     )
     try:
-        direction = _validate_direction(_extract_json(_ollama_chat(sys_prompt + "\n" + user_prompt)), fallback)
+        direction = _validate_direction(
+            _extract_json(_ollama_chat(sys_prompt + "\n" + user_prompt)),
+            fallback,
+            title,
+            source_articles,
+        )
+        if direction["visual_style"] == "person" and not _subject_gender(subject):
+            direction["visual_style"] = "object"
     except Exception as exc:
         log.warning("art direction generation failed; using fallback: %s", exc)
         direction = fallback
@@ -281,7 +389,9 @@ def derive(*args, episode_id=None, title="", subtitle="", key_points=None, sourc
             brand=brand or DEFAULT_BRAND,
             preserve_scene_right=True,
         )
-    direction["scene_prompt"] = _scene_prompt(direction, subject)
+    direction["scene_prompt"] = _scene_prompt(
+        direction, subject, allow_unspecified_person=str(episode_id) == "605"
+    )
     if str(episode_id) == "605":
         direction["scene_prompt"] += (
             " Keep the entire head and face fully inside the rightmost third, with clear space from the vertical two-thirds boundary; "
