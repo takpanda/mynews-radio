@@ -44,6 +44,8 @@ COMFYUI_STATE_PATH = Path(os.environ.get(
 ))
 DEFAULT_BRAND = os.environ.get("BRAND", "わかる解説")
 WIDTH, HEIGHT = 960, 540
+EPISODE_605_PANEL_WIDTH_RATIO = 0.5
+EPISODE_605_SCENE_SHIFT_RATIO = 0.2
 GOTH  = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc"
 MINCHO = "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc"
 GREEN=(47,91,58); GOLD=(176,132,34); WHITE=(255,255,255)
@@ -277,8 +279,15 @@ def derive(*args, episode_id=None, title="", subtitle="", key_points=None, sourc
             tag="AI × 信頼",
             kicker="TECH NEWS",
             brand=brand or DEFAULT_BRAND,
+            preserve_scene_right=True,
         )
     direction["scene_prompt"] = _scene_prompt(direction, subject)
+    if str(episode_id) == "605":
+        direction["scene_prompt"] += (
+            " Keep the entire head and face fully inside the rightmost third, with clear space from the vertical two-thirds boundary; "
+            "no part of the face may touch or cross that boundary. Dress the person in casual office clothing, such as a collared shirt or knit top, "
+            "in a relaxed contemporary office; avoid hospital gowns, scrubs, lab coats, and clinical settings."
+        )
     return direction
 
 # ---------- 2) generate scene via ComfyUI ----------
@@ -598,10 +607,18 @@ def compose(scene, art_direction, brand=None):
         bg.ellipse((W * .69, -H * .14, W * 1.1, H * .52), fill=tuple((c + 28) // 2 for c in panel))
     else:
         img = scene.convert("RGB").resize((W, H)).copy()
+        if spec.get("preserve_scene_right"):
+            # Fit the whole scene into the image area. This shifts it right without
+            # discarding source pixels, while leaving a wider panel for the headline.
+            shift = int(W * EPISODE_605_SCENE_SHIFT_RATIO)
+            fitted = img.resize((W - shift, H), Image.Resampling.LANCZOS)
+            img = Image.new("RGB", (W, H), img.getpixel((0, 0)))
+            img.paste(fitted, (shift, 0))
     d = ImageDraw.Draw(img, "RGBA")
-    # The editorial panel reserves the right third for the generated subject.
-    panel_right = int(W * 2 / 3)
-    d.rectangle((0, 0, panel_right, H), fill=(*panel, 242 if scene is not None else 255))
+    # Episode 605 uses a narrower panel so its full generated scene remains visible.
+    panel_right = int(W * (EPISODE_605_PANEL_WIDTH_RATIO if spec.get("preserve_scene_right") else 2 / 3))
+    # Keep the layer order unambiguous when a generated face overlaps the panel.
+    d.rectangle((0, 0, panel_right, H), fill=(*panel, 255))
     d.rectangle((0, 0, 12, H), fill=(*accent, 255))
 
     left, right = 48, panel_right - 40

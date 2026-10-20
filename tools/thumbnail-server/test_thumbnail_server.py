@@ -595,6 +595,61 @@ def test_derive_605_uses_reference_direction(monkeypatch):
     assert direction["accent"] == [196, 166, 96]
     assert direction["headline"] == "AIが進めば、信頼は、どこへ。"
     assert direction["tag"] == "AI × 信頼"
+    assert "entire head and face fully inside the rightmost third" in direction["scene_prompt"]
+    assert "no part of the face may touch or cross that boundary" in direction["scene_prompt"]
+    assert "casual office clothing" in direction["scene_prompt"]
+    assert "avoid hospital gowns, scrubs, lab coats, and clinical settings" in direction["scene_prompt"]
+    assert direction["preserve_scene_right"] is True
+
+
+def test_compose_episode_605_fits_scene_right_of_wider_panel():
+    scene = Image.new("RGB", (960, 540), (20, 40, 80))
+    scene.paste((220, 30, 40), (600, 100, 650, 400))
+
+    result = thumbnail_server.compose(scene, {
+        "tone": "bright-warm", "preserve_scene_right": True,
+    })
+
+    assert result.getpixel((470, 20)) == (246, 239, 222)
+    assert result.getpixel((490, 20)) == (20, 40, 80)
+    assert result.getpixel((675, 200)) == (220, 30, 40)
+    assert result.getpixel((709, 200)) == (220, 30, 40)
+    assert sum(1 for color in result.get_flattened_data() if color == (220, 30, 40)) == 10_800
+
+
+def test_compose_keeps_episode_605_subject_with_background_vertical_line():
+    scene = Image.new("RGB", (960, 540), (100, 100, 100))
+    scene.paste((160, 160, 160), (600, 0, 605, 540))
+    scene.paste((220, 30, 40), (720, 100, 880, 400))
+
+    result = thumbnail_server.compose(scene, {
+        "tone": "bright-warm", "preserve_scene_right": True,
+    })
+
+    assert result.getpixel((674, 50)) in {(160, 160, 160), (161, 161, 161)}
+    assert result.getpixel((800, 200)) == (220, 30, 40)
+    assert result.getpixel((893, 200)) == (220, 30, 40)
+    assert result.getpixel((900, 200)) == (100, 100, 100)
+    colors = {color: count for count, color in result.getcolors(maxcolors=960 * 540)}
+    assert colors[(220, 30, 40)] == 37_200
+
+
+def test_compose_keeps_episode_605_subject_on_right_over_vertical_gradient():
+    scene = Image.new("RGB", (960, 540))
+    draw = thumbnail_server.ImageDraw.Draw(scene)
+    for y in range(540):
+        shade = round(100 + 60 * y / 539)
+        draw.line((0, y, 959, y), fill=(shade, shade, shade))
+    scene.paste((220, 30, 40), (720, 100, 880, 400))
+
+    result = thumbnail_server.compose(scene, {
+        "tone": "bright-warm", "preserve_scene_right": True,
+    })
+
+    assert result.getpixel((800, 200)) == (220, 30, 40)
+    assert result.getpixel((893, 200)) == (220, 30, 40)
+    colors = {color: count for count, color in result.getcolors(maxcolors=960 * 540)}
+    assert colors[(220, 30, 40)] == 37_200
 
 
 def test_worker_completes_after_successful_derive(monkeypatch, tmp_path):
@@ -813,6 +868,16 @@ def test_compose_draws_headline_inside_left_editorial_column(monkeypatch):
     for (x, _y), text, font in headline_calls:
         assert x >= 48
         assert x + font.getlength(text) <= 960 * 2 / 3 - 40
+
+
+def test_compose_opaque_panel_hides_overlapping_scene_content():
+    scene_color = (210, 30, 70)
+    scene = Image.new("RGB", (960, 540), scene_color)
+
+    result = thumbnail_server.compose(scene, {"tone": "bright-warm"})
+
+    assert result.getpixel((500, 20)) == (246, 239, 222)
+    assert result.getpixel((800, 20)) == scene_color
 
 
 @pytest.mark.parametrize("tone", ["bright-warm", "bright-cool", "moody-dark"])
