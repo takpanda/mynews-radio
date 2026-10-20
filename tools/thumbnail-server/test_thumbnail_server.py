@@ -595,6 +595,21 @@ def test_derive_605_uses_reference_direction(monkeypatch):
     assert direction["accent"] == [196, 166, 96]
     assert direction["headline"] == "AIが進めば、信頼は、どこへ。"
     assert direction["tag"] == "AI × 信頼"
+    assert "entire head and face fully inside the rightmost third" in direction["scene_prompt"]
+    assert "no part of the face may touch or cross that boundary" in direction["scene_prompt"]
+    assert direction["reframe_scene_right"] is True
+
+
+def test_compose_reframes_episode_605_scene_to_keep_face_clear_of_panel(monkeypatch):
+    scene = Image.new("RGB", (960, 540), (20, 40, 80))
+    scene.paste((220, 30, 40), (640, 0, 650, 540))
+
+    result = thumbnail_server.compose(scene, {
+        "tone": "bright-warm", "reframe_scene_right": True,
+    })
+
+    assert result.getpixel((913, 20)) == (220, 30, 40)
+    assert result.getpixel((630, 20)) == (246, 239, 222)
 
 
 def test_worker_completes_after_successful_derive(monkeypatch, tmp_path):

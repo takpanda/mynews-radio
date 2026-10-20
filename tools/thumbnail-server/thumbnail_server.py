@@ -44,6 +44,7 @@ COMFYUI_STATE_PATH = Path(os.environ.get(
 ))
 DEFAULT_BRAND = os.environ.get("BRAND", "わかる解説")
 WIDTH, HEIGHT = 960, 540
+EPISODE_605_SCENE_SHIFT_RATIO = 0.28
 GOTH  = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc"
 MINCHO = "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc"
 GREEN=(47,91,58); GOLD=(176,132,34); WHITE=(255,255,255)
@@ -277,8 +278,14 @@ def derive(*args, episode_id=None, title="", subtitle="", key_points=None, sourc
             tag="AI × 信頼",
             kicker="TECH NEWS",
             brand=brand or DEFAULT_BRAND,
+            reframe_scene_right=True,
         )
     direction["scene_prompt"] = _scene_prompt(direction, subject)
+    if str(episode_id) == "605":
+        direction["scene_prompt"] += (
+            " Keep the entire head and face fully inside the rightmost third, with clear space from the vertical two-thirds boundary; "
+            "no part of the face may touch or cross that boundary."
+        )
     return direction
 
 # ---------- 2) generate scene via ComfyUI ----------
@@ -598,6 +605,12 @@ def compose(scene, art_direction, brand=None):
         bg.ellipse((W * .69, -H * .14, W * 1.1, H * .52), fill=tuple((c + 28) // 2 for c in panel))
     else:
         img = scene.convert("RGB").resize((W, H)).copy()
+        if spec.get("reframe_scene_right"):
+            # Episode 605's portrait can straddle the text-panel edge; shift it into the image area.
+            shift = int(W * EPISODE_605_SCENE_SHIFT_RATIO)
+            shifted = Image.new("RGB", (W, H), img.getpixel((0, 0)))
+            shifted.paste(img.crop((0, 0, W - shift, H)), (shift, 0))
+            img = shifted
     d = ImageDraw.Draw(img, "RGBA")
     # The editorial panel reserves the right third for the generated subject.
     panel_right = int(W * 2 / 3)
