@@ -602,14 +602,25 @@ def test_derive_605_uses_reference_direction(monkeypatch):
 
 def test_compose_reframes_episode_605_scene_to_keep_face_clear_of_panel(monkeypatch):
     scene = Image.new("RGB", (960, 540), (20, 40, 80))
-    scene.paste((220, 30, 40), (640, 0, 650, 540))
+    scene.paste((220, 30, 40), (600, 100, 650, 400))
 
     result = thumbnail_server.compose(scene, {
         "tone": "bright-warm", "reframe_scene_right": True,
     })
 
-    assert result.getpixel((913, 20)) == (220, 30, 40)
+    assert result.getpixel((913, 200)) == (220, 30, 40)
     assert result.getpixel((630, 20)) == (246, 239, 222)
+
+
+def test_compose_keeps_episode_605_subject_already_on_right():
+    scene = Image.new("RGB", (960, 540), (20, 40, 80))
+    scene.paste((220, 30, 40), (720, 100, 880, 400))
+
+    result = thumbnail_server.compose(scene, {
+        "tone": "bright-warm", "reframe_scene_right": True,
+    })
+
+    assert result.getpixel((800, 200)) == (220, 30, 40)
 
 
 def test_worker_completes_after_successful_derive(monkeypatch, tmp_path):
