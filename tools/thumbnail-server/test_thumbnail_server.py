@@ -815,6 +815,16 @@ def test_compose_draws_headline_inside_left_editorial_column(monkeypatch):
         assert x + font.getlength(text) <= 960 * 2 / 3 - 40
 
 
+def test_compose_opaque_panel_hides_overlapping_scene_content():
+    scene_color = (210, 30, 70)
+    scene = Image.new("RGB", (960, 540), scene_color)
+
+    result = thumbnail_server.compose(scene, {"tone": "bright-warm"})
+
+    assert result.getpixel((500, 20)) == (246, 239, 222)
+    assert result.getpixel((800, 20)) == scene_color
+
+
 @pytest.mark.parametrize("tone", ["bright-warm", "bright-cool", "moody-dark"])
 @pytest.mark.parametrize("visual_style", ["person", "object", "symbol", "environment", "typography"])
 def test_compose_supports_art_direction_combinations(tone, visual_style):

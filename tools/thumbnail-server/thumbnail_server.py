@@ -601,7 +601,8 @@ def compose(scene, art_direction, brand=None):
     d = ImageDraw.Draw(img, "RGBA")
     # The editorial panel reserves the right third for the generated subject.
     panel_right = int(W * 2 / 3)
-    d.rectangle((0, 0, panel_right, H), fill=(*panel, 242 if scene is not None else 255))
+    # Keep the layer order unambiguous when a generated face overlaps the panel.
+    d.rectangle((0, 0, panel_right, H), fill=(*panel, 255))
     d.rectangle((0, 0, 12, H), fill=(*accent, 255))
 
     left, right = 48, panel_right - 40
