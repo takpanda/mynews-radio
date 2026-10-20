@@ -82,7 +82,9 @@ def test_worker_falls_back_after_ollama_failure_and_releases_busy(monkeypatch):
     thumbnail_server.process_job(job_id)
 
     assert job["status"] == "done"
-    assert job["art_direction"]["visual_style"] == "person"
+    assert job["art_direction"]["visual_style"] == "symbol"
+    assert job["art_direction"]["headline"] != "title"
+    assert job["art_direction"]["tag"] not in job["art_direction"]["headline"]
     assert job.transitions == ["queued", "derive", "scene", "compose", "done"]
     assert thumbnail_server.busy_count() == 0
     thumbnail_server.jobs.pop(job_id)
@@ -485,7 +487,7 @@ def test_derive_validates_schema_and_builds_style_specific_prompts(monkeypatch):
 
 def test_derive_accepts_valid_schema_for_all_five_styles(monkeypatch):
     responses = [
-        ("person", "bright-warm", "Japanese"),
+        ("person", "bright-warm", "Japanese adult man"),
         ("object", "bright-cool", "editorial still life"),
         ("symbol", "bright-cool", "abstract luminous symbol"),
         ("environment", "moody-dark", "Japanese city"),
@@ -507,7 +509,8 @@ def test_derive_accepts_valid_schema_for_all_five_styles(monkeypatch):
             lambda _prompt, payload=expected: json.dumps(payload, ensure_ascii=False),
         )
 
-        direction = thumbnail_server.derive(episode_id="episode-1", title="都市の未来")
+        subject = "男性ミュージシャンの話題" if style == "person" else "都市の未来"
+        direction = thumbnail_server.derive(episode_id="episode-1", title=subject)
 
         assert direction["visual_style"] == style
         assert direction["tone"] == tone
@@ -548,8 +551,8 @@ def test_derive_rejects_invalid_schema_values_and_bounds_headline(monkeypatch):
     )
     invalid_field_types = thumbnail_server.derive(title="製品ニュース")
     assert invalid_field_types["visual_style"] == "object"
-    assert invalid_field_types["headline"] == "製品ニュース"
-    assert invalid_field_types["tag"] == "製品ニュース"
+    assert invalid_field_types["headline"] != "製品ニュース"
+    assert invalid_field_types["tag"] not in invalid_field_types["headline"]
     assert invalid_field_types["kicker"] == "SPECIAL REPORT"
     assert invalid_field_types["brand"] == thumbnail_server.DEFAULT_BRAND
 
@@ -578,12 +581,67 @@ def test_derive_rejects_invalid_schema_values_and_bounds_headline(monkeypatch):
 
 def test_derive_person_prompt_requires_japanese_and_keeps_face_clear(monkeypatch):
     monkeypatch.setattr(thumbnail_server, "_ollama_chat", lambda _prompt: "{}")
-    direction = thumbnail_server.derive(title="暮らしの話題")
+    direction = thumbnail_server.derive(title="女性アーティストの話題")
 
     assert direction["visual_style"] == "person"
-    assert "Japanese" in direction["scene_prompt"]
+    assert "Japanese adult woman" in direction["scene_prompt"]
     assert "face unobstructed" in direction["scene_prompt"]
     assert "do not overlay symbols, keys, or graphics on the face" in direction["scene_prompt"]
+
+
+def test_derive_fallback_for_episode_587_uses_short_distinct_copy_and_male_person(monkeypatch):
+    monkeypatch.setattr(thumbnail_server, "_ollama_chat", Mock(side_effect=RuntimeError("offline")))
+
+    direction = thumbnail_server.derive(
+        episode_id=587,
+        title="Ｂ'ｚ松本孝弘 相棒・稲葉浩志とは「１回も一緒にやろうと言ったことないんですけどね」",
+        subtitle="Ｂ'ｚの二人が語る音楽の歩み",
+        key_points=["松本孝弘と稲葉浩志"],
+    )
+
+    assert direction["visual_style"] == "person"
+    assert direction["headline"] == "二人で紡ぐ音楽の物語"
+    assert len(direction["headline"]) <= 32
+    assert len(direction["tag"]) <= 24
+    assert not thumbnail_server._copy_overlaps(direction["tag"], direction["headline"])
+    assert "Japanese adult man" in direction["scene_prompt"]
+    assert "woman or man" not in direction["scene_prompt"]
+    assert "do not imitate or reproduce any real person's face" in direction["scene_prompt"]
+
+
+def test_derive_replaces_title_copy_and_overlapping_llm_tag(monkeypatch):
+    monkeypatch.setattr(
+        thumbnail_server,
+        "_ollama_chat",
+        lambda _prompt: json.dumps({
+            "visual_style": "object", "tone": "bright-warm",
+            "headline": "女性アーティストの話題", "tag": "アーティスト",
+            "kicker": "FEATURE", "brand": "番組名",
+        }, ensure_ascii=False),
+    )
+
+    direction = thumbnail_server.derive(title="女性アーティストの話題")
+
+    assert direction["headline"] == "二人で紡ぐ音楽の物語"
+    assert direction["tag"] == "特別対談"
+    assert not thumbnail_server._copy_overlaps(direction["tag"], direction["headline"])
+
+
+def test_derive_does_not_use_person_when_gender_is_unknown(monkeypatch):
+    monkeypatch.setattr(
+        thumbnail_server,
+        "_ollama_chat",
+        lambda _prompt: json.dumps({
+            "visual_style": "person", "tone": "bright-warm", "headline": "話題をひもとく",
+            "tag": "TODAY", "kicker": "FEATURE", "brand": "番組名",
+        }, ensure_ascii=False),
+    )
+
+    direction = thumbnail_server.derive(title="暮らしの新しい話題")
+
+    assert direction["visual_style"] == "object"
+    assert "Do not depict a person" not in direction["scene_prompt"]
+    assert "woman or man" not in direction["scene_prompt"]
 
 
 def test_derive_605_uses_reference_direction(monkeypatch):
