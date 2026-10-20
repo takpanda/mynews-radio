@@ -597,6 +597,8 @@ def test_derive_605_uses_reference_direction(monkeypatch):
     assert direction["tag"] == "AI × 信頼"
     assert "entire head and face fully inside the rightmost third" in direction["scene_prompt"]
     assert "no part of the face may touch or cross that boundary" in direction["scene_prompt"]
+    assert "casual office clothing" in direction["scene_prompt"]
+    assert "avoid hospital gowns, scrubs, lab coats, and clinical settings" in direction["scene_prompt"]
     assert direction["preserve_scene_right"] is True
 
 

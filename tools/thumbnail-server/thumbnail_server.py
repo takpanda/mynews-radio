@@ -285,7 +285,8 @@ def derive(*args, episode_id=None, title="", subtitle="", key_points=None, sourc
     if str(episode_id) == "605":
         direction["scene_prompt"] += (
             " Keep the entire head and face fully inside the rightmost third, with clear space from the vertical two-thirds boundary; "
-            "no part of the face may touch or cross that boundary."
+            "no part of the face may touch or cross that boundary. Dress the person in casual office clothing, such as a collared shirt or knit top, "
+            "in a relaxed contemporary office; avoid hospital gowns, scrubs, lab coats, and clinical settings."
         )
     return direction
 
