@@ -159,38 +159,82 @@ MAX_HEADLINE_CHARS = 32
 
 
 def _subject_gender(subject):
-    """Infer only explicit or well-known subject attributes; never guess from names."""
-    text = unicodedata.normalize("NFKC", str(subject or "")).lower()
-    if any(word in text for word in ("女性", "女優", "女性歌手", "女性アーティスト", "woman", "female")):
-        return "woman"
-    if any(word in text for word in ("男性", "男優", "男性歌手", "男性アーティスト", "man", "male")):
-        return "man"
-    # B'z is the subject of episode 587; the names are not used as likeness prompts.
-    if any(word in text for word in ("b'z", "bz", "松本孝弘", "稲葉浩志")):
-        return "man"
-    return None
+    """Infer a single explicit subject gender; ambiguous or mixed input stays unknown."""
+    text = unicodedata.normalize("NFKC", str(subject or "")).lower().replace("’", "'")
+    female = any(word in text for word in ("女性", "女優", "女性歌手", "女性アーティスト"))
+    male = any(word in text for word in ("男性", "男優", "男性歌手", "男性アーティスト"))
+    female |= re.search(r"\b(?:woman|women|female)\b", text) is not None
+    male |= re.search(r"\b(?:man|men|male)\b", text) is not None
+    # B'z and its two named members identify the male music subject of episode 587.
+    if "b'z" in text and ("松本孝弘" in text or "稲葉浩志" in text):
+        male = True
+    if female == male:
+        return None
+    return "woman" if female else "man"
 
 
-def _copy_for_subject(subject):
-    text = unicodedata.normalize("NFKC", str(subject or "")).lower()
-    if any(word in text for word in ("b'z", "bz", "音楽", "ミュージシャン", "アーティスト", "歌手", "バンド")):
-        return "二人で紡ぐ音楽の物語", "特別対談"
-    if any(word in text for word in ("security", "セキュリティ", "スマホ", "認証", "ai", "人工知能")):
-        return "進化する技術と暮らし", "TECH WATCH"
-    if any(word in text for word in ("街", "都市", "社会", "気候", "災害", "情勢")):
-        return "備えから考える街の未来", "防災特集"
-    if any(word in text for word in ("ランキング", "総集編", "まとめ")):
-        return "今週の注目トピック", "WEEKLY"
-    return "今知りたい話題の核心", "TODAY"
+def _copy_for_subject(subject, banned_titles=()):
+    text = unicodedata.normalize("NFKC", str(subject or "")).lower().replace("’", "'")
+    if "b'z" in text and "松本孝弘" in text and "稲葉浩志" in text:
+        options = [("B'zをつなぐ音の絆", "音楽")]
+    elif any(word in text for word in ("音楽", "ミュージシャン", "アーティスト", "歌手", "バンド")):
+        options = [
+            ("音楽の話題を読み解く", "MUSIC"),
+            ("音楽の今を見つめる", "MUSIC"),
+            ("音楽の動きを探る", "FOCUS"),
+        ]
+    elif "国際" in text and "情勢" in text:
+        options = [("国際情勢を読み解く", "WORLD"), ("世界の動きを追う", "WORLD")]
+    elif any(word in text for word in ("security", "セキュリティ", "スマホ", "認証", "ai", "人工知能")):
+        options = [("技術と暮らしの今", "TECH"), ("技術の動きを読む", "TECH")]
+    elif any(word in text for word in ("街", "都市", "社会", "気候", "災害", "情勢")):
+        options = [("社会の動きを読み解く", "FOCUS"), ("今日の社会を考える", "TOPIC")]
+    elif any(word in text for word in ("ランキング", "総集編", "まとめ")):
+        options = [("今週の注目トピック", "WEEKLY"), ("話題のポイントを整理", "FOCUS")]
+    else:
+        options = [
+            ("今知りたい話題の核心", "TODAY"),
+            ("話題のポイントを解説", "FOCUS"),
+            ("今日の注目テーマ", "TOPIC"),
+        ]
+    options.extend([
+        ("内容を読み解く", "FOCUS"),
+        ("背景と要点を整理", "REPORT"),
+        ("注目点をチェック", "UPDATE"),
+        ("今のテーマを追う", "TOPIC"),
+    ])
+    titles = [value for value in banned_titles if value]
+    return next(
+        ((headline, tag) for headline, tag in options
+         if not any(_copy_overlaps(headline, title) for title in titles)),
+        ("話題を読み解く", "FOCUS"),
+    )
 
 
 def _normalize_copy(value):
-    return re.sub(r"[^\w]", "", str(value or "")).casefold()
+    normalized = unicodedata.normalize("NFKC", str(value or "")).replace("’", "'")
+    return re.sub(r"[^\w]", "", normalized).casefold()
 
 
 def _copy_overlaps(left, right):
     left, right = _normalize_copy(left), _normalize_copy(right)
     return bool(left and right and (left in right or right in left))
+
+
+def _distinct_tag(headline, *candidates):
+    for candidate in (*candidates, "FOCUS", "TOPIC", "UPDATE", "REPORT"):
+        tag = str(candidate or "").strip()[:24]
+        if tag and not _copy_overlaps(tag, headline):
+            return tag
+    for index in range(100):
+        tag = f"FOCUS{index}"
+        if not _copy_overlaps(tag, headline):
+            return tag
+    for codepoint in range(0x4E00, 0xA000):
+        tag = chr(codepoint)
+        if not _copy_overlaps(tag, headline):
+            return tag
+    return "注目"
 
 
 def _fallback_direction(title, subtitle, key_points, source_articles, brand):
@@ -208,7 +252,8 @@ def _fallback_direction(title, subtitle, key_points, source_articles, brand):
         style, tone = "object", "bright-warm"
     else:
         style, tone = "symbol", "bright-warm"
-    headline, tag = _copy_for_subject(subject)
+    headline, tag = _copy_for_subject(subject, [title, *source_articles])
+    tag = _distinct_tag(headline, tag)
     return {
         "visual_style": style,
         "tone": tone,
@@ -220,7 +265,7 @@ def _fallback_direction(title, subtitle, key_points, source_articles, brand):
     }
 
 
-def _validate_direction(data, fallback, title=""):
+def _validate_direction(data, fallback, title="", source_titles=()):
     """Validate the shared art-direction schema and normalize its bounded fields."""
     if not isinstance(data, dict):
         return fallback
@@ -240,12 +285,12 @@ def _validate_direction(data, fallback, title=""):
         fields[name] = value.strip()[:limit]
     llm_headline = fields["headline"]
     tag_repeats_llm_headline = _copy_overlaps(fields["tag"], llm_headline)
-    if _copy_overlaps(llm_headline, title):
+    titles = [value for value in (title, *source_titles) if value]
+    if any(_copy_overlaps(llm_headline, source_title) for source_title in titles):
         fields["headline"] = fallback["headline"]
     if tag_repeats_llm_headline or _copy_overlaps(fields["tag"], fields["headline"]):
         fields["tag"] = fallback["tag"]
-    if _copy_overlaps(fields["tag"], fields["headline"]):
-        fields["tag"] = "TODAY"
+    fields["tag"] = _distinct_tag(fields["headline"], fields["tag"], fallback["tag"])
     return {"visual_style": style, "tone": tone, "accent": accent, **fields}
 
 
@@ -322,7 +367,12 @@ def derive(*args, episode_id=None, title="", subtitle="", key_points=None, sourc
         f"既定ブランド: {brand or DEFAULT_BRAND}\n"
     )
     try:
-        direction = _validate_direction(_extract_json(_ollama_chat(sys_prompt + "\n" + user_prompt)), fallback, title)
+        direction = _validate_direction(
+            _extract_json(_ollama_chat(sys_prompt + "\n" + user_prompt)),
+            fallback,
+            title,
+            source_articles,
+        )
         if direction["visual_style"] == "person" and not _subject_gender(subject):
             direction["visual_style"] = "object"
     except Exception as exc:

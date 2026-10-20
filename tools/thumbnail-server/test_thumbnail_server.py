@@ -600,7 +600,7 @@ def test_derive_fallback_for_episode_587_uses_short_distinct_copy_and_male_perso
     )
 
     assert direction["visual_style"] == "person"
-    assert direction["headline"] == "二人で紡ぐ音楽の物語"
+    assert direction["headline"] == "B'zをつなぐ音の絆"
     assert len(direction["headline"]) <= 32
     assert len(direction["tag"]) <= 24
     assert not thumbnail_server._copy_overlaps(direction["tag"], direction["headline"])
@@ -622,8 +622,8 @@ def test_derive_replaces_title_copy_and_overlapping_llm_tag(monkeypatch):
 
     direction = thumbnail_server.derive(title="女性アーティストの話題")
 
-    assert direction["headline"] == "二人で紡ぐ音楽の物語"
-    assert direction["tag"] == "特別対談"
+    assert direction["headline"] == "音楽の話題を読み解く"
+    assert direction["tag"] == "MUSIC"
     assert not thumbnail_server._copy_overlaps(direction["tag"], direction["headline"])
 
 
@@ -642,6 +642,91 @@ def test_derive_does_not_use_person_when_gender_is_unknown(monkeypatch):
     assert direction["visual_style"] == "object"
     assert "Do not depict a person" not in direction["scene_prompt"]
     assert "woman or man" not in direction["scene_prompt"]
+
+
+@pytest.mark.parametrize(
+    ("subject", "expected"),
+    [
+        ("Human Resourcesの未来", None),
+        ("男性歌手と女性ファンの交流", None),
+        ("女性ソロ歌手の新曲発売", "woman"),
+        ("男性ミュージシャンの特集", "man"),
+    ],
+)
+def test_subject_gender_requires_unambiguous_gender(subject, expected):
+    assert thumbnail_server._subject_gender(subject) == expected
+
+
+@pytest.mark.parametrize("title", ["Human Resourcesの未来", "男性歌手と女性ファンの交流"])
+def test_derive_avoids_person_for_ambiguous_gender(title, monkeypatch):
+    monkeypatch.setattr(
+        thumbnail_server,
+        "_ollama_chat",
+        lambda _prompt: json.dumps({
+            "visual_style": "person", "tone": "bright-warm",
+            "headline": "話題を読み解く", "tag": "FOCUS",
+            "kicker": "FEATURE", "brand": "番組名",
+        }, ensure_ascii=False),
+    )
+
+    direction = thumbnail_server.derive(title=title)
+
+    assert direction["visual_style"] == "object"
+    assert "Depict a Japanese adult" not in direction["scene_prompt"]
+
+
+@pytest.mark.parametrize(
+    ("title", "expected_headline", "expected_tag"),
+    [
+        ("女性ソロ歌手の新曲発売", "音楽の話題を読み解く", "MUSIC"),
+        ("国際情勢の解説", "国際情勢を読み解く", "WORLD"),
+    ],
+)
+def test_fallback_copy_does_not_add_unsupported_music_or_social_facts(
+    monkeypatch, title, expected_headline, expected_tag
+):
+    monkeypatch.setattr(thumbnail_server, "_ollama_chat", Mock(side_effect=RuntimeError("offline")))
+
+    direction = thumbnail_server.derive(title=title)
+
+    assert direction["headline"] == expected_headline
+    assert direction["tag"] == expected_tag
+    assert "二人" not in direction["headline"]
+    assert "対談" not in direction["tag"]
+    assert "防災" not in direction["headline"]
+
+
+def test_derive_uses_final_non_overlapping_tag_candidate():
+    fallback = thumbnail_server._fallback_direction("暮らしの話", "", [], [], None)
+    result = thumbnail_server._validate_direction({
+        "visual_style": "object", "tone": "bright-warm",
+        "headline": "TODAYのニュース", "tag": "TODAY",
+        "kicker": "FEATURE", "brand": "番組名",
+    }, fallback, title="暮らしの話")
+
+    assert result["headline"] == "TODAYのニュース"
+    assert result["tag"] == "FOCUS"
+    assert not thumbnail_server._copy_overlaps(result["tag"], result["headline"])
+
+
+def test_derive_rejects_source_article_title_as_llm_headline(monkeypatch):
+    monkeypatch.setattr(
+        thumbnail_server,
+        "_ollama_chat",
+        lambda _prompt: json.dumps({
+            "visual_style": "object", "tone": "bright-warm",
+            "headline": "AIの進化", "tag": "TECH",
+            "kicker": "FEATURE", "brand": "番組名",
+        }, ensure_ascii=False),
+    )
+
+    direction = thumbnail_server.derive(
+        title="今日のテクノロジー",
+        source_articles=[{"title": "AIの進化"}],
+    )
+
+    assert direction["headline"] == "技術と暮らしの今"
+    assert not thumbnail_server._copy_overlaps(direction["headline"], "AIの進化")
 
 
 def test_derive_605_uses_reference_direction(monkeypatch):
