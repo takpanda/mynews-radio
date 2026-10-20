@@ -13,7 +13,7 @@ Endpoints:
 import os, re, json, time, uuid, queue, threading, logging, tempfile, asyncio, secrets
 from io import BytesIO
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont, ImageStat
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -606,11 +606,14 @@ def compose(scene, art_direction, brand=None):
     else:
         img = scene.convert("RGB").resize((W, H)).copy()
         if spec.get("reframe_scene_right"):
-            # Reframe only when the subject overlaps the panel edge. A scene already
-            # composed on the right should retain its full content and position.
+            # Check for horizontal detail at the panel edge; vertical shading alone
+            # must not be mistaken for a subject crossing the edge.
             boundary = int(W * 2 / 3)
             edge_band = img.crop((boundary - 64, 0, boundary, H)).convert("L")
-            if ImageStat.Stat(edge_band).stddev[0] > 12:
+            edge_difference = ImageChops.difference(
+                edge_band.crop((1, 0, 64, H)), edge_band.crop((0, 0, 63, H))
+            )
+            if edge_difference.getextrema()[1] > 12:
                 shift = int(W * EPISODE_605_SCENE_SHIFT_RATIO)
                 shifted = Image.new("RGB", (W, H), img.getpixel((0, 0)))
                 shifted.paste(img.crop((0, 0, W - shift, H)), (shift, 0))

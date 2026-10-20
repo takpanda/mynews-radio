@@ -610,10 +610,15 @@ def test_compose_reframes_episode_605_scene_to_keep_face_clear_of_panel(monkeypa
 
     assert result.getpixel((913, 200)) == (220, 30, 40)
     assert result.getpixel((630, 20)) == (246, 239, 222)
+    assert sum(1 for color in result.get_flattened_data() if color == (220, 30, 40)) == 15_000
 
 
-def test_compose_keeps_episode_605_subject_already_on_right():
-    scene = Image.new("RGB", (960, 540), (20, 40, 80))
+def test_compose_keeps_episode_605_subject_on_right_over_vertical_gradient():
+    scene = Image.new("RGB", (960, 540))
+    draw = thumbnail_server.ImageDraw.Draw(scene)
+    for y in range(540):
+        shade = round(100 + 60 * y / 539)
+        draw.line((0, y, 959, y), fill=(shade, shade, shade))
     scene.paste((220, 30, 40), (720, 100, 880, 400))
 
     result = thumbnail_server.compose(scene, {
@@ -621,6 +626,8 @@ def test_compose_keeps_episode_605_subject_already_on_right():
     })
 
     assert result.getpixel((800, 200)) == (220, 30, 40)
+    colors = {color: count for count, color in result.getcolors(maxcolors=960 * 540)}
+    assert colors[(220, 30, 40)] == 48_000
 
 
 def test_worker_completes_after_successful_derive(monkeypatch, tmp_path):
