@@ -597,20 +597,37 @@ def test_derive_605_uses_reference_direction(monkeypatch):
     assert direction["tag"] == "AI × 信頼"
     assert "entire head and face fully inside the rightmost third" in direction["scene_prompt"]
     assert "no part of the face may touch or cross that boundary" in direction["scene_prompt"]
-    assert direction["reframe_scene_right"] is True
+    assert direction["preserve_scene_right"] is True
 
 
-def test_compose_reframes_episode_605_scene_to_keep_face_clear_of_panel(monkeypatch):
+def test_compose_episode_605_moves_panel_boundary_without_cropping_scene():
     scene = Image.new("RGB", (960, 540), (20, 40, 80))
     scene.paste((220, 30, 40), (600, 100, 650, 400))
 
     result = thumbnail_server.compose(scene, {
-        "tone": "bright-warm", "reframe_scene_right": True,
+        "tone": "bright-warm", "preserve_scene_right": True,
     })
 
-    assert result.getpixel((913, 200)) == (220, 30, 40)
-    assert result.getpixel((630, 20)) == (246, 239, 222)
+    assert result.getpixel((625, 200)) == (220, 30, 40)
+    assert result.getpixel((350, 20)) == (246, 239, 222)
+    assert result.getpixel((380, 20)) == (20, 40, 80)
     assert sum(1 for color in result.get_flattened_data() if color == (220, 30, 40)) == 15_000
+    assert sum(1 for color in result.get_flattened_data() if color == (220, 30, 40)) == 15_000
+
+
+def test_compose_keeps_episode_605_subject_with_background_vertical_line():
+    scene = Image.new("RGB", (960, 540), (100, 100, 100))
+    scene.paste((160, 160, 160), (600, 0, 605, 540))
+    scene.paste((220, 30, 40), (720, 100, 880, 400))
+
+    result = thumbnail_server.compose(scene, {
+        "tone": "bright-warm", "preserve_scene_right": True,
+    })
+
+    assert result.getpixel((602, 50)) == (160, 160, 160)
+    assert result.getpixel((800, 200)) == (220, 30, 40)
+    colors = {color: count for count, color in result.getcolors(maxcolors=960 * 540)}
+    assert colors[(220, 30, 40)] == 48_000
 
 
 def test_compose_keeps_episode_605_subject_on_right_over_vertical_gradient():
@@ -622,7 +639,7 @@ def test_compose_keeps_episode_605_subject_on_right_over_vertical_gradient():
     scene.paste((220, 30, 40), (720, 100, 880, 400))
 
     result = thumbnail_server.compose(scene, {
-        "tone": "bright-warm", "reframe_scene_right": True,
+        "tone": "bright-warm", "preserve_scene_right": True,
     })
 
     assert result.getpixel((800, 200)) == (220, 30, 40)

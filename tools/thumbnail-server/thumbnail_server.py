@@ -13,7 +13,7 @@ Endpoints:
 import os, re, json, time, uuid, queue, threading, logging, tempfile, asyncio, secrets
 from io import BytesIO
 from pathlib import Path
-from PIL import Image, ImageChops, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -44,7 +44,7 @@ COMFYUI_STATE_PATH = Path(os.environ.get(
 ))
 DEFAULT_BRAND = os.environ.get("BRAND", "わかる解説")
 WIDTH, HEIGHT = 960, 540
-EPISODE_605_SCENE_SHIFT_RATIO = 0.28
+EPISODE_605_PANEL_WIDTH_RATIO = 0.38
 GOTH  = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc"
 MINCHO = "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc"
 GREEN=(47,91,58); GOLD=(176,132,34); WHITE=(255,255,255)
@@ -278,7 +278,7 @@ def derive(*args, episode_id=None, title="", subtitle="", key_points=None, sourc
             tag="AI × 信頼",
             kicker="TECH NEWS",
             brand=brand or DEFAULT_BRAND,
-            reframe_scene_right=True,
+            preserve_scene_right=True,
         )
     direction["scene_prompt"] = _scene_prompt(direction, subject)
     if str(episode_id) == "605":
@@ -605,22 +605,9 @@ def compose(scene, art_direction, brand=None):
         bg.ellipse((W * .69, -H * .14, W * 1.1, H * .52), fill=tuple((c + 28) // 2 for c in panel))
     else:
         img = scene.convert("RGB").resize((W, H)).copy()
-        if spec.get("reframe_scene_right"):
-            # Check for horizontal detail at the panel edge; vertical shading alone
-            # must not be mistaken for a subject crossing the edge.
-            boundary = int(W * 2 / 3)
-            edge_band = img.crop((boundary - 64, 0, boundary, H)).convert("L")
-            edge_difference = ImageChops.difference(
-                edge_band.crop((1, 0, 64, H)), edge_band.crop((0, 0, 63, H))
-            )
-            if edge_difference.getextrema()[1] > 12:
-                shift = int(W * EPISODE_605_SCENE_SHIFT_RATIO)
-                shifted = Image.new("RGB", (W, H), img.getpixel((0, 0)))
-                shifted.paste(img.crop((0, 0, W - shift, H)), (shift, 0))
-                img = shifted
     d = ImageDraw.Draw(img, "RGBA")
-    # The editorial panel reserves the right third for the generated subject.
-    panel_right = int(W * 2 / 3)
+    # Episode 605 uses a narrower panel so its full generated scene remains visible.
+    panel_right = int(W * (EPISODE_605_PANEL_WIDTH_RATIO if spec.get("preserve_scene_right") else 2 / 3))
     # Keep the layer order unambiguous when a generated face overlaps the panel.
     d.rectangle((0, 0, panel_right, H), fill=(*panel, 255))
     d.rectangle((0, 0, 12, H), fill=(*accent, 255))
