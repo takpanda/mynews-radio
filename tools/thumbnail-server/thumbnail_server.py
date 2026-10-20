@@ -44,7 +44,8 @@ COMFYUI_STATE_PATH = Path(os.environ.get(
 ))
 DEFAULT_BRAND = os.environ.get("BRAND", "わかる解説")
 WIDTH, HEIGHT = 960, 540
-EPISODE_605_PANEL_WIDTH_RATIO = 0.38
+EPISODE_605_PANEL_WIDTH_RATIO = 0.5
+EPISODE_605_SCENE_SHIFT_RATIO = 0.2
 GOTH  = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc"
 MINCHO = "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc"
 GREEN=(47,91,58); GOLD=(176,132,34); WHITE=(255,255,255)
@@ -605,6 +606,13 @@ def compose(scene, art_direction, brand=None):
         bg.ellipse((W * .69, -H * .14, W * 1.1, H * .52), fill=tuple((c + 28) // 2 for c in panel))
     else:
         img = scene.convert("RGB").resize((W, H)).copy()
+        if spec.get("preserve_scene_right"):
+            # Fit the whole scene into the image area. This shifts it right without
+            # discarding source pixels, while leaving a wider panel for the headline.
+            shift = int(W * EPISODE_605_SCENE_SHIFT_RATIO)
+            fitted = img.resize((W - shift, H), Image.Resampling.LANCZOS)
+            img = Image.new("RGB", (W, H), img.getpixel((0, 0)))
+            img.paste(fitted, (shift, 0))
     d = ImageDraw.Draw(img, "RGBA")
     # Episode 605 uses a narrower panel so its full generated scene remains visible.
     panel_right = int(W * (EPISODE_605_PANEL_WIDTH_RATIO if spec.get("preserve_scene_right") else 2 / 3))

@@ -600,7 +600,7 @@ def test_derive_605_uses_reference_direction(monkeypatch):
     assert direction["preserve_scene_right"] is True
 
 
-def test_compose_episode_605_moves_panel_boundary_without_cropping_scene():
+def test_compose_episode_605_fits_scene_right_of_wider_panel():
     scene = Image.new("RGB", (960, 540), (20, 40, 80))
     scene.paste((220, 30, 40), (600, 100, 650, 400))
 
@@ -608,11 +608,11 @@ def test_compose_episode_605_moves_panel_boundary_without_cropping_scene():
         "tone": "bright-warm", "preserve_scene_right": True,
     })
 
-    assert result.getpixel((625, 200)) == (220, 30, 40)
-    assert result.getpixel((350, 20)) == (246, 239, 222)
-    assert result.getpixel((380, 20)) == (20, 40, 80)
-    assert sum(1 for color in result.get_flattened_data() if color == (220, 30, 40)) == 15_000
-    assert sum(1 for color in result.get_flattened_data() if color == (220, 30, 40)) == 15_000
+    assert result.getpixel((470, 20)) == (246, 239, 222)
+    assert result.getpixel((490, 20)) == (20, 40, 80)
+    assert result.getpixel((675, 200)) == (220, 30, 40)
+    assert result.getpixel((709, 200)) == (220, 30, 40)
+    assert sum(1 for color in result.get_flattened_data() if color == (220, 30, 40)) == 10_800
 
 
 def test_compose_keeps_episode_605_subject_with_background_vertical_line():
@@ -624,10 +624,12 @@ def test_compose_keeps_episode_605_subject_with_background_vertical_line():
         "tone": "bright-warm", "preserve_scene_right": True,
     })
 
-    assert result.getpixel((602, 50)) == (160, 160, 160)
+    assert result.getpixel((674, 50)) in {(160, 160, 160), (161, 161, 161)}
     assert result.getpixel((800, 200)) == (220, 30, 40)
+    assert result.getpixel((893, 200)) == (220, 30, 40)
+    assert result.getpixel((900, 200)) == (100, 100, 100)
     colors = {color: count for count, color in result.getcolors(maxcolors=960 * 540)}
-    assert colors[(220, 30, 40)] == 48_000
+    assert colors[(220, 30, 40)] == 37_200
 
 
 def test_compose_keeps_episode_605_subject_on_right_over_vertical_gradient():
@@ -643,8 +645,9 @@ def test_compose_keeps_episode_605_subject_on_right_over_vertical_gradient():
     })
 
     assert result.getpixel((800, 200)) == (220, 30, 40)
+    assert result.getpixel((893, 200)) == (220, 30, 40)
     colors = {color: count for count, color in result.getcolors(maxcolors=960 * 540)}
-    assert colors[(220, 30, 40)] == 48_000
+    assert colors[(220, 30, 40)] == 37_200
 
 
 def test_worker_completes_after_successful_derive(monkeypatch, tmp_path):
