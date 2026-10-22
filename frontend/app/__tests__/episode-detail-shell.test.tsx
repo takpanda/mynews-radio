@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import React from 'react'
 
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import EpisodeDetailShell from '../components/EpisodeDetailShell'
 import type { DetailEpisode } from '../components/EpisodeDetailShell'
 
@@ -446,5 +446,73 @@ describe('EpisodeDetailShell 出典・訂正表示', () => {
     expect(screen.getByText('内容を訂正しました')).toBeInTheDocument()
     expect(screen.getByText(/影響トピック: 影響を受ける記事/)).toBeInTheDocument()
     expect(screen.queryByText(/記事10/)).not.toBeInTheDocument()
+  })
+})
+
+describe('EpisodeDetailShell MCアバター表示', () => {
+  const renderShell = (overrides: Partial<DetailEpisode>) =>
+    render(
+      <EpisodeDetailShell
+        episode={createEpisode({ mcDisplayName: '秋元優里', ...overrides })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+
+  it('写真のあるMCだけをアバター表示し、MCバッジは従来のまま', () => {
+    renderShell({
+      mcCast: [
+        { key: 'male', mc_id: 'radio_male', name: '田村', role: 'male', photo_url: '/api/mcs/radio_male/photo?v=abcd1234' },
+        { key: 'female', mc_id: 'radio_female', name: '山口', role: 'female', photo_url: null },
+      ],
+    })
+    const img = screen.getByAltText('田村')
+    expect(img).toHaveAttribute('src', '/api/mcs/radio_male/photo?v=abcd1234')
+    expect(img).toHaveAttribute('title', '田村')
+    expect(img).toHaveClass('h-5', 'w-5', 'rounded-full')
+    expect(screen.queryByAltText('山口')).not.toBeInTheDocument()
+    expect(screen.getByText('MC: 秋元優里')).toBeInTheDocument()
+  })
+
+  it('name が空の場合は role を alt に使う', () => {
+    renderShell({
+      mcCast: [{ key: 'male', mc_id: 'm', name: '', role: 'anchor', photo_url: '/p.webp' }],
+    })
+    expect(screen.getByAltText('anchor')).toBeInTheDocument()
+  })
+
+  it.each([undefined, []])('mcCast が %p の場合は画像を表示しない', (mcCast) => {
+    renderShell({ mcCast })
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(screen.getByText('MC: 秋元優里')).toBeInTheDocument()
+  })
+
+  it('画像の読み込みに失敗したらアバターを取り除く', () => {
+    renderShell({
+      mcCast: [{ key: 'male', mc_id: 'm', name: '田村', role: null, photo_url: '/broken.webp' }],
+    })
+    fireEvent.error(screen.getByAltText('田村'))
+    expect(screen.queryByAltText('田村')).not.toBeInTheDocument()
+    expect(screen.getByText('MC: 秋元優里')).toBeInTheDocument()
+  })
+
+  it('画像エラー後に同じMCの photo_url が更新されたら新しい画像を表示する', () => {
+    const member = { key: 'male', mc_id: 'm', name: '田村', role: null, photo_url: '/old.webp' }
+    const ui = (photoUrl: string) => (
+      <EpisodeDetailShell
+        episode={createEpisode({ mcCast: [{ ...member, photo_url: photoUrl }] })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    const { rerender } = render(ui('/old.webp'))
+    fireEvent.error(screen.getByAltText('田村'))
+    expect(screen.queryByAltText('田村')).not.toBeInTheDocument()
+    rerender(ui('/new.webp'))
+    expect(screen.getByAltText('田村')).toHaveAttribute('src', '/new.webp')
   })
 })

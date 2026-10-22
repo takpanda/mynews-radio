@@ -143,6 +143,7 @@ function toDetailEpisode(episode: Episode): DetailEpisode {
     keyPoints: episode.key_points,
     llmModel: episode.llm_model,
     mcDisplayName: episode.mc_display_name,
+    mcCast: episode.mc_cast ?? [],
     sourceArticles: episode.source_articles ?? [],
     topics: episode.topics ?? [],
     corrections: episode.corrections ?? [],
