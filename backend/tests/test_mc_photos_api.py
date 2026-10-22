@@ -1,6 +1,11 @@
 from app.db.connection import get_db_connection
 
 
+def _clear_authentication(client):
+    client.cookies.clear()
+    client.headers.pop("Authorization", None)
+
+
 def _ensure_photo_column():
     with get_db_connection() as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(mc_profiles)")}
@@ -30,7 +35,7 @@ def test_mc_photo_endpoint_serves_webp_without_auth_or_active_check(client, tmp_
     photo.write_bytes(photo_bytes)
     _create_mc("inactive-mc", photo.name)
 
-    client.cookies.clear()
+    _clear_authentication(client)
     response = client.get("/mcs/inactive-mc/photo")
 
     assert response.status_code == 200
@@ -47,7 +52,7 @@ def test_mc_photo_endpoint_returns_404_for_missing_mc_photo_or_file(client, tmp_
     _create_mc("no-photo-mc")
     _create_mc("missing-file-mc", "missing.webp")
 
-    client.cookies.clear()
+    _clear_authentication(client)
     assert client.get("/mcs/unknown-mc/photo").status_code == 404
     assert client.get("/mcs/no-photo-mc/photo").status_code == 404
     assert client.get("/mcs/missing-file-mc/photo").status_code == 404
@@ -67,7 +72,7 @@ def test_mc_photo_endpoint_rejects_path_traversal_and_outside_symlink(client, tm
     _create_mc("symlink-mc", "linked.webp")
     _create_mc("invalid-path-mc", "invalid\x00.webp")
 
-    client.cookies.clear()
+    _clear_authentication(client)
     assert client.get("/mcs/traversal-mc/photo").status_code == 404
     assert client.get("/mcs/symlink-mc/photo").status_code == 404
     assert client.get("/mcs/invalid-path-mc/photo").status_code == 404
