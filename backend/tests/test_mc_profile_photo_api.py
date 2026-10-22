@@ -17,11 +17,26 @@ def _ensure_profile_schema(test_env):
         migrate_mc_profile_photo(conn)
 
 
-def _image_bytes(format="PNG"):
-    image = Image.new("RGB", (32, 24), "navy")
+def _image_bytes(format="PNG", size=(32, 24), exif=None):
+    image = Image.new("RGB", size, "navy")
     data = io.BytesIO()
-    image.save(data, format=format)
+    save_options = {"exif": exif} if exif is not None else {}
+    image.save(data, format=format, **save_options)
     return data.getvalue()
+
+
+def _corrupt_png_idat_crc(data):
+    corrupted = bytearray(data)
+    offset = 8
+    while offset < len(corrupted):
+        chunk_length = int.from_bytes(corrupted[offset:offset + 4], "big")
+        chunk_type = corrupted[offset + 4:offset + 8]
+        crc_offset = offset + 8 + chunk_length
+        if chunk_type == b"IDAT":
+            corrupted[crc_offset] ^= 1
+            return bytes(corrupted)
+        offset = crc_offset + 4
+    raise AssertionError("PNG has no IDAT chunk")
 
 
 def _create_mc(client, mc_id="photo-mc"):
@@ -81,6 +96,56 @@ def test_upload_rejects_unsupported_or_invalid_images(client, name, data, mime):
     _create_mc(client)
     response = client.post("/admin/mcs/photo-mc/photo", files={"file": (name, data, mime)})
     assert response.status_code == 422
+
+
+def test_upload_rejects_png_with_corrupted_idat_crc(client):
+    _create_mc(client)
+    broken_png = _corrupt_png_idat_crc(_image_bytes())
+    response = client.post(
+        "/admin/mcs/photo-mc/photo",
+        files={"file": ("broken-crc.png", broken_png, "image/png")},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("size,expected", [
+    ((1024, 256), (512, 128)),
+    ((256, 1024), (128, 512)),
+])
+def test_upload_resizes_wide_and_tall_images(client, tmp_path, monkeypatch, size, expected):
+    monkeypatch.setenv("MC_PHOTOS_DIR", str(tmp_path / "mc-photos"))
+    from app.config import get_settings
+    get_settings.cache_clear()
+    _create_mc(client)
+
+    response = client.post(
+        "/admin/mcs/photo-mc/photo",
+        files={"file": ("large.png", _image_bytes(size=size), "image/png")},
+    )
+    assert response.status_code == 200
+    saved_file = next((tmp_path / "mc-photos").glob("*.webp"))
+    with Image.open(saved_file) as saved:
+        assert saved.size == expected
+        assert max(saved.size) == 512
+
+
+def test_upload_removes_exif_metadata(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("MC_PHOTOS_DIR", str(tmp_path / "mc-photos"))
+    from app.config import get_settings
+    get_settings.cache_clear()
+    _create_mc(client)
+    exif = Image.Exif()
+    exif[0x010E] = "Private camera metadata"
+
+    response = client.post(
+        "/admin/mcs/photo-mc/photo",
+        files={"file": ("with-exif.jpg", _image_bytes("JPEG", (800, 400), exif), "image/jpeg")},
+    )
+    assert response.status_code == 200
+    saved_file = next((tmp_path / "mc-photos").glob("*.webp"))
+    with Image.open(saved_file) as saved:
+        assert saved.size == (512, 256)
+        assert not saved.getexif()
 
 
 def test_upload_rejects_oversize_and_missing_mc(client):

@@ -189,7 +189,13 @@ async def _read_mc_photo(upload: UploadFile) -> bytes:
             return output.getvalue()
     except HTTPException:
         raise
-    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as exc:
+    except (
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+        SyntaxError,
+        Image.DecompressionBombError,
+    ) as exc:
         raise HTTPException(status_code=422, detail="Invalid image") from exc
 
 
