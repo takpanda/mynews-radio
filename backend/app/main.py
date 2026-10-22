@@ -31,6 +31,7 @@ from app.api.admin_script_review import router as admin_script_review_router
 from app.api.dictionary_sync import router as dictionary_sync_router
 from app.api.llm import router as llm_router
 from app.api.admin_programs import router as admin_programs_router
+from app.api.mc_photos import router as mc_photos_router
 from app.api.admin_prompts import router as admin_prompts_router
 from app.api.admin_dry_runs import router as admin_dry_runs_router
 from app.services.episode_service import EpisodeService
@@ -370,6 +371,7 @@ app.include_router(admin_script_review_router)
 app.include_router(dictionary_sync_router)
 app.include_router(llm_router)
 app.include_router(admin_programs_router)
+app.include_router(mc_photos_router)
 app.include_router(admin_prompts_router)
 app.include_router(admin_dry_runs_router)
 
