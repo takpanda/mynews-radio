@@ -115,6 +115,7 @@ export interface Mc {
   voice_fishs2pro: string | null
   voice_aivispeech: number | null
   voice_voicevox: number | null
+  photo_url?: string | null
   is_active: boolean
   created_at: string
   updated_at: string
@@ -265,4 +266,21 @@ export async function replaceMc(id: string, input: McSaveInput): Promise<Mc> {
   })
   if (!res.ok) throw new Error(await extractErrorMessage(res))
   return res.json() as Promise<Mc>
+}
+
+export async function uploadMcPhoto(id: string, file: File): Promise<Mc> {
+  const form = new FormData()
+  form.append('file', file)
+  // Content-Typeはboundary付きでブラウザに付与させる
+  const res = await clientFetch(`/admin/mcs/${encodeURIComponent(id)}/photo`, {
+    method: 'POST',
+    body: form,
+  })
+  if (!res.ok) throw new Error(await extractErrorMessage(res))
+  return res.json() as Promise<Mc>
+}
+
+export async function deleteMcPhoto(id: string): Promise<void> {
+  const res = await clientFetch(`/admin/mcs/${encodeURIComponent(id)}/photo`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await extractErrorMessage(res))
 }

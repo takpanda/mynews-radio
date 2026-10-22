@@ -12,9 +12,14 @@ function buildUpstreamUrl(request: NextRequest): string {
   return url
 }
 
-function buildHeaders(request: NextRequest): Record<string, string> {
+function isMultipart(request: NextRequest): boolean {
+  return (request.headers.get("content-type") ?? "").toLowerCase().startsWith("multipart/form-data")
+}
+
+function buildHeaders(request: NextRequest, multipart: boolean): Record<string, string> {
+  // multipartはboundaryを含む元のcontent-typeをそのまま転送する
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    "Content-Type": multipart ? (request.headers.get("content-type") as string) : "application/json",
   }
   const cookie = request.headers.get("cookie")
   if (cookie) {
@@ -27,16 +32,17 @@ async function proxy(request: NextRequest, method: string) {
   const unauthorized = await requireAdminSession(request)
   if (unauthorized) return unauthorized
   const upstreamUrl = buildUpstreamUrl(request)
-  const headers = buildHeaders(request)
-  let body: string | undefined
-  if (method !== "GET" && method !== "HEAD") {
-    body = await request.text()
+  const multipart = isMultipart(request)
+  const headers = buildHeaders(request, multipart)
+  let body: string | ArrayBuffer | undefined
+  if (method !== "GET" && method !== "HEAD" && method !== "DELETE") {
+    body = multipart ? await request.arrayBuffer() : await request.text()
   }
   try {
     const upstream = await fetch(upstreamUrl, {
       method,
       headers,
-      ...(body ? { body } : {}),
+      ...(body !== undefined && (typeof body === "string" ? body : body.byteLength) ? { body } : {}),
     })
     const data = await upstream.text()
     return new Response(data, {
@@ -62,4 +68,8 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   return proxy(request, "PUT")
+}
+
+export async function DELETE(request: NextRequest) {
+  return proxy(request, "DELETE")
 }
