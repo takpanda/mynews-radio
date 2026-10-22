@@ -47,6 +47,8 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    # Bound install, lint, and tests if a runner stalls (same bound as the backend job).
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
