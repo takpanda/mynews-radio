@@ -2,7 +2,7 @@ import json
 import sqlite3
 from dataclasses import replace
 
-from app.db.migration import migrate_program_profiles
+from app.db.migration import migrate_mc_profile_photo, migrate_program_profiles
 from app.programs.profiles import get_default_profile, validate_program_profile
 from app.programs.serialization import load_program_profile, program_profile_to_definition
 
@@ -44,6 +44,18 @@ def test_program_profile_migration_seeds_valid_profiles_idempotently():
     assert "元新聞記者" in radio.cast[0].persona
     assert "技術的な仕組み" in radio.cast[0].role
     assert "共感力" in radio.cast[1].persona
+
+
+def test_mc_profile_photo_migration_is_idempotent_and_preserves_existing_rows():
+    conn = _conn()
+    migrate_program_profiles(conn)
+    conn.execute("UPDATE mc_profiles SET name = ? WHERE id = ?", ("既存MC", "radio_male"))
+
+    assert migrate_mc_profile_photo(conn) is True
+    assert migrate_mc_profile_photo(conn) is False
+    assert conn.execute(
+        "SELECT name, photo_path FROM mc_profiles WHERE id = ?", ("radio_male",)
+    ).fetchone()[:] == ("既存MC", None)
 
 
 def test_program_snapshot_serialization_freezes_mc_persona_and_role():
