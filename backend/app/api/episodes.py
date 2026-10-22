@@ -1,18 +1,23 @@
 """Episode list / detail / script endpoints."""
 
 import json
+import logging
 import os
+import sqlite3
 import urllib.parse
 from typing import Optional, Union
 
 from fastapi import APIRouter, Cookie, HTTPException, Query
 from fastapi.responses import FileResponse
 
+from app.api.mc_photos import build_mc_photo_url
 from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService
 from app.services.episode_category_service import parse_episode_categories
 from app.services.settings_service import resolve_female_mc_display_name
 from app.auth import require_owner_session, has_owner_session
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_key_points(episode: dict) -> list[str]:
@@ -173,6 +178,60 @@ def _build_thumbnail_url(episode: dict) -> Optional[str]:
     if path and os.path.isfile(path):
         return f"/api/episodes/{episode['id']}/thumbnail"
     return None
+
+
+def _build_mc_cast(episode: dict) -> list[dict]:
+    """program_snapshot.cast の mc_id から mc_profiles を解決し、写真URL付きのMC一覧を返す。
+
+    snapshot 無し・破損・mc_id 無し・mc_profiles に存在しないMCは除外する。詳細取得は失敗させない。
+    """
+    snapshot = episode.get("program_snapshot")
+    if isinstance(snapshot, str):
+        try:
+            snapshot = json.loads(snapshot)
+        except ValueError:
+            return []
+    cast = snapshot.get("cast") if isinstance(snapshot, dict) else None
+    if not isinstance(cast, list):
+        return []
+
+    members = [
+        (member["key"], member["mc_id"])
+        for member in cast
+        if isinstance(member, dict)
+        and isinstance(member.get("key"), str)
+        and isinstance(member.get("mc_id"), str)
+        and member["mc_id"]
+    ]
+    if not members:
+        return []
+
+    mc_ids = list({mc_id for _, mc_id in members})
+    placeholders = ",".join("?" for _ in mc_ids)
+    try:
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                f"SELECT id, name, role, photo_path FROM mc_profiles WHERE id IN ({placeholders})",
+                mc_ids,
+            ).fetchall()
+    except sqlite3.Error:
+        logger.warning("MC cast lookup failed for episode %s", episode.get("id"))
+        return []
+
+    profiles = {row["id"]: row for row in rows}
+    result: list[dict] = []
+    for key, mc_id in members:
+        row = profiles.get(mc_id)
+        if row is None:
+            continue
+        result.append({
+            "key": key,
+            "mc_id": mc_id,
+            "name": row["name"],
+            "role": row["role"],
+            "photo_url": build_mc_photo_url(mc_id, row["photo_path"]),
+        })
+    return result
 
 
 def _is_failed_episode(entry: dict) -> bool:
@@ -433,6 +492,7 @@ def get_episode(episode_id: int, admin_session: Optional[str] = Cookie(None)) ->
         "key_points": _parse_key_points(episode),
         "categories": categories,
         "mc_display_name": resolve_female_mc_display_name(episode.get("mc_voice_name")),
+        "mc_cast": _build_mc_cast(episode),
         "source_articles": source_articles,
         "topics": topics,
         "corrections": _public_corrections(episode_id),
