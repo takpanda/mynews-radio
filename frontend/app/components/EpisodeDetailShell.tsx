@@ -2,7 +2,7 @@
 
 import { useRef, useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
-import { formatPublishedAt, type Script, type ScriptLine, type Article, type EpisodeItem, type EpisodeCorrection, type SourceArticle, type EpisodeTopic } from '../lib/api'
+import { formatPublishedAt, type Script, type ScriptLine, type Article, type EpisodeItem, type EpisodeCorrection, type SourceArticle, type EpisodeTopic, type McCastMember } from '../lib/api'
 import { buildChapters } from '../lib/chapters'
 import {
   buildPlaybackReportContext,
@@ -34,11 +34,30 @@ export interface DetailEpisode {
   keyPoints?: string[]
   llmModel?: string | null
   mcDisplayName?: string | null
+  mcCast?: McCastMember[]
   sourceArticles?: SourceArticle[]
   topics?: EpisodeTopic[]
   corrections?: EpisodeCorrection[]
   categories?: string[]
   thumbnailUrl?: string | null
+}
+
+function McAvatar({ member }: { member: McCastMember }) {
+  const [failed, setFailed] = useState(false)
+  if (!member.photo_url || failed) return null
+  const label = member.name?.trim() || member.role?.trim() || 'MC'
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={member.photo_url}
+      alt={label}
+      title={label}
+      width={20}
+      height={20}
+      className="h-5 w-5 shrink-0 rounded-full bg-slate-100 object-cover"
+      onError={() => setFailed(true)}
+    />
+  )
 }
 
 export interface EpisodeSummary {
@@ -141,6 +160,9 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
               MC: {episode.mcDisplayName.trim()}
             </span>
           )}
+          {(episode.mcCast ?? []).map((member) => (
+            <McAvatar key={`${member.key}:${member.mc_id}`} member={member} />
+          ))}
           {episode.llmModel?.trim() && (
             <span
               className="inline-flex max-w-full whitespace-normal break-all rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600"

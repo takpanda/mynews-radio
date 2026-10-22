@@ -47,6 +47,8 @@ export interface Episode {
   llm_model?: string | null
   llm_provider?: string | null
   mc_display_name?: string | null
+  /** program_snapshot.cast 由来のMC一覧。写真未登録は photo_url が null。 */
+  mc_cast?: McCastMember[]
   /** 保存順のエピソードカテゴリ。未設定の既存データでは省略／空配列。 */
   categories?: string[]
   /** サムネイル配信URL。サムネイルが無い回は null／省略。 */
@@ -54,6 +56,14 @@ export interface Episode {
   source_articles?: SourceArticle[]
   topics?: EpisodeTopic[]
   corrections?: EpisodeCorrection[]
+}
+
+export interface McCastMember {
+  key: string
+  mc_id: string
+  name: string
+  role: string | null
+  photo_url: string | null
 }
 
 export interface SourceArticle {
