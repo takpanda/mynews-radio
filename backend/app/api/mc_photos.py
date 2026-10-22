@@ -1,6 +1,7 @@
 """MCプロフィール写真の公開配信API。"""
 
 import os
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
@@ -25,6 +26,18 @@ def _mc_photo_file_path(photo_path: str | None) -> str | None:
     if candidate == photos_dir or not candidate.startswith(photos_dir + os.sep):
         return None
     return candidate
+
+
+def build_mc_photo_url(mc_id: str, photo_path: str | None) -> str | None:
+    """写真ファイルが配信可能な場合だけ公開URLを返す。`v` はファイル名先頭8桁で差し替えを反映する。"""
+    file_path = _mc_photo_file_path(photo_path)
+    try:
+        if file_path is None or not os.path.isfile(file_path):
+            return None
+    except (OSError, ValueError):
+        return None
+    version = os.path.splitext(os.path.basename(photo_path))[0][:8]
+    return f"/api/mcs/{quote(mc_id, safe='')}/photo?v={version}"
 
 
 @router.get("/mcs/{mc_id}/photo", summary="MCプロフィール写真を取得")
