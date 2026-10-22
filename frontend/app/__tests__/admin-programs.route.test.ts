@@ -2,7 +2,7 @@
 
 import { NextRequest } from 'next/server'
 import { GET, POST, PUT } from '../api/admin/programs/[[...slug]]/route'
-import { GET as MC_GET, POST as MC_POST, PUT as MC_PUT } from '../api/admin/mcs/[[...slug]]/route'
+import { GET as MC_GET, POST as MC_POST, PUT as MC_PUT, DELETE as MC_DELETE } from '../api/admin/mcs/[[...slug]]/route'
 
 function request(url: string, init?: { cookie?: string; method?: string; body?: string }) {
   const headers: Record<string, string> = {}
@@ -146,5 +146,45 @@ describe('/api/admin/mcs Route Handler', () => {
       'http://api:8010/admin/mcs/mc1',
       expect.objectContaining({ method: 'PUT', body: payload }),
     )
+  })
+
+  it('POST multipart: arrayBufferと元のcontent-type(boundary付き)をそのまま上流へ転送する', async () => {
+    ;(global.fetch as jest.Mock)
+      .mockResolvedValueOnce(upstream(200, '{"admin_user_id":1}'))
+      .mockResolvedValueOnce(upstream(200, '{"id":"mc1"}'))
+    const form = new FormData()
+    form.append('file', new Blob(['abc'], { type: 'image/png' }), 'a.png')
+    const req = new NextRequest('http://localhost/api/admin/mcs/mc1/photo', {
+      method: 'POST',
+      headers: { cookie: 'admin_session=valid-token' },
+      body: form,
+    })
+    const ct = req.headers.get('content-type') as string
+    expect(ct).toMatch(/^multipart\/form-data; boundary=/)
+
+    const response = await MC_POST(req)
+
+    expect(response.status).toBe(200)
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[1]
+    expect(url).toBe('http://api:8010/admin/mcs/mc1/photo')
+    expect(init.headers['Content-Type']).toBe(ct)
+    expect(init.body).toBeInstanceOf(ArrayBuffer)
+    expect(Buffer.from(init.body).toString()).toContain('abc')
+  })
+
+  it('DELETE: bodyなしで上流へ転送する', async () => {
+    ;(global.fetch as jest.Mock)
+      .mockResolvedValueOnce(upstream(200, '{"admin_user_id":1}'))
+      .mockResolvedValueOnce(upstream(200, '{"id":"mc1"}'))
+    const response = await MC_DELETE(
+      request('http://localhost/api/admin/mcs/mc1/photo', { cookie: 'admin_session=valid-token', method: 'DELETE' }),
+    )
+    expect(response.status).toBe(200)
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2,
+      'http://api:8010/admin/mcs/mc1/photo',
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+    expect((global.fetch as jest.Mock).mock.calls[1][1].body).toBeUndefined()
   })
 })

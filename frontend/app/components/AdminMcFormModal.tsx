@@ -1,7 +1,15 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { createMc, replaceMc, MAX_PERSONA_LENGTH, type Mc, type McSaveInput } from '../lib/admin-programs'
+import {
+  createMc,
+  replaceMc,
+  uploadMcPhoto,
+  deleteMcPhoto,
+  MAX_PERSONA_LENGTH,
+  type Mc,
+  type McSaveInput,
+} from '../lib/admin-programs'
 import { fetchVoiceOptionsClient } from '../lib/admin-voice-settings'
 import {
   DISABLED_TTS_ENGINE_MESSAGE,
@@ -17,11 +25,13 @@ interface Props {
   onSuccess: () => void
 }
 
-type FormErrors = Partial<Record<'id' | 'name' | 'role' | 'persona', string>>
+type FormErrors = Partial<Record<'id' | 'name' | 'role' | 'persona' | 'photo', string>>
 
 const MAX_ID = 100
 const MAX_NAME = 200
 const MAX_ROLE = 200
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024
+const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 const VOICE_SELECT_CLASS =
   'w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 transition focus:border-sky-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400'
@@ -75,7 +85,59 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
   const [voiceOptions, setVoiceOptions] = useState<VoiceOptionsResponse | null>(null)
   const [voiceOptionsError, setVoiceOptionsError] = useState<string | null>(null)
 
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const [photoRemoved, setPhotoRemoved] = useState(false)
+  const [photoBroken, setPhotoBroken] = useState(false)
+  // MC本体の保存が済んだか（写真だけ失敗した場合の再試行で、作成を重複させないため）
+  const [mainSaved, setMainSaved] = useState(false)
+
   const backdropRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!photoFile) {
+      setPhotoPreview(null)
+      return
+    }
+    const url = URL.createObjectURL(photoFile)
+    setPhotoPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [photoFile])
+
+  const currentPhotoUrl =
+    photoPreview ?? (!photoRemoved && !photoBroken && mc?.photo_url ? mc.photo_url : null)
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!PHOTO_TYPES.includes(file.type)) {
+      setErrors((prev) => ({ ...prev, photo: '画像はJPEG・PNG・WebPのいずれかを選択してください' }))
+      return
+    }
+    if (file.size > MAX_PHOTO_BYTES) {
+      setErrors((prev) => ({ ...prev, photo: '画像のサイズは5MB以下にしてください' }))
+      return
+    }
+    setErrors((prev) => ({ ...prev, photo: undefined }))
+    setPhotoFile(file)
+    setPhotoRemoved(false)
+  }
+
+  const handlePhotoRemove = () => {
+    setPhotoFile(null)
+    setPhotoRemoved(true)
+    setErrors((prev) => ({ ...prev, photo: undefined }))
+  }
+
+  const hasPhotoChange = photoFile !== null || (photoRemoved && !!mc?.photo_url)
+
+  const handleClose = () => {
+    // MC本体が保存済みなら一覧を最新化して閉じる
+    if (mainSaved) onSuccess()
+    else onClose()
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -99,11 +161,11 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !submitting) onClose()
+      if (e.key === 'Escape' && !submitting) handleClose()
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onClose, submitting])
+  }, [onClose, onSuccess, mainSaved, submitting])
 
   const validate = (): boolean => {
     const errs: FormErrors = {}
@@ -133,22 +195,35 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
       voice_voicevox: voiceVoicevox.trim() === '' ? null : Number(voiceVoicevox),
       is_active: isActive,
     }
+    let step: 'main' | 'photo' = 'main'
     try {
-      if (isEdit) {
-        await replaceMc(mc!.id, input)
+      if (isEdit || mainSaved) {
+        await replaceMc(input.id, input)
       } else {
         await createMc(input)
       }
+      step = 'photo'
+      if (photoFile) {
+        await uploadMcPhoto(input.id, photoFile)
+      } else if (photoRemoved && mc?.photo_url) {
+        await deleteMcPhoto(input.id)
+      }
       onSuccess()
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : '保存に失敗しました')
+      const message = err instanceof Error ? err.message : '保存に失敗しました'
+      if (step === 'photo') setMainSaved(true)
+      setSubmitError(
+        step === 'photo'
+          ? `MC情報は保存されましたが、写真の更新に失敗しました: ${message}（もう一度保存するか、閉じてください）`
+          : message,
+      )
     } finally {
       setSubmitting(false)
     }
   }
 
   const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === backdropRef.current && !submitting) onClose()
+    if (e.target === backdropRef.current && !submitting) handleClose()
   }
 
   return (
@@ -167,7 +242,7 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
           <h2 className="text-base font-semibold text-slate-900">{isEdit ? 'MCを編集' : 'MCを追加'}</h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             disabled={submitting}
             className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50"
             aria-label="閉じる"
@@ -188,7 +263,7 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
               value={id}
               onChange={(e) => setId(e.target.value)}
               maxLength={MAX_ID}
-              disabled={isEdit}
+              disabled={isEdit || mainSaved}
               className={`w-full rounded-lg border px-3 py-2 text-sm text-slate-900 transition focus:outline-none focus:ring-2 disabled:bg-slate-100 disabled:text-slate-500 ${
                 errors.id
                   ? 'border-red-300 bg-red-50 focus:border-red-400 focus:ring-red-100'
@@ -198,6 +273,60 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
               aria-invalid={!!errors.id}
             />
             {errors.id && <p className="mt-1 text-xs text-red-500">{errors.id}</p>}
+          </div>
+
+          <div>
+            <span className="mb-1 block text-xs font-medium text-slate-500">写真</span>
+            <div className="flex items-center gap-3">
+              {currentPhotoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={currentPhotoUrl}
+                  alt="MC写真のプレビュー"
+                  onError={() => setPhotoBroken(true)}
+                  className="h-16 w-16 rounded-full border border-slate-200 object-cover"
+                />
+              ) : (
+                <div
+                  aria-hidden="true"
+                  className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-200 text-lg font-medium text-slate-500"
+                >
+                  {(name.trim() || id.trim() || '?').charAt(0)}
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  id="mc-form-photo"
+                  type="file"
+                  accept={PHOTO_TYPES.join(',')}
+                  onChange={handlePhotoChange}
+                  disabled={submitting}
+                  className="sr-only"
+                  aria-label="MC写真を選択"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={submitting}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {currentPhotoUrl ? '写真を変更' : '写真を選択'}
+                </button>
+                {currentPhotoUrl && (
+                  <button
+                    type="button"
+                    onClick={handlePhotoRemove}
+                    disabled={submitting}
+                    className="rounded-full border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+                  >
+                    写真を削除
+                  </button>
+                )}
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-slate-400">JPEG・PNG・WebP、5MB以下。保存時にアップロードされます。</p>
+            {errors.photo && <p role="alert" className="mt-1 text-xs text-red-500">{errors.photo}</p>}
           </div>
 
           <div>
@@ -342,7 +471,7 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
           <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               disabled={submitting}
               className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
             >

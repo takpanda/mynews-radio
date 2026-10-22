@@ -107,6 +107,7 @@ export default function AdminMcsShell({ initialMcs, initialIncludeInactive }: Pr
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-100">
+                  <Th>写真</Th>
                   <Th>ID</Th>
                   <Th>名前</Th>
                   <Th>役割</Th>
@@ -120,6 +121,9 @@ export default function AdminMcsShell({ initialMcs, initialIncludeInactive }: Pr
               <tbody>
                 {mcs.map((mc) => (
                   <tr key={mc.id} className="border-b border-slate-50 transition last:border-0 hover:bg-slate-50/50">
+                    <td className="px-4 py-3">
+                      <McAvatar key={mc.photo_url ?? ''} mc={mc} />
+                    </td>
                     <td className="px-4 py-3 font-medium text-slate-900">{mc.id}</td>
                     <td className="px-4 py-3 text-slate-700">{mc.name || '—'}</td>
                     <td className="px-4 py-3 text-slate-600">{mc.role || '—'}</td>
@@ -166,5 +170,29 @@ function Th({ children, className }: { children: React.ReactNode; className?: st
     <th className={`whitespace-nowrap px-4 py-3 text-xs font-medium text-slate-500 ${className ?? ''}`}>
       {children}
     </th>
+  )
+}
+
+function McAvatar({ mc }: { mc: Mc }) {
+  const [failed, setFailed] = useState(false)
+  if (mc.photo_url && !failed) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={mc.photo_url}
+        alt={`${mc.name || mc.id}の写真`}
+        onError={() => setFailed(true)}
+        className="h-10 w-10 rounded-full object-cover"
+      />
+    )
+  }
+  return (
+    <div
+      data-testid="mc-photo-placeholder"
+      aria-hidden="true"
+      className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-200 text-sm font-medium text-slate-500"
+    >
+      {(mc.name.trim() || mc.id).charAt(0)}
+    </div>
   )
 }
