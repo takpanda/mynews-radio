@@ -1,13 +1,21 @@
 """番組・MCプロファイルの管理API。"""
 
+import io
 import json
+import logging
+import os
+import uuid
 from typing import Annotated, Literal
+from pathlib import Path
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.auth import require_admin_with_token
 from app.audit import hash_input, insert_audit_log
+from app.config import get_settings
 from app.db.connection import get_db_connection
 from app.programs.profiles import (
     ProgramCastMember,
@@ -22,6 +30,10 @@ from app.programs.serialization import program_profile_to_definition
 
 router = APIRouter(prefix="/admin", tags=["admin-programs"])
 AdminContext = Annotated[tuple[int, str], Depends(require_admin_with_token)]
+logger = logging.getLogger(__name__)
+MC_PHOTO_MAX_BYTES = 5 * 1024 * 1024
+MC_PHOTO_MAX_PIXELS = 40_000_000
+MC_PHOTO_MAX_DIMENSION = 512
 
 
 class StrictModel(BaseModel):
@@ -135,7 +147,64 @@ def _program_row(row) -> dict:
 def _mc_row(row) -> dict:
     value = dict(row)
     value["is_active"] = bool(value["is_active"])
+    photo_path = value.pop("photo_path", None)
+    photo_url = None
+    if photo_path:
+        safe_name = os.path.basename(photo_path)
+        photo_file = Path(get_settings().mc_photos_dir, safe_name)
+        try:
+            if photo_file.is_file() and photo_file.resolve().is_relative_to(
+                Path(get_settings().mc_photos_dir).resolve()
+            ):
+                photo_url = f"/api/mcs/{quote(value['id'], safe='')}/photo?v={Path(safe_name).stem[:8]}"
+        except (OSError, ValueError):
+            logger.warning("MC photo path could not be resolved")
+    value["photo_url"] = photo_url
     return value
+
+
+async def _read_mc_photo(upload: UploadFile) -> bytes:
+    contents = bytearray()
+    while chunk := await upload.read(64 * 1024):
+        contents.extend(chunk)
+        if len(contents) > MC_PHOTO_MAX_BYTES:
+            raise HTTPException(status_code=413, detail="Photo exceeds 5 MB")
+    if not contents:
+        raise HTTPException(status_code=422, detail="Invalid image")
+
+    try:
+        with Image.open(io.BytesIO(contents)) as image:
+            image_format = image.format
+            if image_format not in {"JPEG", "PNG", "WEBP"}:
+                raise HTTPException(status_code=422, detail="Unsupported image format")
+            if image.width * image.height > MC_PHOTO_MAX_PIXELS:
+                raise HTTPException(status_code=422, detail="Image dimensions are too large")
+            image.verify()
+        with Image.open(io.BytesIO(contents)) as image:
+            image.thumbnail((MC_PHOTO_MAX_DIMENSION, MC_PHOTO_MAX_DIMENSION), Image.Resampling.LANCZOS)
+            if image.mode not in {"RGB", "RGBA"}:
+                image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+            output = io.BytesIO()
+            image.save(output, format="WEBP", quality=85, method=6)
+            return output.getvalue()
+    except HTTPException:
+        raise
+    except (
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+        SyntaxError,
+        Image.DecompressionBombError,
+    ) as exc:
+        raise HTTPException(status_code=422, detail="Invalid image") from exc
+
+
+def _stored_mc_photo_path(filename: str | None) -> Path | None:
+    if not filename or os.path.basename(filename) != filename:
+        return None
+    root = Path(get_settings().mc_photos_dir).resolve()
+    candidate = (root / filename).resolve()
+    return candidate if candidate.is_relative_to(root) else None
 
 
 def _audit(conn, operation: str, actor: int, payload: dict) -> None:
@@ -273,3 +342,63 @@ def replace_mc(mc_id: str, body: McInput, admin: AdminContext) -> dict:
         )
         _audit(conn, "admin_mc_update", admin[0], body.model_dump())
         return _mc_row(conn.execute("SELECT * FROM mc_profiles WHERE id = ?", (mc_id,)).fetchone())
+
+
+@router.post("/mcs/{mc_id}/photo")
+async def upload_mc_photo(mc_id: str, admin: AdminContext, file: UploadFile = File(...)) -> dict:
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT photo_path FROM mc_profiles WHERE id = ?", (mc_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="MC not found")
+        old_filename = row["photo_path"]
+
+    new_file = None
+    try:
+        photo_bytes = await _read_mc_photo(file)
+        filename = f"{uuid.uuid4().hex}.webp"
+        photo_dir = Path(get_settings().mc_photos_dir)
+        photo_dir.mkdir(parents=True, exist_ok=True)
+        new_file = photo_dir / filename
+        new_file.write_bytes(photo_bytes)
+        with get_db_connection() as conn:
+            conn.execute(
+                "UPDATE mc_profiles SET photo_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (filename, mc_id),
+            )
+            _audit(conn, "admin_mc_photo_update", admin[0], {"mc_id": mc_id, "size": len(photo_bytes)})
+            row = conn.execute("SELECT * FROM mc_profiles WHERE id = ?", (mc_id,)).fetchone()
+        old_file = _stored_mc_photo_path(old_filename)
+        if old_file and old_file != new_file.resolve():
+            try:
+                old_file.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Old MC photo could not be removed")
+        return _mc_row(row)
+    except Exception:
+        if new_file is not None:
+            new_file.unlink(missing_ok=True)
+        raise
+    finally:
+        await file.close()
+
+
+@router.delete("/mcs/{mc_id}/photo")
+def delete_mc_photo(mc_id: str, admin: AdminContext) -> dict:
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT photo_path FROM mc_profiles WHERE id = ?", (mc_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="MC not found")
+        old_filename = row["photo_path"]
+        conn.execute(
+            "UPDATE mc_profiles SET photo_path = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (mc_id,),
+        )
+        _audit(conn, "admin_mc_photo_delete", admin[0], {"mc_id": mc_id})
+        result = _mc_row(conn.execute("SELECT * FROM mc_profiles WHERE id = ?", (mc_id,)).fetchone())
+    old_file = _stored_mc_photo_path(old_filename)
+    if old_file:
+        try:
+            old_file.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("MC photo could not be removed")
+    return result
