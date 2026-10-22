@@ -43,8 +43,8 @@ export interface DetailEpisode {
 }
 
 function McAvatar({ member }: { member: McCastMember }) {
-  const [failed, setFailed] = useState(false)
-  if (!member.photo_url || failed) return null
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  if (!member.photo_url || failedUrl === member.photo_url) return null
   const label = member.name?.trim() || member.role?.trim() || 'MC'
   return (
     // eslint-disable-next-line @next/next/no-img-element
@@ -55,7 +55,7 @@ function McAvatar({ member }: { member: McCastMember }) {
       width={20}
       height={20}
       className="h-5 w-5 shrink-0 rounded-full bg-slate-100 object-cover"
-      onError={() => setFailed(true)}
+      onError={() => setFailedUrl(member.photo_url)}
     />
   )
 }

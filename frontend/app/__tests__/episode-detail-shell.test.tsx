@@ -497,4 +497,22 @@ describe('EpisodeDetailShell MCアバター表示', () => {
     expect(screen.queryByAltText('田村')).not.toBeInTheDocument()
     expect(screen.getByText('MC: 秋元優里')).toBeInTheDocument()
   })
+
+  it('画像エラー後に同じMCの photo_url が更新されたら新しい画像を表示する', () => {
+    const member = { key: 'male', mc_id: 'm', name: '田村', role: null, photo_url: '/old.webp' }
+    const ui = (photoUrl: string) => (
+      <EpisodeDetailShell
+        episode={createEpisode({ mcCast: [{ ...member, photo_url: photoUrl }] })}
+        script={null}
+        articles={[]}
+        episodeItems={[]}
+        summary={null}
+      />
+    )
+    const { rerender } = render(ui('/old.webp'))
+    fireEvent.error(screen.getByAltText('田村'))
+    expect(screen.queryByAltText('田村')).not.toBeInTheDocument()
+    rerender(ui('/new.webp'))
+    expect(screen.getByAltText('田村')).toHaveAttribute('src', '/new.webp')
+  })
 })
