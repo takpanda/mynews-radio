@@ -115,12 +115,16 @@ export default function AdminMcsShell({ initialMcs, initialIncludeInactive }: Pr
                   <Th>AivisSpeech</Th>
                   <Th>VOICEVOX</Th>
                   <Th>状態</Th>
-                  <Th className="hidden md:table-cell">操作</Th>
+                  <Th>操作</Th>
                 </tr>
               </thead>
               <tbody>
                 {mcs.map((mc) => (
-                  <tr key={mc.id} className="border-b border-slate-50 transition last:border-0 hover:bg-slate-50/50">
+                  <tr
+                    key={mc.id}
+                    onClick={() => handleEdit(mc)}
+                    className="cursor-pointer border-b border-slate-50 transition last:border-0 hover:bg-slate-50/50"
+                  >
                     <td className="px-4 py-3">
                       <McAvatar key={mc.photo_url ?? ''} mc={mc} />
                     </td>
@@ -140,10 +144,13 @@ export default function AdminMcsShell({ initialMcs, initialIncludeInactive }: Pr
                         {mc.is_active ? '有効' : '無効'}
                       </span>
                     </td>
-                    <td className="hidden px-4 py-3 md:table-cell">
+                    <td className="px-4 py-3">
                       <button
                         type="button"
-                        onClick={() => handleEdit(mc)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleEdit(mc)
+                        }}
                         className="text-xs text-sky-600 transition hover:text-sky-800"
                       >
                         編集

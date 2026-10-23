@@ -76,17 +76,30 @@ describe('AdminMcsShell', () => {
     expect(calls.some(([url, o]) => !o?.method && /\/admin\/mcs(\?|$)/.test(url))).toBe(true)
   })
 
-  it('「MCを追加」ボタンと操作列はスマホ幅（375px相当）では非表示になるクラスを持つ', () => {
-    // jsdomはメディアクエリを評価しないため、実際の375px非表示はPlaywright等の実ブラウザ確認が必要。
-    // ここでは責務分割用のTailwindクラス（hidden / md:inline-flex, md:table-cell）が外れていないことを回帰的に検知する。
+  it('「MCを追加」ボタンはスマホ幅では非表示、編集ボタンは非表示クラスを持たない', () => {
+    // jsdomはメディアクエリを評価しないため、実際の375px表示は実ブラウザ確認が必要。クラスの回帰のみ検知する。
     render(<AdminMcsShell initialMcs={[activeMc]} initialIncludeInactive={false} />)
     const addButton = screen.getByRole('button', { name: 'MCを追加' })
     expect(addButton).toHaveClass('hidden')
     expect(addButton).toHaveClass('md:inline-flex')
 
     const editButton = screen.getByRole('button', { name: '編集' })
-    expect(editButton.closest('td')).toHaveClass('hidden')
-    expect(editButton.closest('td')).toHaveClass('md:table-cell')
+    expect(editButton.closest('td')).not.toHaveClass('hidden')
+    expect(editButton.closest('td')).not.toHaveClass('md:table-cell')
+  })
+
+  it('行タップで編集モーダルが開く', async () => {
+    const user = userEvent.setup()
+    render(<AdminMcsShell initialMcs={[activeMc]} initialIncludeInactive={false} />)
+    await user.click(screen.getByText(activeMc.id))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('編集ボタン押下ではモーダルが二重に開かない', async () => {
+    const user = userEvent.setup()
+    render(<AdminMcsShell initialMcs={[activeMc]} initialIncludeInactive={false} />)
+    await user.click(screen.getByRole('button', { name: '編集' }))
+    expect(await screen.findAllByRole('dialog')).toHaveLength(1)
   })
 
   it('写真未登録はプレースホルダー（頭文字）、登録済みは画像を表示し、読込失敗でプレースホルダーに戻る', () => {
