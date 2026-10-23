@@ -95,11 +95,24 @@ describe('AdminMcsShell', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
   })
 
-  it('編集ボタン押下ではモーダルが二重に開かない', async () => {
-    const user = userEvent.setup()
-    render(<AdminMcsShell initialMcs={[activeMc]} initialIncludeInactive={false} />)
-    await user.click(screen.getByRole('button', { name: '編集' }))
-    expect(await screen.findAllByRole('dialog')).toHaveLength(1)
+  it('編集ボタンのクリックは行へ伝播しない（stopPropagationで二重発火を防ぐ）', async () => {
+    // Reactのルート(RTLのcontainer)で止まらなければ、bodyのリスナーに届く＝行のonClickも発火する
+    const bubbled = jest.fn()
+    document.body.addEventListener('click', bubbled)
+    try {
+      const user = userEvent.setup()
+      render(<AdminMcsShell initialMcs={[activeMc]} initialIncludeInactive={false} />)
+      await user.click(screen.getByRole('button', { name: '編集' }))
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
+      expect(bubbled).not.toHaveBeenCalled()
+
+      // 対照: 行（編集ボタン以外）のクリックは通常どおり伝播する
+      await user.click(screen.getByRole('button', { name: '閉じる' }))
+      await user.click(screen.getByText(activeMc.id))
+      expect(bubbled).toHaveBeenCalled()
+    } finally {
+      document.body.removeEventListener('click', bubbled)
+    }
   })
 
   it('写真未登録はプレースホルダー（頭文字）、登録済みは画像を表示し、読込失敗でプレースホルダーに戻る', () => {
