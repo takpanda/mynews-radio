@@ -233,7 +233,7 @@ export default function AdminMcFormModal({ mc, onClose, onSuccess }: Props) {
       onClick={handleBackdropClick}
     >
       <div
-        className="flex w-full max-w-lg flex-col rounded-2xl border border-slate-200 bg-white shadow-xl"
+        className="flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col rounded-2xl border border-slate-200 bg-white shadow-xl"
         role="dialog"
         aria-modal="true"
         aria-label={isEdit ? 'MCを編集' : 'MCを追加'}
