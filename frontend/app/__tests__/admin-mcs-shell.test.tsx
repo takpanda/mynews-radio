@@ -108,6 +108,7 @@ describe('AdminMcsShell', () => {
 
       // 対照: 行（編集ボタン以外）のクリックは通常どおり伝播する
       await user.click(screen.getByRole('button', { name: '閉じる' }))
+      bubbled.mockClear()
       await user.click(screen.getByText(activeMc.id))
       expect(bubbled).toHaveBeenCalled()
     } finally {
