@@ -145,7 +145,7 @@ class CodexClient:
         exp = _jwt_claims(self._access_token).get("exp")
         return isinstance(exp, (int, float)) and exp <= time.time() + CODEX_REFRESH_SKEW_SECONDS
 
-    def _refresh_access_token(self) -> bool:
+    def _refresh_access_token(self, timeout: httpx.Timeout | None = None) -> bool:
         """OAuth refreshを行い、rotationされたrefresh_tokenも同時に更新する。"""
         if not self._refresh_token:
             return False
@@ -162,15 +162,16 @@ class CodexClient:
                         ):
                             self._set_tokens(stored["access_token"], stored["refresh_token"])
                             return True
-                        return self._refresh_and_persist_unlocked()
-                return self._refresh_and_persist_unlocked()
+                        return self._refresh_and_persist_unlocked(timeout)
+                return self._refresh_and_persist_unlocked(timeout)
             except Exception:
                 # 認証情報やレスポンス本文を例外メッセージへ出さない。
                 logger.warning("Codex OAuth refresh failed")
                 return False
 
-    def _refresh_and_persist_unlocked(self) -> bool:
-        with httpx.Client(timeout=httpx.Timeout(self._timeout)) as refresh_client:
+    def _refresh_and_persist_unlocked(self, timeout: httpx.Timeout | None = None) -> bool:
+        refresh_timeout = timeout if timeout is not None else httpx.Timeout(self._timeout)
+        with httpx.Client(timeout=refresh_timeout) as refresh_client:
             response = refresh_client.post(
                 CODEX_OAUTH_TOKEN_URL,
                 headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"},
@@ -225,12 +226,13 @@ class CodexClient:
         self._adopt_canonical_tokens()
         if not self._access_token:
             return None
+        # 一覧取得はUI応答を待つ処理なので、refreshも同じ短いtimeoutで行う（生成用の長いtimeoutを使わない）。
         if self._token_is_expiring():
-            self._refresh_access_token()
+            self._refresh_access_token(timeout)
         params = {"client_version": CODEX_MODELS_CLIENT_VERSION}
         try:
             response = self.client.get("/models", params=params, timeout=timeout)
-            if response.status_code == 401 and self._refresh_access_token():
+            if response.status_code == 401 and self._refresh_access_token(timeout):
                 response = self.client.get("/models", params=params, timeout=timeout)
             if response.status_code >= 400:
                 logger.warning("Codex model list request failed (status=%d)", response.status_code)

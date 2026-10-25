@@ -2,6 +2,7 @@ import base64
 import json
 import os
 import time
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -217,3 +218,61 @@ def test_list_model_slugs_without_access_token_does_not_request():
         assert client.list_model_slugs(httpx.Timeout(5)) is None
 
     get.assert_not_called()
+
+
+@contextmanager
+def _spy_httpx_client_timeouts():
+    """httpx.Clientの生成timeoutを記録する（生成されたクライアントはそのまま実物を返す）。"""
+    built = []
+    real_client = httpx.Client
+
+    def build(*args, **kwargs):
+        built.append(kwargs["timeout"])
+        return real_client(*args, **kwargs)
+
+    with patch("app.services.codex_client.httpx.Client", side_effect=build):
+        yield built
+
+
+def test_list_model_slugs_refresh_on_expiring_token_uses_short_timeout():
+    expired = _jwt(int(time.time()) - 1)
+    client = CodexClient("https://chatgpt.com/backend-api/codex", "gpt-5.4", expired, "refresh")
+    refresh = _response(200, {"access_token": _jwt(int(time.time()) + 3600), "refresh_token": "new-refresh"})
+    payload = {"models": [{"slug": "gpt-6-sol", "supported_in_api": True}]}
+    short = httpx.Timeout(5, connect=2)
+
+    with patch.object(httpx.Client, "post", return_value=refresh), patch.object(
+        httpx.Client, "get", return_value=_models_response(200, payload)
+    ) as get, _spy_httpx_client_timeouts() as built:
+        assert client.list_model_slugs(short) == ["gpt-6-sol"]
+
+    # 期限切れ判定の後、一覧取得より前にrefreshのクライアントが作られる。
+    assert built[0].connect == 2 and built[0].read == 5
+    assert get.call_args.kwargs["timeout"] is short
+
+
+def test_list_model_slugs_refresh_after_401_uses_short_timeout():
+    client = CodexClient("https://chatgpt.com/backend-api/codex", "gpt-5.4", "access", "refresh")
+    refresh = _response(200, {"access_token": "new-access"})
+    payload = {"models": [{"slug": "gpt-6-sol", "supported_in_api": True}]}
+    short = httpx.Timeout(5, connect=2)
+
+    with patch.object(httpx.Client, "post", return_value=refresh) as post, patch.object(
+        httpx.Client, "get", side_effect=[_models_response(401), _models_response(200, payload)]
+    ), _spy_httpx_client_timeouts() as built:
+        assert client.list_model_slugs(short) == ["gpt-6-sol"]
+
+    # 1つ目は一覧用クライアント（生成用の既定timeout）、2つ目が401後のrefresh用。
+    assert built[0].read == 600
+    assert built[1].connect == 2 and built[1].read == 5
+    assert post.call_count == 1
+
+
+def test_generation_refresh_keeps_default_timeout():
+    client = CodexClient("https://chatgpt.com/backend-api/codex", "gpt-5.4", "access", "refresh", timeout=600.0)
+    refresh = _response(200, {"access_token": "new-access"})
+
+    with patch.object(httpx.Client, "post", return_value=refresh), _spy_httpx_client_timeouts() as built:
+        assert client._refresh_access_token() is True
+
+    assert built[0].read == 600
