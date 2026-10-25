@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 CODEX_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 CODEX_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
 CODEX_REFRESH_SKEW_SECONDS = 120
+# /models は client_version がないと 400 になる（値は 1.0.0 で 200 を確認済み）。
+CODEX_MODELS_CLIENT_VERSION = "1.0.0"
 JSON_INSTRUCTION = "Return only valid JSON. Do not use Markdown code fences or add any explanation."
 
 
@@ -217,6 +219,38 @@ class CodexClient:
             ):
                 chunks.append(event["delta"])
         return "".join(chunks)
+
+    def list_model_slugs(self, timeout: httpx.Timeout) -> Optional[list[str]]:
+        """Codex /models から supported_in_api=true のモデルslugを返す。失敗時はNone。"""
+        self._adopt_canonical_tokens()
+        if not self._access_token:
+            return None
+        if self._token_is_expiring():
+            self._refresh_access_token()
+        params = {"client_version": CODEX_MODELS_CLIENT_VERSION}
+        try:
+            response = self.client.get("/models", params=params, timeout=timeout)
+            if response.status_code == 401 and self._refresh_access_token():
+                response = self.client.get("/models", params=params, timeout=timeout)
+            if response.status_code >= 400:
+                logger.warning("Codex model list request failed (status=%d)", response.status_code)
+                return None
+            payload = response.json()
+        except Exception:
+            # 認証情報やレスポンス本文を例外メッセージへ出さない。
+            logger.warning("Codex model list request failed")
+            return None
+        models = payload.get("models") if isinstance(payload, dict) else None
+        if not isinstance(models, list):
+            return None
+        slugs: list[str] = []
+        for model in models:
+            if not isinstance(model, dict) or model.get("supported_in_api") is not True:
+                continue
+            slug = model.get("slug")
+            if isinstance(slug, str) and slug.strip() and slug.strip() not in slugs:
+                slugs.append(slug.strip())
+        return slugs
 
     def generate_json(self, prompt: str) -> Optional[dict[str, Any]]:
         started = time.monotonic()

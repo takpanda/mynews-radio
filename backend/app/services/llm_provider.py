@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 
 from app.config import get_settings
+from app.services.codex_client import CodexClient
 
 PROVIDERS = ("ollama", "lm_studio", "vllm", "codex")
 
@@ -303,15 +304,45 @@ def _timeout() -> httpx.Timeout:
     return httpx.Timeout(s.llm_response_timeout, connect=s.llm_connect_timeout)
 
 
+def _list_codex_models(config: ProviderConfig) -> list[str] | None:
+    with CodexClient(
+        config.base_url,
+        config.model,
+        config.access_token,
+        config.refresh_token,
+        config.api_timeout,
+        config.token_store_path,
+    ) as client:
+        return client.list_model_slugs(_timeout())
+
+
+async def _fetch_codex(config: ProviderConfig) -> dict[str, Any]:
+    """Codexはアカウントで利用可能なモデル一覧を返す。取得に失敗した場合は設定済みモデルのみを返す。"""
+    fallback = {
+        "provider": config.name,
+        "models": [config.model] if config.model else [],
+        "available": bool(config.access_token and config.model),
+        "error_code": "connection_failed" if not config.access_token else None,
+    }
+    if not config.access_token:
+        return fallback
+    # CodexClientは同期I/O（トークンストアのflock、refresh、HTTP）を含むためスレッドへ逃がす。
+    try:
+        slugs = await asyncio.to_thread(_list_codex_models, config)
+    except Exception:
+        slugs = None
+    if not slugs:
+        return fallback
+    if not config.model:
+        return {**fallback, "models": slugs}
+    # 設定済みデフォルトは先頭に残す（フロントは切り替え時に models[0] を選ぶため）。
+    return {**fallback, "models": [config.model] + [slug for slug in slugs if slug != config.model]}
+
+
 async def _fetch(config: ProviderConfig) -> dict[str, Any]:
     try:
         if config.responses_api:
-            return {
-                "provider": config.name,
-                "models": [config.model] if config.model else [],
-                "available": bool(config.access_token and config.model),
-                "error_code": "connection_failed" if not config.access_token else None,
-            }
+            return await _fetch_codex(config)
         headers = {"Authorization": f"Bearer {config.api_key}"} if config.api_key else {}
         async with httpx.AsyncClient(base_url=config.base_url.rstrip("/"), timeout=_timeout(), headers=headers) as client:
             if config.native:

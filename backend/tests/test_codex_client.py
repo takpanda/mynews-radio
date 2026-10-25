@@ -4,6 +4,8 @@ import os
 import time
 from unittest.mock import MagicMock, patch
 
+import httpx
+
 from app.services.codex_client import CodexClient
 from app.services.codex_token_store import CodexTokenStore
 from app.services.llm_call_log_service import sanitize_llm_text
@@ -156,3 +158,62 @@ def test_rotated_store_tokens_are_redacted_from_persistent_log_text(tmp_path, mo
 
     assert "rotated-access" not in text
     assert "rotated-refresh" not in text
+
+
+def _models_response(status_code: int, payload: dict | None = None) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    response.json.return_value = payload or {}
+    return response
+
+
+def test_list_model_slugs_keeps_only_supported_in_api_and_sends_client_version():
+    client = CodexClient("https://chatgpt.com/backend-api/codex", "gpt-5.4", "access", "refresh")
+    payload = {"models": [
+        {"slug": "gpt-6.1-sol", "supported_in_api": True},
+        {"slug": "internal-only", "supported_in_api": False},
+        {"slug": "gpt-6-luna", "supported_in_api": True},
+        {"slug": "gpt-6-luna", "supported_in_api": True},
+        {"supported_in_api": True},
+        {"slug": "unflagged"},
+    ]}
+
+    with patch("app.services.codex_client.httpx.Client.get", return_value=_models_response(200, payload)) as get:
+        assert client.list_model_slugs(httpx.Timeout(5)) == ["gpt-6.1-sol", "gpt-6-luna"]
+
+    assert get.call_args.args == ("/models",)
+    assert get.call_args.kwargs["params"] == {"client_version": "1.0.0"}
+
+
+def test_list_model_slugs_refreshes_once_on_401_and_retries():
+    client = CodexClient("https://chatgpt.com/backend-api/codex", "gpt-5.4", "access", "refresh")
+    payload = {"models": [{"slug": "gpt-6-sol", "supported_in_api": True}]}
+    refresh = _response(200, {"access_token": "new-access"})
+
+    with patch("app.services.codex_client.httpx.Client.post", return_value=refresh) as post, patch(
+        "app.services.codex_client.httpx.Client.get",
+        side_effect=[_models_response(401), _models_response(200, payload)],
+    ) as get:
+        assert client.list_model_slugs(httpx.Timeout(5)) == ["gpt-6-sol"]
+
+    assert post.call_count == 1
+    assert get.call_count == 2
+
+
+def test_list_model_slugs_returns_none_on_error_without_leaking_body():
+    client = CodexClient("https://chatgpt.com/backend-api/codex", "gpt-5.4", "access", "refresh")
+
+    with patch("app.services.codex_client.httpx.Client.get", return_value=_models_response(400, {"error": "secret-body"})):
+        assert client.list_model_slugs(httpx.Timeout(5)) is None
+
+    with patch("app.services.codex_client.httpx.Client.get", side_effect=httpx.ConnectError("boom")):
+        assert client.list_model_slugs(httpx.Timeout(5)) is None
+
+
+def test_list_model_slugs_without_access_token_does_not_request():
+    client = CodexClient("https://chatgpt.com/backend-api/codex", "gpt-5.4", "", "")
+
+    with patch("app.services.codex_client.httpx.Client.get") as get:
+        assert client.list_model_slugs(httpx.Timeout(5)) is None
+
+    get.assert_not_called()
