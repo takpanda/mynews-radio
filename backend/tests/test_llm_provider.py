@@ -238,3 +238,56 @@ def test_failure_cache_is_shorter_than_success_cache(monkeypatch):
     llm_provider._cache["ollama"] = (time.monotonic() - 11, llm_provider._cache["ollama"][1])
     asyncio.run(llm_provider.discover_providers())
     assert calls.count("ollama") == 2
+
+
+def _codex_config(**overrides):
+    values = {
+        "name": "codex", "base_url": "https://chatgpt.com/backend-api/codex", "model": "gpt-6.1-sol",
+        "responses_api": True, "access_token": "access", "refresh_token": "refresh",
+    }
+    values.update(overrides)
+    return ProviderConfig(**values)
+
+
+def test_codex_discovery_lists_api_models_with_configured_default_first(monkeypatch):
+    monkeypatch.setattr(llm_provider, "_list_codex_models", lambda _config: ["gpt-6-luna", "gpt-6.1-sol"])
+
+    result = asyncio.run(llm_provider._fetch(_codex_config()))
+
+    assert result == {
+        "provider": "codex", "models": ["gpt-6.1-sol", "gpt-6-luna"], "available": True, "error_code": None,
+    }
+
+
+def test_codex_discovery_keeps_configured_default_when_missing_from_list(monkeypatch):
+    monkeypatch.setattr(llm_provider, "_list_codex_models", lambda _config: ["gpt-6-sol"])
+
+    result = asyncio.run(llm_provider._fetch(_codex_config()))
+
+    assert result["models"] == ["gpt-6.1-sol", "gpt-6-sol"]
+
+
+def test_codex_discovery_falls_back_to_configured_model_on_failure(monkeypatch):
+    def raise_error(_config):
+        raise RuntimeError("upstream body with secret")
+
+    monkeypatch.setattr(llm_provider, "_list_codex_models", raise_error)
+    assert asyncio.run(llm_provider._fetch(_codex_config())) == {
+        "provider": "codex", "models": ["gpt-6.1-sol"], "available": True, "error_code": None,
+    }
+
+    monkeypatch.setattr(llm_provider, "_list_codex_models", lambda _config: None)
+    assert asyncio.run(llm_provider._fetch(_codex_config()))["models"] == ["gpt-6.1-sol"]
+
+
+def test_codex_discovery_without_access_token_is_unavailable_and_skips_request(monkeypatch):
+    def unexpected(_config):
+        raise AssertionError("no Codex request without an access token")
+
+    monkeypatch.setattr(llm_provider, "_list_codex_models", unexpected)
+
+    result = asyncio.run(llm_provider._fetch(_codex_config(access_token="")))
+
+    assert result == {
+        "provider": "codex", "models": ["gpt-6.1-sol"], "available": False, "error_code": "connection_failed",
+    }
