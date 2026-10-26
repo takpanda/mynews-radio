@@ -1,0 +1,42 @@
+{
+  "manifest": {
+    "publishingInformation": {
+      "locales": {
+        "ja-JP": {
+          "name": "マイニュースラジオ",
+          "summary": "MyNews Radio の最新エピソードを聴けるスキル",
+          "description": "「マイニュースラジオを開いて」で最新回を再生、続きから連続再生できます。",
+          "examplePhrases": [
+            "マイニュースラジオを開いて",
+            "マイニュースラジオの最新を再生して"
+          ]
+        },
+        "en-US": {
+          "name": "MyNews Radio",
+          "summary": "Listen to the latest MyNews Radio episode",
+          "description": "Open MyNews Radio and play the latest episode. Continuously plays episodes.",
+          "examplePhrases": [
+            "open my news radio",
+            "play the latest my news radio"
+          ]
+        }
+      },
+      "category": "NEWS",
+      "distributionCountries": ["US", "JP"]
+    },
+    "apis": {
+      "custom": {
+        "endpoint": {
+          "sourceDir": "."
+        },
+        "interfaces": [
+          {
+            "type": "AUDIO_PLAYER"
+          }
+        ]
+      }
+    },
+    "manifestVersion": "1.0",
+    "permissions": []
+  }
+}
