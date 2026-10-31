@@ -167,7 +167,7 @@
     <tr><td>音声合成</td><td>Fish S2 Pro（既定）</td><td>VOICEVOX互換APIとは別の Fish S2 Pro クライアントを使用。VOICEVOX / AivisSpeech は現行設定で無効</td></tr>
     <tr><td>音声処理</td><td>ffmpeg / ffprobe</td><td>WAV結合・リサンプル・MP3エンコード・ジングル合成</td></tr>
     <tr><td>HTTP クライアント</td><td>httpx / urllib / trafilatura</td><td>trafilatura は本文抽出に使用</td></tr>
-    <tr><td>インフラ</td><td>Docker Compose（api / web / proxy）</td><td>nginx proxy のみホスト公開。現行 compose の api command は uvicorn を直接起動するため cron は起動しない</td></tr>
+    <tr><td>インフラ</td><td>Docker Compose（api / web / proxy）</td><td>apiは8010、nginx proxyは3010をホスト公開。webは内部公開のみ。apiコンテナはentrypoint.sh経由でcronとuvicornを起動</td></tr>
   </table>
 </section>
 
@@ -266,7 +266,7 @@
     <line x1="610" y1="310" x2="698" y2="234" stroke="#2E7D7B" stroke-width="1.6" marker-end="url(#arT)"/>
     <line x1="610" y1="380" x2="698" y2="380" stroke="#2E7D7B" stroke-width="1.6" marker-end="url(#arT)"/>
   </svg>
-  <figcaption><b>図1</b>　システム構成図。web はSSR時に <code>http://api:8010</code> を使用し、ブラウザーは <code>NEXT_PUBLIC_API_BASE</code> でAPIへアクセスする。nginx proxy は3010を公開し、apiも8010をホスト公開する。日次cronは <code>entrypoint.sh</code> 起動時のみ動作し、現行Composeのapi commandでは起動しない。</figcaption>
+  <figcaption><b>図1</b>　システム構成図。web はSSR時に <code>http://api:8010</code> を使用し、ブラウザーは <code>NEXT_PUBLIC_API_BASE</code> でAPIへアクセスする。nginx proxyは3010、apiは8010をそれぞれホスト公開する。DockerfileのENTRYPOINTである <code>entrypoint.sh</code> がcronとuvicornを起動する。</figcaption>
   </figure>
 
   <h3>コンテナ構成（docker-compose.yml）</h3>
@@ -276,7 +276,7 @@
     <tr><td><code>web</code></td><td>Next.js フロントエンド（<code>depends_on: api</code>）</td><td>内部3010</td><td><code>./frontend:/app</code> をマウント、<code>node_modules</code> は匿名ボリューム。<code>npm run dev</code> で起動し、ホストには直接公開しない</td></tr>
     <tr><td><code>proxy</code></td><td>nginx 公開入口・ヘッダー処理</td><td>ホスト3010 → proxy:80</td><td><code>infra/nginx/public-entry.conf</code> を使用。公開用トークン設定が必要</td></tr>
   </table>
-  <p class="note"><code>backend/entrypoint.sh</code> は cron と uvicorn を起動するが、現行 <code>docker-compose.yml</code> は <code>command</code> で uvicorn を直接起動するため entrypoint を迂回し、cron は起動しない。日次バッチをComposeで動かす場合は起動設定の確認が必要。cron の時刻は <code>TZ=Asia/Tokyo</code> に従い、Compose の schedule 既定値は <code>30 16 * * *</code>、<code>.env.example</code> は <code>0 21 * * *</code>。</p>
+  <p class="note"><code>backend/Dockerfile</code> は <code>entrypoint.sh</code> をENTRYPOINTに指定しています。Composeの <code>command</code> はentrypointを置き換えず、その引数になります。entrypoint.shはcronとログ転送を起動した後、自身の設定でuvicornを起動します。cronの時刻は <code>TZ=Asia/Tokyo</code> に従い、Composeのschedule既定値は <code>30 16 * * *</code>、<code>.env.example</code> は <code>0 21 * * *</code> です。</p>
 </section>
 <section id="pipeline">
   <div class="ch"><span class="freq">80.0</span><h2>バッチパイプライン</h2></div>
@@ -554,7 +554,7 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
   <h3>その他のAPI領域</h3>
   <ul>
     <li><code>/admin/*</code> — ログイン、台本レビュー、辞書・監査ログ・LLM呼び出しログなどの管理操作</li>
-    <li><code>/programs</code> / <code>/mcs</code> / <code>/prompts</code> / <code>/dry-runs</code> — 番組、MC、プロンプトと生成プレビューの管理</li>
+    <li><code>/admin/programs</code> / <code>/admin/mcs</code> / <code>/admin/prompts</code> / <code>/admin/dry-runs</code> — 番組、MC、プロンプトと生成プレビューの管理</li>
     <li><code>/settings</code>、<code>/push/*</code>、<code>/reports/misreading</code>、<code>/feed.xml</code>、<code>/llm/providers</code> — 設定、Web Push、読み間違い報告、RSS、LLMプロバイダー情報</li>
     <li>エピソードのサムネイル・レビュー・記事検索など、エピソード関連の補助エンドポイントも提供</li>
   </ul>
@@ -712,13 +712,13 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
     <tr><td><code>FISHS2PRO_BASE_URL</code> / <code>FISHS2PRO_VOICE_*</code></td><td>config既定値あり</td><td>Fish S2 Pro接続先と男女の音声名</td></tr>
     <tr><td><code>DEFAULT_TTS_ENGINE</code> / <code>BATCH_DEFAULT_TTS_ENGINE</code></td><td><code>fishs2pro</code> / <code>fishs2pro</code></td><td>API/UIおよび日次バッチの既定TTS。VOICEVOX / AivisSpeechは現行コードで無効</td></tr>
     <tr><td><code>VOICEVOX_*</code> / <code>AIVISPEECH_*</code></td><td>接続先・話者ID</td><td>互換エンジン用設定は残るが、現行コードでエンジンを無効化</td></tr>
-    <tr><td><code>CRON_SCHEDULE</code></td><td>Compose fallback <code>30 16 * * *</code> / .env.example <code>0 21 * * *</code></td><td>コンテナTZは <code>Asia/Tokyo</code>。値はcronのコンテナ時刻として解釈。Composeのcommandがentrypointを迂回する点に注意</td></tr>
+    <tr><td><code>CRON_SCHEDULE</code></td><td>Compose fallback <code>30 16 * * *</code> / .env.example <code>0 21 * * *</code></td><td>コンテナTZは <code>Asia/Tokyo</code>。値はcronのコンテナ時刻として解釈。DockerfileのENTRYPOINT経由でcronを起動</td></tr>
     <tr><td><code>EPISODE_RETENTION_DAYS</code></td><td>30</td><td>cleanup_episodes の保持日数</td></tr>
     <tr><td><code>JINGLE_*_PATH</code> / <code>JINGLE_DURATION</code> / <code>JINGLE_FADE_DURATION</code></td><td>data/jingles/*.mp3 / 10.0 / 1.0</td><td>ジングル素材と使用秒数・フェード秒数</td></tr>
     <tr><td><code>MAX_SCRIPT_ARTICLES</code></td><td>10（env 直読）</td><td>台本に採用する最大記事数</td></tr>
     <tr><td><code>MIN_IMPORTANCE_SCORE</code></td><td>3（env 直読）</td><td>採用する重要度の下限</td></tr>
     <tr><td><code>BATCH_DATE</code> / <code>BATCH_NEWS_SOURCE</code> / <code>BATCH_PROGRAM_ID</code></td><td>—</td><td>run_daily.py の日付・ソース・番組指定を上書き</td></tr>
-    <tr><td><code>EPISODES_DIR</code> / <code>ARTICLES_JSON</code></td><td>data/episodes / data/articles/articles.json</td><td>成果物ディレクトリ等の上書き。ARTICLES_JSONはCLI orchestrateで使用</td></tr>
+    <tr><td><code>EPISODES_DIR</code> / <code>ARTICLES_JSON</code></td><td>data/episodes / data/articles/articles.json</td><td>EPISODES_DIRは成果物ディレクトリを上書き。ARTICLES_JSONはorchestrate.pyで変数に読み込まれるが未使用で、CLIパイプラインは記事ソースから取得</td></tr>
     <tr><td><code>API_BASE</code> / <code>NEXT_PUBLIC_API_BASE</code></td><td><code>http://api:8010</code> / <code>http://localhost:8010</code></td><td>フロントの SSR / ブラウザ用 API ベースURL</td></tr>
   </table>
 </section>
@@ -758,7 +758,7 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
   <div class="ch"><span class="freq">95.4</span><h2>運用・エラー処理</h2></div>
   <h3>ログ</h3>
   <ul>
-    <li>バッチ: <code>logging_config.setup_daily_logging</code> により <code>data/logs/YYYY-MM-DD.log</code> へ集約。cron の標準出力は <code>data/logs/crontab.log</code> に追記され、entrypoint.sh 起動時はDockerログへtailする（現行Compose commandではentrypointを迂回）</li>
+    <li>バッチ: <code>logging_config.setup_daily_logging</code> により <code>data/logs/YYYY-MM-DD.log</code> へ集約。cronの標準出力は <code>data/logs/crontab.log</code> に追記され、entrypoint.shがDockerログへtailする</li>
     <li>日次バッチの最終結果は <code>data/run_manifest.json</code>（<code>done / awaiting_review / failed</code> 等）に保存</li>
   </ul>
   <h3>障害と復旧</h3>
