@@ -539,25 +539,50 @@ def _importance_of(article: dict[str, Any]) -> int:
         return 0
 
 
+def _can_arrange_weather_run(weather_left: int, normal_left: int, run: int) -> bool:
+    """残りの記事を、天気・災害の3件連続を作らずに並べ切れるかを返す。
+
+    末尾に run 件の天気・災害が連なっているとき、先頭の隙間は 2 - run 件、
+    通常記事1件ごとに後ろの隙間は 2 件まで置ける。
+    """
+    return weather_left <= max(0, 2 - run) + 2 * normal_left
+
+
 def _enforce_weather_run(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """最終並びで天気・災害の3件連続を防ぐ。違反したら、次の通常記事と入れ替える。"""
-    result = list(articles)
-    for index in range(2, len(result)):
-        if not (
-            _is_weather_disaster_article(result[index])
-            and all(_is_weather_disaster_article(item) for item in result[index - 2:index])
-        ):
-            continue
-        for swap in range(index + 1, len(result)):
-            if not _is_weather_disaster_article(result[swap]):
-                result[index], result[swap] = result[swap], result[index]
+    """最終並びで天気・災害の3件連続を防ぐ。
+
+    各位置で、残りを並べ切れる候補のうち元の順に最も近いものを採用する。前方の
+    通常記事も候補になるため、通常記事が後ろにまとまっている場合も連続を解消できる。
+    連続を作らずに並べられない入力では、元の順を保つ。
+    """
+    flags = [(article, _is_weather_disaster_article(article)) for article in articles]
+    result: list[dict[str, Any]] = []
+    run = 0
+    while flags:
+        weather_left = sum(1 for _, is_weather in flags if is_weather)
+        normal_left = len(flags) - weather_left
+        chosen = 0
+        for index, (_, is_weather) in enumerate(flags):
+            if is_weather and run >= 2:
+                continue
+            next_run = run + 1 if is_weather else 0
+            if is_weather:
+                arrangeable = _can_arrange_weather_run(weather_left - 1, normal_left, next_run)
+            else:
+                arrangeable = _can_arrange_weather_run(weather_left, normal_left - 1, next_run)
+            if arrangeable:
+                chosen = index
                 break
+        article, is_weather = flags.pop(chosen)
+        result.append(article)
+        run = run + 1 if is_weather else 0
     return result
 
 
 _SUMMARY_COLUMNS = (
     "id, title, source, url, summary, category, importance_score, difficulty"
 )
+_TOPIC_SUMMARY_COLUMNS = f"{_SUMMARY_COLUMNS}, published_at"
 
 
 def _select_summary_rows(
@@ -570,6 +595,7 @@ def _select_summary_rows(
     excluded: list[str],
     limit: int | None = None,
     article_ids: list[int] | None = None,
+    columns: str = _SUMMARY_COLUMNS,
 ) -> list:
     where = [
         "status = 'summarized'",
@@ -599,7 +625,7 @@ def _select_summary_rows(
         placeholders = ",".join("?" for _ in priority)
         order = f"CASE WHEN category IN ({placeholders}) THEN 0 ELSE 1 END, {order}"
         params.extend(priority)
-    query = f"SELECT {_SUMMARY_COLUMNS} FROM articles WHERE {' AND '.join(where)} ORDER BY {order}"
+    query = f"SELECT {columns} FROM articles WHERE {' AND '.join(where)} ORDER BY {order}"
     if limit is not None:
         query += " LIMIT ?"
         params.append(limit)
@@ -642,9 +668,11 @@ def _select_topic_summaries(
         return []
     high_min = _topic_high_min_importance()
     base_min = min(min_importance, high_min)
+    # published_at は段階内の並びに使うだけで、返す要約には含めない（後段で外す）。
     pool_rows = _select_summary_rows(
         conn, min_importance=base_min, since_date=since_date, source=source,
         priority=priority, excluded=excluded, limit=_MAX_CANDIDATE_POOL_SIZE,
+        columns=_TOPIC_SUMMARY_COLUMNS,
     )
     articles: dict[int, dict[str, Any]] = {row["id"]: dict(row) for row in pool_rows}
     matches = _load_topic_matches(conn, topics)
@@ -654,6 +682,7 @@ def _select_topic_summaries(
         extra_rows = _select_summary_rows(
             conn, min_importance=base_min, since_date=since_date, source=source,
             priority=priority, excluded=excluded, article_ids=missing,
+            columns=_TOPIC_SUMMARY_COLUMNS,
         )
         for row in extra_rows:
             articles.setdefault(row["id"], dict(row))
@@ -679,11 +708,20 @@ def _select_topic_summaries(
         if importance >= min_importance:
             general.append(article)
 
-    # 段階内は「最大関連度 → 重要度」の降順。同点は SQL の順（新しい公開日時が先）を保つ。
+    # 段階内は「最大関連度 → 重要度 → 公開日時」の降順。SQL の優先カテゴリ順は使わない。
     ordered_topic = []
     for tier in _TOPIC_TIERS:
         ordered_topic.extend(
-            sorted(tiers[tier], key=lambda entry: (entry[1], _importance_of(entry[0])), reverse=True)
+            sorted(
+                tiers[tier],
+                key=lambda entry: (
+                    entry[1],
+                    _importance_of(entry[0]),
+                    entry[0].get("published_at") or "",
+                    entry[0]["id"],
+                ),
+                reverse=True,
+            )
         )
     # 重複除外は上位の段階が残るように、段階順に連結してから適用する。
     deduped_ids = {
@@ -730,6 +768,8 @@ def _select_topic_summaries(
     topic_part = sorted(
         chosen_topic, key=lambda article: _TOPIC_TIERS.index(article["topic_tier"])
     )
+    for article in topic_part + general_pick:
+        article.pop("published_at", None)
     return _enforce_weather_run(topic_part + general_pick)
 
 

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -273,3 +273,49 @@ def test_program_override_keeps_saved_topics():
     )
     resolved = _resolve_program_settings(profile, settings, None)
     assert resolved.topics == (topic,)
+
+
+def _weather_run_ok(articles):
+    flags = [article_service_module._is_weather_disaster_article(article) for article in articles]
+    return not any(all(flags[index - 2:index + 1]) for index in range(2, len(flags)))
+
+
+def test_enforce_weather_run_moves_earlier_normal_article_to_break_run():
+    def weather(title):
+        return {"id": title, "title": title, "category": "weather", "summary": "", "importance_score": 3}
+
+    normal = {"id": "normal", "title": "一般記事", "category": "business", "summary": "", "importance_score": 3}
+    articles = [weather("w1"), normal, weather("w2"), weather("w3"), weather("w4")]
+
+    result = article_service_module._enforce_weather_run(articles)
+
+    assert _weather_run_ok(result)
+    assert sorted(article["id"] for article in result) == sorted(article["id"] for article in articles)
+
+
+def test_enforce_weather_run_keeps_order_when_no_violation():
+    articles = [
+        {"id": 1, "title": "一般A", "category": "business", "summary": "", "importance_score": 3},
+        {"id": 2, "title": "天気", "category": "weather", "summary": "", "importance_score": 3},
+        {"id": 3, "title": "一般B", "category": "business", "summary": "", "importance_score": 3},
+    ]
+    assert article_service_module._enforce_weather_run(articles) == articles
+
+
+def test_topic_tier_ties_are_ordered_by_newest_published_at(topic_db):
+    high = _topic(topic_db, "ローカルLLM", "high")
+    # 優先カテゴリの古い記事は SQL で先に並ぶため、ソートで新しい記事を前に出す必要がある。
+    for title, category, published in (
+        ("古い優先記事", "politics", (datetime.now(article_service_module.JST).date() - timedelta(days=2)).isoformat()),
+        ("新しい記事", "society", JST_TODAY),
+    ):
+        with topic_db.get_db_connection() as conn:
+            cursor = conn.execute(
+                "INSERT INTO articles (title, source, url, summary, category, importance_score, status, published_at) "
+                "VALUES (?, 'src1', ?, '要約', ?, 3, 'summarized', ?)",
+                (title, f"https://example.com/{title}", category, published),
+            )
+            article_id = cursor.lastrowid
+        _match(topic_db, article_id, high, relevance=3)
+    rows = _select(5, 3, [high], priority_themes=["politics"])
+    assert [row["title"] for row in rows] == ["新しい記事", "古い優先記事"]
