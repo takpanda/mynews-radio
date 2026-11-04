@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
 import sqlite3
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from app.config import get_settings
@@ -32,12 +33,28 @@ _FEMALE_MC_VOICE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 
 
 @dataclass(frozen=True)
+class TopicSetting:
+    """選定に使う関心トピック（有効なものだけを読み込む）。"""
+
+    id: int
+    name: str
+    description: str
+    weight: str  # "high" | "medium" | "low"
+
+
+def topic_fingerprint(name: str, description: str) -> str:
+    """判定結果が古いかを見分ける指紋。name または description が変わると変わる。"""
+    return hashlib.sha256(f"{name}\n{description}".encode("utf-8")).hexdigest()[:16]
+
+
+@dataclass(frozen=True)
 class ProgramSettings:
     priority_themes: tuple[str, ...] = ()
     excluded_themes: tuple[str, ...] = ()
     duration_preset: str = DEFAULT_DURATION_PRESET
     max_articles: int | None = None
     min_importance_score: int | None = None
+    topics: tuple[TopicSetting, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +68,7 @@ class ProgramSettings:
         params = {
             "priority_themes": list(self.priority_themes),
             "excluded_themes": list(self.excluded_themes),
+            "topics": list(self.topics),
             **DURATION_LIMITS[self.duration_preset],
         }
         if self.max_articles is not None:
@@ -66,6 +84,7 @@ class ProgramSettings:
             **self.to_dict(),
             "max_articles": params["max_articles"],
             "min_importance_score": params["min_importance_score"],
+            "topics": [{"name": topic.name, "weight": topic.weight} for topic in self.topics],
         }
 
 
@@ -114,9 +133,26 @@ def get_settings_or_default() -> ProgramSettings:
                 "SELECT priority_themes, excluded_themes, duration_preset "
                 "FROM user_settings WHERE id = 1"
             ).fetchone()
-            return _from_row(row) if row else default_settings()
+            settings = _from_row(row) if row else default_settings()
     except (sqlite3.Error, OSError):
         return default_settings()
+    # トピックは別の取得として扱い、失敗しても既存の設定を既定値へ戻さない。
+    return replace(settings, topics=_load_active_topics())
+
+
+def _load_active_topics() -> tuple[TopicSetting, ...]:
+    try:
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                "SELECT id, name, description, weight FROM user_topics "
+                "WHERE is_active = 1 ORDER BY id"
+            ).fetchall()
+    except (sqlite3.Error, OSError):
+        logger.warning("関心トピックを読み込めませんでした。トピックなしで続行します", exc_info=True)
+        return ()
+    return tuple(
+        TopicSetting(row["id"], row["name"], row["description"], row["weight"]) for row in rows
+    )
 
 
 def save_settings(settings: ProgramSettings) -> ProgramSettings:

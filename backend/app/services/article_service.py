@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import re
 from datetime import datetime, timezone, timedelta
@@ -8,6 +9,7 @@ from typing import Any
 import unicodedata
 
 from app.db.connection import get_db_connection
+from app.services.settings_service import TopicSetting, topic_fingerprint
 
 
 JST = timezone(timedelta(hours=9))
@@ -38,10 +40,10 @@ def write_fallback_summaries(output_path: str, summaries: list[dict[str, Any]]) 
     normalization and serialization here prevents the batch and web pipelines
     from drifting apart.
     """
+    # 審査の根拠ファイルもLLMへ渡るため、トピック関連のキーは含めない。
     normalized = [
         {**summary, "article_id": summary.get("article_id", summary.get("id"))}
-        for summary in summaries
-        if isinstance(summary, dict)
+        for summary in without_topic_fields([item for item in summaries if isinstance(item, dict)])
     ]
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -481,6 +483,296 @@ def _prioritize_high_impact_articles(
     return result
 
 
+# ---------------------------------------------------------------------------
+# 関心トピックによる選定（BEEW-540 仕様 §4・§7）。トピックが空のときは使わない。
+# 数値は環境変数で上書きでき、不正な値は既定値に戻す（SUMMARY_LOOKBACK_DAYS と同じ流儀）。
+# ---------------------------------------------------------------------------
+
+_TOPIC_TIERS = ("high", "medium", "low")
+_TOPIC_WEIGHT_RANK = {"high": 3, "medium": 2, "low": 1}
+# トピック単位の上限（同一トピックから採用する記事の最大数）。
+_TOPIC_TIER_CAPS = {"high": 3, "medium": 2, "low": 1}
+# 台本・レビューのLLM入力へ流さないキー（生成側の語り口に反映させないため）。
+_TOPIC_PROMPT_EXCLUDED_FIELDS = ("topic_tier", "matched_topics")
+
+
+def _read_topic_number(name: str, default, cast, is_valid):
+    raw = os.getenv(name)
+    if not raw:
+        return default
+    try:
+        value = cast(raw)
+    except ValueError:
+        return default
+    return value if is_valid(value) else default
+
+
+def _topic_relevance_threshold() -> int:
+    return _read_topic_number("TOPIC_RELEVANCE_THRESHOLD", 2, int, lambda v: 0 <= v <= 3)
+
+
+def _topic_high_min_importance() -> int:
+    return _read_topic_number("TOPIC_HIGH_MIN_IMPORTANCE", 2, int, lambda v: 1 <= v <= 5)
+
+
+def _topic_general_reserve_ratio() -> float:
+    return _read_topic_number("TOPIC_GENERAL_RESERVE_RATIO", 0.2, float, lambda v: 0 < v < 1)
+
+
+def _round_half_up(value: float) -> int:
+    # Python の round() は .5 を偶数側へ丸めるため、件数計算では四捨五入に揃える。
+    return math.floor(value + 0.5)
+
+
+def without_topic_fields(summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """LLMへ渡す要約から、トピック関連のキーを外したコピーを返す。"""
+    return [
+        {key: value for key, value in summary.items() if key not in _TOPIC_PROMPT_EXCLUDED_FIELDS}
+        for summary in summaries
+    ]
+
+
+def _importance_of(article: dict[str, Any]) -> int:
+    try:
+        return int(article.get("importance_score") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _can_arrange_weather_run(weather_left: int, normal_left: int, run: int) -> bool:
+    """残りの記事を、天気・災害の3件連続を作らずに並べ切れるかを返す。
+
+    末尾に run 件の天気・災害が連なっているとき、先頭の隙間は 2 - run 件、
+    通常記事1件ごとに後ろの隙間は 2 件まで置ける。
+    """
+    return weather_left <= max(0, 2 - run) + 2 * normal_left
+
+
+def _enforce_weather_run(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """最終並びで天気・災害の3件連続を防ぐ。
+
+    各位置で、残りを並べ切れる候補のうち元の順に最も近いものを採用する。前方の
+    通常記事も候補になるため、通常記事が後ろにまとまっている場合も連続を解消できる。
+    連続を作らずに並べられない入力では、元の順を保つ。
+    """
+    flags = [(article, _is_weather_disaster_article(article)) for article in articles]
+    result: list[dict[str, Any]] = []
+    run = 0
+    while flags:
+        weather_left = sum(1 for _, is_weather in flags if is_weather)
+        normal_left = len(flags) - weather_left
+        chosen = 0
+        for index, (_, is_weather) in enumerate(flags):
+            if is_weather and run >= 2:
+                continue
+            next_run = run + 1 if is_weather else 0
+            if is_weather:
+                arrangeable = _can_arrange_weather_run(weather_left - 1, normal_left, next_run)
+            else:
+                arrangeable = _can_arrange_weather_run(weather_left, normal_left - 1, next_run)
+            if arrangeable:
+                chosen = index
+                break
+        article, is_weather = flags.pop(chosen)
+        result.append(article)
+        run = run + 1 if is_weather else 0
+    return result
+
+
+_SUMMARY_COLUMNS = (
+    "id, title, source, url, summary, category, importance_score, difficulty"
+)
+_TOPIC_SUMMARY_COLUMNS = f"{_SUMMARY_COLUMNS}, published_at"
+
+
+def _select_summary_rows(
+    conn,
+    *,
+    min_importance: int,
+    since_date: str,
+    source: str | None,
+    priority: list[str],
+    excluded: list[str],
+    limit: int | None = None,
+    article_ids: list[int] | None = None,
+    columns: str = _SUMMARY_COLUMNS,
+) -> list:
+    where = [
+        "status = 'summarized'",
+        "summary IS NOT NULL",
+        "summary != ''",
+        "importance_score >= ?",
+        "published_at >= ?",
+    ]
+    params: list[Any] = [min_importance, since_date]
+    if source is not None:
+        where.append("source = ?")
+        params.append(source)
+    if excluded:
+        placeholders = ",".join("?" for _ in excluded)
+        # Safety valve B: critical technology/society news remains eligible.
+        where.append(
+            f"(category NOT IN ({placeholders}) OR "
+            "(importance_score >= 5 AND category IN ('technology', 'society')) OR category IS NULL)"
+        )
+        params.extend(excluded)
+    if article_ids is not None:
+        placeholders = ",".join("?" for _ in article_ids)
+        where.append(f"id IN ({placeholders})")
+        params.extend(article_ids)
+    order = "importance_score DESC, published_at DESC, id DESC"
+    if priority:
+        placeholders = ",".join("?" for _ in priority)
+        order = f"CASE WHEN category IN ({placeholders}) THEN 0 ELSE 1 END, {order}"
+        params.extend(priority)
+    query = f"SELECT {columns} FROM articles WHERE {' AND '.join(where)} ORDER BY {order}"
+    if limit is not None:
+        query += " LIMIT ?"
+        params.append(limit)
+    return conn.execute(query, params).fetchall()
+
+
+def _load_topic_matches(conn, topics: list[TopicSetting]) -> dict[int, list[tuple[TopicSetting, int]]]:
+    """指紋が現行のトピックと一致し、閾値以上の判定だけを記事ごとに返す。"""
+    threshold = _topic_relevance_threshold()
+    by_id = {topic.id: topic for topic in topics}
+    fingerprints = {topic.id: topic_fingerprint(topic.name, topic.description) for topic in topics}
+    placeholders = ",".join("?" for _ in topics)
+    rows = conn.execute(
+        "SELECT article_id, topic_id, relevance, fingerprint FROM article_topic_matches "
+        f"WHERE topic_id IN ({placeholders})",
+        [topic.id for topic in topics],
+    ).fetchall()
+    matches: dict[int, list[tuple[TopicSetting, int]]] = {}
+    for row in rows:
+        topic_id = row["topic_id"]
+        if row["fingerprint"] != fingerprints[topic_id] or row["relevance"] < threshold:
+            continue
+        matches.setdefault(row["article_id"], []).append((by_id[topic_id], row["relevance"]))
+    return matches
+
+
+def _select_topic_summaries(
+    conn,
+    topics: list[TopicSetting],
+    max_articles: int,
+    min_importance: int,
+    since_date: str,
+    source: str | None,
+    priority: list[str],
+    excluded: list[str],
+) -> list[dict[str, Any]]:
+    """比重（高・中・低）と一般ニュース枠に従って記事を選ぶ（仕様 §7.2）。"""
+    total = max(0, max_articles)
+    if total == 0:
+        return []
+    high_min = _topic_high_min_importance()
+    base_min = min(min_importance, high_min)
+    # published_at は段階内の並びに使うだけで、返す要約には含めない（後段で外す）。
+    pool_rows = _select_summary_rows(
+        conn, min_importance=base_min, since_date=since_date, source=source,
+        priority=priority, excluded=excluded, limit=_MAX_CANDIDATE_POOL_SIZE,
+        columns=_TOPIC_SUMMARY_COLUMNS,
+    )
+    articles: dict[int, dict[str, Any]] = {row["id"]: dict(row) for row in pool_rows}
+    matches = _load_topic_matches(conn, topics)
+    # 候補プールの切り捨てで外れた一致記事も、判定があれば対象に加える。
+    missing = [article_id for article_id in matches if article_id not in articles]
+    if missing:
+        extra_rows = _select_summary_rows(
+            conn, min_importance=base_min, since_date=since_date, source=source,
+            priority=priority, excluded=excluded, article_ids=missing,
+            columns=_TOPIC_SUMMARY_COLUMNS,
+        )
+        for row in extra_rows:
+            articles.setdefault(row["id"], dict(row))
+
+    # 段階分け。一致トピックのうち最も高い比重を記事の段階にする。
+    tiers: dict[str, list[tuple[dict[str, Any], int, int]]] = {tier: [] for tier in _TOPIC_TIERS}
+    general: list[dict[str, Any]] = []
+    for article in articles.values():
+        importance = _importance_of(article)
+        matched = matches.get(article["id"], [])
+        article["matched_topics"] = [
+            {"id": topic.id, "name": topic.name, "weight": topic.weight} for topic, _ in matched
+        ]
+        article["topic_tier"] = "general"
+        if matched:
+            topic, _ = max(matched, key=lambda item: (_TOPIC_WEIGHT_RANK[item[0].weight], item[1]))
+            floor = high_min if topic.weight == "high" else min_importance
+            if importance >= floor:
+                article["topic_tier"] = topic.weight
+                max_relevance = max(relevance for _, relevance in matched)
+                tiers[topic.weight].append((article, max_relevance, topic.id))
+                continue
+        if importance >= min_importance:
+            general.append(article)
+
+    # 段階内は「最大関連度 → 重要度 → 公開日時」の降順。SQL の優先カテゴリ順は使わない。
+    ordered_topic = []
+    for tier in _TOPIC_TIERS:
+        ordered_topic.extend(
+            sorted(
+                tiers[tier],
+                key=lambda entry: (
+                    entry[1],
+                    _importance_of(entry[0]),
+                    entry[0].get("published_at") or "",
+                    entry[0]["id"],
+                ),
+                reverse=True,
+            )
+        )
+    # 重複除外は上位の段階が残るように、段階順に連結してから適用する。
+    deduped_ids = {
+        article["id"]
+        for article in _filter_similar_articles([entry[0] for entry in ordered_topic] + general)
+    }
+    topic_entries = [entry for entry in ordered_topic if entry[0]["id"] in deduped_ids]
+    general = [article for article in general if article["id"] in deduped_ids]
+
+    general_reserve = max(1, _round_half_up(total * _topic_general_reserve_ratio()))
+    topic_slots = total - general_reserve
+    low_limit = 1 if total < 10 else 2
+    chosen_topic: list[dict[str, Any]] = []
+    chosen_ids: set[int] = set()
+    topic_counts: dict[int, int] = {}
+    low_count = 0
+
+    def take_topic_articles(limit: int, *, enforce_topic_cap: bool) -> None:
+        # 比重の順に採用する。低比重の上限は常に守る。トピック単位の上限は通常の枠だけに適用し、
+        # 件数の補充では外す（既存の天気・災害の連続抑制と同じく、件数充足を優先する）。
+        nonlocal low_count
+        for article, _, topic_id in topic_entries:
+            if len(chosen_topic) >= limit:
+                break
+            if article["id"] in chosen_ids:
+                continue
+            tier = article["topic_tier"]
+            if enforce_topic_cap and topic_counts.get(topic_id, 0) >= _TOPIC_TIER_CAPS[tier]:
+                continue
+            if tier == "low" and low_count >= low_limit:
+                continue
+            chosen_topic.append(article)
+            chosen_ids.add(article["id"])
+            topic_counts[topic_id] = topic_counts.get(topic_id, 0) + 1
+            if tier == "low":
+                low_count += 1
+
+    take_topic_articles(topic_slots, enforce_topic_cap=True)
+    general_pick = _prioritize_high_impact_articles(
+        _filter_topic_concentration(general, total - len(chosen_topic)), priority
+    )
+    # 一般記事が足りない場合だけ、未採用のトピック記事を段階順に補充する。
+    take_topic_articles(total - len(general_pick), enforce_topic_cap=False)
+    topic_part = sorted(
+        chosen_topic, key=lambda article: _TOPIC_TIERS.index(article["topic_tier"])
+    )
+    for article in topic_part + general_pick:
+        article.pop("published_at", None)
+    return _enforce_weather_run(topic_part + general_pick)
+
+
 class ArticleService:
     def upsert_article(self, article: dict[str, Any]) -> bool:
         with get_db_connection() as conn:
@@ -547,6 +839,7 @@ class ArticleService:
         source: str | None = None,
         priority_themes: list[str] | tuple[str, ...] | None = None,
         excluded_themes: list[str] | tuple[str, ...] | None = None,
+        topics: list[TopicSetting] | tuple[TopicSetting, ...] | None = None,
     ) -> list[dict[str, Any]]:
         _raw_lookback = os.getenv("SUMMARY_LOOKBACK_DAYS")
         try:
@@ -558,41 +851,20 @@ class ArticleService:
         since_date = (datetime.now(JST).date() - timedelta(days=lookback_days)).isoformat()
         priority = list(priority_themes or [])
         excluded = list(excluded_themes or [])
-        where = [
-            "status = 'summarized'",
-            "summary IS NOT NULL",
-            "summary != ''",
-            "importance_score >= ?",
-            "published_at >= ?",
-        ]
-        params: list[Any] = [min_importance_score, since_date]
-        if source is not None:
-            where.append("source = ?")
-            params.append(source)
-        if excluded:
-            placeholders = ",".join("?" for _ in excluded)
-            # Safety valve B: critical technology/society news remains eligible.
-            where.append(
-                f"(category NOT IN ({placeholders}) OR "
-                "(importance_score >= 5 AND category IN ('technology', 'society')) OR category IS NULL)"
-            )
-            params.extend(excluded)
-        order = "importance_score DESC, published_at DESC, id DESC"
-        if priority:
-            placeholders = ",".join("?" for _ in priority)
-            order = f"CASE WHEN category IN ({placeholders}) THEN 0 ELSE 1 END, {order}"
-            params.extend(priority)
-        candidate_limit = min(
-            max(0, max_articles) * _CANDIDATE_POOL_MULTIPLIER,
-            _MAX_CANDIDATE_POOL_SIZE,
-        )
-        params.append(candidate_limit)
-        query = (
-            "SELECT id, title, source, url, summary, category, importance_score, difficulty "
-            f"FROM articles WHERE {' AND '.join(where)} ORDER BY {order} LIMIT ?"
-        )
         with get_db_connection() as conn:
-            rows = conn.execute(query, params).fetchall()
+            if topics:
+                return _select_topic_summaries(
+                    conn, list(topics), max_articles, min_importance_score,
+                    since_date, source, priority, excluded,
+                )
+            candidate_limit = min(
+                max(0, max_articles) * _CANDIDATE_POOL_MULTIPLIER,
+                _MAX_CANDIDATE_POOL_SIZE,
+            )
+            rows = _select_summary_rows(
+                conn, min_importance=min_importance_score, since_date=since_date,
+                source=source, priority=priority, excluded=excluded, limit=candidate_limit,
+            )
             # SQLの選定順を保ったまま、タイトル重複とテーマ集中を後段で除外する。
             # max_articlesの5倍（最大100件）を候補として取得し、除外後に後続候補で
             # 件数を補充する。無制限取得による計算量増加も避ける。

@@ -354,6 +354,8 @@ def _resolve_program_settings(
         duration_preset,
         max_articles,
         min_importance_score,
+        # トピックは全体設定のみ（仕様 §4）。番組ごとの上書きは持たない。
+        settings.topics,
     )
 
 
