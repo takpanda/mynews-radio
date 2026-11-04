@@ -50,7 +50,7 @@ describe('TopicSettingsPanel', () => {
     await userEvent.type(await screen.findByLabelText('新しいトピック名'), 'ai')
     await userEvent.click(screen.getByRole('button', { name: '追加' }))
     expect(await screen.findByText('同じ名前のトピックが既にあります')).toBeInTheDocument()
-    expect(screen.getAllByRole('listitem')).toHaveLength(1)
+    expect(screen.getByRole('list', { name: '関心トピック一覧' }).children).toHaveLength(1)
   })
 
   it('比重変更が失敗したら元に戻りエラーが出る(503)', async () => {
@@ -143,5 +143,93 @@ describe('TopicSettingsPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: '再読み込み' }))
     expect(await screen.findByLabelText('トピック名: AI')).toBeInTheDocument()
     expect(screen.getByLabelText('新しいトピック名')).not.toBeDisabled()
+  })
+
+  const deferred = () => {
+    let resolve: (v: unknown) => void = () => {}
+    const promise = new Promise((r) => { resolve = r })
+    return { promise, resolve }
+  }
+
+  it('名前のPUT保留中に補足を入力しても、成功で入力が消えない', async () => {
+    const d = deferred()
+    fetchMock()
+      .mockResolvedValueOnce(res(200, { topics: [topic(1, 'AI')], limits }))
+      .mockImplementationOnce(() => d.promise)
+    render(<TopicSettingsPanel />)
+    await userEvent.type(await screen.findByLabelText('トピック名: AI'), 'X')
+    await userEvent.type(screen.getByLabelText('補足: AI'), 'memo')
+    d.resolve(res(200, topic(1, 'AIX')))
+    await waitFor(() => expect(screen.getByLabelText('補足: AIX')).toHaveValue('memo'))
+    expect(screen.getByLabelText('トピック名: AIX')).toHaveValue('AIX')
+  })
+
+  it('名前のPUTが失敗しても、保留中に入力した補足は消えない', async () => {
+    const d = deferred()
+    fetchMock()
+      .mockResolvedValueOnce(res(200, { topics: [topic(1, 'AI')], limits }))
+      .mockImplementationOnce(() => d.promise)
+    render(<TopicSettingsPanel />)
+    await userEvent.type(await screen.findByLabelText('トピック名: AI'), 'X')
+    await userEvent.type(screen.getByLabelText('補足: AI'), 'memo')
+    d.resolve(res(409, {}))
+    expect(await screen.findByText('同じ名前のトピックが既にあります')).toBeInTheDocument()
+    expect(screen.getByLabelText('トピック名: AI')).toHaveValue('AI')
+    expect(screen.getByLabelText('補足: AI')).toHaveValue('memo')
+  })
+
+  it('比重を 中→高→中 と連続変更すると最後の「中」が保存される', async () => {
+    const d = deferred()
+    fetchMock()
+      .mockResolvedValueOnce(res(200, { topics: [topic(1, 'AI', 'medium')], limits }))
+      .mockImplementationOnce(() => d.promise)
+      .mockResolvedValueOnce(res(200, topic(1, 'AI', 'medium')))
+    render(<TopicSettingsPanel />)
+    await userEvent.click(await screen.findByLabelText('AIの比重 高'))
+    await userEvent.click(screen.getByLabelText('AIの比重 中'))
+    expect(screen.getByLabelText('AIの比重 中')).toBeChecked()
+    d.resolve(res(200, topic(1, 'AI', 'high')))
+    await waitFor(() => expect(fetchMock()).toHaveBeenCalledTimes(3))
+    expect(JSON.parse(fetchMock().mock.calls[2][1].body).weight).toBe('medium')
+    await waitFor(() => expect(screen.getByLabelText('AIの比重 中')).toBeChecked())
+  })
+
+  it('先行する更新が失敗しても、後続の操作でエラーが消えない', async () => {
+    const d = deferred()
+    fetchMock()
+      .mockResolvedValueOnce(res(200, { topics: [topic(1, 'AI'), topic(2, 'BI')], limits }))
+      .mockImplementationOnce(() => d.promise)
+      .mockResolvedValueOnce(res(200, topic(2, 'BI', 'high')))
+    render(<TopicSettingsPanel />)
+    await userEvent.click(await screen.findByLabelText('AIの比重 高'))
+    await userEvent.click(screen.getByLabelText('BIの比重 高'))
+    d.resolve(res(503, { detail: '関心トピックを保存できませんでした' }))
+    await waitFor(() => expect(fetchMock()).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(screen.getByLabelText('BIの比重 高')).toBeChecked())
+    expect(screen.getByText('関心トピックを保存できませんでした')).toBeInTheDocument()
+    expect(screen.queryByText('保存しました')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('AIの比重 中')).toBeChecked()
+  })
+
+  it('追加のPOST保留中に次の入力をしても、成功で消えない', async () => {
+    const d = deferred()
+    fetchMock()
+      .mockResolvedValueOnce(res(200, { topics: [], limits }))
+      .mockImplementationOnce(() => d.promise)
+    render(<TopicSettingsPanel />)
+    const name = await screen.findByLabelText('新しいトピック名')
+    await userEvent.type(name, 'AI')
+    await userEvent.click(screen.getByRole('button', { name: '追加' }))
+    await userEvent.type(name, 'B')
+    d.resolve(res(201, topic(1, 'AI')))
+    expect(await screen.findByLabelText('トピック名: AI')).toBeInTheDocument()
+    expect(name).toHaveValue('AIB')
+  })
+
+  it('一覧取得失敗時は空状態の案内を出さない', async () => {
+    fetchMock().mockResolvedValueOnce(res(500, {}))
+    render(<TopicSettingsPanel />)
+    await screen.findByRole('button', { name: '再読み込み' })
+    expect(screen.queryByText(/まだトピックがありません/)).not.toBeInTheDocument()
   })
 })

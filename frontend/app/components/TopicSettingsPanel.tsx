@@ -30,28 +30,49 @@ function validate(name: string, description: string, limits: UserTopicLimits): s
 }
 
 type TopicPatch = Partial<Pick<UserTopic, 'name' | 'description' | 'weight'>>
+interface PanelError { target: string; message: string }
 
 interface RowProps {
   topic: UserTopic
   limits: UserTopicLimits
+  getSaved: (id: number) => UserTopic | undefined
   onSave: (topic: UserTopic, patch: TopicPatch) => Promise<boolean>
   onDelete: (topic: UserTopic) => void
-  onInvalid: (message: string) => void
+  onInvalid: (topic: UserTopic, message: string) => void
 }
 
-function TopicRow({ topic, limits, onSave, onDelete, onInvalid }: RowProps) {
+// 入力中の値(draft)はこの行が持ち、保存の成功・失敗で後から入力された内容を上書きしない。
+// 失敗時は「その保存で送った値のまま残っている欄」だけを保存済みの値へ戻す。
+function TopicRow({ topic, limits, getSaved, onSave, onDelete, onInvalid }: RowProps) {
   const [name, setName] = useState(topic.name)
   const [description, setDescription] = useState(topic.description)
-
-  // 保存失敗で一覧が元に戻ったとき、入力欄も元の値へ戻す
-  useEffect(() => { setName(topic.name); setDescription(topic.description) }, [topic.name, topic.description])
+  const [weight, setWeight] = useState<TopicWeight>(topic.weight)
 
   const commitText = async () => {
-    if (name === topic.name && description === topic.description) return
+    const saved = getSaved(topic.id) ?? topic
+    if (name === saved.name && description === saved.description) return
     const message = validate(name, description, limits)
-    if (message) { onInvalid(message); setName(topic.name); setDescription(topic.description); return }
-    const ok = await onSave(topic, { name: name.trim(), description: description.trim() })
-    if (!ok) { setName(topic.name); setDescription(topic.description) }
+    if (message) {
+      onInvalid(topic, message)
+      setName(saved.name); setDescription(saved.description)
+      return
+    }
+    const sent = { name: name.trim(), description: description.trim() }
+    const ok = await onSave(topic, sent)
+    if (!ok) {
+      const latest = getSaved(topic.id) ?? saved
+      setName((cur) => (cur === name ? latest.name : cur))
+      setDescription((cur) => (cur === description ? latest.description : cur))
+    }
+  }
+
+  const changeWeight = async (next: TopicWeight) => {
+    setWeight(next)
+    const ok = await onSave(topic, { weight: next })
+    if (!ok) {
+      const latest = getSaved(topic.id) ?? topic
+      setWeight((cur) => (cur === next ? latest.weight : cur))
+    }
   }
 
   return (
@@ -82,14 +103,14 @@ function TopicRow({ topic, limits, onSave, onDelete, onInvalid }: RowProps) {
           {WEIGHTS.map((w) => (
             <label
               key={w.value}
-              className={`cursor-pointer rounded-full border px-2.5 py-0.5 text-xs transition ${topic.weight === w.value ? 'border-sky-500 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'}`}
+              className={`cursor-pointer rounded-full border px-2.5 py-0.5 text-xs transition ${weight === w.value ? 'border-sky-500 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'}`}
             >
               <input
                 type="radio"
                 name={`topic-weight-${topic.id}`}
                 value={w.value}
-                checked={topic.weight === w.value}
-                      onChange={() => { if (topic.weight !== w.value) void onSave(topic, { weight: w.value }) }}
+                checked={weight === w.value}
+                onChange={() => { void changeWeight(w.value) }}
                 aria-label={`${topic.name}の比重 ${w.label}`}
                 className="sr-only"
               />
@@ -115,7 +136,7 @@ export default function TopicSettingsPanel({ disabled = false }: { disabled?: bo
   const [limits, setLimits] = useState<UserTopicLimits>(DEFAULT_LIMITS)
   const [loading, setLoading] = useState(true)
   const [pending, setPending] = useState(0)
-  const [error, setError] = useState<string | null>(null)
+  const [errors, setErrors] = useState<PanelError[]>([])
   const [loadFailed, setLoadFailed] = useState(false)
   const [saved, setSaved] = useState(false)
   const [newName, setNewName] = useState('')
@@ -125,31 +146,31 @@ export default function TopicSettingsPanel({ disabled = false }: { disabled?: bo
   const topicsRef = useRef<UserTopic[]>([])
   const addingRef = useRef(false)
   const busy = pending > 0
-  const authRequired = error?.includes('ログインが必要') ?? false
+  const authRequired = errors.some((e) => e.message.includes('ログインが必要'))
 
   const applyTopics = (updater: (current: UserTopic[]) => UserTopic[]) => {
     topicsRef.current = updater(topicsRef.current)
     setTopics(topicsRef.current)
   }
+  const addError = (target: string, message: string) => setErrors((current) => [...current, { target, message }])
 
   const load = () => {
-    setLoading(true); setLoadFailed(false); setError(null)
+    setLoading(true); setLoadFailed(false); setErrors([])
     fetchUserTopics()
       .then((value) => { topicsRef.current = value.topics; setTopics(value.topics); setLimits(value.limits ?? DEFAULT_LIMITS) })
-      .catch((err) => { setLoadFailed(true); setError(err instanceof Error ? err.message : '関心トピックの読み込みに失敗しました') })
+      .catch((err) => { setLoadFailed(true); addError('一覧', err instanceof Error ? err.message : '関心トピックの読み込みに失敗しました') })
       .finally(() => setLoading(false))
   }
 
   useEffect(load, [])
 
   // 保存はキューで順番に実行する。保存中も入力・クリックを受け付け、フォーカスを奪わない。
-  // 失敗時は呼び出し側が元の状態へ戻せるよう false を返す
-  const run = (action: () => Promise<void>, fallback: string): Promise<boolean> => {
+  // 失敗はエラー一覧に残し、後続の操作の開始・成功では消さない（利用者が閉じるまで表示する）。
+  const run = (target: string, action: () => Promise<void>, fallback: string): Promise<boolean> => {
     setPending((n) => n + 1)
     const task = queueRef.current.then(async () => {
-      setSaved(false); setError(null)
       try { await action(); setSaved(true); return true }
-      catch (err) { setError(err instanceof Error ? err.message : fallback); return false }
+      catch (err) { addError(target, err instanceof Error ? err.message : fallback); return false }
       finally { setPending((n) => n - 1) }
     })
     queueRef.current = task
@@ -157,7 +178,7 @@ export default function TopicSettingsPanel({ disabled = false }: { disabled?: bo
   }
 
   const save = (topic: UserTopic, patch: TopicPatch) =>
-    run(async () => {
+    run(topic.name, async () => {
       // 先行する保存の結果を反映した最新値に変更分だけを重ねる（is_active も維持する）
       const latest = topicsRef.current.find((item) => item.id === topic.id)
       if (!latest) return
@@ -172,7 +193,8 @@ export default function TopicSettingsPanel({ disabled = false }: { disabled?: bo
     }, '関心トピックを更新できませんでした')
 
   const remove = (topic: UserTopic) => {
-    void run(async () => {
+    setSaved(false)
+    void run(topic.name, async () => {
       await deleteUserTopic(topic.id)
       applyTopics((current) => current.filter((item) => item.id !== topic.id))
     }, '関心トピックを削除できませんでした')
@@ -180,20 +202,26 @@ export default function TopicSettingsPanel({ disabled = false }: { disabled?: bo
 
   const reachedLimit = topics.length >= limits.max_topics
   const addDisabled = reachedLimit || loadFailed
-  const addError = newName === '' && newDescription === '' ? null : validate(newName, newDescription, limits)
+  const newError = newName === '' && newDescription === '' ? null : validate(newName, newDescription, limits)
 
   const add = async (event: React.FormEvent) => {
     event.preventDefault()
     const message = validate(newName, newDescription, limits)
-    if (message) { setError(message); return }
+    if (message) { addError('追加', message); return }
     if (addingRef.current) return
     addingRef.current = true
-    const ok = await run(async () => {
-      const created = await createUserTopic({ name: newName.trim(), description: newDescription.trim(), weight: newWeight })
+    const sent = { name: newName, description: newDescription, weight: newWeight }
+    const ok = await run(sent.name.trim(), async () => {
+      const created = await createUserTopic({ name: sent.name.trim(), description: sent.description.trim(), weight: sent.weight })
       applyTopics((current) => [...current, created])
     }, '関心トピックを追加できませんでした')
     addingRef.current = false
-    if (ok) { setNewName(''); setNewDescription(''); setNewWeight('medium') }
+    if (ok) {
+      // 送信後に入力された内容は消さない
+      setNewName((cur) => (cur === sent.name ? '' : cur))
+      setNewDescription((cur) => (cur === sent.description ? '' : cur))
+      setNewWeight((cur) => (cur === sent.weight ? 'medium' : cur))
+    }
   }
 
   const locked = disabled || loading || authRequired
@@ -205,7 +233,7 @@ export default function TopicSettingsPanel({ disabled = false }: { disabled?: bo
         登録したトピックに合う記事を優先して選びます。比重が高いほど優先されます（最大{limits.max_topics}件）。
       </p>
 
-      {!loading && topics.length === 0 && !authRequired && (
+      {!loading && !loadFailed && topics.length === 0 && !authRequired && (
         <p className="mt-3 text-xs text-slate-400">まだトピックがありません。下のフォームから追加できます。</p>
       )}
       {topics.length > 0 && (
@@ -215,9 +243,10 @@ export default function TopicSettingsPanel({ disabled = false }: { disabled?: bo
               key={topic.id}
               topic={topic}
               limits={limits}
+              getSaved={(id) => topicsRef.current.find((item) => item.id === id)}
               onSave={save}
               onDelete={remove}
-              onInvalid={setError}
+              onInvalid={(t, message) => addError(t.name, message)}
             />
           ))}
         </ul>
@@ -271,26 +300,35 @@ export default function TopicSettingsPanel({ disabled = false }: { disabled?: bo
           </div>
           <button
             type="submit"
-            disabled={addDisabled || newName.trim() === '' || addError !== null}
+            disabled={addDisabled || newName.trim() === '' || newError !== null}
             className="shrink-0 rounded-md border border-sky-500 bg-sky-50 px-3 py-1 text-xs text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40"
           >
             追加
           </button>
         </div>
         {reachedLimit && !loadFailed && <p className="mt-1 text-xs text-slate-500">登録数が上限（{limits.max_topics}件）に達しています。追加するには既存のトピックを削除してください。</p>}
-        {!addDisabled && addError && <p className="mt-1 text-xs text-rose-600">{addError}</p>}
+        {!addDisabled && newError && <p className="mt-1 text-xs text-rose-600">{newError}</p>}
       </form>
 
-      <div className="mt-2 flex min-h-5 items-center text-xs" aria-live="polite">
-        <span className={error ? 'text-rose-600' : 'text-slate-400'}>
-          {loading ? '読み込み中…' : error ? (
-            <>
-              {error}
-              {authRequired && <a href="/admin/login" className="ml-2 underline hover:text-rose-800">ログインする</a>}
-              {loadFailed && !authRequired && <button type="button" onClick={load} className="ml-2 rounded-md border border-rose-200 bg-white px-2 py-0.5 text-rose-700 transition hover:bg-rose-50">再読み込み</button>}
-            </>
-          ) : busy ? '保存中…' : saved ? '保存しました' : ''}
-        </span>
+      <div className="mt-2 min-h-5 text-xs" aria-live="polite">
+        {loading ? <span className="text-slate-400">読み込み中…</span> : (
+          <>
+            {errors.length > 0 && (
+              <ul className="space-y-0.5 text-rose-600">
+                {errors.map((e, i) => (
+                  <li key={i}>
+                    <span className="text-rose-400">{e.target}: </span>
+                    <span>{e.message}</span>
+                    {e.message.includes('ログインが必要') && <a href="/admin/login" className="ml-2 underline hover:text-rose-800">ログインする</a>}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {loadFailed && !authRequired && <button type="button" onClick={load} className="rounded-md border border-rose-200 bg-white px-2 py-0.5 text-rose-700 transition hover:bg-rose-50">再読み込み</button>}
+            {errors.length > 0 && !loadFailed && <button type="button" onClick={() => setErrors([])} className="mt-0.5 text-slate-500 underline decoration-slate-300 underline-offset-2 hover:text-slate-800">エラーを閉じる</button>}
+            {errors.length === 0 && <span className="text-slate-400">{busy ? '保存中…' : saved ? '保存しました' : ''}</span>}
+          </>
+        )}
       </div>
     </fieldset>
   )
