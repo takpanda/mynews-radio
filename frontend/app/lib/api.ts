@@ -181,6 +181,81 @@ export async function resetProgramSettings(): Promise<ProgramSettings> {
   return res.json() as Promise<ProgramSettings>
 }
 
+export type TopicWeight = 'high' | 'medium' | 'low'
+
+export interface UserTopic {
+  id: number
+  name: string
+  description: string
+  weight: TopicWeight
+  is_active: boolean
+}
+
+export interface UserTopicInput {
+  name: string
+  description: string
+  weight: TopicWeight
+}
+
+export interface UserTopicLimits {
+  max_topics: number
+  name_max_length: number
+  description_max_length: number
+}
+
+export interface UserTopicList {
+  topics: UserTopic[]
+  limits: UserTopicLimits
+}
+
+const AUTH_REQUIRED_MESSAGE = 'ログインが必要です。再度ログインしてください。'
+
+async function topicErrorMessage(res: Response, fallback: string): Promise<string> {
+  if (res.status === 401) return AUTH_REQUIRED_MESSAGE
+  if (res.status === 409) return '同じ名前のトピックが既にあります'
+  if (res.status === 404) return 'トピックが見つかりません。画面を再読み込みしてください。'
+  const body = await res.text().catch(() => '')
+  let detail: unknown
+  try { detail = JSON.parse(body).detail } catch {}
+  if (res.status === 422) {
+    if (typeof detail === 'string' && detail) return detail
+    return '入力内容が正しくありません。名前は1〜40文字、補足は200文字までです。'
+  }
+  if (res.status === 503 && typeof detail === 'string' && detail) return detail
+  return fallback
+}
+
+export async function fetchUserTopics(): Promise<UserTopicList> {
+  const res = await fetch(`${getApiBase()}/settings/topics`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(await topicErrorMessage(res, '関心トピックの読み込みに失敗しました'))
+  return res.json() as Promise<UserTopicList>
+}
+
+export async function createUserTopic(input: UserTopicInput): Promise<UserTopic> {
+  const res = await fetch(`${getApiBase()}/settings/topics`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw new Error(await topicErrorMessage(res, '関心トピックを追加できませんでした'))
+  return res.json() as Promise<UserTopic>
+}
+
+export async function updateUserTopic(id: number, input: UserTopicInput): Promise<UserTopic> {
+  const res = await fetch(`${getApiBase()}/settings/topics/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw new Error(await topicErrorMessage(res, '関心トピックを更新できませんでした'))
+  return res.json() as Promise<UserTopic>
+}
+
+export async function deleteUserTopic(id: number): Promise<void> {
+  const res = await fetch(`${getApiBase()}/settings/topics/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await topicErrorMessage(res, '関心トピックを削除できませんでした'))
+}
+
 export async function fetchLlmProviders(): Promise<LlmProvidersResponse> {
   const res = await fetch('/api/llm/providers', { cache: 'no-store' })
   if (!res.ok) {
