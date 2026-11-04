@@ -17,6 +17,7 @@ from app.batch.final_validation import (
 )
 from app.batch.generate_script import generate_script
 from app.batch.import_articles import import_articles_by_source
+from app.batch.judge_topics import judge_topics
 from app.batch.review_script import review_script
 from app.batch.summarize_articles import summarize_articles
 from app.batch.synthesize_voicevox import synthesize_episode
@@ -289,6 +290,8 @@ def run_radio_pipeline(
 
         # -- SUMMARIZE --
         _progress("summarize", "記事を要約しています…")
+        # 既存要約で書くレビュー根拠（summaries.json）は、判定後に書く（下記）。
+        fallback_summaries_reason = None
         try:
             summaries_path = os.path.join(base_dir, "summaries.json")
             if summarize_llm is None:
@@ -303,19 +306,7 @@ def run_radio_pipeline(
                 logger.warning("新規記事の要約成功件数が0件です")
                 if ins > 0:
                     _notify_failure_once("summarize", "新規記事の要約に成功しませんでした")
-                existing_summaries = ArticleService().fetch_summaries_for_script(
-                    max_articles=effective_max_articles,
-                    min_importance_score=effective_min_score,
-                    source=news_source,
-                    priority_themes=profile.priority_themes,
-                    excluded_themes=profile.excluded_themes,
-                    topics=profile.topics,
-                )
-                write_fallback_summaries(summaries_path, existing_summaries)
-                logger.info(
-                    "要約成功件数0件のため、レビュー根拠として既存要約%d件を書き込みました",
-                    len(existing_summaries),
-                )
+                fallback_summaries_reason = "empty"
         except Exception:
             logger.exception("summarize failed")
             if ins > 0:
@@ -326,8 +317,32 @@ def run_radio_pipeline(
             # フェーズ別設定では、要約が落ちてもDBに残る既存要約を根拠に
             # contentフェーズを続行する。完全に新規記事が無い場合は、
             # generate_script側が0件として安全に終了する。
+            fallback_summaries_reason = "failed"
+
+        # -- TOPIC JUDGE --
+        # 判定は選定の前提だけ。失敗しても未判定の記事は一般扱いで選定されるため、生成は止めない。
+        if profile.topics:
+            _progress("topic_judge", "関心トピックとの関連を判定しています…")
             try:
-                summaries_path = os.path.join(base_dir, "summaries.json")
+                if summarize_llm is None:
+                    raise RuntimeError("summary LLM is unavailable")
+                run_with_dgx_busy("topic_judge", judge_topics,
+                    topics=profile.topics,
+                    source=news_source,
+                    min_importance=effective_min_score,
+                    priority_themes=profile.priority_themes,
+                    excluded_themes=profile.excluded_themes,
+                    episode_id=episode_id,
+                    llm_provider=summarize_llm.name,
+                    llm_model=summarize_llm.model,
+                )
+            except Exception:
+                logger.warning("[%d] topic judge failed (non-fatal)", episode_id, exc_info=True)
+
+        # レビュー根拠は判定後の選定で書く。判定前の選定で書くと、判定で選定が変わったときに
+        # 台本（generate_script は判定後に選定する）と根拠の記事が食い違うため。
+        if fallback_summaries_reason is not None:
+            try:
                 existing_summaries = ArticleService().fetch_summaries_for_script(
                     max_articles=effective_max_articles,
                     min_importance_score=effective_min_score,
@@ -336,8 +351,14 @@ def run_radio_pipeline(
                     excluded_themes=profile.excluded_themes,
                     topics=profile.topics,
                 )
-                write_fallback_summaries(summaries_path, existing_summaries)
-                logger.warning("要約LLM障害後、既存要約%d件でcontentフェーズを継続します", len(existing_summaries))
+                write_fallback_summaries(os.path.join(base_dir, "summaries.json"), existing_summaries)
+                if fallback_summaries_reason == "empty":
+                    logger.info(
+                        "要約成功件数0件のため、レビュー根拠として既存要約%d件を書き込みました",
+                        len(existing_summaries),
+                    )
+                else:
+                    logger.warning("要約LLM障害後、既存要約%d件でcontentフェーズを継続します", len(existing_summaries))
             except Exception:
                 logger.exception("fallback summaries failed")
 

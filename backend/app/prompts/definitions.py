@@ -27,6 +27,11 @@ PROMPT_TEMPLATE_DEFINITIONS = {
         "required_variables": ["published_at", "source", "text", "title", "url"],
         "allowed_variables": ["published_at", "source", "text", "title", "url"],
     },
+    "judge_topic_relevance": {
+        "file": "judge_topic_relevance.md",
+        "required_variables": ["articles_json", "topics_json"],
+        "allowed_variables": ["articles_json", "topics_json"],
+    },
     "review_beginner_director": {
         "file": "review_beginner_director.md",
         "required_variables": ["article_summaries_json", "script_json"],
