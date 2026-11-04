@@ -2,6 +2,7 @@ import json
 import math
 import os
 import re
+import logging
 from datetime import datetime, timezone, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -10,6 +11,8 @@ import unicodedata
 
 from app.db.connection import get_db_connection
 from app.services.settings_service import TopicSetting, topic_fingerprint
+
+logger = logging.getLogger(__name__)
 
 
 JST = timezone(timedelta(hours=9))
@@ -585,6 +588,17 @@ _SUMMARY_COLUMNS = (
 _TOPIC_SUMMARY_COLUMNS = f"{_SUMMARY_COLUMNS}, published_at"
 
 
+def _summary_since_date() -> str:
+    _raw_lookback = os.getenv("SUMMARY_LOOKBACK_DAYS")
+    try:
+        lookback_days = int(_raw_lookback) if _raw_lookback else 3
+        if lookback_days < 1:
+            lookback_days = 3
+    except (ValueError, TypeError):
+        lookback_days = 3
+    return (datetime.now(JST).date() - timedelta(days=lookback_days)).isoformat()
+
+
 def _select_summary_rows(
     conn,
     *,
@@ -770,6 +784,12 @@ def _select_topic_summaries(
     )
     for article in topic_part + general_pick:
         article.pop("published_at", None)
+    logger.info(
+        "topic selection: tiers=%s general=%d total=%d",
+        {tier: sum(1 for a in chosen_topic if a["topic_tier"] == tier) for tier in _TOPIC_TIERS},
+        len(general_pick),
+        len(topic_part) + len(general_pick),
+    )
     return _enforce_weather_run(topic_part + general_pick)
 
 
@@ -832,6 +852,23 @@ class ArticleService:
                 (summary, category, importance_score, difficulty, status, article_id),
             )
 
+    def fetch_topic_judge_candidates(
+        self,
+        min_importance_score: int,
+        source: str | None = None,
+        priority_themes: list[str] | tuple[str, ...] | None = None,
+        excluded_themes: list[str] | tuple[str, ...] | None = None,
+    ) -> list[dict[str, Any]]:
+        """関心トピックの判定対象。選定時の候補プールと同じ範囲（重要度順・上限あり）を読む。"""
+        base_min = min(min_importance_score, _topic_high_min_importance())
+        with get_db_connection() as conn:
+            rows = _select_summary_rows(
+                conn, min_importance=base_min, since_date=_summary_since_date(), source=source,
+                priority=list(priority_themes or []), excluded=list(excluded_themes or []),
+                limit=_MAX_CANDIDATE_POOL_SIZE, columns="id, title, summary",
+            )
+        return [dict(row) for row in rows]
+
     def fetch_summaries_for_script(
         self,
         max_articles: int,
@@ -841,14 +878,7 @@ class ArticleService:
         excluded_themes: list[str] | tuple[str, ...] | None = None,
         topics: list[TopicSetting] | tuple[TopicSetting, ...] | None = None,
     ) -> list[dict[str, Any]]:
-        _raw_lookback = os.getenv("SUMMARY_LOOKBACK_DAYS")
-        try:
-            lookback_days = int(_raw_lookback) if _raw_lookback else 3
-            if lookback_days < 1:
-                lookback_days = 3
-        except (ValueError, TypeError):
-            lookback_days = 3
-        since_date = (datetime.now(JST).date() - timedelta(days=lookback_days)).isoformat()
+        since_date = _summary_since_date()
         priority = list(priority_themes or [])
         excluded = list(excluded_themes or [])
         with get_db_connection() as conn:

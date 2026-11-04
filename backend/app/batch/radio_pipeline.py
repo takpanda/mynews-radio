@@ -17,6 +17,7 @@ from app.batch.final_validation import (
 )
 from app.batch.generate_script import generate_script
 from app.batch.import_articles import import_articles_by_source
+from app.batch.judge_topics import judge_topics
 from app.batch.review_script import review_script
 from app.batch.summarize_articles import summarize_articles
 from app.batch.synthesize_voicevox import synthesize_episode
@@ -340,6 +341,26 @@ def run_radio_pipeline(
                 logger.warning("要約LLM障害後、既存要約%d件でcontentフェーズを継続します", len(existing_summaries))
             except Exception:
                 logger.exception("fallback summaries failed")
+
+        # -- TOPIC JUDGE --
+        # 判定は選定の前提だけ。失敗しても未判定の記事は一般扱いで選定されるため、生成は止めない。
+        if profile.topics:
+            _progress("topic_judge", "関心トピックとの関連を判定しています…")
+            try:
+                if summarize_llm is None:
+                    raise RuntimeError("summary LLM is unavailable")
+                run_with_dgx_busy("topic_judge", judge_topics,
+                    topics=profile.topics,
+                    source=news_source,
+                    min_importance=effective_min_score,
+                    priority_themes=profile.priority_themes,
+                    excluded_themes=profile.excluded_themes,
+                    episode_id=episode_id,
+                    llm_provider=summarize_llm.name,
+                    llm_model=summarize_llm.model,
+                )
+            except Exception:
+                logger.warning("[%d] topic judge failed (non-fatal)", episode_id, exc_info=True)
 
         # -- GENERATE SCRIPT --
         old_max = os.environ.get("MAX_SCRIPT_ARTICLES")
