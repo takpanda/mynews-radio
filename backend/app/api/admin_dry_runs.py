@@ -52,12 +52,15 @@ def _get_input_summaries(profile, input_episode_id: int | None) -> list[dict]:
             news_source=news_source,
             program_id=profile.id,
         )
+    # トピック未設定時は従来と同じ呼び出し形を保つ（本番の選定と揃えるため指定する）。
+    topic_kwargs = {"topics": selection["topics"]} if selection["topics"] else {}
     return ArticleService().fetch_summaries_for_script(
         max_articles=selection["max_articles"],
         min_importance_score=selection["min_importance_score"],
         source=news_source,
         priority_themes=selection["priority_themes"],
         excluded_themes=selection["excluded_themes"],
+        **topic_kwargs,
     )
 
 

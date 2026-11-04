@@ -309,6 +309,7 @@ def run_radio_pipeline(
                     source=news_source,
                     priority_themes=profile.priority_themes,
                     excluded_themes=profile.excluded_themes,
+                    topics=profile.topics,
                 )
                 write_fallback_summaries(summaries_path, existing_summaries)
                 logger.info(
@@ -333,6 +334,7 @@ def run_radio_pipeline(
                     source=news_source,
                     priority_themes=profile.priority_themes,
                     excluded_themes=profile.excluded_themes,
+                    topics=profile.topics,
                 )
                 write_fallback_summaries(summaries_path, existing_summaries)
                 logger.warning("要約LLM障害後、既存要約%d件でcontentフェーズを継続します", len(existing_summaries))

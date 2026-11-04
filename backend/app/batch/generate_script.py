@@ -17,7 +17,7 @@ from app.programs.profiles import (
 from app.programs.prompt_builder import PromptBuilder
 from app.prompts.service import render_prompt
 from app.batch.script_validator import ScriptValidator
-from app.services.article_service import ArticleService
+from app.services.article_service import ArticleService, without_topic_fields
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
 from app.services.settings_service import ProgramSettings, get_settings_or_default
@@ -1390,10 +1390,13 @@ def generate_script(
         source=news_source,
         priority_themes=profile.priority_themes,
         excluded_themes=profile.excluded_themes,
+        topics=profile.topics,
     )
     if not summaries:
         logger.warning("No summaries to generate script from")
         return 0
+    # 台本・arc のLLM入力へ関心トピックの判定結果を流さない（語り口に反映させないため）。
+    summaries = without_topic_fields(summaries)
 
     prompt_profile = program_profile or get_default_profile(
         kind="radio", program_name=program_name, news_source=news_source
