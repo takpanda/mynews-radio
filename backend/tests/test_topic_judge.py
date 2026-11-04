@@ -1,9 +1,12 @@
+import json
 import re
 from pathlib import Path
 
+import httpx
 import pytest
 
 from app.prompts.service import render_prompt
+from app.services.ollama_client import OllamaClient
 from app.services.settings_service import TopicSetting, topic_fingerprint
 from app.services.topic_relevance_service import judge_pending_articles, pending_topics_by_article
 
@@ -155,11 +158,29 @@ def test_chunks_split_by_chunk_size(judge_db):
     assert '"article_id": 5' in client.prompts[-1]
 
 
-def test_judge_records_topic_judge_phase(judge_db):
-    client = FakeJudgeClient()
-    judge_pending_articles(client, [_topic(1)], _articles(10), episode_id=None)
+def test_judge_call_is_logged_to_llm_call_logs_with_topic_judge_phase(judge_db):
+    seen_prompts = []
 
-    assert client._generation_context["phase"] == "topic_judge"
+    def handler(request):
+        body = json.loads(request.content)
+        seen_prompts.append(body["prompt"])
+        results = [
+            {"article_id": 10, "relevance": {"1": 3}},
+            {"article_id": 999, "relevance": {"1": 3}},
+        ]
+        return httpx.Response(200, json={"response": json.dumps({"results": results}), "thinking": ""})
+
+    client = OllamaClient("http://ollama.test", "test-model", max_retries=0)
+    client._client = httpx.Client(base_url="http://ollama.test", transport=httpx.MockTransport(handler))
+
+    stats = judge_pending_articles(client, [_topic(1)], _articles(10), episode_id=7)
+
+    assert len(seen_prompts) == 1
+    assert stats.stored == 1
+    assert stats.rejected == 1
+    with judge_db.get_db_connection() as conn:
+        log = conn.execute("SELECT phase, episode_id, status, model FROM llm_call_logs").fetchone()
+    assert (log["phase"], log["episode_id"], log["status"], log["model"]) == ("topic_judge", 7, "success", "test-model")
 
 
 def test_no_topics_or_articles_skips_llm(judge_db):
