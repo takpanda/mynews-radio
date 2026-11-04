@@ -195,6 +195,8 @@ export interface UserTopicInput {
   name: string
   description: string
   weight: TopicWeight
+  /** 省略するとAPI側で true になるため、更新時は取得値を必ず渡す */
+  is_active?: boolean
 }
 
 export interface UserTopicLimits {

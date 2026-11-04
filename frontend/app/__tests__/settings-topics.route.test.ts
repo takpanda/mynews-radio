@@ -34,4 +34,17 @@ describe('/api/settings/topics proxy', () => {
     expect((global.fetch as jest.Mock).mock.calls[0][0]).toMatch(/\/settings\/topics\/3$/)
     expect(d.status).toBe(204)
   })
+
+  it('idに / や ? を含んでもパス・クエリを変更できない', async () => {
+    ;(global.fetch as jest.Mock).mockResolvedValueOnce(up(404, '{}'))
+    await DELETE(req('DELETE'), { params: Promise.resolve({ id: '1/../x?y=1' }) })
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).toMatch(/\/settings\/topics\/1%2F\.\.%2Fx%3Fy%3D1$/)
+  })
+
+  it('Cookieがなければ転送しない', async () => {
+    ;(global.fetch as jest.Mock).mockResolvedValueOnce(up(401, '{}'))
+    const r = await GET(new NextRequest('http://localhost/api/settings/topics'))
+    expect(r.status).toBe(401)
+    expect((global.fetch as jest.Mock).mock.calls[0][1].headers.Cookie).toBeUndefined()
+  })
 })
