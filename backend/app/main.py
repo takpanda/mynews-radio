@@ -317,6 +317,10 @@ def _apply_db_migrations() -> None:
         from app.db.migration import migrate_female_mc_candidates
         migrate_female_mc_candidates(conn)
 
+        # 関心トピック（パーソナル選定）。既存DBにもテーブルを追加する（BEEW-542）。
+        from app.db.migration import migrate_user_topics
+        migrate_user_topics(conn)
+
         row = conn.execute("SELECT COUNT(*) FROM dictionary_entries").fetchone()
         if row[0] == 0:
             seed_entries = [

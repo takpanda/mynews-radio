@@ -435,3 +435,29 @@ CREATE TABLE IF NOT EXISTS episode_generation_line_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_ep_gen_line_logs_phase ON episode_generation_line_logs(phase_log_id);
 CREATE INDEX IF NOT EXISTS idx_ep_gen_line_logs_episode ON episode_generation_line_logs(episode_id, script_line_index);
+
+-- 関心トピック（パーソナル選定）。上限・検証は settings_service.py（BEEW-540 仕様 §4〜§6）。
+CREATE TABLE IF NOT EXISTS user_topics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    -- 一意性判定用のキー（NFKC正規化 + casefold）。SQLite の NOCASE は非ASCIIを区別するため使わない。
+    name_key TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    weight TEXT NOT NULL CHECK (weight IN ('high', 'medium', 'low')),
+    is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_topics_name_key ON user_topics(name_key);
+-- 判定結果のキャッシュ。SQLiteの外部キーは無効のため、トピック削除時は明示的に削除する。
+CREATE TABLE IF NOT EXISTS article_topic_matches (
+    article_id INTEGER NOT NULL,
+    topic_id INTEGER NOT NULL,
+    relevance INTEGER NOT NULL CHECK (relevance BETWEEN 0 AND 3),
+    fingerprint TEXT NOT NULL,
+    judged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (article_id, topic_id),
+    FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE,
+    FOREIGN KEY (topic_id) REFERENCES user_topics(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_article_topic_matches_topic ON article_topic_matches(topic_id);

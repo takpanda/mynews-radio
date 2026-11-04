@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
 from app.config import get_settings
 from app.db.connection import get_db_connection
+
+logger = logging.getLogger(__name__)
 
 THEMES = frozenset({"technology", "business", "society", "sports", "entertainment", "general"})
 DURATION_PRESETS = frozenset({"short", "normal", "long"})
@@ -535,3 +539,110 @@ def resolve_female_mc_display_name(
     if not _JAPANESE_DISPLAY_NAME_PATTERN.search(display_name):
         return None
     return display_name.strip()
+
+
+# ---------------------------------------------------------------------------
+# 関心トピック（パーソナル選定）— 仕様 §4〜§6。判定と選定への反映は別Issue。
+# ---------------------------------------------------------------------------
+
+TOPIC_WEIGHTS = frozenset({"high", "medium", "low"})
+TOPIC_MAX_COUNT = 20
+TOPIC_NAME_MAX_LENGTH = 40
+TOPIC_DESCRIPTION_MAX_LENGTH = 200
+
+
+class TopicNameConflictError(ValueError):
+    """同名（大文字小文字を区別しない）のトピックが既にある。"""
+
+
+def _topic_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "description": row["description"],
+        "weight": row["weight"],
+        "is_active": bool(row["is_active"]),
+    }
+
+
+def topic_name_key(name: str) -> str:
+    """同名判定用のキー。全角半角・大文字小文字（非ASCIIを含む）を同一視する。"""
+    return unicodedata.normalize("NFKC", name).casefold()
+
+
+def _validate_user_topic(name: Any, description: Any, weight: Any, is_active: Any) -> dict[str, Any]:
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= TOPIC_NAME_MAX_LENGTH:
+        raise ValueError(f"name must be 1 to {TOPIC_NAME_MAX_LENGTH} characters after trimming")
+    # 説明は入力のまま長さを判定する（末尾の空白で上限を回避させない）。
+    if not isinstance(description, str) or len(description) > TOPIC_DESCRIPTION_MAX_LENGTH:
+        raise ValueError(f"description must be at most {TOPIC_DESCRIPTION_MAX_LENGTH} characters")
+    if weight not in TOPIC_WEIGHTS:
+        raise ValueError("weight must be one of: high, medium, low")
+    if not isinstance(is_active, bool):
+        raise ValueError("is_active must be a boolean")
+    return {
+        "name": name.strip(),
+        "description": description.strip(),
+        "weight": weight,
+        "is_active": is_active,
+    }
+
+
+def get_user_topics() -> list[dict[str, Any]]:
+    """トピック一覧を返す。DB取得に失敗しても空配列を返し、生成を止めない。"""
+    try:
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                "SELECT id, name, description, weight, is_active FROM user_topics ORDER BY id"
+            ).fetchall()
+    except (sqlite3.Error, OSError):
+        logger.warning("関心トピックを読み込めませんでした。空の一覧として扱います", exc_info=True)
+        return []
+    return [_topic_to_dict(row) for row in rows]
+
+
+def create_user_topic(name: Any, description: Any, weight: Any, is_active: Any = True) -> dict[str, Any]:
+    topic = _validate_user_topic(name, description, weight, is_active)
+    try:
+        with get_db_connection() as conn:
+            # 件数の確認と追加を1文で行い、同時追加でも上限を超えないようにする。
+            cursor = conn.execute(
+                "INSERT INTO user_topics (name, name_key, description, weight, is_active, updated_at) "
+                "SELECT ?, ?, ?, ?, ?, CURRENT_TIMESTAMP "
+                "WHERE (SELECT COUNT(*) FROM user_topics) < ?",
+                (topic["name"], topic_name_key(topic["name"]), topic["description"], topic["weight"],
+                 int(topic["is_active"]), TOPIC_MAX_COUNT),
+            )
+            if cursor.rowcount == 0:
+                raise ValueError(f"topics must contain at most {TOPIC_MAX_COUNT} items")
+            topic["id"] = cursor.lastrowid
+    except sqlite3.IntegrityError as exc:
+        raise TopicNameConflictError("topic name already exists") from exc
+    return topic
+
+
+def update_user_topic(topic_id: int, name: Any, description: Any, weight: Any, is_active: Any) -> dict[str, Any]:
+    topic = _validate_user_topic(name, description, weight, is_active)
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE user_topics SET name = ?, name_key = ?, description = ?, weight = ?, is_active = ?, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (topic["name"], topic_name_key(topic["name"]), topic["description"], topic["weight"],
+                 int(topic["is_active"]), topic_id),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(topic_id)
+    except sqlite3.IntegrityError as exc:
+        raise TopicNameConflictError("topic name already exists") from exc
+    return {"id": topic_id, **topic}
+
+
+def delete_user_topic(topic_id: int) -> None:
+    """トピックと判定キャッシュを同一トランザクションで削除する（外部キーは無効のため明示削除）。"""
+    with get_db_connection() as conn:
+        conn.execute("DELETE FROM article_topic_matches WHERE topic_id = ?", (topic_id,))
+        cursor = conn.execute("DELETE FROM user_topics WHERE id = ?", (topic_id,))
+        if cursor.rowcount == 0:
+            # 例外で接続を抜けるため、上の判定キャッシュの削除もロールバックされる。
+            raise KeyError(topic_id)
