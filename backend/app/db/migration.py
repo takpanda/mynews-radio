@@ -286,6 +286,40 @@ def migrate_female_mc_candidates(conn: sqlite3.Connection) -> bool:
     return True
 
 
+def migrate_user_topics(conn: sqlite3.Connection) -> bool:
+    """関心トピックと判定キャッシュのテーブルを既存DBへ追加する（冪等）。"""
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS user_topics ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "name TEXT NOT NULL, "
+        "description TEXT NOT NULL DEFAULT '', "
+        "weight TEXT NOT NULL CHECK (weight IN ('high', 'medium', 'low')), "
+        "is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)), "
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_topics_name "
+        "ON user_topics(name COLLATE NOCASE)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS article_topic_matches ("
+        "article_id INTEGER NOT NULL, "
+        "topic_id INTEGER NOT NULL, "
+        "relevance INTEGER NOT NULL CHECK (relevance BETWEEN 0 AND 3), "
+        "fingerprint TEXT NOT NULL, "
+        "judged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "PRIMARY KEY (article_id, topic_id), "
+        "FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE, "
+        "FOREIGN KEY (topic_id) REFERENCES user_topics(id) ON DELETE CASCADE)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_article_topic_matches_topic "
+        "ON article_topic_matches(topic_id)"
+    )
+    return True
+
+
 def migrate_llm_call_logs(conn: sqlite3.Connection) -> bool:
     """既存DBへLLM呼び出しログの保存先を追加する。"""
     conn.execute(

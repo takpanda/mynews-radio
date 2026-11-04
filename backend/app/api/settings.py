@@ -13,6 +13,14 @@ from app.auth import require_owner_session
 from app.config import DISABLED_TTS_ENGINES, get_settings
 from app.services.fishs2pro_client import FishS2ProClient
 from app.services.settings_service import (
+    TOPIC_DESCRIPTION_MAX_LENGTH,
+    TOPIC_MAX_COUNT,
+    TOPIC_NAME_MAX_LENGTH,
+    TopicNameConflictError,
+    create_user_topic,
+    delete_user_topic,
+    get_user_topics,
+    update_user_topic,
     DURATION_PRESETS,
     FEMALE_MC_SAMPLE_TEXT,
     create_female_mc_candidate,
@@ -502,3 +510,92 @@ def get_category_female_mc_sample(voice_name: str) -> FileResponse:
         media_type="audio/wav",
         headers={"Cache-Control": "private, max-age=3600"},
     )
+
+
+# ---------------------------------------------------------------------------
+# 関心トピック（パーソナル選定）— 仕様 §6。認可は既存の /settings に揃える。
+# ---------------------------------------------------------------------------
+
+class UserTopicPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    description: str = ""
+    weight: str
+    is_active: bool = True
+
+
+class UserTopicResponse(BaseModel):
+    id: int
+    name: str
+    description: str
+    weight: str
+    is_active: bool
+
+
+class UserTopicListResponse(BaseModel):
+    topics: list[UserTopicResponse]
+    limits: dict[str, int]
+
+
+_TOPIC_LIMITS = {
+    "max_topics": TOPIC_MAX_COUNT,
+    "name_max_length": TOPIC_NAME_MAX_LENGTH,
+    "description_max_length": TOPIC_DESCRIPTION_MAX_LENGTH,
+}
+
+
+@router.get("/topics", response_model=UserTopicListResponse, dependencies=[Depends(require_owner_session)])
+def list_user_topics() -> dict:
+    # DB取得に失敗しても空配列を返す（サービス側で処理）。
+    return {"topics": get_user_topics(), "limits": _TOPIC_LIMITS}
+
+
+@router.post(
+    "/topics",
+    response_model=UserTopicResponse,
+    status_code=201,
+    dependencies=[Depends(require_owner_session)],
+)
+def add_user_topic(payload: UserTopicPayload) -> dict:
+    try:
+        return create_user_topic(**payload.model_dump())
+    except TopicNameConflictError as exc:
+        raise HTTPException(status_code=409, detail="同じ名前のトピックが既にあります") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (sqlite3.Error, OSError) as exc:
+        raise HTTPException(status_code=503, detail="関心トピックを保存できませんでした") from exc
+
+
+@router.put(
+    "/topics/{topic_id}",
+    response_model=UserTopicResponse,
+    dependencies=[Depends(require_owner_session)],
+)
+def put_user_topic(topic_id: int, payload: UserTopicPayload) -> dict:
+    try:
+        return update_user_topic(topic_id, **payload.model_dump())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Topic not found") from exc
+    except TopicNameConflictError as exc:
+        raise HTTPException(status_code=409, detail="同じ名前のトピックが既にあります") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (sqlite3.Error, OSError) as exc:
+        raise HTTPException(status_code=503, detail="関心トピックを保存できませんでした") from exc
+
+
+@router.delete(
+    "/topics/{topic_id}",
+    status_code=204,
+    dependencies=[Depends(require_owner_session)],
+)
+def remove_user_topic(topic_id: int) -> None:
+    """トピックを削除する。判定キャッシュ（article_topic_matches）も同時に消える。"""
+    try:
+        delete_user_topic(topic_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Topic not found") from exc
+    except (sqlite3.Error, OSError) as exc:
+        raise HTTPException(status_code=503, detail="関心トピックを削除できませんでした") from exc
