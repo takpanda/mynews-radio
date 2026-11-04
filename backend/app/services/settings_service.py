@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import sqlite3
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
@@ -564,10 +565,16 @@ def _topic_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def topic_name_key(name: str) -> str:
+    """同名判定用のキー。全角半角・大文字小文字（非ASCIIを含む）を同一視する。"""
+    return unicodedata.normalize("NFKC", name).casefold()
+
+
 def _validate_user_topic(name: Any, description: Any, weight: Any, is_active: Any) -> dict[str, Any]:
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= TOPIC_NAME_MAX_LENGTH:
         raise ValueError(f"name must be 1 to {TOPIC_NAME_MAX_LENGTH} characters after trimming")
-    if not isinstance(description, str) or len(description.strip()) > TOPIC_DESCRIPTION_MAX_LENGTH:
+    # 説明は入力のまま長さを判定する（末尾の空白で上限を回避させない）。
+    if not isinstance(description, str) or len(description) > TOPIC_DESCRIPTION_MAX_LENGTH:
         raise ValueError(f"description must be at most {TOPIC_DESCRIPTION_MAX_LENGTH} characters")
     if weight not in TOPIC_WEIGHTS:
         raise ValueError("weight must be one of: high, medium, low")
@@ -600,10 +607,10 @@ def create_user_topic(name: Any, description: Any, weight: Any, is_active: Any =
         with get_db_connection() as conn:
             # 件数の確認と追加を1文で行い、同時追加でも上限を超えないようにする。
             cursor = conn.execute(
-                "INSERT INTO user_topics (name, description, weight, is_active, updated_at) "
-                "SELECT ?, ?, ?, ?, CURRENT_TIMESTAMP "
+                "INSERT INTO user_topics (name, name_key, description, weight, is_active, updated_at) "
+                "SELECT ?, ?, ?, ?, ?, CURRENT_TIMESTAMP "
                 "WHERE (SELECT COUNT(*) FROM user_topics) < ?",
-                (topic["name"], topic["description"], topic["weight"],
+                (topic["name"], topic_name_key(topic["name"]), topic["description"], topic["weight"],
                  int(topic["is_active"]), TOPIC_MAX_COUNT),
             )
             if cursor.rowcount == 0:
@@ -619,9 +626,9 @@ def update_user_topic(topic_id: int, name: Any, description: Any, weight: Any, i
     try:
         with get_db_connection() as conn:
             cursor = conn.execute(
-                "UPDATE user_topics SET name = ?, description = ?, weight = ?, is_active = ?, "
+                "UPDATE user_topics SET name = ?, name_key = ?, description = ?, weight = ?, is_active = ?, "
                 "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (topic["name"], topic["description"], topic["weight"],
+                (topic["name"], topic_name_key(topic["name"]), topic["description"], topic["weight"],
                  int(topic["is_active"]), topic_id),
             )
             if cursor.rowcount == 0:

@@ -440,13 +440,15 @@ CREATE INDEX IF NOT EXISTS idx_ep_gen_line_logs_episode ON episode_generation_li
 CREATE TABLE IF NOT EXISTS user_topics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
+    -- 一意性判定用のキー（NFKC正規化 + casefold）。SQLite の NOCASE は非ASCIIを区別するため使わない。
+    name_key TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     weight TEXT NOT NULL CHECK (weight IN ('high', 'medium', 'low')),
     is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_user_topics_name ON user_topics(name COLLATE NOCASE);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_topics_name_key ON user_topics(name_key);
 -- 判定結果のキャッシュ。SQLiteの外部キーは無効のため、トピック削除時は明示的に削除する。
 CREATE TABLE IF NOT EXISTS article_topic_matches (
     article_id INTEGER NOT NULL,

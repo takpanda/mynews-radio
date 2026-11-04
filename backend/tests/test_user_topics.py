@@ -31,6 +31,8 @@ def test_validation_rejects_invalid_topic_fields():
         _topic(name="   "),
         _topic(name="x" * 41),
         _topic(description="x" * 201),
+        # 末尾の空白を除いて200字でも、入力そのものが201字なら拒否する
+        _topic(description="y" * 199 + "  "),
         _topic(weight="urgent"),
         _topic(is_active="yes"),
     ]
@@ -73,6 +75,48 @@ def test_duplicate_name_is_rejected_case_insensitively(topic_db):
     other = settings_service.create_user_topic(**_topic(name="量子化"))
     with pytest.raises(settings_service.TopicNameConflictError):
         settings_service.update_user_topic(other["id"], **_topic(name="OLLAMA"))
+
+
+def test_duplicate_name_is_rejected_for_non_ascii_case_and_width(topic_db):
+    # SQLite の NOCASE は非ASCIIを区別するため、Unicode の大文字小文字・全角半角も同一視する。
+    settings_service.create_user_topic(**_topic(name="Ä-Modell"))
+    with pytest.raises(settings_service.TopicNameConflictError):
+        settings_service.create_user_topic(**_topic(name="ä-modell"))
+    settings_service.create_user_topic(**_topic(name="ＡＩ"))
+    with pytest.raises(settings_service.TopicNameConflictError):
+        settings_service.create_user_topic(**_topic(name="ai"))
+    other = settings_service.create_user_topic(**_topic(name="量子化"))
+    with pytest.raises(settings_service.TopicNameConflictError):
+        settings_service.update_user_topic(other["id"], **_topic(name="Ai"))
+
+
+def test_description_length_is_checked_before_trimming(topic_db):
+    boundary = settings_service.create_user_topic(**_topic(name="境界", description="y" * 200))
+    assert len(boundary["description"]) == 200
+    with pytest.raises(ValueError):
+        settings_service.create_user_topic(**_topic(name="空白", description="y" * 200 + " "))
+
+
+def test_delete_rolls_back_cache_removal_when_topic_delete_fails(topic_db):
+    # トピック本体の削除で失敗を注入し、先に消した判定キャッシュが戻ることを確認する。
+    from app.db import connection
+    topic = settings_service.create_user_topic(**_topic())
+    with connection.get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO article_topic_matches (article_id, topic_id, relevance, fingerprint) "
+            "VALUES (1, ?, 3, 'abc')",
+            (topic["id"],),
+        )
+        conn.execute(
+            "CREATE TRIGGER fail_user_topic_delete BEFORE DELETE ON user_topics "
+            "BEGIN SELECT RAISE(ABORT, 'injected failure'); END"
+        )
+    with pytest.raises(sqlite3.Error):
+        settings_service.delete_user_topic(topic["id"])
+    with connection.get_db_connection() as conn:
+        topics = conn.execute("SELECT COUNT(*) FROM user_topics").fetchone()[0]
+        matches = conn.execute("SELECT COUNT(*) FROM article_topic_matches").fetchone()[0]
+    assert (topics, matches) == (1, 1)
 
 
 def test_limit_of_twenty_topics_is_enforced(topic_db):
@@ -121,9 +165,9 @@ def test_migrate_user_topics_is_idempotent_and_keeps_existing_settings(tmp_path)
     assert migrate_user_topics(conn) is True
     row = conn.execute("SELECT priority_themes, duration_preset FROM user_settings").fetchone()
     assert (row[0], row[1]) == ('["technology"]', "short")
-    conn.execute("INSERT INTO user_topics (name, weight) VALUES ('a', 'high')")
+    conn.execute("INSERT INTO user_topics (name, name_key, weight) VALUES ('a', 'a', 'high')")
     with pytest.raises(sqlite3.IntegrityError):
-        conn.execute("INSERT INTO user_topics (name, weight) VALUES ('A', 'low')")
+        conn.execute("INSERT INTO user_topics (name, name_key, weight) VALUES ('A', 'a', 'low')")
     conn.close()
 
 
@@ -161,6 +205,8 @@ def test_topics_api_crud_limits_and_failures(client, monkeypatch):
     assert client.post("/settings/topics", json={"name": "z", "weight": "low"}).status_code == 503
     monkeypatch.setattr(settings_service, "get_db_connection", lambda: (_ for _ in ()).throw(sqlite3.OperationalError("locked")))
     assert client.get("/settings/topics").json()["topics"] == []
+    assert client.put("/settings/topics/1", json={"name": "y", "weight": "low"}).status_code == 503
+    assert client.delete("/settings/topics/1").status_code == 503
 
 
 def test_settings_response_shape_is_unchanged(client):
