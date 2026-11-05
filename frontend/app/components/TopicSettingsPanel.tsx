@@ -51,6 +51,8 @@ function TopicRow({ topic, limits, getSaved, onSave, onDelete, onInvalid }: RowP
   // 直近に保存を依頼した値。保存待ちの間に元の値へ戻した場合も差分として検出するために使う
   const intendedRef = useRef({ name: topic.name, description: topic.description })
 
+  const textGenerationRef = useRef(0)
+
   const commitText = async () => {
     const saved = getSaved(topic.id) ?? topic
     let nextName = name
@@ -63,8 +65,10 @@ function TopicRow({ topic, limits, getSaved, onSave, onDelete, onInvalid }: RowP
     const sent = { name: nextName.trim(), description: nextDescription.trim() }
     if (sent.name === intendedRef.current.name && sent.description === intendedRef.current.description) return
     intendedRef.current = sent
+    const generation = ++textGenerationRef.current
     const ok = await onSave(topic, sent)
-    if (!ok) {
+    // 後続の保存が予約されている場合、その結果が最終状態を決めるので巻き戻さない
+    if (!ok && generation === textGenerationRef.current) {
       const latest = getSaved(topic.id) ?? saved
       if (intendedRef.current === sent) intendedRef.current = { name: latest.name, description: latest.description }
       setName((cur) => (cur === nextName ? latest.name : cur))
