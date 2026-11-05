@@ -48,21 +48,27 @@ function TopicRow({ topic, limits, getSaved, onSave, onDelete, onInvalid }: RowP
   const [description, setDescription] = useState(topic.description)
   const [weight, setWeight] = useState<TopicWeight>(topic.weight)
 
+  // 直近に保存を依頼した値。保存待ちの間に元の値へ戻した場合も差分として検出するために使う
+  const intendedRef = useRef({ name: topic.name, description: topic.description })
+
   const commitText = async () => {
     const saved = getSaved(topic.id) ?? topic
-    if (name === saved.name && description === saved.description) return
-    const message = validate(name, description, limits)
-    if (message) {
-      onInvalid(topic, message)
-      setName(saved.name); setDescription(saved.description)
-      return
-    }
-    const sent = { name: name.trim(), description: description.trim() }
+    let nextName = name
+    let nextDescription = description
+    // 不正な欄だけを保存済みの値へ戻し、もう一方の欄の編集は保持する
+    const nameMessage = validate(name, '', limits)
+    const descriptionMessage = validate('x', description, limits)
+    if (nameMessage) { onInvalid(topic, nameMessage); nextName = saved.name; setName(saved.name) }
+    if (descriptionMessage) { onInvalid(topic, descriptionMessage); nextDescription = saved.description; setDescription(saved.description) }
+    const sent = { name: nextName.trim(), description: nextDescription.trim() }
+    if (sent.name === intendedRef.current.name && sent.description === intendedRef.current.description) return
+    intendedRef.current = sent
     const ok = await onSave(topic, sent)
     if (!ok) {
       const latest = getSaved(topic.id) ?? saved
-      setName((cur) => (cur === name ? latest.name : cur))
-      setDescription((cur) => (cur === description ? latest.description : cur))
+      if (intendedRef.current === sent) intendedRef.current = { name: latest.name, description: latest.description }
+      setName((cur) => (cur === nextName ? latest.name : cur))
+      setDescription((cur) => (cur === nextDescription ? latest.description : cur))
     }
   }
 
