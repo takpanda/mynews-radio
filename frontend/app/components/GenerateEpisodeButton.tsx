@@ -7,6 +7,7 @@ import { generateEpisode, fetchEpisode, fetchLlmProviders, searchEpisodesBySourc
 import { DISABLED_TTS_ENGINE_MESSAGE, isTtsDisabled } from '../lib/tts-engines'
 import DuplicateUrlConfirmDialog from './DuplicateUrlConfirmDialog'
 import ProgramSettingsPanel from './ProgramSettingsPanel'
+import TopicSettingsPanel from './TopicSettingsPanel'
 import type { ProgramSettings } from '../lib/api'
 import { fetchPrograms, type Program } from '../lib/admin-programs'
 
@@ -909,6 +910,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
               setMaxArticles(settings.duration_preset === 'short' ? 6 : settings.duration_preset === 'long' ? 14 : 5)
             }}
           />
+          <TopicSettingsPanel disabled={isLoading} />
           <fieldset className="rounded-xl border border-slate-200 bg-slate-50/70 p-3" disabled={isLoading || llmLoading}>
             <legend className="px-1 text-sm font-medium text-slate-900">LLMプロバイダー・モデル</legend>
             <p className="mt-1 text-xs leading-5 text-slate-500">生成に使用するプロバイダーとモデルを選択できます。</p>
