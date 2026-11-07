@@ -20,7 +20,7 @@ const THEMES: Array<{ value: ProgramTheme; label: string }> = [
 
 const DURATIONS: Array<{ value: ProgramSettings['duration_preset']; label: string; detail: string }> = [
   { value: 'short', label: '短め', detail: '約6記事' },
-  { value: 'normal', label: '標準', detail: '約10記事' },
+  { value: 'normal', label: '標準', detail: '約5記事' },
   { value: 'long', label: 'しっかり', detail: '約14記事' },
 ]
 
