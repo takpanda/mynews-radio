@@ -806,3 +806,9 @@ def test_bearer_approved_synthesize_job_is_processed_by_existing_worker(client, 
     assert job["owner_user_id"] == -1
     assert synthesized == [episode_id]
     assert finalized == [(job_id, episode_id)]
+    with get_db_connection() as conn:
+        approved = conn.execute(
+            "SELECT owner_user_id, actor_user_id, result FROM audit_logs WHERE episode_id=? AND operation='script_approve'",
+            (episode_id,),
+        ).fetchall()
+    assert [(row["owner_user_id"], row["actor_user_id"]) for row in approved] == [(-1, -1)]

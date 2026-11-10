@@ -231,8 +231,28 @@ def test_episode_logs_include_jobs_owned_by_bearer_service_actor(client):
 
     assert response.status_code == 200
     assert response.json()["generation_jobs"] == [{
-        "id": job_id, "operation": "synthesize", "owner": {"id": -1, "username": None},
+        "id": job_id, "operation": "synthesize", "owner": {"id": -1, "username": "API_KEY (service credential)"},
         "client_ip_hash": "ip-hash", "status": "completed",
         "claimed_at": response.json()["generation_jobs"][0]["claimed_at"],
         "finished_at": response.json()["generation_jobs"][0]["finished_at"],
     }]
+
+
+def test_episode_logs_owner_username_is_always_a_string(client):
+    episode_id = EpisodeService().create_episode("2026-08-16", status="completed", seq=1)
+    with get_db_connection() as conn:
+        owned_id = _insert_job(episode_id, suffix="owned")
+        conn.execute(
+            "INSERT INTO generation_jobs (owner_user_id, operation, idempotency_key, input_hash, "
+            "client_ip_hash, episode_id, status) VALUES (999999, 'generate', 'orphan-owner-job', 'h', 'ip', ?, 'completed')",
+            (episode_id,),
+        )
+    with get_db_connection() as conn:
+        orphan_id = conn.execute("SELECT id FROM generation_jobs WHERE idempotency_key='orphan-owner-job'").fetchone()[0]
+
+    response = client.get(f"/admin/episodes/{episode_id}/logs")
+
+    assert response.status_code == 200
+    owners = {job["id"]: job["owner"] for job in response.json()["generation_jobs"]}
+    assert owners[owned_id] == {"id": 1, "username": "fixture-owner"}
+    assert owners[orphan_id] == {"id": 999999, "username": "unknown"}

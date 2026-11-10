@@ -21,6 +21,18 @@ AUDIT_REASON_CODES = {
     "ip_active_limit",
     "global_active_limit",
 }
+# 共有 API_KEY(Bearer) で実行されたジョブの owner_user_id は -1 で記録される。
+SERVICE_CREDENTIAL_OWNER_ID = -1
+SERVICE_CREDENTIAL_OWNER_LABEL = "API_KEY (service credential)"
+UNKNOWN_OWNER_LABEL = "unknown"
+
+
+def _job_owner_username(owner_id: int | None, username: str | None) -> str:
+    if username is not None:
+        return username
+    if owner_id == SERVICE_CREDENTIAL_OWNER_ID:
+        return SERVICE_CREDENTIAL_OWNER_LABEL
+    return UNKNOWN_OWNER_LABEL
 
 
 def _utc_iso(value: str | None) -> str | None:
@@ -194,7 +206,7 @@ def get_episode_generation_logs(
         "episode": {**dict(episode), "created_at": _utc_iso(episode["created_at"]), "updated_at": _utc_iso(episode["updated_at"])},
         "generation_jobs": [
             {"id": row["id"], "operation": row["operation"],
-             "owner": {"id": row["owner_id"], "username": row["owner_username"]},
+             "owner": {"id": row["owner_id"], "username": _job_owner_username(row["owner_id"], row["owner_username"])},
              "client_ip_hash": row["client_ip_hash"], "status": row["status"],
              "claimed_at": _utc_iso(row["claimed_at"]), "finished_at": _utc_iso(row["finished_at"])}
             for row in jobs
