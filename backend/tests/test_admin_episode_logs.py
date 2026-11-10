@@ -213,3 +213,46 @@ def test_episode_logs_reject_missing_other_episode_and_non_synthesis_phase_ids(c
     missing_episode = client.get("/admin/episodes/999999/logs")
     assert missing_episode.status_code == 404
     assert missing_episode.json() == {"detail": "Episode not found"}
+
+
+def test_episode_logs_include_jobs_owned_by_bearer_service_actor(client):
+    episode_id = EpisodeService().create_episode("2026-08-15", status="completed", seq=1)
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO generation_jobs (owner_user_id, operation, idempotency_key, input_hash, "
+            "client_ip_hash, episode_id, status, claimed_at, finished_at) "
+            "VALUES (-1, 'synthesize', 'bearer-approve-job', 'input-hash-not-exposed', 'ip-hash', ?, 'completed', "
+            "'2026-08-15 10:00:00', '2026-08-15 10:03:00')",
+            (episode_id,),
+        )
+        job_id = cursor.lastrowid
+
+    response = client.get(f"/admin/episodes/{episode_id}/logs")
+
+    assert response.status_code == 200
+    assert response.json()["generation_jobs"] == [{
+        "id": job_id, "operation": "synthesize", "owner": {"id": -1, "username": "API_KEY (service credential)"},
+        "client_ip_hash": "ip-hash", "status": "completed",
+        "claimed_at": response.json()["generation_jobs"][0]["claimed_at"],
+        "finished_at": response.json()["generation_jobs"][0]["finished_at"],
+    }]
+
+
+def test_episode_logs_owner_username_is_always_a_string(client):
+    episode_id = EpisodeService().create_episode("2026-08-16", status="completed", seq=1)
+    with get_db_connection() as conn:
+        owned_id = _insert_job(episode_id, suffix="owned")
+        conn.execute(
+            "INSERT INTO generation_jobs (owner_user_id, operation, idempotency_key, input_hash, "
+            "client_ip_hash, episode_id, status) VALUES (999999, 'generate', 'orphan-owner-job', 'h', 'ip', ?, 'completed')",
+            (episode_id,),
+        )
+    with get_db_connection() as conn:
+        orphan_id = conn.execute("SELECT id FROM generation_jobs WHERE idempotency_key='orphan-owner-job'").fetchone()[0]
+
+    response = client.get(f"/admin/episodes/{episode_id}/logs")
+
+    assert response.status_code == 200
+    owners = {job["id"]: job["owner"] for job in response.json()["generation_jobs"]}
+    assert owners[owned_id] == {"id": 1, "username": "fixture-owner"}
+    assert owners[orphan_id] == {"id": 999999, "username": "unknown"}

@@ -13,7 +13,7 @@ from starlette.background import BackgroundTask
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app.auth import require_owner_session
+from app.auth import require_admin, require_owner_session
 from app.batch.final_validation import validate_final_script
 from app.programs.profiles import get_profile_by_id
 from app.config import get_settings, resolve_default_tts_engine
@@ -245,7 +245,7 @@ def _validate_episode_script(episode_id: int, script: dict) -> dict:
 
 
 @router.post("/admin/episodes/{episode_id}/validate")
-def validate_script(episode_id: int, user_id: Annotated[int, Depends(require_owner_session)]) -> dict:
+def validate_script(episode_id: int, user_id: Annotated[int, Depends(require_admin)]) -> dict:
     with get_db_connection() as conn:
         episode = conn.execute("SELECT status FROM episodes WHERE id=?", (episode_id,)).fetchone()
         if not episode:
@@ -265,7 +265,7 @@ def validate_script(episode_id: int, user_id: Annotated[int, Depends(require_own
 @router.post("/admin/episodes/{episode_id}/approve")
 def approve_script(
     episode_id: int,
-    user_id: Annotated[int, Depends(require_owner_session)],
+    user_id: Annotated[int, Depends(require_admin)],
     body: ApproveRequest | None = None,
 ) -> dict:
     force = body.force if body is not None else False
@@ -304,7 +304,7 @@ def approve_script(
 
 
 @router.post("/admin/episodes/{episode_id}/reject")
-def reject_script(episode_id: int, body: RejectRequest, user_id: Annotated[int, Depends(require_owner_session)]) -> dict:
+def reject_script(episode_id: int, body: RejectRequest, user_id: Annotated[int, Depends(require_admin)]) -> dict:
     with get_db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
