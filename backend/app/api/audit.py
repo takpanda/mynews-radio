@@ -94,10 +94,10 @@ def get_episode_generation_logs(
             raise HTTPException(status_code=404, detail="Episode not found")
 
         jobs = conn.execute(
-            "SELECT j.id, j.operation, u.id AS owner_id, u.username AS owner_username, "
+            "SELECT j.id, j.operation, j.owner_user_id AS owner_id, u.username AS owner_username, "
             "j.client_ip_hash, j.status, j.claimed_at, j.finished_at "
             "FROM generation_jobs AS j "
-            "JOIN admin_users AS u ON u.id = j.owner_user_id "
+            "LEFT JOIN admin_users AS u ON u.id = j.owner_user_id "
             "WHERE j.episode_id = ? ORDER BY j.claimed_at ASC, j.id ASC",
             (episode_id,),
         ).fetchall()

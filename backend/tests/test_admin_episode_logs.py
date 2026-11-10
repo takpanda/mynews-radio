@@ -213,3 +213,26 @@ def test_episode_logs_reject_missing_other_episode_and_non_synthesis_phase_ids(c
     missing_episode = client.get("/admin/episodes/999999/logs")
     assert missing_episode.status_code == 404
     assert missing_episode.json() == {"detail": "Episode not found"}
+
+
+def test_episode_logs_include_jobs_owned_by_bearer_service_actor(client):
+    episode_id = EpisodeService().create_episode("2026-08-15", status="completed", seq=1)
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO generation_jobs (owner_user_id, operation, idempotency_key, input_hash, "
+            "client_ip_hash, episode_id, status, claimed_at, finished_at) "
+            "VALUES (-1, 'synthesize', 'bearer-approve-job', 'input-hash-not-exposed', 'ip-hash', ?, 'completed', "
+            "'2026-08-15 10:00:00', '2026-08-15 10:03:00')",
+            (episode_id,),
+        )
+        job_id = cursor.lastrowid
+
+    response = client.get(f"/admin/episodes/{episode_id}/logs")
+
+    assert response.status_code == 200
+    assert response.json()["generation_jobs"] == [{
+        "id": job_id, "operation": "synthesize", "owner": {"id": -1, "username": None},
+        "client_ip_hash": "ip-hash", "status": "completed",
+        "claimed_at": response.json()["generation_jobs"][0]["claimed_at"],
+        "finished_at": response.json()["generation_jobs"][0]["finished_at"],
+    }]

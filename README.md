@@ -60,7 +60,7 @@
 | `THUMBNAIL_ENQUEUE_TIMEOUT` | サムネイル生成開始（`POST /thumbnail`）のタイムアウト（秒） | `120` |
 | `THUMBNAIL_POLL_INTERVAL` | サムネイルjob状態のポーリング間隔（秒） | `5` |
 | `THUMBNAIL_JOB_TIMEOUT` | 1サムネイルjobの最大待機時間（秒） | `900` |
-| `API_KEY` | API キー（辞書・レポート等の管理API向け。手動の生成開始・再音声合成は管理者セッションが必要） | 空文字 |
+| `API_KEY` | API キー（辞書・レポート等の管理API、および台本の承認・検査・破棄向け。手動の生成開始・再音声合成・台本編集は管理者セッションが必要） | 空文字 |
 | `GENERATE_RATE_LIMIT` | 生成系 API のリクエストレート制限（管理者セッション単位。例: `5/minute`, `100/hour`） | `5/minute` |
 | `PROXY_CLIENT_IP_HMAC_SECRET` | 検証済みクライアントIPのリレー署名検証用HMAC秘密鍵。Next.js（リレー）とバックエンドで同一値を設定する。値は公開しない | 空文字（未設定時はリレー署名を検証せずTCP接続元IPを使用） |
 | `PUBLIC_ENTRY_TOKEN` | 公開入口（Nginx）が付与する秘密のトラストマーカー（`X-Public-Entry` ヘッダー）。Next.js はマーカーが一致するときだけ検証済みIPをリレー署名する。値は公開しない | 空文字（ただし `docker compose up` 実行時は設定必須） |
@@ -304,6 +304,8 @@ Irodori-TTS（OpenAI 互換 API）も利用可能です。詳細は `backend/app
 ### エピソード生成リクエスト
 
 > **認証**: 生成開始と再音声合成は、ログイン済みの管理者セッション（`admin_session` Cookie）が必要です。`POST /admin/login` でセッションを取得します。`API_KEY` によるBearer認証では実行できません。
+>
+> **台本確認**: `POST /admin/episodes/:id/validate`・`POST /admin/episodes/:id/approve`（`{"force": true}` による強制承認を含む）・`POST /admin/episodes/:id/reject` は、管理者セッション（`admin_session` Cookie）に加えて `Authorization: Bearer <API_KEY>` でも実行できます。Bearer 経由の操作は監査ログの actor が `-1`（サービス資格情報）として記録されます。台本編集（`PUT /admin/episodes/:id/script`）・台本取得・`preview-audio` はセッション認証のみです。
 >
 > **冪等性**: リクエストに `Idempotency-Key` ヘッダーが必須です（255文字以内）。同一キー・同一入力の再送では、既存ジョブの結果を返します（重複してLLM・TTSジョブを起動しません）。同一キーで入力が異なる場合は `409` を返します。キーは24時間保持されます。
 

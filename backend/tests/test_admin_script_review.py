@@ -679,3 +679,130 @@ def test_script_revision_migration_keeps_existing_episode_states():
         ("failed", "on_failure", 0),
     ]
     conn.close()
+
+
+INVALID_VALIDATION = {"can_approve": False, "results": [{"code": "BAD", "message": "NG", "line_indices": [], "severity": "error"}]}
+
+
+def test_bearer_api_key_can_validate_approve_force_approve_and_reject(client):
+    from app.db.connection import get_db_connection
+
+    client.cookies.clear()
+    episode_id, _ = _episode_with_script()
+    with patch("app.api.admin_script_review._validate_episode_script", return_value=INVALID_VALIDATION), \
+         patch("app.api.admin_script_review.dispatch_job") as dispatch:
+        validated = client.post(f"/admin/episodes/{episode_id}/validate")
+        blocked = client.post(f"/admin/episodes/{episode_id}/approve")
+        forced = client.post(f"/admin/episodes/{episode_id}/approve", json={"force": True})
+
+    assert validated.status_code == 200
+    assert validated.json()["can_approve"] is False
+    assert blocked.status_code == 409
+    assert forced.status_code == 200
+    assert forced.json()["status"] == "synthesizing"
+    dispatch.assert_called_once_with(forced.json()["job_id"])
+    with get_db_connection() as conn:
+        jobs = conn.execute("SELECT operation, owner_user_id FROM generation_jobs WHERE episode_id=?", (episode_id,)).fetchall()
+        status = conn.execute("SELECT status FROM episodes WHERE id=?", (episode_id,)).fetchone()["status"]
+        audits = conn.execute("SELECT operation, actor_user_id FROM audit_logs WHERE episode_id=?", (episode_id,)).fetchall()
+    assert [(row["operation"], row["owner_user_id"]) for row in jobs] == [("synthesize", -1)]
+    assert status == "synthesizing"
+    assert ("script_validate", -1) in [(row["operation"], row["actor_user_id"]) for row in audits]
+    assert ("script_force_approve", -1) in [(row["operation"], row["actor_user_id"]) for row in audits]
+
+    discard_episode_id, _ = _episode_with_script()
+    discarded = client.post(f"/admin/episodes/{discard_episode_id}/reject", json={"action": "discard"})
+    assert discarded.status_code == 200
+    assert discarded.json()["status"] == "discarded"
+
+    regenerate_episode_id, _ = _episode_with_script()
+    with patch("app.api.admin_script_review.dispatch_job"):
+        regenerated = client.post(f"/admin/episodes/{regenerate_episode_id}/reject", json={"action": "regenerate"})
+    assert regenerated.status_code == 200
+    assert regenerated.json()["status"] == "generating"
+    with get_db_connection() as conn:
+        actors = conn.execute(
+            "SELECT operation, actor_user_id FROM audit_logs WHERE episode_id IN (?, ?) AND operation IN ('script_discard', 'script_regenerate')",
+            (discard_episode_id, regenerate_episode_id),
+        ).fetchall()
+    assert sorted((row["operation"], row["actor_user_id"]) for row in actors) == [("script_discard", -1), ("script_regenerate", -1)]
+
+
+def test_session_cookie_still_validates_approves_and_rejects_with_real_actor(client):
+    from app.db.connection import get_db_connection
+
+    client.headers.pop("Authorization", None)
+    episode_id, _ = _episode_with_script()
+    with patch("app.api.admin_script_review._validate_episode_script", return_value={"can_approve": True, "results": []}), \
+         patch("app.api.admin_script_review.dispatch_job"):
+        validated = client.post(f"/admin/episodes/{episode_id}/validate")
+        approved = client.post(f"/admin/episodes/{episode_id}/approve")
+    discarded = client.post(f"/admin/episodes/{_episode_with_script()[0]}/reject", json={"action": "discard"})
+
+    assert validated.status_code == approved.status_code == discarded.status_code == 200
+    with get_db_connection() as conn:
+        owner_id = conn.execute("SELECT id FROM admin_users WHERE username='fixture-owner'").fetchone()["id"]
+        actors = conn.execute(
+            "SELECT operation, actor_user_id FROM audit_logs WHERE operation IN ('script_validate', 'script_approve', 'script_discard')"
+        ).fetchall()
+    assert sorted(row["operation"] for row in actors) == ["script_approve", "script_discard", "script_validate"]
+    assert {row["actor_user_id"] for row in actors} == {owner_id}
+
+
+@pytest.mark.parametrize("authorization", ["Bearer wrong-key", "Bearer "])
+def test_invalid_bearer_is_rejected_for_script_review_actions(client, authorization):
+    client.cookies.clear()
+    episode_id, _ = _episode_with_script()
+    headers = {"Authorization": authorization}
+
+    assert client.post(f"/admin/episodes/{episode_id}/validate", headers=headers).status_code == 401
+    assert client.post(f"/admin/episodes/{episode_id}/approve", json={"force": True}, headers=headers).status_code == 401
+    assert client.post(f"/admin/episodes/{episode_id}/reject", json={"action": "discard"}, headers=headers).status_code == 401
+
+
+def test_bearer_is_rejected_when_api_key_is_unset(client, monkeypatch):
+    from app import config as cfg_mod
+
+    monkeypatch.setenv("API_KEY", "")
+    cfg_mod.get_settings.cache_clear()
+    client.cookies.clear()
+    episode_id, _ = _episode_with_script()
+
+    assert client.post(f"/admin/episodes/{episode_id}/validate").status_code == 401
+    assert client.post(f"/admin/episodes/{episode_id}/approve").status_code == 401
+    assert client.post(f"/admin/episodes/{episode_id}/reject", json={"action": "discard"}).status_code == 401
+
+
+def test_bearer_remains_rejected_for_out_of_scope_script_operations(client):
+    client.cookies.clear()
+    episode_id, script = _episode_with_script()
+
+    assert client.get(f"/admin/episodes/{episode_id}/script").status_code == 401
+    assert client.put(f"/admin/episodes/{episode_id}/script", json={"revision": 1, "script": script}).status_code == 401
+    assert client.get(f"/admin/episodes/{episode_id}/script/revisions").status_code == 401
+    assert client.post(f"/admin/episodes/{episode_id}/lines/0/preview-audio").status_code == 401
+
+
+def test_bearer_approved_synthesize_job_is_processed_by_existing_worker(client, monkeypatch):
+    from app.api import generate as generate_api
+    from app.db.connection import get_db_connection
+
+    episode_id, _ = _episode_with_script()
+    with patch("app.api.admin_script_review._validate_episode_script", return_value={"can_approve": True, "results": []}), \
+         patch("app.api.admin_script_review.dispatch_job"):
+        response = client.post(f"/admin/episodes/{episode_id}/approve")
+    assert response.status_code == 200
+    job_id = response.json()["job_id"]
+
+    synthesized = []
+    finalized = []
+    monkeypatch.setattr(generate_api, "_stream_synthesize", lambda ep_id, _body: synthesized.append(ep_id) or iter(()))
+    monkeypatch.setattr(generate_api, "_finalize_synthesis_job", lambda jid, ep_id, **_kwargs: finalized.append((jid, ep_id)))
+    with get_db_connection() as conn:
+        job = conn.execute("SELECT * FROM generation_jobs WHERE id=?", (job_id,)).fetchone()
+
+    generate_api.execute_queued_job(job, dispatch=False)
+
+    assert job["owner_user_id"] == -1
+    assert synthesized == [episode_id]
+    assert finalized == [(job_id, episode_id)]
