@@ -119,12 +119,11 @@
   <div class="studio-inner">
     <span class="onair"><span class="lamp"></span>ON AIR &mdash; SYSTEM DOCUMENTATION</span>
     <h1><span class="repo">mynews-radio</span><br>システムドキュメント</h1>
-    <p class="lead">毎朝、はてなブックマークのホットエントリ等から記事を収集し、ローカルLLM（Ollama）とローカル音声合成（VOICEVOX / AivisSpeech）だけで、男女2人のトーク形式によるパーソナルなニュースラジオ番組（episode.mp3）を全自動生成するシステムの設計資料です。</p>
+    <p class="lead">ニュース記事の収集から音声番組の生成・配信までを行うシステムの設計資料です。LLMは用途別にローカルプロバイダー（Ollama / vLLM など）とCodexを選択でき、音声合成はFish S2 Proを既定として番組を生成します。</p>
     <div class="meta-strip">
       <span>リポジトリ: <b>takpanda/mynews-radio</b></span>
-      <span>対象ブランチ: <b>main</b></span>
-      <span>最終更新: <b>2026-06-12</b></span>
-      <span>主要言語: <b>Python 70.8% / TypeScript 27.9%</b></span>
+      <span>最終更新: <b>2026-10-31</b></span>
+      <span>主要言語: <b>Python / TypeScript</b></span>
     </div>
   </div>
 </header>
@@ -148,14 +147,14 @@
 <main>
 <section id="overview">
   <div class="ch"><span class="freq">76.1</span><h2>システム概要</h2></div>
-  <p><strong>mynews-radio</strong> は、ニュース記事の収集から音声番組の配信までを完全ローカル環境で完結させる「パーソナルニュースラジオ生成システム」です。クラウドのLLM APIや商用TTSを一切使わず、ローカルネットワーク上の Ollama（LLM推論サーバー）と VOICEVOX / AivisSpeech（音声合成エンジン）を呼び出して番組を生成します。</p>
+  <p><strong>mynews-radio</strong> は、ニュース記事の収集から音声番組の配信までを行う「パーソナルニュースラジオ生成システム」です。LLMはフェーズ別にプロバイダーを選択でき、標準構成では要約にローカルLLM（通常はOllama）、台本生成・レビューにCodexを使用します。音声合成はFish S2 Proを既定とし、VOICEVOX / AivisSpeechはコード上で無効化されています。</p>
   <h3>主要な機能</h3>
   <ul>
     <li><strong>記事取得</strong> — はてなブックマーク系API（news.beeworks.cc）、はてな ホットエントリRSS、Yahoo!ニュースRSS の3ソースから記事を収集し、SQLite に upsert</li>
-    <li><strong>要約生成</strong> — Ollama で各記事を日本語要約し、カテゴリ・重要度（1〜5）・難易度（1〜3）を付与</li>
+    <li><strong>要約生成</strong> — 設定された要約LLM（既定はOllama）で各記事を日本語要約し、カテゴリ・重要度（1〜5）・難易度（1〜3）を付与</li>
     <li><strong>台本生成</strong> — Narrative Arc（番組全体の構成案）を先に生成した上で、男女2人のトーク形式のラジオ台本（JSON）を生成。トランジション自動挿入と自動Linterによる品質チェック・再生成を実施</li>
-    <li><strong>4ディレクターレビュー</strong> — 「天才」「初心者」「心配性」「ポジティブ」の4キャラクターによるLLMレビューを集約し、改訂版台本から別エピソードを並行生成（非致命的処理）</li>
-    <li><strong>音声合成</strong> — VOICEVOX互換API（audio_query → synthesis の2段階）でセリフごとにWAVを生成。読み置換テーブル適用、トランジションジングル/無音挿入、サンプリングレート正規化を実施</li>
+    <li><strong>4ディレクターレビュー</strong> — 「天才」「初心者」「心配性」「ポジティブ」の4キャラクターによるLLMレビューを集約し、同じエピソードの台本を改訂（レビュー失敗時も通常は生成を継続）。レビュー後の最終検証で管理者確認が必要な状態に遷移する場合あり</li>
+    <li><strong>音声合成</strong> — Fish S2 Proを既定エンジンとして行ごとにWAVを生成。読み置換テーブル適用、トランジションジングル/無音挿入、サンプリングレート正規化を実施。VOICEVOX / AivisSpeechは現行コードでは無効</li>
     <li><strong>エピソード組み立て</strong> — ffmpeg でWAVを結合し、オープニング/エンディングジングル（フェード付き）を付加して <code>episode.mp3</code> と <code>metadata.json</code> を出力。各セリフに再生開始秒（start_time）を付与</li>
     <li><strong>配信</strong> — FastAPI が HTTP Range 対応で音声をストリーミング配信し、Next.js 製のWebフロントで再生・台本閲覧・手動生成が可能</li>
   </ul>
@@ -164,17 +163,17 @@
     <tr><th>層</th><th>技術</th><th>備考</th></tr>
     <tr><td>バックエンド</td><td>Python 3 / FastAPI 0.115 / uvicorn</td><td>ポート 8010。SQLite を標準ライブラリ <code>sqlite3</code> で直接操作</td></tr>
     <tr><td>フロントエンド</td><td>Next.js 14.2（App Router）/ React 18 / Tailwind CSS 3</td><td>ポート 3010。サーバーコンポーネント中心</td></tr>
-    <tr><td>LLM</td><td>Ollama（既定モデル: qwen3.6 系）</td><td><code>/api/generate</code> を <code>format: json</code> で呼び出し。reasoning モデルの thinking フィールドにも対応</td></tr>
-    <tr><td>音声合成</td><td>VOICEVOX / AivisSpeech</td><td>両者とも VOICEVOX 互換 API。既定エンジンは AivisSpeech</td></tr>
+    <tr><td>LLM</td><td>用途別プロバイダー（既定: 要約 Ollama / 台本・レビュー Codex）</td><td>Ollama、vLLM、LM Studio、Codex などを設定可能。プロバイダーに応じてクライアントを切替</td></tr>
+    <tr><td>音声合成</td><td>Fish S2 Pro（既定）</td><td>VOICEVOX互換APIとは別の Fish S2 Pro クライアントを使用。VOICEVOX / AivisSpeech は現行設定で無効</td></tr>
     <tr><td>音声処理</td><td>ffmpeg / ffprobe</td><td>WAV結合・リサンプル・MP3エンコード・ジングル合成</td></tr>
     <tr><td>HTTP クライアント</td><td>httpx / urllib / trafilatura</td><td>trafilatura は本文抽出に使用</td></tr>
-    <tr><td>インフラ</td><td>Docker Compose（api / web の2サービス）</td><td>api コンテナ内で cron による日次バッチを実行</td></tr>
+    <tr><td>インフラ</td><td>Docker Compose（api / web / proxy）</td><td>apiは8010、nginx proxyは3010をホスト公開。webは内部公開のみ。apiコンテナはentrypoint.sh経由でcronとuvicornを起動</td></tr>
   </table>
 </section>
 
 <section id="architecture">
   <div class="ch"><span class="freq">78.0</span><h2>全体アーキテクチャ</h2></div>
-  <p>システムは Docker Compose 上の2コンテナ（<code>api</code> / <code>web</code>）と、ローカルネットワーク上の外部サービス（Ollama・TTSエンジン）、およびインターネット上のニュースソースで構成されます。永続データはホストの <code>./data</code> ディレクトリ（SQLite DB・エピソード成果物・ジングル・ログ）にボリュームマウントされます。</p>
+  <p>システムは Docker Compose 上の3サービス（<code>api</code> / <code>web</code> / <code>proxy</code>）と、設定されたLLM・TTSプロバイダーおよびニュースソースで構成されます。永続データはホストの <code>./data</code> ディレクトリ（SQLite DB・エピソード成果物・ジングル・ログ）にボリュームマウントされます。</p>
 
   <figure class="fig">
   <svg viewBox="0 0 980 620" xmlns="http://www.w3.org/2000/svg" font-family="'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif" font-size="12" role="img" aria-label="システム構成図">
@@ -204,6 +203,14 @@
     <text x="330" y="144" text-anchor="middle" font-size="10.5" fill="#4A5568">SSR + API Route プロキシ</text>
     <text x="330" y="160" text-anchor="middle" font-size="10.5" fill="#4A5568">(/api/generate ほか)</text>
 
+    <!-- public entry proxy -->
+    <rect x="442" y="60" width="168" height="120" rx="10" fill="#FFFFFF" stroke="#D9A441" stroke-width="2"/>
+    <text x="526" y="84" text-anchor="middle" font-weight="bold">proxy コンテナ</text>
+    <text x="526" y="104" text-anchor="middle" font-size="11">nginx</text>
+    <text x="526" y="122" text-anchor="middle" font-size="11" fill="#4A5568">host :3010 → :80</text>
+    <text x="526" y="144" text-anchor="middle" font-size="10.5" fill="#4A5568">公開入口・ヘッダー処理</text>
+    <text x="526" y="160" text-anchor="middle" font-size="10.5" fill="#4A5568">web へ転送</text>
+
     <!-- api container -->
     <rect x="240" y="220" width="370" height="210" rx="10" fill="#FFFFFF" stroke="#C73E3A" stroke-width="2"/>
     <text x="425" y="246" text-anchor="middle" font-weight="bold">api コンテナ（port 8010）</text>
@@ -212,31 +219,35 @@
     <text x="338" y="304" text-anchor="middle" font-size="10.5" fill="#4A5568">REST API / 音声配信</text>
     <text x="338" y="318" text-anchor="middle" font-size="10.5" fill="#4A5568">(Range 対応)</text>
     <rect x="432" y="262" width="160" height="64" rx="7" fill="#F7F9FB" stroke="#D8DEE6"/>
-    <text x="512" y="286" text-anchor="middle" font-size="11.5" font-weight="bold">cron（日次バッチ）</text>
-    <text x="512" y="304" text-anchor="middle" font-size="10.5" fill="#4A5568">run_daily.py</text>
-    <text x="512" y="318" text-anchor="middle" font-size="10.5" fill="#4A5568">CRON_SCHEDULE 既定 0 21 * * * (UTC)</text>
+    <text x="512" y="286" text-anchor="middle" font-size="11.5" font-weight="bold">生成ジョブ</text>
+    <text x="512" y="304" text-anchor="middle" font-size="10.5" fill="#4A5568">generation_control.py</text>
+    <text x="512" y="318" text-anchor="middle" font-size="10.5" fill="#4A5568">永続FIFO・background thread</text>
     <rect x="258" y="344" width="334" height="64" rx="7" fill="#F7F9FB" stroke="#D8DEE6"/>
     <text x="425" y="368" text-anchor="middle" font-size="11.5" font-weight="bold">バッチモジュール（app/batch/）</text>
     <text x="425" y="388" text-anchor="middle" font-size="10.5" fill="#4A5568">import → summarize → generate_script → review → synthesize → build</text>
 
     <!-- data volume -->
-    <rect x="240" y="478" width="370" height="116" rx="10" fill="#FFF9EC" stroke="#D9A441" stroke-width="2"/>
-    <text x="425" y="502" text-anchor="middle" font-weight="bold">./data（ホストボリューム）</text>
-    <text x="425" y="524" text-anchor="middle" font-size="11" fill="#4A5568">mynews-radio.db（SQLite） ・ episodes/&lt;id&gt;/（script.json, lines/*.wav, episode.mp3, metadata.json）</text>
-    <text x="425" y="544" text-anchor="middle" font-size="11" fill="#4A5568">jingles/（opening / ending / transition） ・ logs/（日次ログ） ・ run_manifest.json</text>
+    <rect x="240" y="478" width="370" height="132" rx="10" fill="#FFF9EC" stroke="#D9A441" stroke-width="2"/>
+    <text x="425" y="498" text-anchor="middle" font-weight="bold">./data（ホストボリューム）</text>
+    <text x="425" y="516" text-anchor="middle" font-size="10.5" fill="#4A5568">・ mynews-radio.db（SQLite）</text>
+    <text x="425" y="532" text-anchor="middle" font-size="10.5" fill="#4A5568">・ episodes/&lt;id&gt;/</text>
+    <text x="425" y="548" text-anchor="middle" font-size="10.5" fill="#4A5568">・ script.json / lines/*.wav</text>
+    <text x="425" y="564" text-anchor="middle" font-size="10.5" fill="#4A5568">・ episode.mp3 / metadata.json</text>
+    <text x="425" y="580" text-anchor="middle" font-size="10.5" fill="#4A5568">・ jingles/（opening / ending / transition）</text>
+    <text x="425" y="596" text-anchor="middle" font-size="10.5" fill="#4A5568">・ logs/（日次ログ） / run_manifest.json</text>
 
     <!-- external services -->
     <rect x="700" y="60" width="250" height="96" rx="10" fill="#FFFFFF" stroke="#4A3FA0" stroke-width="2"/>
-    <text x="825" y="86" text-anchor="middle" font-weight="bold">Ollama サーバー</text>
-    <text x="825" y="106" text-anchor="middle" font-size="11" fill="#4A5568">ローカルLLM推論（:11434）</text>
-    <text x="825" y="124" text-anchor="middle" font-size="11" fill="#4A5568">要約・台本・レビュー生成</text>
-    <text x="825" y="142" text-anchor="middle" font-size="10.5" fill="#4A5568">POST /api/generate（format: json）</text>
+    <text x="825" y="86" text-anchor="middle" font-weight="bold">LLM プロバイダー</text>
+    <text x="825" y="106" text-anchor="middle" font-size="11" fill="#4A5568">Ollama / vLLM / LM Studio</text>
+    <text x="825" y="124" text-anchor="middle" font-size="11" fill="#4A5568">Codex など用途別に選択</text>
+    <text x="825" y="142" text-anchor="middle" font-size="10.5" fill="#4A5568">summary / content phases</text>
 
     <rect x="700" y="186" width="250" height="96" rx="10" fill="#FFFFFF" stroke="#1F6E50" stroke-width="2"/>
-    <text x="825" y="212" text-anchor="middle" font-weight="bold">VOICEVOX / AivisSpeech</text>
-    <text x="825" y="232" text-anchor="middle" font-size="11" fill="#4A5568">音声合成エンジン（:50021 / :10101）</text>
-    <text x="825" y="250" text-anchor="middle" font-size="10.5" fill="#4A5568">POST /audio_query → POST /synthesis</text>
-    <text x="825" y="268" text-anchor="middle" font-size="10.5" fill="#4A5568">男女2話者（speaker ID 切替）</text>
+    <text x="825" y="212" text-anchor="middle" font-weight="bold">Fish S2 Pro（既定TTS）</text>
+    <text x="825" y="232" text-anchor="middle" font-size="11" fill="#4A5568">音声合成エンジン</text>
+    <text x="825" y="250" text-anchor="middle" font-size="10.5" fill="#4A5568">VOICEVOX / AivisSpeechは無効</text>
+    <text x="825" y="268" text-anchor="middle" font-size="10.5" fill="#4A5568">話者は番組・設定から選択</text>
 
     <rect x="700" y="320" width="250" height="118" rx="10" fill="#FFFFFF" stroke="#8B98AB" stroke-width="1.5"/>
     <text x="825" y="346" text-anchor="middle" font-weight="bold">ニュースソース（HTTPS）</text>
@@ -246,10 +257,11 @@
     <text x="825" y="427" text-anchor="middle" font-size="10.5" fill="#4A5568">trafilatura による本文抽出</text>
 
     <!-- arrows -->
-    <line x1="170" y1="77" x2="238" y2="100" stroke="#4A5568" stroke-width="1.6" marker-end="url(#ar)"/>
-    <text x="178" y="70" font-size="10.5" fill="#4A5568">HTTP :3010</text>
+    <line x1="170" y1="77" x2="440" y2="100" stroke="#4A5568" stroke-width="1.6" marker-end="url(#ar)"/>
+    <text x="178" y="70" font-size="10.5" fill="#4A5568">HTTP :3010（nginx proxy）</text>
+    <line x1="442" y1="120" x2="422" y2="120" stroke="#4A5568" stroke-width="1.6" marker-end="url(#ar)"/>
     <line x1="170" y1="100" x2="240" y2="300" stroke="#4A5568" stroke-width="1.6" marker-end="url(#ar)"/>
-    <text x="118" y="190" font-size="10.5" fill="#4A5568">音声 / API 直接アクセス :8010</text>
+    <text x="118" y="190" font-size="10.5" fill="#4A5568">API :8010（ホスト公開）</text>
     <line x1="330" y1="180" x2="330" y2="260" stroke="#4A5568" stroke-width="1.6" marker-end="url(#ar)"/>
     <text x="338" y="206" font-size="10.5" fill="#4A5568">API_BASE=http://api:8010</text>
     <line x1="425" y1="430" x2="425" y2="476" stroke="#D9A441" stroke-width="1.8" marker-end="url(#ar)"/>
@@ -258,20 +270,21 @@
     <line x1="610" y1="310" x2="698" y2="234" stroke="#2E7D7B" stroke-width="1.6" marker-end="url(#arT)"/>
     <line x1="610" y1="380" x2="698" y2="380" stroke="#2E7D7B" stroke-width="1.6" marker-end="url(#arT)"/>
   </svg>
-  <figcaption><b>図1</b>　システム構成図。web は SSR 時に <code>http://api:8010</code> を、ブラウザは <code>NEXT_PUBLIC_API_BASE</code>（既定 <code>http://localhost:8010</code>）を経由して API へアクセスする。LLM と TTS はコンテナ外のローカルネットワーク上に別途用意する。</figcaption>
+  <figcaption><b>図1</b>　システム構成図。web はSSR時に <code>http://api:8010</code> を使用し、ブラウザーは <code>NEXT_PUBLIC_API_BASE</code> でAPIへアクセスする。nginx proxyは3010、apiは8010をそれぞれホスト公開する。DockerfileのENTRYPOINTである <code>entrypoint.sh</code> がcronとuvicornを起動する。</figcaption>
   </figure>
 
   <h3>コンテナ構成（docker-compose.yml）</h3>
   <table>
     <tr><th>サービス</th><th>役割</th><th>ポート</th><th>主な設定</th></tr>
-    <tr><td><code>api</code></td><td>FastAPI（REST API・音声配信）＋ cron による日次バッチ</td><td>8010</td><td><code>TZ=Asia/Tokyo</code>、<code>./backend:/app</code> と <code>./data:/app/data</code> をマウント。開発時は <code>uvicorn --reload</code></td></tr>
-    <tr><td><code>web</code></td><td>Next.js フロントエンド（<code>depends_on: api</code>）</td><td>3010</td><td><code>./frontend:/app</code> をマウント、<code>node_modules</code> は匿名ボリューム。開発時は <code>npm run dev</code></td></tr>
+    <tr><td><code>api</code></td><td>FastAPI（REST API・音声配信）</td><td>8010</td><td><code>TZ=Asia/Tokyo</code>、<code>./backend:/app</code> と <code>./data:/app/data</code> をマウント。現行 compose は uvicorn を直接起動する</td></tr>
+    <tr><td><code>web</code></td><td>Next.js フロントエンド（<code>depends_on: api</code>）</td><td>内部3010</td><td><code>./frontend:/app</code> をマウント、<code>node_modules</code> は匿名ボリューム。<code>npm run dev</code> で起動し、ホストには直接公開しない</td></tr>
+    <tr><td><code>proxy</code></td><td>nginx 公開入口・ヘッダー処理</td><td>ホスト3010 → proxy:80</td><td><code>infra/nginx/public-entry.conf</code> を使用。公開用トークン設定が必要</td></tr>
   </table>
-  <p class="note">本番相当の起動では <code>backend/entrypoint.sh</code> が ① <code>CRON_SCHEDULE</code> を crontab に書き込み、② cron デーモンを起動、③ <code>crontab.log</code> を <code>tail -F</code> で Docker ログへ流し、④ uvicorn を起動する。compose の <code>command</code> は開発用に uvicorn 直接起動へ上書きされている。</p>
+  <p class="note"><code>backend/Dockerfile</code> は <code>entrypoint.sh</code> をENTRYPOINTに指定しています。Composeの <code>command</code> はentrypointを置き換えず、その引数になります。entrypoint.shはcronとログ転送を起動した後、自身の設定でuvicornを起動します。cronの時刻は <code>TZ=Asia/Tokyo</code> に従い、Composeのschedule既定値は <code>30 16 * * *</code>、<code>.env.example</code> は <code>0 21 * * *</code> です。</p>
 </section>
 <section id="pipeline">
   <div class="ch"><span class="freq">80.0</span><h2>バッチパイプライン</h2></div>
-  <p>エピソード生成パイプラインには2つのエントリポイントがあります。cron から起動される日次バッチ <code>run_daily.py</code>（記事取得を省略し、事前ヘルスチェックを行う）と、CLI/オーケストレーター <code>orchestrate.py</code>（記事取得を含む5ステップ構成）です。Web からの手動生成（<code>POST /generate</code>）は API 内で同等のステップをフェーズ管理付きで実行します（86.0章参照）。</p>
+  <p>記事取得から始まる生成経路は、CLI の <code>orchestrate.py</code> と、API / 日次バッチが利用する <code>radio_pipeline.py</code> です。<code>run_daily.py</code> は永続ジョブキューに日次ジョブを登録し、実行時に保持期限切れデータを整理してから共有パイプラインを呼び出します。したがって日次バッチも記事取得を行います。APIからの手動生成もジョブキューとフェーズ管理を利用します（86.0章参照）。</p>
 
   <figure class="fig">
   <svg viewBox="0 0 980 760" xmlns="http://www.w3.org/2000/svg" font-family="'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif" font-size="12" role="img" aria-label="バッチパイプラインフロー図">
@@ -287,7 +300,7 @@
     <!-- entry points -->
     <rect x="40" y="20" width="270" height="58" rx="9" fill="#141A24"/>
     <text x="175" y="44" text-anchor="middle" fill="#E8EDF4" font-weight="bold">cron → run_daily.py</text>
-    <text x="175" y="64" text-anchor="middle" fill="#AAB6C6" font-size="10.5">日次自動実行（要約から開始）</text>
+    <text x="175" y="64" text-anchor="middle" fill="#AAB6C6" font-size="10.5">日次ジョブ（キュー登録・実行時に整理）</text>
     <rect x="350" y="20" width="270" height="58" rx="9" fill="#141A24"/>
     <text x="485" y="44" text-anchor="middle" fill="#E8EDF4" font-weight="bold">CLI → orchestrate.py</text>
     <text x="485" y="64" text-anchor="middle" fill="#AAB6C6" font-size="10.5">手動・日付指定実行（取得から開始）</text>
@@ -295,10 +308,10 @@
     <text x="800" y="44" text-anchor="middle" fill="#E8EDF4" font-weight="bold">API → POST /generate</text>
     <text x="800" y="64" text-anchor="middle" fill="#AAB6C6" font-size="10.5">Web から非同期バックグラウンド実行</text>
 
-    <!-- step 0 -->
+    <!-- daily cleanup -->
     <rect x="40" y="110" width="270" height="56" rx="9" fill="#FFFFFF" stroke="#4A3FA0" stroke-width="2"/>
-    <text x="175" y="133" text-anchor="middle" font-weight="bold">Step 0: health_check</text>
-    <text x="175" y="152" text-anchor="middle" font-size="10.5" fill="#4A5568">Ollama /api/tags ・ TTS /version 疎通確認</text>
+    <text x="175" y="133" text-anchor="middle" font-weight="bold">日次: cleanup_episodes</text>
+    <text x="175" y="152" text-anchor="middle" font-size="10.5" fill="#4A5568">run_daily の実行時に保持期限切れを整理</text>
     <line x1="175" y1="78" x2="175" y2="108" stroke="#1B2330" stroke-width="1.6" marker-end="url(#pa)"/>
 
     <!-- step import -->
@@ -306,25 +319,25 @@
     <text x="485" y="133" text-anchor="middle" font-weight="bold">Step 1: import_articles</text>
     <text x="485" y="152" text-anchor="middle" font-size="10.5" fill="#4A5568">ソース別取得 → articles へ upsert（URL一意）</text>
     <line x1="485" y1="78" x2="485" y2="108" stroke="#1B2330" stroke-width="1.6" marker-end="url(#pa)"/>
-    <line x1="800" y1="78" x2="800" y2="100" stroke="#1B2330" stroke-width="1.6"/>
-    <line x1="800" y1="100" x2="630" y2="130" stroke="#1B2330" stroke-width="1.6" marker-end="url(#pa)"/>
+    <line x1="800" y1="78" x2="800" y2="108" stroke="#1B2330" stroke-width="1.6" marker-end="url(#pa)"/>
 
     <!-- episode record -->
     <rect x="660" y="110" width="280" height="56" rx="9" fill="#FFF9EC" stroke="#D9A441" stroke-width="2"/>
-    <text x="800" y="133" text-anchor="middle" font-weight="bold">episodes レコード作成</text>
-    <text x="800" y="152" text-anchor="middle" font-size="10.5" fill="#4A5568">status = generating（部分一意Index で日付重複防止）</text>
+    <text x="800" y="133" text-anchor="middle" font-weight="bold">生成ジョブ・episode を予約</text>
+    <text x="800" y="152" text-anchor="middle" font-size="10.5" fill="#4A5568">generation_jobs でFIFO / 冪等性を管理</text>
+    <line x1="660" y1="138" x2="622" y2="138" stroke="#1B2330" stroke-width="1.6" marker-end="url(#pa)"/>
 
     <!-- step summarize -->
     <rect x="280" y="200" width="420" height="66" rx="9" fill="#FFFFFF" stroke="#1B2330" stroke-width="2"/>
-    <text x="490" y="224" text-anchor="middle" font-weight="bold">Step 2: summarize_articles　（Ollama）</text>
+    <text x="490" y="224" text-anchor="middle" font-weight="bold">Step 2: summarize_articles　（要約LLM）</text>
     <text x="490" y="244" text-anchor="middle" font-size="10.5" fill="#4A5568">status='new' の記事を要約・category / importance_score(1-5) / difficulty(1-3) 付与</text>
     <text x="490" y="259" text-anchor="middle" font-size="10.5" fill="#4A5568">本文100文字未満は error としてスキップ。結果を summaries.json に保存</text>
-    <line x1="175" y1="166" x2="380" y2="198" stroke="#1B2330" stroke-width="1.6" marker-end="url(#pa)"/>
     <line x1="485" y1="166" x2="487" y2="198" stroke="#1B2330" stroke-width="1.6" marker-end="url(#pa)"/>
+    <line x1="310" y1="138" x2="348" y2="138" stroke="#1B2330" stroke-width="1.6" marker-end="url(#pa)"/>
 
     <!-- step script -->
     <rect x="280" y="296" width="420" height="86" rx="9" fill="#FFFFFF" stroke="#1B2330" stroke-width="2"/>
-    <text x="490" y="320" text-anchor="middle" font-weight="bold">Step 3: generate_script　（Ollama ×2段）</text>
+    <text x="490" y="320" text-anchor="middle" font-weight="bold">Step 3: generate_script　（台本生成LLM ×2段）</text>
     <text x="490" y="340" text-anchor="middle" font-size="10.5" fill="#4A5568">① Narrative Arc 生成（テーマ・記事順序） → ② 台本JSON生成（intro/news/discussion/outro）</text>
     <text x="490" y="357" text-anchor="middle" font-size="10.5" fill="#4A5568">_ensure_transitions: 記事境界に transition 行と話者交代を自動挿入</text>
     <text x="490" y="374" text-anchor="middle" font-size="10.5" fill="#4A5568">lint_script: 禁止フレーズ・重複・口癖過多を検出 → 修正プロンプトで再生成</text>
@@ -332,18 +345,18 @@
 
     <!-- review branch -->
     <rect x="730" y="296" width="220" height="150" rx="9" fill="#F2EFFA" stroke="#4A3FA0" stroke-width="2" stroke-dasharray="5 3"/>
-    <text x="840" y="320" text-anchor="middle" font-weight="bold" fill="#4A3FA0">Step 3.5: review_script</text>
+    <text x="840" y="320" text-anchor="middle" font-weight="bold" fill="#4A3FA0">review_script</text>
     <text x="840" y="340" text-anchor="middle" font-size="10.5" fill="#4A5568">4ディレクターLLMレビュー</text>
     <text x="840" y="357" text-anchor="middle" font-size="10.5" fill="#4A5568">（天才・初心者・心配性・ポジティブ）</text>
-    <text x="840" y="376" text-anchor="middle" font-size="10.5" fill="#4A5568">→ review_synthesize で統合改訂</text>
-    <text x="840" y="395" text-anchor="middle" font-size="10.5" fill="#4A5568">→ 別 episode として合成・ビルド</text>
-    <text x="840" y="424" text-anchor="middle" font-size="10.5" fill="#C73E3A" font-weight="bold">非致命的（失敗時 failed で続行）</text>
+    <text x="840" y="376" text-anchor="middle" font-size="10.5" fill="#4A5568">→ フィードバックを統合・改訂</text>
+    <text x="840" y="395" text-anchor="middle" font-size="10.5" fill="#4A5568">同じ episode の台本を更新</text>
+    <text x="840" y="424" text-anchor="middle" font-size="10.5" fill="#C73E3A" font-weight="bold">失敗時も原則として生成を継続</text>
     <line x1="700" y1="339" x2="728" y2="339" stroke="#4A3FA0" stroke-width="1.6" marker-end="url(#pa)"/>
 
     <!-- step synth -->
     <rect x="280" y="412" width="420" height="86" rx="9" fill="#FFFFFF" stroke="#1B2330" stroke-width="2"/>
-    <text x="490" y="436" text-anchor="middle" font-weight="bold">Step 4: synthesize_voicevox　（TTSエンジン）</text>
-    <text x="490" y="456" text-anchor="middle" font-size="10.5" fill="#4A5568">行ごとに 読み置換（replacement_table）→ audio_query → synthesis → lines/NNN.wav</text>
+    <text x="490" y="436" text-anchor="middle" font-weight="bold">Step 4: synthesize_voicevox　（Fish S2 Pro など）</text>
+    <text x="490" y="456" text-anchor="middle" font-size="10.5" fill="#4A5568">読み置換（replacement_table）→ 音声合成API → lines/NNN.wav</text>
     <text x="490" y="473" text-anchor="middle" font-size="10.5" fill="#4A5568">transition 行直前にジングルWAV（変換失敗時は無音1秒）を挿入</text>
     <text x="490" y="490" text-anchor="middle" font-size="10.5" fill="#4A5568">全WAVを最多サンプリングレートへ正規化、wav_file 名を script.json に書き戻し</text>
     <line x1="490" y1="382" x2="490" y2="410" stroke="#1B2330" stroke-width="1.6" marker-end="url(#pa)"/>
@@ -358,8 +371,8 @@
 
     <!-- done -->
     <rect x="330" y="650" width="320" height="56" rx="28" fill="#1F6E50"/>
-    <text x="490" y="674" text-anchor="middle" fill="#FFFFFF" font-weight="bold">status = completed / done</text>
-    <text x="490" y="692" text-anchor="middle" fill="#D2E8DE" font-size="10.5">audio_path 更新・run_manifest.json 書き出し</text>
+    <text x="490" y="674" text-anchor="middle" fill="#FFFFFF" font-weight="bold">episode status = completed</text>
+    <text x="490" y="692" text-anchor="middle" fill="#D2E8DE" font-size="10.5">audio_path 更新・run_manifest.json に done を記録</text>
     <line x1="490" y1="614" x2="490" y2="648" stroke="#1B2330" stroke-width="1.6" marker-end="url(#pa)"/>
 
     <!-- failure lane -->
@@ -369,28 +382,28 @@
     <text x="145" y="486" text-anchor="middle" font-size="10.5" fill="#4A5568">status = failed</text>
     <text x="145" y="506" text-anchor="middle" font-size="10.5" fill="#4A5568">中間成果物は保持</text>
     <text x="145" y="526" text-anchor="middle" font-size="10.5" fill="#4A5568">run_manifest.json に</text>
-    <text x="145" y="544" text-anchor="middle" font-size="10.5" fill="#4A5568">error_* を記録</text>
-    <text x="145" y="572" text-anchor="middle" font-size="10.5" fill="#4A5568">新着0件は skipped_no_new</text>
-    <text x="145" y="590" text-anchor="middle" font-size="10.5" fill="#4A5568">として正常終了（exit 0）</text>
+    <text x="145" y="544" text-anchor="middle" font-size="10.5" fill="#4A5568">status=failed を記録</text>
+    <text x="145" y="572" text-anchor="middle" font-size="10.5" fill="#4A5568">取込0件・重複0件も</text>
+    <text x="145" y="590" text-anchor="middle" font-size="10.5" fill="#4A5568">失敗として記録</text>
     <line x1="280" y1="240" x2="145" y2="410" stroke="#C73E3A" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#pr)"/>
     <line x1="280" y1="340" x2="195" y2="412" stroke="#C73E3A" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#pr)"/>
     <line x1="280" y1="455" x2="232" y2="455" stroke="#C73E3A" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#pr)"/>
     <line x1="280" y1="571" x2="232" y2="571" stroke="#C73E3A" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#pr)"/>
   </svg>
-  <figcaption><b>図2</b>　エピソード生成パイプライン。run_daily.py は cron 実行時点で DB に蓄積済みの記事を前提とし、orchestrate.py / API はソース取得（Step 1）から実行する。レビュー版エピソードはメイン版成功後に並行して生成され、失敗してもメイン版には影響しない。</figcaption>
+  <figcaption><b>図2</b>　エピソード生成パイプライン。日次バッチは実行時にクリーンアップを行った後、記事取得を含む共有パイプラインを実行する。4ディレクターレビューの改訂は同じエピソードの台本に反映され、最終検証の結果によって管理者レビュー待ちとなる場合がある。</figcaption>
   </figure>
 
   <h3>各ステップの責務</h3>
   <table>
     <tr><th>ステップ</th><th>モジュール</th><th>入力</th><th>出力</th><th>失敗条件</th></tr>
-    <tr><td>health_check</td><td><code>batch/health_check.py</code></td><td>設定値（URL・モデル）</td><td>ログ（警告のみで続行）</td><td>—（非ブロッキング）</td></tr>
+    <tr><td>cleanup_episodes（日次）</td><td><code>batch/cleanup_episodes.py</code></td><td>EPISODE_RETENTION_DAYS（既定30日）</td><td>期限切れエピソードの DB レコードとファイル削除</td><td>—（パイプライン前）</td></tr>
     <tr><td>import_articles</td><td><code>batch/import_articles.py</code><br><code>services/hatena_fetcher.py</code></td><td>news_source 指定</td><td><code>articles</code> 行（status=new）</td><td>inserted=0 かつ duplicated=0</td></tr>
     <tr><td>summarize_articles</td><td><code>batch/summarize_articles.py</code></td><td>status=new の記事</td><td>summary 等の列更新、<code>summaries.json</code></td><td>新規0件かつ既存要約も0件</td></tr>
     <tr><td>generate_script</td><td><code>batch/generate_script.py</code></td><td>要約済み記事（重要度順）</td><td><code>script.json</code>（lines 配列）</td><td>行数 0</td></tr>
-    <tr><td>review_script</td><td><code>batch/review_script.py</code></td><td>script.json</td><td>改訂版 script.json / review.json（別エピソード）</td><td>非致命的（revised=false で failed）</td></tr>
+    <tr><td>review_script</td><td><code>batch/review_script.py</code></td><td>script.json</td><td>review/ 配下のレビュー成果物。改訂時は同じ episode の script.json を更新</td><td>非致命的（失敗時は通常、元の台本で続行）</td></tr>
     <tr><td>synthesize_voicevox</td><td><code>batch/synthesize_voicevox.py</code></td><td>script.json</td><td><code>lines/NNN.wav</code>、script.json 更新</td><td>WAV 0 件</td></tr>
     <tr><td>build_episode</td><td><code>batch/build_episode.py</code><br><code>services/ffmpeg_service.py</code></td><td>lines/*.wav・ジングル</td><td><code>episode.mp3</code>、<code>metadata.json</code></td><td>metadata 空</td></tr>
-    <tr><td>cleanup_episodes</td><td><code>batch/cleanup_episodes.py</code></td><td>EPISODE_RETENTION_DAYS（既定30日）</td><td>期限切れエピソードの DB レコードとファイル削除</td><td>—（独立ジョブ）</td></tr>
+    <tr><td>final_validation</td><td><code>batch/final_validation.py</code></td><td>レビュー後の台本・要約</td><td>合成可否を判定し、必要なら管理者レビュー待ちへ遷移</td><td>review_mode と検証結果による</td></tr>
   </table>
 
   <h3>手動実行コマンド</h3>
@@ -400,7 +413,7 @@ docker compose exec api python3 /app/app/batch/orchestrate.py
 # 日付・ニュースソースを指定して生成
 docker compose exec api python3 /app/app/batch/orchestrate.py 2026-05-31 hatena_hotentry_all
 
-# 日次バッチ相当を手動実行（BATCH_DATE / BATCH_NEWS_SOURCE で上書き可）
+# 日次バッチ相当を手動実行（記事取得も実施。BATCH_DATE / BATCH_NEWS_SOURCE で上書き可）
 docker compose exec api python3 /app/app/batch/run_daily.py
 
 # 保持期間超過エピソードの削除
@@ -408,7 +421,7 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
 </section>
 <section id="data">
   <div class="ch"><span class="freq">82.5</span><h2>データモデル（ER図）</h2></div>
-  <p>永続化は単一の SQLite ファイル（<code>data/mynews-radio.db</code>）で行います。スキーマは <code>app/db/schema.sql</code> に定義され、FastAPI 起動時に冪等適用（<code>CREATE TABLE IF NOT EXISTS</code>）された後、<code>ALTER TABLE</code> による追加マイグレーション（<code>articles.difficulty</code>、<code>episodes.phase</code>、generating 部分一意インデックス）が安全に実行されます。</p>
+  <p>永続化は SQLite ファイル（既定 <code>data/mynews-radio.db</code>）で行います。中心となる記事・エピソード・構成項目のほか、生成ジョブ、管理者セッション、監査ログ、番組・MC、プロンプト、通知、辞書などのテーブルがあります。新規DBは <code>app/db/schema.sql</code> で作成し、既存DBには <code>app/db/migration.py</code> と起動時の追加マイグレーションを適用します。下図は中心となる3テーブルの簡略図で、全スキーマではありません。</p>
 
   <figure class="fig">
   <svg viewBox="0 0 960 470" xmlns="http://www.w3.org/2000/svg" font-family="'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif" font-size="12" role="img" aria-label="ER図">
@@ -436,12 +449,12 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
         <text x="44" y="220">summary           TEXT</text>
         <text x="44" y="242">category          TEXT</text>
         <text x="44" y="264">importance_score  INTEGER (1-5)</text>
-        <text x="44" y="286">difficulty        INTEGER (1-3)*</text>
+        <text x="44" y="286">difficulty        INTEGER (1-3)</text>
         <text x="44" y="308">status            TEXT 'new'</text>
         <text x="44" y="330">published_at      TEXT</text>
         <text x="44" y="352">created_at        TEXT now</text>
       </g>
-      <text x="44" y="372" font-size="10" fill="#4A5568">IDX: status / importance_score　*はマイグレーションで追加</text>
+      <text x="44" y="372" font-size="10" fill="#4A5568">IDX: status / importance_score</text>
     </g>
 
     <!-- episodes -->
@@ -453,15 +466,15 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
       <g font-family="ui-monospace,Menlo,monospace" font-size="11.2">
         <text x="664" y="110">🔑 id          INTEGER PK AI</text>
         <text x="664" y="132">episode_date    TEXT NOT NULL</text>
-        <text x="664" y="154">script_text     TEXT</text>
-        <text x="664" y="176">audio_path      TEXT</text>
-        <text x="664" y="198">status          TEXT 'pending'</text>
-        <text x="664" y="220">phase           TEXT ''*</text>
-        <text x="664" y="242">created_at      TEXT now</text>
-        <text x="664" y="264">updated_at      TEXT now</text>
+        <text x="664" y="154">seq             INTEGER</text>
+        <text x="664" y="176">type            TEXT 'radio'</text>
+        <text x="664" y="198">source_url      TEXT</text>
+        <text x="664" y="220">status          TEXT 'pending'</text>
+        <text x="664" y="242">phase           TEXT*</text>
+        <text x="664" y="264">program_id      TEXT</text>
       </g>
-      <text x="664" y="292" font-size="10" fill="#4A5568">IDX: episode_date</text>
-      <text x="664" y="306" font-size="10" fill="#4A5568">UNIQUE(episode_date) WHERE status='generating'*</text>
+      <text x="664" y="292" font-size="10" fill="#4A5568">IDX: episode_date / (episode_date, type)</text>
+      <text x="664" y="306" font-size="10" fill="#4A5568">*追加マイグレーションを含む</text>
     </g>
 
     <!-- episode_items -->
@@ -488,24 +501,24 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
     <path d="M310,300 L338,322" fill="none" stroke="#1B2330" stroke-width="1.5" marker-start="url(#one)" marker-end="url(#crow)"/>
     <text x="232" y="412" font-size="10.5" fill="#4A5568">1 : 0..N（記事削除時 NULL）</text>
   </svg>
-  <figcaption><b>図3</b>　ER図。エピソード本体の成果物（台本・WAV・MP3）はファイルシステム側（<code>data/episodes/&lt;episode_id&gt;/</code>）に置かれ、DB はメタデータと状態遷移を管理する。</figcaption>
+  <figcaption><b>図3</b>　中心となる3テーブルの簡略ER図。エピソード成果物（台本・WAV・MP3）はファイルシステム側（<code>data/episodes/&lt;episode_id&gt;/</code>）に置かれ、DB はメタデータと状態を管理する。</figcaption>
   </figure>
 
   <h3>ステータス遷移</h3>
   <table>
     <tr><th>テーブル</th><th>列</th><th>取りうる値</th><th>意味</th></tr>
     <tr><td>articles</td><td>status</td><td><code>new</code> → <code>summarized</code> → <code>used</code> / <code>error</code></td><td>取得直後 → 要約済み → 台本に採用済み。本文不足やJSON解析失敗時は error</td></tr>
-    <tr><td>episodes</td><td>status</td><td><code>pending</code> / <code>generating</code> → <code>completed</code>（または <code>done</code>）/ <code>failed</code></td><td>run_daily・API は completed、orchestrate.py は done を完了値として使用</td></tr>
-    <tr><td>episodes</td><td>phase</td><td><code>start</code> → <code>import</code> → <code>summarize</code> → <code>generate_script</code> → <code>review</code> → <code>review_done</code> → <code>synthesize</code> → <code>build</code> → <code>complete</code></td><td>API 経由生成時の進捗表示用。フロントがポーリングして表示</td></tr>
+    <tr><td>episodes</td><td>status</td><td><code>pending</code> / <code>waiting</code> / <code>generating</code> / <code>awaiting_review</code> / <code>synthesizing</code> / <code>completed</code> / <code>failed</code></td><td>生成ジョブの待機・実行、管理者レビュー待ち、合成、完了・失敗を表す</td></tr>
+    <tr><td>episodes</td><td>phase</td><td><code>start</code> → <code>import</code> → <code>summarize</code> → <code>generate_script</code> → <code>review</code> → <code>review_done</code> → <code>final_validation</code> → <code>synthesize</code> → <code>build</code> → <code>complete</code></td><td>生成進捗表示用。API経由では詳細メッセージを含めてフロントへ返す</td></tr>
   </table>
-  <p class="note">SQLite の <code>database is locked</code> 対策として、<code>EpisodeService</code> には指数バックオフ付きリトライデコレーター（最大5回）が実装されている。また「同一日付で generating 状態のエピソードは1件のみ」という部分一意インデックスにより、手動生成の二重実行が DB レベルで防止される。</p>
+  <p class="note">SQLite の <code>database is locked</code> 対策として、<code>EpisodeService</code> には指数バックオフ付きリトライが実装されています。生成要求は <code>generation_jobs</code> に永続化され、所有者・操作単位の冪等性キーとFIFOキューで重複・同時実行を制御します。エピソード日付の部分一意インデックスで二重実行を防ぐ設計ではありません。</p>
 
   <h3>ファイルシステム上の成果物</h3>
   <pre><code>data/episodes/&lt;episode_id&gt;/
 ├── summaries.json     # 要約ステップの出力（article_id, summary, category, score, difficulty）
 ├── script.json        # 台本（title, date, lines[]）。合成後に display_text /
 │                      # spoken_text / wav_file / start_time が書き戻される
-├── review.json        # 4ディレクターのレビュー結果（レビュー版エピソードのみ）
+├── review/            # レビュー用 script.json / review.json
 ├── lines/
 │   ├── 001.wav        # セリフ・ジングル・無音を含む通し番号WAV
 │   └── ...
@@ -515,7 +528,7 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
 
 <section id="api">
   <div class="ch"><span class="freq">84.7</span><h2>REST API</h2></div>
-  <p>FastAPI（<code>app/main.py</code>）は3つのルーター（episodes / generate / health）と音声配信エンドポイントを公開します。CORS は <code>CORS_ORIGINS</code>（既定: <code>http://localhost:3010</code> ほか）で許可します。</p>
+  <p>FastAPI（<code>app/main.py</code>）は17個のルーターと音声配信エンドポイントを登録します。主要な公開・生成系APIに加え、管理者認証、番組・MC・プロンプト管理、辞書、監査ログ、通知、レポート等のAPIがあります。管理操作は各エンドポイントで認証・権限を検証します。CORS は <code>CORS_ORIGINS</code>（既定: localhost:3010 と radio.beeworks.cc）で許可します。</p>
 
   <h3>エピソード</h3>
   <table>
@@ -529,8 +542,8 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
   <h3>生成・音声合成</h3>
   <table>
     <tr><th>エンドポイント</th><th>概要</th><th>備考</th></tr>
-    <tr><td><span class="pill post">POST</span> <code>/generate</code></td><td>番組生成をバックグラウンド開始</td><td>即時に <code>{episode_id, status: "generating"}</code> を返却。日付重複は 409。stale な generating レコードはリセット再利用</td></tr>
-    <tr><td><span class="pill post">POST</span> <code>/episodes/{id}/synthesize</code></td><td>既存台本から音声を再合成</td><td>SSE（Server-Sent Events）で進捗を逐次配信。tts_engine（voicevox / aivispeech）を指定可能</td></tr>
+    <tr><td><span class="pill post">POST</span> <code>/generate</code></td><td>番組生成ジョブを登録</td><td>管理者セッションと <code>Idempotency-Key</code> が必要。即時に <code>generating</code> または <code>waiting</code> を返し、FIFOキューで実行。キュー上限・レート制限あり</td></tr>
+    <tr><td><span class="pill post">POST</span> <code>/episodes/{id}/synthesize</code></td><td>既存台本から音声を再合成</td><td>SSE（Server-Sent Events）で進捗を逐次配信。利用可能なTTSエンジンを指定</td></tr>
   </table>
 
   <h3>ヘルスチェック・音声配信</h3>
@@ -542,19 +555,29 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
     <tr><td><span class="pill get">GET</span> <code>/audio/{episode_path}</code></td><td>音声ストリーミング配信。<strong>HTTP Range リクエスト対応</strong>（206 Partial Content）。<code>/audio/&lt;id&gt;</code>（metadata.json から解決）と <code>/audio/&lt;id&gt;/&lt;filename&gt;</code> の両形式に対応し、旧式の日付ベースディレクトリへのフォールバックも実装</td></tr>
   </table>
 
+  <h3>その他のAPI領域</h3>
+  <ul>
+    <li><code>/admin/*</code> — ログイン、台本レビュー、辞書・監査ログ・LLM呼び出しログなどの管理操作</li>
+    <li><code>/admin/programs</code> / <code>/admin/mcs</code> / <code>/admin/prompts</code> / <code>/admin/dry-runs</code> — 番組、MC、プロンプトと生成プレビューの管理</li>
+    <li><code>/settings</code>、<code>/push/*</code>、<code>/reports/misreading</code>、<code>/feed.xml</code>、<code>/llm/providers</code> — 設定、Web Push、読み間違い報告、RSS、LLMプロバイダー情報</li>
+    <li>エピソードのサムネイル・レビュー・記事検索など、エピソード関連の補助エンドポイントも提供</li>
+  </ul>
+
   <h4>POST /generate のリクエストボディ</h4>
+  <p><code>Idempotency-Key</code> ヘッダーと管理者セッションを付けて送信します。以下は主要フィールドの例です。</p>
   <pre><code>{
-  "date": "2026-06-12",
-  "news_source": "hatena_bookmark",   // hatena_bookmark | hatena_hotentry_all | yahoo_news
-  "max_articles": 10,                 // 台本に採用する最大記事数（MAX_SCRIPT_ARTICLES を一時上書き）
-  "tts_engine": "aivispeech",         // voicevox | aivispeech
-  "enable_review": true               // 4ディレクターレビュー版エピソードの並行生成
+  "date": "2026-10-31",
+  "news_source": "hatena_bookmark",
+  "max_articles": 10,
+  "tts_engine": "fishs2pro",
+  "summarize_provider": "ollama",
+  "content_provider": "codex"
 }</code></pre>
-  <p class="note">news_source により番組名が切り替わる（<code>hatena_bookmark</code> →「テックニュース」、それ以外 →「ニュースのとなり」）。</p>
+  <p class="note"><code>news_source</code> の選択肢は <code>hatena_bookmark</code> / <code>hatena_hotentry_all</code> / <code>yahoo_news</code>。TTSの未指定時はFish S2 Pro。VOICEVOX / AivisSpeechは現行コードでは無効です。<code>enable_review</code> はリクエストフィールドではなく、レビュー挙動は番組設定・レビュー設定に従います。</p>
 </section>
 <section id="manual">
   <div class="ch"><span class="freq">86.0</span><h2>手動生成フロー（Web → API）</h2></div>
-  <p>Web フロントの「生成」ボタンから始まる手動生成は、Next.js API Route のプロキシを経由して <code>POST /generate</code> を呼び出します。API はエピソードレコードを作成して即座に応答し、実際のパイプラインは asyncio スレッド（uvicorn 配下）またはデーモンスレッドで非同期実行されます。フロントは <code>GET /episodes/{id}</code> をポーリングし、<code>phase</code> 列の更新で進捗を表示します。</p>
+  <p>Web フロントの「生成」ボタンはNext.js API Routeを経由して <code>POST /generate</code> を呼び出します。管理者セッションと一意な <code>Idempotency-Key</code> を検証した後、永続ジョブをFIFOキューに登録します。実行可能なジョブはバックグラウンドスレッドで処理し、同時実行中なら <code>waiting</code> として待機します。フロントは <code>GET /episodes/{id}</code> をポーリングして status / phase / generation_message を表示します。</p>
 
   <figure class="fig">
   <svg viewBox="0 0 960 560" xmlns="http://www.w3.org/2000/svg" font-family="'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif" font-size="12" role="img" aria-label="手動生成シーケンス図">
@@ -584,16 +607,16 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
     <line x1="295" y1="125" x2="498" y2="125" stroke="#1B2330" stroke-width="1.6" marker-end="url(#sq)"/>
     <text x="305" y="118" font-size="11">プロキシ転送 → http://api:8010/generate</text>
     <line x1="500" y1="158" x2="698" y2="158" stroke="#1B2330" stroke-width="1.6" marker-end="url(#sq)"/>
-    <text x="510" y="151" font-size="11">episodes INSERT（status=generating, phase=start）</text>
-    <text x="510" y="178" font-size="10.5" fill="#C73E3A">※ 同日 generating が残存 → リセット再利用 / 一意制約違反 → 409</text>
+    <text x="510" y="151" font-size="11">generation_jobs / episodes を予約（FIFO・冪等性）</text>
+    <text x="510" y="178" font-size="10.5" fill="#C73E3A">※ Idempotency-Key必須。空きがなければwaitingで応答</text>
     <line x1="498" y1="205" x2="102" y2="205" stroke="#1B2330" stroke-width="1.6" marker-end="url(#sq)"/>
-    <text x="140" y="198" font-size="11">202相当の即時応答 {episode_id, status:"generating"}</text>
+    <text x="140" y="198" font-size="11">JSON即時応答 {episode_id, status:"generating" または "waiting"}</text>
 
     <!-- background box -->
     <rect x="440" y="232" width="510" height="220" rx="9" fill="#F0F4F2" stroke="#2E7D7B" stroke-width="1.6" stroke-dasharray="6 4"/>
-    <text x="458" y="254" font-size="11" font-weight="bold" fill="#2E7D7B">バックグラウンド実行（asyncio.to_thread）</text>
+    <text x="458" y="254" font-size="11" font-weight="bold" fill="#2E7D7B">バックグラウンド実行（FIFOジョブ・スレッド）</text>
     <line x1="500" y1="285" x2="868" y2="285" stroke="#2E7D7B" stroke-width="1.5" marker-end="url(#sqd)"/>
-    <text x="512" y="278" font-size="11">要約・Narrative Arc・台本・レビュー生成（Ollama）</text>
+    <text x="512" y="278" font-size="11">記事取得・要約・台本・レビュー（用途別LLM）</text>
     <line x1="500" y1="330" x2="868" y2="330" stroke="#2E7D7B" stroke-width="1.5" marker-end="url(#sqd)"/>
     <text x="512" y="323" font-size="11">行ごとに audio_query → synthesis（TTSエンジン）</text>
     <line x1="500" y1="375" x2="698" y2="375" stroke="#2E7D7B" stroke-width="1.5" marker-end="url(#sqd)"/>
@@ -607,7 +630,7 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
     <line x1="498" y1="515" x2="102" y2="515" stroke="#1B2330" stroke-width="1.6" marker-end="url(#sq)"/>
     <text x="140" y="508" font-size="11">status=completed → audio_url で再生開始（/audio/... Range 配信）</text>
   </svg>
-  <figcaption><b>図4</b>　手動生成のシーケンス。既存エピソードの音声再合成（<code>POST /episodes/{id}/synthesize</code>）のみ、ポーリングではなく SSE ストリームで進捗（synthesize → build → complete）をリアルタイム配信する。</figcaption>
+  <figcaption><b>図4</b>　手動生成のシーケンス。既存エピソードの音声再合成（<code>POST /episodes/{id}/synthesize</code>）は、ポーリングではなくSSEストリームで進捗を配信する。</figcaption>
   </figure>
 </section>
 
@@ -617,11 +640,14 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
   <h3>services/ — 外部サービスクライアントとドメインサービス</h3>
   <table>
     <tr><th>モジュール</th><th>責務</th></tr>
-    <tr><td><code>ollama_client.py</code></td><td>Ollama <code>/api/generate</code> を <code>format: json</code>・タイムアウト600秒で呼び出す。reasoning 系モデルが本文を <code>thinking</code> フィールドへ出力するケース（<code>&lt;|channel|&gt;output</code> タグ）からの抽出、空レスポンス時の「JSONのみで回答せよ」プロンプトによる自動リトライ（最大2回）、コードフェンス除去付き JSON パースを実装</td></tr>
-    <tr><td><code>voicevox_client.py</code></td><td>VOICEVOX 互換 API クライアント。<code>POST /audio_query</code>（<code>enable_katakana_english=1</code>）→ <code>POST /synthesis</code>（<code>enable_interrogative_upspeak=1</code>）の2段階でセリフ1行をWAV化。speaker 名（male/female）→ 話者IDのマッピング、<code>/version</code> によるヘルスチェックを提供。AivisSpeech も同一クライアントで扱う</td></tr>
+    <tr><td><code>llm_provider.py</code> / 各クライアント</td><td>要約と台本・レビューのLLM選択を独立管理。Ollama / vLLM / LM Studio / Codex等を構成し、既定は要約がローカルLLM、台本・レビューがCodex。環境設定やリクエストでプロバイダー・モデルを上書き可能</td></tr>
+    <tr><td><code>ollama_client.py</code></td><td>Ollama <code>/api/generate</code> を <code>format: json</code> で呼び出す。reasoning 系モデルの応答処理、JSONパース、エラー時の再試行を実装</td></tr>
+    <tr><td><code>fishs2pro_client.py</code></td><td>Fish S2 Pro の音声合成クライアント。既定のTTSエンジンとしてセリフ音声を生成</td></tr>
+    <tr><td><code>voicevox_client.py</code></td><td>VOICEVOX互換APIクライアント。<code>POST /audio_query</code> → <code>POST /synthesis</code> の2段階でWAV化し、話者ID・ヘルスチェックを扱う。AivisSpeechも同系統で実装されているが、現行設定では両エンジンとも無効</td></tr>
     <tr><td><code>hatena_fetcher.py</code></td><td>3種のニュースソース取得。① news.beeworks.cc API（Markdown 形式 content を正規表現でタイトル・元記事URL・ブックマーク数・ユーザースコアにパース。データがある直近日まで最大数日分さかのぼり取得）② はてな hotentry/all RSS ③ Yahoo!ニュース RSS。RSS 系は trafilatura で本文を抽出</td></tr>
     <tr><td><code>article_service.py</code></td><td>記事の upsert（URL一意で重複判定）、status=new の取得、要約結果の保存、台本用要約の取得（<code>importance_score &gt;= MIN_IMPORTANCE_SCORE</code> でフィルタし上位 <code>MAX_SCRIPT_ARTICLES</code> 件）、使用済みマーク</td></tr>
-    <tr><td><code>episode_service.py</code></td><td>エピソードの CRUD・状態/フェーズ更新・期限切れ取得・generating スロットの確保（部分一意Index を利用した <code>claim_generating_slot</code>）。SQLite ロック競合に対する指数バックオフ付きリトライを全書き込みに適用</td></tr>
+    <tr><td><code>episode_service.py</code></td><td>エピソードの CRUD・状態/フェーズ更新・期限切れ取得。SQLite ロック競合に対する指数バックオフ付きリトライを適用</td></tr>
+    <tr><td><code>generation_control.py</code></td><td>生成ジョブの永続化、冪等性キー検証、FIFOキュー、同時実行制御と完了処理</td></tr>
     <tr><td><code>ffmpeg_service.py</code></td><td>ffmpeg ラッパー。WAV結合（concat）、WAV→MP3、任意音源→WAV正規化（24000Hz/mono/s16 等へリサンプル）、<code>add_jingles_and_encode</code>（filter_complex で opening / ending を <code>atrim=end=jingle_duration</code> + フェードイン/アウト処理して本編と concat → MP3）</td></tr>
     <tr><td><code>replacement_table.py</code></td><td>TTS 用の読み置換テーブル。英略語や記号など読み誤りしやすい表記を発音用テキスト（spoken_text）へ変換。表示用（display_text）とは分離して script.json に保持</td></tr>
   </table>
@@ -636,13 +662,13 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
   </ol>
 
   <h3>review_script.py — 4ディレクターレビュー</h3>
-  <p>台本JSONを4種類のキャラクタープロンプト（<code>review_genius_director.md</code> ほか）に通して個別レビューを収集し、<code>review_synthesize.md</code> で全フィードバックを統合した改訂版台本を生成します。結果は dict（<code>revised / review_count / revision_summary / lines_count</code>）で返り、呼び出し側は例外を捕捉する必要がありません。改訂版は<strong>別の episodes レコード</strong>として合成・ビルドされるため、同じ日付にオリジナル版とレビュー版の2エピソードが並ぶ設計です。</p>
+  <p>台本JSONを4種類のキャラクタープロンプト（<code>review_genius_director.md</code> ほか）に通して個別レビューを収集し、<code>review_synthesize.md</code> でフィードバックを統合します。改訂があれば、共有パイプラインは<strong>同じエピソードの台本</strong>を更新してから最終検証・音声合成へ進みます。レビュー失敗は通常非致命的で、元の台本で後続処理を続けます。</p>
 
   <h3>synthesize_voicevox.py — 音声合成の細部</h3>
   <ul>
     <li>WAVファイル名は無音・ジングル挿入分も含む通し番号（<code>001.wav</code>〜）。transition 行の直前にトランジションジングル（24000Hz/mono/s16 へ ffmpeg 正規化してコピー、失敗時は <code>wave</code> モジュールで無音1秒を生成）を挿入</li>
     <li>合成成功行には <code>display_text</code>（画面表示用）/ <code>spoken_text</code>（置換適用済み）/ <code>wav_file</code> を書き戻し、script.json を更新</li>
-    <li>TTSエンジン切替（VOICEVOX 24000Hz ↔ AivisSpeech 44100Hz）によるレート不一致を防ぐため、最後に lines/ 内の全WAVを最多数派レートへ一括リサンプル</li>
+    <li>エンジン間のレート不一致を防ぐため、最後に lines/ 内のWAVを出力側のサンプリングレートへ正規化（Fish S2 Pro は44100Hz）</li>
   </ul>
 
   <h3>build_episode.py — 組み立てとタイムコード</h3>
@@ -666,12 +692,12 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
   <h3>主要コンポーネント</h3>
   <table>
     <tr><th>コンポーネント</th><th>役割</th></tr>
-    <tr><td><code>AudioPlayer</code> / <code>EpisodePlayer</code></td><td>HTML5 Audio による再生。Range 対応配信によりシークが即応</td></tr>
-    <tr><td><code>EpisodeList</code> / <code>EpisodeQuickActions</code></td><td>一覧表示・ステータスバッジ・詳細遷移などの操作</td></tr>
-    <tr><td><code>GenerateEpisodeButton</code></td><td>生成パラメータ（日付・ソース・記事数・TTS・レビュー有無）を送信し、phase をポーリング表示</td></tr>
+    <tr><td><code>HomeShell</code> / <code>EpisodeAudioPlayer</code></td><td>ホーム画面とHTML5 Audio再生。Range対応配信によりシーク可能</td></tr>
+    <tr><td><code>EpisodeDetailShell</code></td><td>エピソード詳細・再生・台本・記事リンクなどを表示</td></tr>
+    <tr><td><code>GenerateEpisodeButton</code></td><td>生成要求を送り、エピソード状態・phaseをポーリング表示</td></tr>
     <tr><td><code>SynthesizeAudioButton</code></td><td>SSE を受信して再合成の進捗を逐次表示</td></tr>
     <tr><td><code>ScriptViewer</code></td><td>台本を話者別に表示。<code>start_time</code> による頭出しに対応</td></tr>
-    <tr><td><code>ArticleLinks</code></td><td>エピソードで紹介した記事の元記事リンク一覧</td></tr>
+    <tr><td><code>Admin*Shell</code></td><td>番組・MC・辞書・プロンプト・音声設定・レビュー・監査情報などの管理画面</td></tr>
   </table>
 </section>
 
@@ -682,19 +708,21 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
     <tr><th>変数</th><th>既定値（config.py）</th><th>説明</th></tr>
     <tr><td><code>DATABASE_URL</code></td><td><code>sqlite:////app/data/mynews-radio.db</code></td><td>SQLite のみサポート</td></tr>
     <tr><td><code>CORS_ORIGINS</code></td><td><code>http://localhost:3010,...</code></td><td>カンマ区切りの許可オリジン</td></tr>
-    <tr><td><code>OLLAMA_BASE_URL</code> / <code>OLLAMA_MODEL</code></td><td><code>http://192.168.1.103:11434</code> / <code>qwen3.6:35b</code></td><td>LLM 推論先（.env.example では 27b）</td></tr>
-    <tr><td><code>VOICEVOX_BASE_URL</code></td><td><code>http://192.168.1.102:50021</code></td><td>VOICEVOX Engine</td></tr>
-    <tr><td><code>VOICEVOX_SPEAKER_MALE / _FEMALE</code></td><td>11 / 2</td><td>話者ID</td></tr>
-    <tr><td><code>AIVISPEECH_BASE_URL</code></td><td><code>http://192.168.1.102:10101</code></td><td>AivisSpeech Engine</td></tr>
-    <tr><td><code>AIVISPEECH_SPEAKER_MALE / _FEMALE</code></td><td>1310138976 / 1388823424</td><td>「阿井田 茂」「湊音エル」ノーマル</td></tr>
-    <tr><td><code>DEFAULT_TTS_ENGINE</code></td><td><code>aivispeech</code></td><td>voicevox / aivispeech</td></tr>
-    <tr><td><code>CRON_SCHEDULE</code></td><td><code>0 21 * * *</code>（UTC）</td><td>JST 朝6時相当。entrypoint.sh が crontab に反映</td></tr>
+    <tr><td><code>LLM_PROVIDER</code></td><td><code>ollama</code></td><td>従来形式の共通指定。明示すると要約・台本の双方に適用</td></tr>
+    <tr><td><code>SUMMARIZE_LLM_PROVIDER / MODEL</code></td><td>config既定は未指定（Ollamaへフォールバック）</td><td>要約フェーズ用。vLLMはモデル未設定ならOllamaへフォールバック</td></tr>
+    <tr><td><code>CONTENT_LLM_PROVIDER / MODEL</code></td><td><code>codex</code> / 未指定</td><td>台本生成・レビュー用。Codex認証情報が必要</td></tr>
+    <tr><td><code>OLLAMA_BASE_URL / OLLAMA_MODEL</code></td><td>config既定値あり</td><td>ローカルLLM接続先。実運用値は <code>.env</code> で設定</td></tr>
+    <tr><td><code>VLLM_*</code> / <code>LM_STUDIO_*</code> / <code>CODEX_*</code></td><td>プロバイダーごとに設定</td><td>代替LLMのURL・モデル・認証・タイムアウト等</td></tr>
+    <tr><td><code>FISHS2PRO_BASE_URL</code> / <code>FISHS2PRO_VOICE_*</code></td><td>config既定値あり</td><td>Fish S2 Pro接続先と男女の音声名</td></tr>
+    <tr><td><code>DEFAULT_TTS_ENGINE</code> / <code>BATCH_DEFAULT_TTS_ENGINE</code></td><td><code>fishs2pro</code> / <code>fishs2pro</code></td><td>API/UIおよび日次バッチの既定TTS。VOICEVOX / AivisSpeechは現行コードで無効</td></tr>
+    <tr><td><code>VOICEVOX_*</code> / <code>AIVISPEECH_*</code></td><td>接続先・話者ID</td><td>互換エンジン用設定は残るが、現行コードでエンジンを無効化</td></tr>
+    <tr><td><code>CRON_SCHEDULE</code></td><td>Compose fallback <code>30 16 * * *</code> / .env.example <code>0 21 * * *</code></td><td>コンテナTZは <code>Asia/Tokyo</code>。値はcronのコンテナ時刻として解釈。DockerfileのENTRYPOINT経由でcronを起動</td></tr>
     <tr><td><code>EPISODE_RETENTION_DAYS</code></td><td>30</td><td>cleanup_episodes の保持日数</td></tr>
     <tr><td><code>JINGLE_*_PATH</code> / <code>JINGLE_DURATION</code> / <code>JINGLE_FADE_DURATION</code></td><td>data/jingles/*.mp3 / 10.0 / 1.0</td><td>ジングル素材と使用秒数・フェード秒数</td></tr>
     <tr><td><code>MAX_SCRIPT_ARTICLES</code></td><td>10（env 直読）</td><td>台本に採用する最大記事数</td></tr>
     <tr><td><code>MIN_IMPORTANCE_SCORE</code></td><td>3（env 直読）</td><td>採用する重要度の下限</td></tr>
-    <tr><td><code>BATCH_DATE</code> / <code>BATCH_NEWS_SOURCE</code></td><td>—</td><td>run_daily.py の日付・ソース上書き（テスト用）</td></tr>
-    <tr><td><code>EPISODES_DIR</code> / <code>ARTICLES_JSON</code></td><td>data/episodes / data/articles/articles.json</td><td>成果物ディレクトリ等の上書き</td></tr>
+    <tr><td><code>BATCH_DATE</code> / <code>BATCH_NEWS_SOURCE</code> / <code>BATCH_PROGRAM_ID</code></td><td>—</td><td>run_daily.py の日付・ソース・番組指定を上書き</td></tr>
+    <tr><td><code>EPISODES_DIR</code> / <code>ARTICLES_JSON</code></td><td>data/episodes / data/articles/articles.json</td><td>EPISODES_DIRは成果物ディレクトリを上書き。ARTICLES_JSONはorchestrate.pyで変数に読み込まれるが未使用で、CLIパイプラインは記事ソースから取得</td></tr>
     <tr><td><code>API_BASE</code> / <code>NEXT_PUBLIC_API_BASE</code></td><td><code>http://api:8010</code> / <code>http://localhost:8010</code></td><td>フロントの SSR / ブラウザ用 API ベースURL</td></tr>
   </table>
 </section>
@@ -708,19 +736,22 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
 │   │   ├── main.py              # FastAPI 本体・DB初期化・音声Range配信
 │   │   ├── config.py            # pydantic-settings による設定集約
 │   │   ├── logging_config.py    # data/logs/YYYY-MM-DD.log への日次ロギング
-│   │   ├── api/                 # episodes.py / generate.py / health.py
-│   │   ├── batch/               # パイプライン各ステップ + run_daily / orchestrate / cleanup
-│   │   ├── db/                  # schema.sql / connection.py（contextmanager + 自動commit/rollback）
-│   │   ├── prompts/             # LLMプロンプト8種（要約・アーク・台本・レビュー4種・統合）
-│   │   └── services/            # 外部クライアント・ドメインサービス（88.1章参照）
-│   ├── scripts/reset_stale_generating.py   # 滞留 generating レコードの復旧スクリプト
-│   └── tests/                   # pytest（生成・stale リセット）
+│   │   ├── api/                 # 公開API・管理APIの各ルーター
+│   │   ├── batch/               # radio_pipeline / run_daily / orchestrate / cleanup 等
+│   │   ├── db/                  # schema.sql / migration.py / connection.py
+│   │   ├── prompts/             # LLMプロンプトファイル
+│   │   └── services/            # 外部クライアント・ドメインサービス
+│   ├── scripts/                 # 管理・復旧用スクリプト
+│   └── tests/                   # pytest
 ├── frontend/                    # Next.js 14 App Router（89.7章参照）
 ├── data/
 │   ├── episodes/                # エピソード成果物（82.5章参照）
 │   ├── jingles/                 # opening / ending / transition（MP3）
-│   ├── summaries/               # 旧形式の要約出力
+│   ├── voice-samples/ / mc-photos/ # 音声サンプル・MC画像（設定により使用）
+│   ├── mynews-radio.db          # SQLiteデータベース（既定）
+│   ├── run_manifest.json        # 日次バッチの最終結果
 │   └── logs/                    # 日次ログ・crontab.log
+├── infra/nginx/                 # 公開入口proxy設定
 ├── tools/generate_jingles.py    # ジングル生成ユーティリティ
 ├── docs/                        # 既存のシステムドキュメント・SVG図
 ├── docker-compose.yml
@@ -731,16 +762,16 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
   <div class="ch"><span class="freq">95.4</span><h2>運用・エラー処理</h2></div>
   <h3>ログ</h3>
   <ul>
-    <li>バッチ: <code>logging_config.setup_daily_logging</code> により <code>data/logs/YYYY-MM-DD.log</code> へ集約。cron の標準出力は <code>data/logs/crontab.log</code> に追記され、entrypoint.sh が Docker ログへ tail する</li>
-    <li>最終実行の結果は <code>data/run_manifest.json</code>（<code>done / skipped_no_new / error_summarize: ...</code> 等）に保存され、外形監視に利用できる</li>
+    <li>バッチ: <code>logging_config.setup_daily_logging</code> により <code>data/logs/YYYY-MM-DD.log</code> へ集約。cronの標準出力は <code>data/logs/crontab.log</code> に追記され、entrypoint.shがDockerログへtailする</li>
+    <li>日次バッチの最終結果は <code>data/run_manifest.json</code>（<code>done / awaiting_review / failed</code> 等）に保存</li>
   </ul>
   <h3>障害と復旧</h3>
   <table>
     <tr><th>事象</th><th>挙動・対処</th></tr>
-    <tr><td>Ollama / TTS 停止</td><td>run_daily は事前ヘルスチェックで <span class="pill warn">ERROR</span> をログし続行（後続ステップで失敗 → status=failed）。<code>/health/ollama</code>・<code>/health/voicevox</code> で個別確認可能</td></tr>
-    <tr><td>新着記事 0 件</td><td>run_daily は <code>skipped_no_new</code> として exit 0（エピソードは作られない）。orchestrate は既存の要約済み記事があれば続行</td></tr>
-    <tr><td>LLM の不正 JSON</td><td>OllamaClient が強制JSONプロンプトで自動リトライ。要約では該当記事を <code>error</code> にしてスキップ、台本では Linter 修正ループで再生成</td></tr>
-    <tr><td>generating の滞留</td><td>API がコンテナ再起動等で中断した場合、次回 <code>POST /generate</code> 時に同日付の stale レコードをリセットして再利用。手動復旧用に <code>scripts/reset_stale_generating.py</code> も同梱</td></tr>
+    <tr><td>LLM / TTS 停止</td><td>生成処理が失敗した場合はジョブ・エピソードを失敗として記録。<code>/health/ollama</code>・<code>/health/voicevox</code> で対応エンジンの疎通確認が可能（Fish S2 Proには専用クライアント側の接続確認あり）</td></tr>
+    <tr><td>記事・台本が不足</td><td>記事の取得結果や生成可能な要約に応じて処理を終了。日次マニフェストには <code>done</code> / <code>failed</code> などを記録し、<code>skipped_no_new</code> 固定の状態は使用しない</td></tr>
+    <tr><td>LLM の不正応答</td><td>プロバイダー別クライアントのパース・検証・再試行と、台本生成時のLint修正で処理。失敗時の継続可否は生成フェーズとLLM設定による</td></tr>
+    <tr><td>生成ジョブの滞留</td><td>ジョブはDBの永続キューで管理され、API起動時にキュー復旧処理を実行。要求は <code>Idempotency-Key</code> と stale job 判定により重複・滞留を制御</td></tr>
     <tr><td>SQLite ロック競合</td><td>EpisodeService の書き込みは指数バックオフ付きで最大5回リトライ</td></tr>
     <tr><td>ディスク逼迫</td><td><code>cleanup_episodes.py</code> が保持期間（既定30日）超過のエピソードを DB・ファイルとも削除（ID ベース／旧日付ベース両ディレクトリに対応）</td></tr>
   </table>
@@ -750,7 +781,7 @@ docker compose exec api python3 /app/app/batch/cleanup_episodes.py</code></pre>
     <li><code>app/batch/test_ensure_transitions.py</code> / <code>app/services/test_fetch_summaries_for_script.py</code>: トランジション挿入ロジックと台本用要約取得のユニットテスト</li>
   </ul>
   <h3>動作確認チートシート</h3>
-  <pre><code>curl http://localhost:8000/health        # ※ compose 既定では :8010
+  <pre><code>curl http://localhost:8010/health
 curl http://localhost:8010/health/ollama
 curl http://localhost:8010/episodes/latest
 open http://localhost:3010               # Webフロント（再生・手動生成）</code></pre>
@@ -759,7 +790,7 @@ open http://localhost:3010               # Webフロント（再生・手動生�
 </main>
 </div>
 <footer>
-  本ドキュメントは <code>takpanda/mynews-radio</code>（main ブランチ）のソースコードを解析して作成したものです。図はすべてインラインSVGとして本HTMLに埋め込まれており、単一ファイルで閲覧できます。
+  本ドキュメントは <code>takpanda/mynews-radio</code> のソースコードを解析して作成したものです。図はすべてインラインSVGとして本HTMLに埋め込まれており、単一ファイルで閲覧できます。
 </footer>
 </body>
 </html>
