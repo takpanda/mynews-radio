@@ -615,3 +615,65 @@ def test_common_refusal_does_not_block_program_scoped_dialogue(tmp_path):
         _generate_dialogue(tmp_path / "common", conn, episode_id=None)
     prompt = _generate_dialogue(tmp_path / "program", conn, episode_id=1)
     assert SOLO_ONLY_INSTRUCTION not in prompt
+
+
+def _generate_template_with_tail(tail):
+    return _current_generate() + tail
+
+
+def test_marker_closed_before_solo_instruction_on_same_line_is_refused(tmp_path):
+    from app.prompts.solo_sections import SoloSectionsUnmarkedError
+
+    conn = _migrated_conn()
+    _set_legacy_active(
+        conn, "generate_commentary_script",
+        _generate_template_with_tail(f"\n{SOLO_OPEN}\n本文\n{SOLO_CLOSE}話者は1名のみ\n"),
+    )
+
+    with pytest.raises(SoloSectionsUnmarkedError, match="1名のみ"):
+        _generate_dialogue(tmp_path, conn)
+
+
+def test_solo_instruction_inside_same_line_markers_is_sent_to_solo_only(tmp_path):
+    conn = _migrated_conn()
+    _set_legacy_active(
+        conn, "generate_commentary_script",
+        _generate_template_with_tail(f"\n前文{SOLO_OPEN}話者は1名のみ{SOLO_CLOSE}後文\n"),
+    )
+
+    dialogue_prompt = _generate_dialogue(tmp_path / "dialogue", conn)
+    solo_prompt = _generate_dialogue(tmp_path / "solo", conn, style="solo")
+
+    assert "前文" in dialogue_prompt and "後文" in dialogue_prompt
+    assert SOLO_ONLY_INSTRUCTION not in dialogue_prompt
+    assert "前文" in solo_prompt and "話者は1名のみ" in solo_prompt
+
+
+def test_review_refuses_solo_instruction_after_closing_marker(tmp_path):
+    conn = _migrated_conn()
+    tail = f"\n{SOLO_OPEN}\n本文\n{SOLO_CLOSE}話者は 1名（{{mc_gender}}）のみ\n"
+    _set_legacy_active(conn, "review_synthesize", _current_review() + tail)
+
+    result, prompts = _run_review(tmp_path, _review_source(style="dialogue"), _review_source()["lines"], conn=conn)
+
+    assert result["revised"] is False
+    assert len(prompts) == 5
+    assert all(REVIEW_SOLO_INSTRUCTION not in p for p in prompts)
+
+
+def test_review_sends_inline_solo_instruction_only_to_solo(tmp_path):
+    conn = _migrated_conn()
+    tail = f"\n前文{SOLO_OPEN}話者は 1名（{{mc_gender}}）のみ{SOLO_CLOSE}後文\n"
+    _set_legacy_active(conn, "review_synthesize", _current_review() + tail)
+
+    _, dialogue_prompts = _run_review(tmp_path / "dialogue", _review_source(style="dialogue"), _review_source()["lines"], conn=conn)
+    _, solo_prompts = _run_review(tmp_path / "solo", _review_source(style="solo"), _review_source()["lines"], conn=conn)
+
+    assert len(dialogue_prompts) == 6 and len(solo_prompts) == 6
+    assert "前文" in dialogue_prompts[5] and "後文" in dialogue_prompts[5]
+    assert REVIEW_SOLO_INSTRUCTION not in dialogue_prompts[5]
+    assert REVIEW_SOLO_INSTRUCTION in solo_prompts[5]
+
+
+def _current_review():
+    return (PROMPTS / "review_synthesize.md").read_text(encoding="utf-8")

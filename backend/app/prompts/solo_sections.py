@@ -175,7 +175,11 @@ def migrate_legacy_solo_markers(text: str, key: str) -> str | None:
 
 
 def require_dialogue_safe(text: str, key: str) -> None:
-    """dialogue で使うテンプレートに、区切られていない solo 専用の指示がないことを確認する。"""
+    """dialogue で使うテンプレートに、区切られていない solo 専用の指示がないことを確認する。
+
+    判定は文字単位。solo 専用の表現の全体がいずれかのマーカー組の内側に収まらなければ、
+    同じ行にマーカーがあっても外側とみなす。
+    """
     pairs = _marker_pairs(text)
     if pairs is None:
         raise SoloSectionsUnmarkedError(
@@ -183,18 +187,18 @@ def require_dialogue_safe(text: str, key: str) -> None:
             "Fix the markers so each solo section is opened once and closed once, then retry."
         )
 
-    signatures = _SOLO_SIGNATURES[key]
-    offset = 0
-    leaked = []
-    for line_no, line in enumerate(text.splitlines(keepends=True), start=1):
-        inside = any(open_at <= offset < close_at for open_at, close_at in pairs)
-        if not inside and any(signature in line for signature in signatures):
-            leaked.append(f"  行 {line_no}: {line.strip()}")
-        offset += len(line)
-    if leaked:
+    leaked_lines = {}
+    for signature in _SOLO_SIGNATURES[key]:
+        for match in re.finditer(re.escape(signature), text):
+            inside = any(open_at <= match.start() and match.end() <= close_at for open_at, close_at in pairs)
+            if not inside:
+                line_no = text.count("\n", 0, match.start()) + 1
+                leaked_lines[line_no] = text.splitlines()[line_no - 1].strip()
+    if leaked_lines:
+        listing = "\n".join(f"  行 {line_no}: {line}" for line_no, line in sorted(leaked_lines.items()))
         raise SoloSectionsUnmarkedError(
-            f"prompt template {key!r}: solo-only instructions are not enclosed by markers, "
+            f"prompt template {key!r}: solo-only instructions are not fully enclosed by markers, "
             "so dialogue would receive them. Wrap each solo section (including its output example) "
-            "with <!-- SOLO_ONLY --> on its own line before the section and <!-- END_SOLO_ONLY --> after it, "
-            "then retry. Lines found:\n" + "\n".join(leaked)
+            "with <!-- SOLO_ONLY --> and <!-- END_SOLO_ONLY --> on lines of their own, "
+            "then retry. Lines found:\n" + listing
         )
