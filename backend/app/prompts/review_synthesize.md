@@ -9,6 +9,7 @@
 <!-- DIALOGUE_ONLY -->
 <!-- END_DIALOGUE_ONLY -->
 
+<!-- SOLO_ONLY -->
 ## solo モードのMCについて
 
 - 話者は 1名（{mc_gender}）のみ
@@ -17,6 +18,7 @@
 - 対話相手を前提とする語尾（「〜ですね」「〜ですか」「〜ことなのですね」「〜なのでしょうか」など）を一切使わない
 - すべての台詞は解説者による一貫したナレーションとして自然に流れること
 - 元の台本に含まれる数値・金額・日時・固有名詞をぼかさず元の値をそのまま使う
+<!-- END_SOLO_ONLY -->
 
 # 元の台本 (JSON)
 
@@ -58,7 +60,7 @@
 1. 各ディレクターの指摘のうち、複数が共通して挙げた問題を優先して対処する。radioディレクターの指摘も加味する
 2. 台本の全体的な構造（ニュースの順序・セクション構成）は維持する
 <!-- DIALOGUE_ONLY -->3. MCのキャラクターと話し方のトーン・役割を維持する<!-- END_DIALOGUE_ONLY -->
-<!-- solo -->3. 一人解説の語り口・トーン・スタイルを維持する<!-- END_SOLO -->
+<!-- SOLO_ONLY -->3. 一人解説の語り口・トーン・スタイルを維持する<!-- END_SOLO_ONLY -->
 4. 元の台本の lines 数をできる限り維持する（大幅な増減は避ける）
 5. article_id・section は元の値を維持する
 <!-- DIALOGUE_ONLY -->（transition/discussion の構造を崩さない。記事境界のtransitionは、記事間の関連または次の記事の理解補助がある場合だけ橋渡し＋補助発言の2行とし、関連が薄く補助内容もない場合は中立的な1行を維持する。意味のない相槌を2行目として追加しないこと）<!-- END_DIALOGUE_ONLY -->
@@ -73,6 +75,7 @@
 
 必ず JSON のみを返してください。
 
+<!-- SOLO_ONLY -->
 ## 出力例（solo モード）
 {{
   "title": "ニュースのとなり",
@@ -82,6 +85,7 @@
   ],
   "revision_summary": "どのディレクターの指摘をどう反映したか、変更点を3〜5文で要約する"
 }}
+<!-- END_SOLO_ONLY -->
 
 ## 共通条件
 - title は常に「ニュースのとなり」とする
@@ -106,6 +110,8 @@
 - section は intro/news/transition/discussion/outro のいずれか
 <!-- END_DIALOGUE_ONLY -->
 
+<!-- SOLO_ONLY -->
 ## solo モードの条件
 - speaker は "{mc_gender}" のみ
 - section は intro/news/outro のいずれか
+<!-- END_SOLO_ONLY -->

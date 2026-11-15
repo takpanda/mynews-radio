@@ -19,6 +19,10 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+from app.batch.generate_commentary_script import (
+    _strip_solo_only_sections,
+    _unwrap_solo_only_markers,
+)
 from app.batch.generate_script import (
     _is_broken_transition_text,
     _is_generic_transition_reaction_text,
@@ -207,6 +211,13 @@ def _build_output_issue_example(style: str) -> str:
 # ---------------------------------------------------------------------------
 
 _QUESTION_SUFFIX_RE = _re.compile(r"(?:[?？]|か)[。!！]?\s*$")
+
+
+def _apply_review_solo_policy(text: str, mode: str) -> str:
+    """solo 台本のレビューだけ solo 専用指示を残し、dialogue・radio では除去する。"""
+    if mode == "solo":
+        return _unwrap_solo_only_markers(text)
+    return _strip_solo_only_sections(text)
 
 
 def _is_question(text: str) -> bool:
@@ -783,7 +794,10 @@ def review_script(
                 },
                 program_id=program_id,
             )
-            synth_prompt = "\n\n".join((rendered_synthesis.text, format_cast_personas(persona_profile)))
+            synth_prompt = "\n\n".join((
+                _apply_review_solo_policy(rendered_synthesis.text, mode),
+                format_cast_personas(persona_profile),
+            ))
             synth_prompt += _build_contract_preservation_context(
                 source,
                 program_name=program_name,
@@ -892,6 +906,19 @@ def review_script(
                 "issues; forcing revised=False so callers keep the pre-review "
                 "script.json instead of adopting %s",
                 os.path.join(output_dir, "script.json"),
+            )
+            revised = False
+
+    # 掛け合いの台本が単一話者へ戻る修正は採用しない（BEE-554）。
+    # 元の台本の話者が修正版で欠けた場合は transition と同じく revised を False に落とす。
+    source_speakers = {str(line.get("speaker")) for line in source.get("lines", []) if isinstance(line, dict)}
+    if revised and revised_script and len(source_speakers) > 1:
+        revised_speakers = {str(line.get("speaker")) for line in revised_script["lines"]}
+        if not source_speakers <= revised_speakers:
+            logger.warning(
+                "review_script: rejecting reviewed script because speakers %s are missing; "
+                "forcing revised=False",
+                sorted(source_speakers - revised_speakers),
             )
             revised = False
 

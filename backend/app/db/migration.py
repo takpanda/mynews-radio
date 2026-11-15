@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -407,7 +408,72 @@ def migrate_prompt_templates(conn: sqlite3.Connection) -> bool:
                 (template["id"], content),
             )
     _migrate_mc_persona_prompt_text(conn)
+    _migrate_solo_only_prompt_sections(conn)
     return True
+
+
+def _replace_active_prompt_version(conn: sqlite3.Connection, version_id: int, content: str) -> None:
+    """Archive an active version and activate *content* as its successor (edit history is kept)."""
+    conn.execute("UPDATE prompt_versions SET status = 'archived' WHERE id = ?", (version_id,))
+    next_version = conn.execute(
+        "SELECT COALESCE(MAX(version), 0) + 1 FROM prompt_versions WHERE template_id = ("
+        "SELECT template_id FROM prompt_versions WHERE id = ?)",
+        (version_id,),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO prompt_versions(template_id, version, content, status) "
+        "SELECT template_id, ?, ?, 'active' FROM prompt_versions WHERE id = ?",
+        (next_version, content, version_id),
+    )
+
+
+# 単一話者（solo）専用の指示を SOLO_ONLY マーカーで囲む。旧版の本文に対する挿入のみで、
+# 管理画面で編集された本文は保持する。dialogue 生成・レビューではこの区間を除去する。
+_SOLO_ONLY_WRAPS = {
+    "generate_commentary_script": (
+        (re.compile(r"## スタイル=solo（一人解説）の場合\n"), lambda m: "<!-- SOLO_ONLY -->\n" + m.group(0)),
+        (re.compile(r"各 news ラインには最低1件以上の具体的な事実・数字を含める\n"),
+         lambda m: m.group(0) + "<!-- END_SOLO_ONLY -->\n"),
+        (re.compile(r"\*\*solo の場合（基本フォーマット）\*\*:\n"), lambda m: "<!-- SOLO_ONLY -->\n" + m.group(0)),
+        (re.compile(r"\}\}\n(?=\n<!-- DIALOGUE_ONLY -->)"), lambda m: m.group(0) + "<!-- END_SOLO_ONLY -->\n"),
+        (re.compile(r"- soloの場合: speaker は \"\{mc_gender\}\" のみ\n"),
+         lambda m: "<!-- SOLO_ONLY -->\n" + m.group(0) + "<!-- END_SOLO_ONLY -->\n"),
+    ),
+    "review_synthesize": (
+        (re.compile(r"## solo モードのMCについて\n"), lambda m: "<!-- SOLO_ONLY -->\n" + m.group(0)),
+        (re.compile(r"元の台本に含まれる数値・金額・日時・固有名詞をぼかさず元の値をそのまま使う\n"),
+         lambda m: m.group(0) + "<!-- END_SOLO_ONLY -->\n"),
+        (re.compile(r"<!-- solo -->(3\. 一人解説の語り口・トーン・スタイルを維持する)<!-- END_SOLO -->"),
+         lambda m: "<!-- SOLO_ONLY -->" + m.group(1) + "<!-- END_SOLO_ONLY -->"),
+        (re.compile(r"## 出力例（solo モード）\n"), lambda m: "<!-- SOLO_ONLY -->\n" + m.group(0)),
+        (re.compile(r"\}\}\n(?=\n## 共通条件)"), lambda m: m.group(0) + "<!-- END_SOLO_ONLY -->\n"),
+        (re.compile(r"## solo モードの条件\n"), lambda m: "<!-- SOLO_ONLY -->\n" + m.group(0)),
+        (re.compile(r"(- section は intro/news/outro のいずれか\n?)\Z"), lambda m: m.group(1) + "<!-- END_SOLO_ONLY -->\n"),
+    ),
+}
+
+
+def _wrap_solo_only_sections(content: str, wraps) -> str:
+    if "<!-- SOLO_ONLY -->" in content:
+        return content
+    for pattern, replacement in wraps:
+        content = pattern.sub(replacement, content, count=1)
+    return content
+
+
+def _migrate_solo_only_prompt_sections(conn: sqlite3.Connection) -> None:
+    """Mark solo-only instructions in existing active versions so dialogue prompts can drop them."""
+    for template_key, wraps in _SOLO_ONLY_WRAPS.items():
+        rows = conn.execute(
+            "SELECT pv.id, pv.content FROM prompt_versions pv "
+            "JOIN prompt_templates pt ON pt.id = pv.template_id "
+            "WHERE pt.template_key = ? AND pv.status = 'active'",
+            (template_key,),
+        ).fetchall()
+        for row in rows:
+            content = _wrap_solo_only_sections(row["content"], wraps)
+            if content != row["content"]:
+                _replace_active_prompt_version(conn, row["id"], content)
 
 
 def _migrate_mc_persona_prompt_text(conn: sqlite3.Connection) -> None:
@@ -449,17 +515,7 @@ def _migrate_mc_persona_prompt_text(conn: sqlite3.Connection) -> None:
             content = content.replace("MC2 麻衣", "MC2").replace("MC2麻衣", "MC2")
             if content == row["content"]:
                 continue
-            conn.execute("UPDATE prompt_versions SET status = 'archived' WHERE id = ?", (row["id"],))
-            next_version = conn.execute(
-                "SELECT COALESCE(MAX(version), 0) + 1 FROM prompt_versions WHERE template_id = ("
-                "SELECT template_id FROM prompt_versions WHERE id = ?)",
-                (row["id"],),
-            ).fetchone()[0]
-            conn.execute(
-                "INSERT INTO prompt_versions(template_id, version, content, status) "
-                "SELECT template_id, ?, ?, 'active' FROM prompt_versions WHERE id = ?",
-                (next_version, content, row["id"]),
-            )
+            _replace_active_prompt_version(conn, row["id"], content)
 
 
 def migrate_prompt_version_audit_events(conn: sqlite3.Connection) -> bool:
