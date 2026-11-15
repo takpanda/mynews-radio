@@ -28,7 +28,8 @@ from app.batch.script_contracts import COMMENTARY_IGNORED_LINT_CODES, FAREWELL_R
 from app.batch.script_validator import ScriptValidator
 from app.programs.profiles import ProgramProfile, format_cast_personas, get_profile_by_id
 from app.programs.prompt_builder import PromptBuilder
-from app.prompts.service import program_id_for_episode, render_prompt
+from app.prompts.service import load_prompt_template, program_id_for_episode, render_prompt
+from app.prompts.solo_sections import require_dialogue_safe, strip_solo_only_sections, unwrap_solo_only_markers
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
@@ -207,6 +208,13 @@ def _build_output_issue_example(style: str) -> str:
 # ---------------------------------------------------------------------------
 
 _QUESTION_SUFFIX_RE = _re.compile(r"(?:[?？]|か)[。!！]?\s*$")
+
+
+def _apply_review_solo_policy(text: str, mode: str) -> str:
+    """solo 台本のレビューだけ solo 専用指示を残し、dialogue・radio では除去する。"""
+    if mode == "solo":
+        return unwrap_solo_only_markers(text)
+    return strip_solo_only_sections(text)
 
 
 def _is_question(text: str) -> bool:
@@ -768,6 +776,12 @@ def review_script(
         try:
             mode = source.get("style", "dialogue")
             mc_gender = source.get("mc_gender", "male")
+            if mode != "solo":
+                # solo 区間を特定できないレビュー版は dialogue のレビューに使わない（synthesis は非致命で停止）。
+                require_dialogue_safe(
+                    load_prompt_template("review_synthesize", program_id=program_id).content,
+                    "review_synthesize",
+                )
             rendered_synthesis = render_prompt(
                 "review_synthesize",
                 {
@@ -783,7 +797,10 @@ def review_script(
                 },
                 program_id=program_id,
             )
-            synth_prompt = "\n\n".join((rendered_synthesis.text, format_cast_personas(persona_profile)))
+            synth_prompt = "\n\n".join((
+                _apply_review_solo_policy(rendered_synthesis.text, mode),
+                format_cast_personas(persona_profile),
+            ))
             synth_prompt += _build_contract_preservation_context(
                 source,
                 program_name=program_name,
@@ -892,6 +909,19 @@ def review_script(
                 "issues; forcing revised=False so callers keep the pre-review "
                 "script.json instead of adopting %s",
                 os.path.join(output_dir, "script.json"),
+            )
+            revised = False
+
+    # 掛け合いの台本が単一話者へ戻る修正は採用しない（BEE-554）。
+    # 元の台本の話者が修正版で欠けた場合は transition と同じく revised を False に落とす。
+    source_speakers = {str(line.get("speaker")) for line in source.get("lines", []) if isinstance(line, dict)}
+    if revised and revised_script and len(source_speakers) > 1:
+        revised_speakers = {str(line.get("speaker")) for line in revised_script["lines"]}
+        if not source_speakers <= revised_speakers:
+            logger.warning(
+                "review_script: rejecting reviewed script because speakers %s are missing; "
+                "forcing revised=False",
+                sorted(source_speakers - revised_speakers),
             )
             revised = False
 

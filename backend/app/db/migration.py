@@ -1,10 +1,15 @@
+import logging
 import sqlite3
 import json
 from dataclasses import replace
 from pathlib import Path
 
+from app.prompts.solo_sections import migrate_legacy_solo_markers
+
 
 SYSTEM_OWNER_USERNAME = "__generation_queue_system__"
+
+logger = logging.getLogger(__name__)
 
 
 def migrate_episode_thumbnail(conn: sqlite3.Connection) -> bool:
@@ -407,7 +412,46 @@ def migrate_prompt_templates(conn: sqlite3.Connection) -> bool:
                 (template["id"], content),
             )
     _migrate_mc_persona_prompt_text(conn)
+    _migrate_solo_only_prompt_sections(conn)
     return True
+
+
+def _replace_active_prompt_version(conn: sqlite3.Connection, version_id: int, content: str) -> None:
+    """Archive an active version and activate *content* as its successor (edit history is kept)."""
+    conn.execute("UPDATE prompt_versions SET status = 'archived' WHERE id = ?", (version_id,))
+    next_version = conn.execute(
+        "SELECT COALESCE(MAX(version), 0) + 1 FROM prompt_versions WHERE template_id = ("
+        "SELECT template_id FROM prompt_versions WHERE id = ?)",
+        (version_id,),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO prompt_versions(template_id, version, content, status) "
+        "SELECT template_id, ?, ?, 'active' FROM prompt_versions WHERE id = ?",
+        (next_version, content, version_id),
+    )
+
+
+def _migrate_solo_only_prompt_sections(conn: sqlite3.Connection) -> None:
+    """Mark solo-only sections in existing active versions so dialogue prompts can drop them."""
+    for template_key in ("generate_commentary_script", "review_synthesize"):
+        rows = conn.execute(
+            "SELECT pv.id, pv.content FROM prompt_versions pv "
+            "JOIN prompt_templates pt ON pt.id = pv.template_id "
+            "WHERE pt.template_key = ? AND pv.status = 'active'",
+            (template_key,),
+        ).fetchall()
+        for row in rows:
+            content = migrate_legacy_solo_markers(row["content"], template_key)
+            if content is None:
+                logger.warning(
+                    "Solo-only sections not identified in active prompt version id=%s key=%s; "
+                    "left unchanged. dialogue generation refuses this template until its solo sections are marked.",
+                    row["id"],
+                    template_key,
+                )
+                continue
+            if content != row["content"]:
+                _replace_active_prompt_version(conn, row["id"], content)
 
 
 def _migrate_mc_persona_prompt_text(conn: sqlite3.Connection) -> None:
@@ -449,17 +493,7 @@ def _migrate_mc_persona_prompt_text(conn: sqlite3.Connection) -> None:
             content = content.replace("MC2 麻衣", "MC2").replace("MC2麻衣", "MC2")
             if content == row["content"]:
                 continue
-            conn.execute("UPDATE prompt_versions SET status = 'archived' WHERE id = ?", (row["id"],))
-            next_version = conn.execute(
-                "SELECT COALESCE(MAX(version), 0) + 1 FROM prompt_versions WHERE template_id = ("
-                "SELECT template_id FROM prompt_versions WHERE id = ?)",
-                (row["id"],),
-            ).fetchone()[0]
-            conn.execute(
-                "INSERT INTO prompt_versions(template_id, version, content, status) "
-                "SELECT template_id, ?, ?, 'active' FROM prompt_versions WHERE id = ?",
-                (next_version, content, row["id"]),
-            )
+            _replace_active_prompt_version(conn, row["id"], content)
 
 
 def migrate_prompt_version_audit_events(conn: sqlite3.Connection) -> bool:

@@ -18,7 +18,12 @@ from app.programs.profiles import (
     validate_program_profile,
 )
 from app.programs.prompt_builder import PromptBuilder
-from app.prompts.service import render_prompt
+from app.prompts.service import load_prompt_template, render_prompt
+from app.prompts.solo_sections import (
+    require_dialogue_safe,
+    strip_solo_only_sections,
+    unwrap_solo_only_markers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,9 +120,18 @@ def _check_concrete_data(lines: list, style: str) -> None:
 def _load_prompt_template(style: str = "solo") -> str:
     prompt_path = Path(__file__).resolve().parents[1] / "prompts" / "generate_commentary_script.md"
     text = prompt_path.read_text(encoding="utf-8")
-    if style != "dialogue":
-        text = _strip_dialogue_only_sections(text)
-    return text
+    return _apply_style_sections(text, style)
+
+
+def _apply_style_sections(text: str, style: str) -> str:
+    """Keep only the prompt sections that match the style.
+
+    dialogue drops the solo-only sections so the single-speaker instructions never reach a two-person prompt.
+    """
+    if style == "dialogue":
+        return strip_solo_only_sections(text)
+    text = _strip_dialogue_only_sections(text)
+    return unwrap_solo_only_markers(text)
 
 
 def _strip_dialogue_only_sections(text: str) -> str:
@@ -186,6 +200,12 @@ def generate_commentary_script(
     )
 
     if prompt_builder.uses_legacy_prompt:
+        if style == "dialogue":
+            # solo 区間を特定できない版は dialogue に使わず停止する（単一話者の指示が混入するため）。
+            require_dialogue_safe(
+                load_prompt_template("generate_commentary_script", program_id=prompt_program_id).content,
+                "generate_commentary_script",
+            )
         rendered = render_prompt(
             "generate_commentary_script",
             {
@@ -200,8 +220,7 @@ def generate_commentary_script(
             program_id=prompt_program_id,
         )
         prompt = "\n\n".join((rendered.text, format_cast_personas(profile)))
-        if style != "dialogue":
-            prompt = _strip_dialogue_only_sections(prompt)
+        prompt = _apply_style_sections(prompt, style)
     else:
         rendered = None
         prompt = prompt_builder.build_profile_prompt(
