@@ -312,6 +312,42 @@ def test_unset_resynthesize_request_uses_fishs2pro_with_real_settings(tmp_path):
     assert synthesize.call_args.kwargs["tts_engine"] == "fishs2pro"
 
 
+def test_stream_synthesize_applies_program_snapshot_cast_voices(tmp_path):
+    """approve経由の合成(_stream_synthesize)は番組スナップショットのキャストボイスを引き継ぐ。"""
+    from dataclasses import replace
+
+    from app.api import generate as generate_api
+    from app.programs.profiles import RADIO_TWO_PERSON
+    from app.programs.serialization import program_profile_to_definition
+    from app.services.episode_service import EpisodeService
+
+    profile = replace(RADIO_TWO_PERSON, cast=(
+        replace(RADIO_TWO_PERSON.cast[0], voice_fishs2pro="cast-male"),
+        replace(RADIO_TWO_PERSON.cast[1], voice_fishs2pro="akimoto_yuri"),
+    ))
+    episode_id, _ = EpisodeService().create_radio_episode("2099-01-05")
+    with generate_api.get_db_connection() as conn:
+        conn.execute(
+            "UPDATE episodes SET program_snapshot = ? WHERE id = ?",
+            (json.dumps(program_profile_to_definition(profile), ensure_ascii=False), episode_id),
+        )
+    episode_dir = tmp_path / str(episode_id)
+    (episode_dir / "lines").mkdir(parents=True)
+    (episode_dir / "script.json").write_text(json.dumps({"lines": []}), encoding="utf-8")
+
+    fish_settings = _settings()
+    fish_settings.default_tts_engine = "fishs2pro"
+    with patch.object(generate_api, "get_settings", return_value=fish_settings), \
+         patch.object(generate_api, "DEFAULT_EPISODES_DIR", str(tmp_path)), \
+         patch.object(generate_api, "synthesize_episode", return_value=1) as synthesize, \
+         patch.object(generate_api, "build_episode", return_value={"audio_path": "episode.mp3"}):
+        list(generate_api._stream_synthesize(episode_id, generate_api.SynthesizeRequest()))
+
+    kwargs = synthesize.call_args.kwargs
+    assert kwargs["speaker_overrides"] == {"male": "cast-male", "female": "akimoto_yuri"}
+    assert kwargs["speaker_female"] == "akimoto_yuri"
+
+
 def test_determine_tts_config_for_fishs2pro():
     from app.batch import radio_pipeline
 

@@ -812,3 +812,52 @@ def test_bearer_approved_synthesize_job_is_processed_by_existing_worker(client, 
             (episode_id,),
         ).fetchall()
     assert [(row["owner_user_id"], row["actor_user_id"]) for row in approved] == [(-1, -1)]
+
+
+def _approve_and_run_synthesize(client, snapshot):
+    """承認APIでジョブを投入し、実際の_stream_synthesizeで合成呼び出し引数を得る。"""
+    from app.api import generate as generate_api
+    from app.db.connection import get_db_connection
+
+    episode_id, _ = _episode_with_script()
+    with get_db_connection() as conn:
+        conn.execute("UPDATE episodes SET program_snapshot=? WHERE id=?", (snapshot, episode_id))
+    with patch("app.api.admin_script_review._validate_episode_script", return_value={"can_approve": True, "results": []}), \
+         patch("app.api.admin_script_review.dispatch_job"):
+        response = client.post(f"/admin/episodes/{episode_id}/approve")
+    assert response.status_code == 200
+    with get_db_connection() as conn:
+        job = conn.execute("SELECT * FROM generation_jobs WHERE id=?", (response.json()["job_id"],)).fetchone()
+
+    with patch.object(generate_api, "DEFAULT_EPISODES_DIR", str(Path(__import__("os").environ["EPISODES_DIR"]))), \
+         patch.object(generate_api, "synthesize_episode", return_value=1) as synthesize, \
+         patch.object(generate_api, "build_episode", return_value={"audio_path": "episode.mp3"}), \
+         patch.object(generate_api, "_finalize_synthesis_job"):
+        generate_api.execute_queued_job(job, dispatch=False)
+    return synthesize.call_args.kwargs
+
+
+def test_approved_synthesize_job_uses_program_snapshot_cast_voices(client):
+    from dataclasses import replace
+
+    from app.programs.profiles import RADIO_TWO_PERSON
+    from app.programs.serialization import program_profile_to_definition
+
+    profile = replace(RADIO_TWO_PERSON, cast=(
+        replace(RADIO_TWO_PERSON.cast[0], voice_fishs2pro="cast-male"),
+        replace(RADIO_TWO_PERSON.cast[1], voice_fishs2pro="akimoto_yuri"),
+    ))
+    kwargs = _approve_and_run_synthesize(client, json.dumps(program_profile_to_definition(profile)))
+
+    assert kwargs["speaker_overrides"] == {"male": "cast-male", "female": "akimoto_yuri"}
+    assert kwargs["speaker_female"] == "akimoto_yuri"
+
+
+@pytest.mark.parametrize("snapshot", [None, "[1]", "{}", "not-json", '"text"', "null"])
+def test_approved_synthesize_job_falls_back_to_global_voices_for_missing_or_invalid_snapshot(client, snapshot):
+    from app.services.settings_service import resolve_tts_speakers
+
+    kwargs = _approve_and_run_synthesize(client, snapshot)
+
+    assert not kwargs["speaker_overrides"]
+    assert (kwargs["speaker_male"], kwargs["speaker_female"]) == resolve_tts_speakers(kwargs["tts_engine"])
