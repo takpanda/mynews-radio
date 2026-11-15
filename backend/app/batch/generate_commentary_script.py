@@ -18,7 +18,12 @@ from app.programs.profiles import (
     validate_program_profile,
 )
 from app.programs.prompt_builder import PromptBuilder
-from app.prompts.service import render_prompt
+from app.prompts.service import load_prompt_template, render_prompt
+from app.prompts.solo_sections import (
+    require_canonical_solo_marking,
+    strip_solo_only_sections,
+    unwrap_solo_only_markers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,9 +129,9 @@ def _apply_style_sections(text: str, style: str) -> str:
     dialogue drops the solo-only sections so the single-speaker instructions never reach a two-person prompt.
     """
     if style == "dialogue":
-        return _strip_solo_only_sections(text)
+        return strip_solo_only_sections(text)
     text = _strip_dialogue_only_sections(text)
-    return _unwrap_solo_only_markers(text)
+    return unwrap_solo_only_markers(text)
 
 
 def _strip_dialogue_only_sections(text: str) -> str:
@@ -137,24 +142,6 @@ def _strip_dialogue_only_sections(text: str) -> str:
         '',
         text,
     )
-
-
-def _strip_solo_only_sections(text: str) -> str:
-    """Remove sections marked with <!-- SOLO_ONLY -->...<!-- END_SOLO_ONLY -->.
-
-    A block that occupies whole lines also takes its trailing newline; an inline block keeps the
-    surrounding line breaks so neighbouring lines are not joined.
-    """
-    import re
-    text = re.sub(r'(?s)(?m)^<!-- SOLO_ONLY -->.*?<!-- END_SOLO_ONLY -->\n', '', text)
-    return re.sub(r'(?s)<!-- SOLO_ONLY -->.*?<!-- END_SOLO_ONLY -->', '', text)
-
-
-def _unwrap_solo_only_markers(text: str) -> str:
-    """Drop the SOLO_ONLY markers while keeping the solo sections' content and line breaks."""
-    import re
-    text = re.sub(r'(?m)^<!-- (?:END_)?SOLO_ONLY -->\n', '', text)
-    return re.sub(r'<!-- (?:END_)?SOLO_ONLY -->', '', text)
 
 
 def generate_commentary_script(
@@ -213,6 +200,12 @@ def generate_commentary_script(
     )
 
     if prompt_builder.uses_legacy_prompt:
+        if style == "dialogue":
+            # solo 区間を特定できない版は dialogue に使わず停止する（単一話者の指示が混入するため）。
+            require_canonical_solo_marking(
+                load_prompt_template("generate_commentary_script", program_id=prompt_program_id).content,
+                "generate_commentary_script",
+            )
         rendered = render_prompt(
             "generate_commentary_script",
             {

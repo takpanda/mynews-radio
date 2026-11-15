@@ -19,10 +19,6 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from app.batch.generate_commentary_script import (
-    _strip_solo_only_sections,
-    _unwrap_solo_only_markers,
-)
 from app.batch.generate_script import (
     _is_broken_transition_text,
     _is_generic_transition_reaction_text,
@@ -32,7 +28,8 @@ from app.batch.script_contracts import COMMENTARY_IGNORED_LINT_CODES, FAREWELL_R
 from app.batch.script_validator import ScriptValidator
 from app.programs.profiles import ProgramProfile, format_cast_personas, get_profile_by_id
 from app.programs.prompt_builder import PromptBuilder
-from app.prompts.service import program_id_for_episode, render_prompt
+from app.prompts.service import load_prompt_template, program_id_for_episode, render_prompt
+from app.prompts.solo_sections import require_canonical_solo_marking, strip_solo_only_sections, unwrap_solo_only_markers
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
@@ -216,8 +213,8 @@ _QUESTION_SUFFIX_RE = _re.compile(r"(?:[?？]|か)[。!！]?\s*$")
 def _apply_review_solo_policy(text: str, mode: str) -> str:
     """solo 台本のレビューだけ solo 専用指示を残し、dialogue・radio では除去する。"""
     if mode == "solo":
-        return _unwrap_solo_only_markers(text)
-    return _strip_solo_only_sections(text)
+        return unwrap_solo_only_markers(text)
+    return strip_solo_only_sections(text)
 
 
 def _is_question(text: str) -> bool:
@@ -779,6 +776,12 @@ def review_script(
         try:
             mode = source.get("style", "dialogue")
             mc_gender = source.get("mc_gender", "male")
+            if mode != "solo":
+                # solo 区間を特定できないレビュー版は dialogue のレビューに使わない（synthesis は非致命で停止）。
+                require_canonical_solo_marking(
+                    load_prompt_template("review_synthesize", program_id=program_id).content,
+                    "review_synthesize",
+                )
             rendered_synthesis = render_prompt(
                 "review_synthesize",
                 {
