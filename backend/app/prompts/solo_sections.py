@@ -61,9 +61,27 @@ def unwrap_solo_only_markers(text: str) -> str:
 
 
 def strip_solo_only_sections(text: str) -> str:
-    """dialogue 用に solo 区間を除去する。事前に require_dialogue_safe で対応を確認すること。"""
-    text = re.sub(r"(?s)(?m)^<!-- SOLO_ONLY -->\n.*?<!-- END_SOLO_ONLY -->\n", "", text)
-    return re.sub(r"(?s)<!-- SOLO_ONLY -->.*?<!-- END_SOLO_ONLY -->", "", text)
+    """dialogue 用に solo 区間を除去する。事前に require_dialogue_safe で対応を確認すること。
+
+    正規表現ではなく、マーカーの組の位置で削除する。組に対応しない区間の文字と改行は残す。
+    開始が行頭の単独行で、終了の直後が改行なら、その行ごと除く。
+    """
+    pairs = _marker_pairs(text)
+    if pairs is None:
+        raise ValueError("SOLO_ONLY markers are unbalanced; validate with require_dialogue_safe first")
+    parts = []
+    cursor = 0
+    for open_at, close_at in pairs:
+        parts.append(text[cursor:open_at])
+        line_start = open_at == 0 or text[open_at - 1] == "\n"
+        opens_own_line = text[open_at + len(SOLO_OPEN):open_at + len(SOLO_OPEN) + 1] == "\n"
+        closes_own_line = text[close_at:close_at + 1] == "\n"
+        if line_start and opens_own_line and closes_own_line:
+            cursor = close_at + 1
+        else:
+            cursor = close_at
+    parts.append(text[cursor:])
+    return "".join(parts)
 
 
 def _marker_pairs(text: str) -> list[tuple[int, int]] | None:

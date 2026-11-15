@@ -677,3 +677,46 @@ def test_review_sends_inline_solo_instruction_only_to_solo(tmp_path):
 
 def _current_review():
     return (PROMPTS / "review_synthesize.md").read_text(encoding="utf-8")
+
+
+MIXED_HEAD = (
+    f"{SOLO_OPEN}\n個別の指示{SOLO_CLOSE}後文を維持\n"
+    "共通の指示を維持\n"
+)
+
+
+def test_mixed_marker_layout_keeps_shared_text_in_dialogue_generation(tmp_path):
+    conn = _migrated_conn()
+    _set_legacy_active(conn, "generate_commentary_script", MIXED_HEAD + _current_generate())
+
+    dialogue_prompt = _generate_dialogue(tmp_path / "dialogue", conn)
+    solo_prompt = _generate_dialogue(tmp_path / "solo", conn, style="solo")
+
+    assert "後文を維持" in dialogue_prompt and "共通の指示を維持" in dialogue_prompt
+    assert "個別の指示" not in dialogue_prompt
+    assert SOLO_ONLY_INSTRUCTION not in dialogue_prompt
+    assert "個別の指示" in solo_prompt and "後文を維持" in solo_prompt
+    assert SOLO_ONLY_INSTRUCTION in solo_prompt
+
+
+def test_mixed_marker_layout_keeps_shared_text_in_review(tmp_path):
+    conn = _migrated_conn()
+    _set_legacy_active(conn, "review_synthesize", MIXED_HEAD + _current_review())
+
+    _, dialogue_prompts = _run_review(tmp_path / "dialogue", _review_source(style="dialogue"), _review_source()["lines"], conn=conn)
+    _, solo_prompts = _run_review(tmp_path / "solo", _review_source(style="solo"), _review_source()["lines"], conn=conn)
+
+    assert len(dialogue_prompts) == 6 and len(solo_prompts) == 6
+    assert "後文を維持" in dialogue_prompts[5] and "共通の指示を維持" in dialogue_prompts[5]
+    assert "個別の指示" not in dialogue_prompts[5]
+    assert REVIEW_SOLO_INSTRUCTION not in dialogue_prompts[5]
+    assert "個別の指示" in solo_prompts[5]
+    assert REVIEW_SOLO_INSTRUCTION in solo_prompts[5]
+
+
+def test_whole_line_block_followed_by_default_section_is_removed_cleanly():
+    from app.prompts.solo_sections import strip_solo_only_sections
+
+    text = f"前行\n{SOLO_OPEN}\n個別\n{SOLO_CLOSE}\n共通\n{SOLO_OPEN}\n区間2\n{SOLO_CLOSE}\n末尾\n"
+
+    assert strip_solo_only_sections(text) == "前行\n共通\n末尾\n"
