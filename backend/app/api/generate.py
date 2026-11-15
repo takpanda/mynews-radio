@@ -967,7 +967,7 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
     # 承認(approve)経由の合成でも、通常生成と同様に番組スナップショットのキャストボイスを反映する。
     try:
         program_profile = _episode_program_profile(episode_id)
-    except (TypeError, ValueError, KeyError):
+    except (TypeError, ValueError, KeyError, AttributeError):
         logger.warning("[%d] program snapshot is invalid; using global TTS speakers", episode_id)
         program_profile = None
     speaker_overrides = (
