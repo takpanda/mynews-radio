@@ -964,6 +964,19 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
         tts_base_url = settings.voicevox_base_url
         tts_engine_label = "VOICEVOX"
     tts_speaker_male, tts_speaker_female = resolve_tts_speakers(tts_engine)
+    # 承認(approve)経由の合成でも、通常生成と同様に番組スナップショットのキャストボイスを反映する。
+    try:
+        program_profile = _episode_program_profile(episode_id)
+    except (TypeError, ValueError, KeyError):
+        logger.warning("[%d] program snapshot is invalid; using global TTS speakers", episode_id)
+        program_profile = None
+    speaker_overrides = (
+        profile_voice_overrides(program_profile, tts_engine)
+        if program_profile is not None else None
+    )
+    if speaker_overrides:
+        tts_speaker_male = speaker_overrides.get("male", tts_speaker_male)
+        tts_speaker_female = speaker_overrides.get("female", tts_speaker_female)
 
     service.update_episode_status(episode_id, "synthesizing")
 
@@ -978,6 +991,7 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
             tts_engine=tts_engine,
             episode_id=episode_id,
             generation_job_id=job_id,
+            speaker_overrides=speaker_overrides,
         )
     except Exception:
         logger.exception("tts synthesis failed for episode %d", episode_id)
