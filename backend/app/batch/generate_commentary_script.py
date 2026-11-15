@@ -20,7 +20,7 @@ from app.programs.profiles import (
 from app.programs.prompt_builder import PromptBuilder
 from app.prompts.service import load_prompt_template, render_prompt
 from app.prompts.solo_sections import (
-    require_canonical_solo_marking,
+    require_dialogue_safe,
     strip_solo_only_sections,
     unwrap_solo_only_markers,
 )
@@ -202,7 +202,7 @@ def generate_commentary_script(
     if prompt_builder.uses_legacy_prompt:
         if style == "dialogue":
             # solo 区間を特定できない版は dialogue に使わず停止する（単一話者の指示が混入するため）。
-            require_canonical_solo_marking(
+            require_dialogue_safe(
                 load_prompt_template("generate_commentary_script", program_id=prompt_program_id).content,
                 "generate_commentary_script",
             )

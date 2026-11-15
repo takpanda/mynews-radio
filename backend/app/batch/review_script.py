@@ -29,7 +29,7 @@ from app.batch.script_validator import ScriptValidator
 from app.programs.profiles import ProgramProfile, format_cast_personas, get_profile_by_id
 from app.programs.prompt_builder import PromptBuilder
 from app.prompts.service import load_prompt_template, program_id_for_episode, render_prompt
-from app.prompts.solo_sections import require_canonical_solo_marking, strip_solo_only_sections, unwrap_solo_only_markers
+from app.prompts.solo_sections import require_dialogue_safe, strip_solo_only_sections, unwrap_solo_only_markers
 from app.config import get_settings
 from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
@@ -778,7 +778,7 @@ def review_script(
             mc_gender = source.get("mc_gender", "male")
             if mode != "solo":
                 # solo 区間を特定できないレビュー版は dialogue のレビューに使わない（synthesis は非致命で停止）。
-                require_canonical_solo_marking(
+                require_dialogue_safe(
                     load_prompt_template("review_synthesize", program_id=program_id).content,
                     "review_synthesize",
                 )

@@ -228,6 +228,7 @@ def _review_source(style=None):
 def _run_review(tmp_path, source, synth_lines, conn=None):
     from app.batch.review_script import review_script
 
+    tmp_path.mkdir(parents=True, exist_ok=True)
     script_path = str(tmp_path / "script.json")
     Path(script_path).write_text(json.dumps(source, ensure_ascii=False), encoding="utf-8")
     output_dir = str(tmp_path / "output")
@@ -400,37 +401,6 @@ def test_solo_generation_is_not_affected_by_unidentifiable_template(tmp_path):
     assert '話者は "female" 1名のみ' in prompt
 
 
-def test_partially_marked_template_is_completed_before_dialogue_use(tmp_path):
-    conn = _migrated_conn()
-    one_line_only = _legacy_generate().replace(
-        '- soloの場合: speaker は "{mc_gender}" のみ\n',
-        '<!-- SOLO_ONLY -->\n- soloの場合: speaker は "{mc_gender}" のみ\n<!-- END_SOLO_ONLY -->\n',
-    )
-    _set_legacy_active(conn, "generate_commentary_script", one_line_only)
-
-    migrate_prompt_templates(conn)
-    active = _active_content(conn, "generate_commentary_script")
-    current = _current_generate()
-
-    assert active == canonical_generate_marking(current)
-    assert _apply_style_sections(active, "dialogue") == _apply_style_sections(current, "dialogue")
-
-
-def test_reversed_and_nested_markers_are_normalized():
-    conn = _migrated_conn()
-    reversed_nested = _legacy_generate().replace(
-        "## スタイル=solo（一人解説）の場合\n",
-        "<!-- END_SOLO_ONLY -->\n<!-- SOLO_ONLY -->\n<!-- SOLO_ONLY -->\n## スタイル=solo（一人解説）の場合\n",
-    )
-    _set_legacy_active(conn, "generate_commentary_script", reversed_nested)
-
-    migrate_prompt_templates(conn)
-    active = _active_content(conn, "generate_commentary_script")
-
-    assert active == canonical_generate_marking(_current_generate())
-    assert _apply_style_sections(active, "dialogue") == _apply_style_sections(_current_generate(), "dialogue")
-
-
 def test_program_scoped_edited_template_only_blocks_its_own_dialogue(tmp_path):
     from app.prompts.solo_sections import SoloSectionsUnmarkedError
 
@@ -492,7 +462,156 @@ def test_review_solo_still_runs_with_edited_legacy_template(tmp_path):
     assert REVIEW_SOLO_INSTRUCTION in prompts[5]
 
 
-def canonical_generate_marking(text):
-    from app.prompts.solo_sections import canonical_solo_marking
+SOLO_OPEN = "<!-- SOLO_ONLY -->"
+SOLO_CLOSE = "<!-- END_SOLO_ONLY -->"
+ADMIN_SOLO = "管理者追加の一人用指示です。"
 
-    return canonical_solo_marking(text, "generate_commentary_script")
+
+def test_partially_marked_template_is_completed_by_migration():
+    conn = _migrated_conn()
+    one_line_only = _legacy_generate().replace(
+        '- soloの場合: speaker は "{mc_gender}" のみ\n',
+        f'{SOLO_OPEN}\n- soloの場合: speaker は "{{mc_gender}}" のみ\n{SOLO_CLOSE}\n',
+    )
+    _set_legacy_active(conn, "generate_commentary_script", one_line_only)
+
+    migrate_prompt_templates(conn)
+
+    assert _active_content(conn, "generate_commentary_script") == _current_generate()
+
+
+def test_reversed_and_nested_markers_are_not_migrated_and_dialogue_is_refused(tmp_path):
+    from app.prompts.solo_sections import SoloSectionsUnmarkedError
+
+    conn = _migrated_conn()
+    broken = _legacy_generate().replace(
+        "## スタイル=solo（一人解説）の場合\n",
+        f"{SOLO_CLOSE}\n{SOLO_OPEN}\n{SOLO_OPEN}\n## スタイル=solo（一人解説）の場合\n",
+    )
+    _set_legacy_active(conn, "generate_commentary_script", broken)
+    versions_before = _version_rows(conn, "generate_commentary_script")
+
+    migrate_prompt_templates(conn)
+
+    assert _version_rows(conn, "generate_commentary_script") == versions_before
+    assert _active_content(conn, "generate_commentary_script") == broken
+    with pytest.raises(SoloSectionsUnmarkedError):
+        _generate_dialogue(tmp_path, conn)
+
+
+def test_admin_added_solo_section_survives_migration_and_stays_out_of_dialogue(tmp_path):
+    conn = _migrated_conn()
+    admin_block = f"{SOLO_OPEN}\n{ADMIN_SOLO}\n{SOLO_CLOSE}\n"
+    _set_legacy_active(conn, "generate_commentary_script", _legacy_generate() + "\n" + admin_block)
+
+    migrate_prompt_templates(conn)
+    active = _active_content(conn, "generate_commentary_script")
+
+    assert active == _current_generate() + "\n" + admin_block
+    dialogue_prompt = _generate_dialogue(tmp_path / "dialogue", conn)
+    assert ADMIN_SOLO not in dialogue_prompt
+    assert SOLO_ONLY_INSTRUCTION not in dialogue_prompt
+    solo_prompt = _generate_dialogue(tmp_path / "solo", conn, style="solo")
+    assert ADMIN_SOLO in solo_prompt
+
+
+def test_admin_added_unmarked_solo_text_refuses_dialogue_and_names_the_line(tmp_path):
+    from app.prompts.solo_sections import SoloSectionsUnmarkedError
+
+    conn = _migrated_conn()
+    _set_legacy_active(conn, "generate_commentary_script", _legacy_generate() + "\n話者は1名のみで語ってください。\n")
+
+    with pytest.raises(SoloSectionsUnmarkedError, match="1名のみ"):
+        _generate_dialogue(tmp_path, conn)
+
+
+def _mark_edited_generate(text):
+    """管理者が編集後の solo 区間を手で囲む手順を再現する。"""
+    text = text.replace("## スタイル=solo（一人解説）の場合\n", f"{SOLO_OPEN}\n## スタイル=solo（一人解説）の場合\n")
+    text = text.replace("各 news ラインには事実を1件以上含める\n", f"各 news ラインには事実を1件以上含める\n{SOLO_CLOSE}\n")
+    text = text.replace("**solo の場合（基本フォーマット）**:\n", f"{SOLO_OPEN}\n**solo の場合（基本フォーマット）**:\n")
+    text = text.replace("}}\n\n<!-- DIALOGUE_ONLY -->", f"}}\n{SOLO_CLOSE}\n\n<!-- DIALOGUE_ONLY -->")
+    line = '- soloの場合: speaker は "{mc_gender}" のみ\n'
+    return text.replace(line, f"{SOLO_OPEN}\n{line}{SOLO_CLOSE}\n")
+
+
+def test_edited_boundary_is_refused_then_recovered_by_marking_by_hand(tmp_path):
+    from app.prompts.solo_sections import SoloSectionsUnmarkedError
+
+    conn = _migrated_conn()
+    edited = _edited_end_anchor(_legacy_generate())
+    _set_legacy_active(conn, "generate_commentary_script", edited)
+    versions_before = _version_rows(conn, "generate_commentary_script")
+
+    migrate_prompt_templates(conn)
+    assert _version_rows(conn, "generate_commentary_script") == versions_before
+    with pytest.raises(SoloSectionsUnmarkedError, match="行 "):
+        _generate_dialogue(tmp_path / "before", conn)
+
+    # 管理者が囲んだ後は、編集内容を保ったまま dialogue が通り、solo にも編集内容が残る
+    marked = _mark_edited_generate(edited)
+    _set_legacy_active(conn, "generate_commentary_script", marked)
+    dialogue_prompt = _generate_dialogue(tmp_path / "after", conn)
+    assert SOLO_ONLY_INSTRUCTION not in dialogue_prompt
+    assert "事実を1件以上含める" not in dialogue_prompt
+    solo_prompt = _generate_dialogue(tmp_path / "solo", conn, style="solo")
+    assert "事実を1件以上含める" in solo_prompt
+
+
+def _mark_edited_review(text):
+    text = text.replace("## solo モードのMCについて\n", f"{SOLO_OPEN}\n## solo モードのMCについて\n")
+    text = text.replace("元の台本の数値を使う\n", f"元の台本の数値を使う\n{SOLO_CLOSE}\n")
+    text = text.replace("<!-- solo -->", SOLO_OPEN).replace("<!-- END_SOLO -->", SOLO_CLOSE)
+    text = text.replace("## 出力例（solo モード）\n", f"{SOLO_OPEN}\n## 出力例（solo モード）\n")
+    text = text.replace("}}\n\n## 共通条件", f"}}\n{SOLO_CLOSE}\n\n## 共通条件")
+    text = text.replace("## solo モードの条件\n", f"{SOLO_OPEN}\n## solo モードの条件\n")
+    return text + SOLO_CLOSE + "\n"
+
+
+def test_review_edited_boundary_is_refused_then_recovered_by_marking_by_hand(tmp_path):
+    conn = _migrated_conn()
+    edited = (FIXTURES / "review_synthesize_pre_bee554.md").read_text(encoding="utf-8").replace(
+        "元の台本に含まれる数値・金額・日時・固有名詞をぼかさず元の値をそのまま使う",
+        "元の台本の数値を使う",
+    )
+    _set_legacy_active(conn, "review_synthesize", edited)
+
+    result, prompts = _run_review(tmp_path / "before", _review_source(style="dialogue"), _review_source()["lines"], conn=conn)
+    assert result["revised"] is False and len(prompts) == 5
+
+    _set_legacy_active(conn, "review_synthesize", _mark_edited_review(edited))
+    result, prompts = _run_review(tmp_path / "after", _review_source(style="dialogue"), _review_source()["lines"], conn=conn)
+    assert len(prompts) == 6
+    assert REVIEW_SOLO_INSTRUCTION not in prompts[5]
+    assert "元の台本の数値を使う" not in prompts[5]
+
+
+def test_common_refusal_does_not_block_program_scoped_dialogue(tmp_path):
+    from app.prompts.solo_sections import SoloSectionsUnmarkedError
+
+    conn = _migrated_conn()
+    _set_legacy_active(conn, "generate_commentary_script", _edited_end_anchor(_legacy_generate()))
+    program_id = COMMENTARY_TWO_PERSON.id
+    conn.execute("INSERT INTO programs (id) VALUES (?)", (program_id,))
+    common = conn.execute(
+        "SELECT required_variables, allowed_variables FROM prompt_templates "
+        "WHERE template_key = 'generate_commentary_script' AND program_id IS NULL"
+    ).fetchone()
+    conn.execute(
+        "INSERT INTO prompt_templates (template_key, program_id, required_variables, allowed_variables) "
+        "VALUES ('generate_commentary_script', ?, ?, ?)",
+        (program_id, common["required_variables"], common["allowed_variables"]),
+    )
+    template_id = conn.execute(
+        "SELECT id FROM prompt_templates WHERE template_key = 'generate_commentary_script' AND program_id = ?",
+        (program_id,),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO prompt_versions (template_id, version, content, status) VALUES (?, 1, ?, 'active')",
+        (template_id, _current_generate()),
+    )
+
+    with pytest.raises(SoloSectionsUnmarkedError):
+        _generate_dialogue(tmp_path / "common", conn, episode_id=None)
+    prompt = _generate_dialogue(tmp_path / "program", conn, episode_id=1)
+    assert SOLO_ONLY_INSTRUCTION not in prompt

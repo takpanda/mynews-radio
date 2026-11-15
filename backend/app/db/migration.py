@@ -5,7 +5,7 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
-from app.prompts.solo_sections import canonical_solo_marking
+from app.prompts.solo_sections import migrate_legacy_solo_markers
 
 
 SYSTEM_OWNER_USERNAME = "__generation_queue_system__"
@@ -442,11 +442,11 @@ def _migrate_solo_only_prompt_sections(conn: sqlite3.Connection) -> None:
             (template_key,),
         ).fetchall()
         for row in rows:
-            content = canonical_solo_marking(row["content"], template_key)
+            content = migrate_legacy_solo_markers(row["content"], template_key)
             if content is None:
                 logger.warning(
                     "Solo-only sections not identified in active prompt version id=%s key=%s; "
-                    "left unchanged. dialogue generation will refuse this template until it is fixed.",
+                    "left unchanged. dialogue generation refuses this template until its solo sections are marked.",
                     row["id"],
                     template_key,
                 )
