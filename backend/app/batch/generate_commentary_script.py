@@ -140,19 +140,21 @@ def _strip_dialogue_only_sections(text: str) -> str:
 
 
 def _strip_solo_only_sections(text: str) -> str:
-    """Remove sections marked with <!-- SOLO_ONLY -->...<!-- END_SOLO_ONLY -->."""
+    """Remove sections marked with <!-- SOLO_ONLY -->...<!-- END_SOLO_ONLY -->.
+
+    A block that occupies whole lines also takes its trailing newline; an inline block keeps the
+    surrounding line breaks so neighbouring lines are not joined.
+    """
     import re
-    return re.sub(
-        r'(?s)<!-- SOLO_ONLY -->.*?<!-- END_SOLO_ONLY -->\n?',
-        '',
-        text,
-    )
+    text = re.sub(r'(?s)(?m)^<!-- SOLO_ONLY -->.*?<!-- END_SOLO_ONLY -->\n', '', text)
+    return re.sub(r'(?s)<!-- SOLO_ONLY -->.*?<!-- END_SOLO_ONLY -->', '', text)
 
 
 def _unwrap_solo_only_markers(text: str) -> str:
-    """Drop the SOLO_ONLY markers while keeping the solo sections' content."""
+    """Drop the SOLO_ONLY markers while keeping the solo sections' content and line breaks."""
     import re
-    return re.sub(r'<!-- (?:END_)?SOLO_ONLY -->\n?', '', text)
+    text = re.sub(r'(?m)^<!-- (?:END_)?SOLO_ONLY -->\n', '', text)
+    return re.sub(r'<!-- (?:END_)?SOLO_ONLY -->', '', text)
 
 
 def generate_commentary_script(

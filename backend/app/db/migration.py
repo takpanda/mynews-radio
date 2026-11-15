@@ -1,3 +1,4 @@
+import logging
 import sqlite3
 import json
 import re
@@ -6,6 +7,8 @@ from pathlib import Path
 
 
 SYSTEM_OWNER_USERNAME = "__generation_queue_system__"
+
+logger = logging.getLogger(__name__)
 
 
 def migrate_episode_thumbnail(conn: sqlite3.Connection) -> bool:
@@ -427,43 +430,99 @@ def _replace_active_prompt_version(conn: sqlite3.Connection, version_id: int, co
     )
 
 
-# 単一話者（solo）専用の指示を SOLO_ONLY マーカーで囲む。旧版の本文に対する挿入のみで、
-# 管理画面で編集された本文は保持する。dialogue 生成・レビューではこの区間を除去する。
-_SOLO_ONLY_WRAPS = {
-    "generate_commentary_script": (
-        (re.compile(r"## スタイル=solo（一人解説）の場合\n"), lambda m: "<!-- SOLO_ONLY -->\n" + m.group(0)),
-        (re.compile(r"各 news ラインには最低1件以上の具体的な事実・数字を含める\n"),
-         lambda m: m.group(0) + "<!-- END_SOLO_ONLY -->\n"),
-        (re.compile(r"\*\*solo の場合（基本フォーマット）\*\*:\n"), lambda m: "<!-- SOLO_ONLY -->\n" + m.group(0)),
-        (re.compile(r"\}\}\n(?=\n<!-- DIALOGUE_ONLY -->)"), lambda m: m.group(0) + "<!-- END_SOLO_ONLY -->\n"),
-        (re.compile(r"- soloの場合: speaker は \"\{mc_gender\}\" のみ\n"),
-         lambda m: "<!-- SOLO_ONLY -->\n" + m.group(0) + "<!-- END_SOLO_ONLY -->\n"),
-    ),
-    "review_synthesize": (
-        (re.compile(r"## solo モードのMCについて\n"), lambda m: "<!-- SOLO_ONLY -->\n" + m.group(0)),
-        (re.compile(r"元の台本に含まれる数値・金額・日時・固有名詞をぼかさず元の値をそのまま使う\n"),
-         lambda m: m.group(0) + "<!-- END_SOLO_ONLY -->\n"),
-        (re.compile(r"<!-- solo -->(3\. 一人解説の語り口・トーン・スタイルを維持する)<!-- END_SOLO -->"),
-         lambda m: "<!-- SOLO_ONLY -->" + m.group(1) + "<!-- END_SOLO_ONLY -->"),
-        (re.compile(r"## 出力例（solo モード）\n"), lambda m: "<!-- SOLO_ONLY -->\n" + m.group(0)),
-        (re.compile(r"\}\}\n(?=\n## 共通条件)"), lambda m: m.group(0) + "<!-- END_SOLO_ONLY -->\n"),
-        (re.compile(r"## solo モードの条件\n"), lambda m: "<!-- SOLO_ONLY -->\n" + m.group(0)),
-        (re.compile(r"(- section は intro/news/outro のいずれか\n?)\Z"), lambda m: m.group(1) + "<!-- END_SOLO_ONLY -->\n"),
-    ),
+# 単一話者（solo）専用の指示を SOLO_ONLY マーカーで囲む。区間は「開始」と「終了」の組で
+# 一意に特定し、どれか一つでも特定できなければ版を変更しない（部分移行を active にしない）。
+# 管理画面で編集された本文は、区間の外の文言・追記をそのまま保持する。
+_SOLO_OPEN = "<!-- SOLO_ONLY -->"
+_SOLO_CLOSE = "<!-- END_SOLO_ONLY -->"
+_SOLO_ONLY_BLOCKS = {
+    "generate_commentary_script": {
+        # (開始パターン, 終了パターン)。終了パターンは開始位置より後で検索する。None は1行区間。
+        "blocks": (
+            (re.compile(r"## スタイル=solo（一人解説）の場合\n"),
+             re.compile(r"各 news ラインには最低1件以上の具体的な事実・数字を含める\n")),
+            (re.compile(r"\*\*solo の場合（基本フォーマット）\*\*:\n"),
+             re.compile(r"\}\}\n(?=\n<!-- DIALOGUE_ONLY -->)")),
+            (re.compile(r"- soloの場合: speaker は \"\{mc_gender\}\" のみ\n"), None),
+        ),
+        "inline": (),
+    },
+    "review_synthesize": {
+        "blocks": (
+            (re.compile(r"## solo モードのMCについて\n"),
+             re.compile(r"元の台本に含まれる数値・金額・日時・固有名詞をぼかさず元の値をそのまま使う\n")),
+            (re.compile(r"## 出力例（solo モード）\n"),
+             re.compile(r"\}\}\n(?=\n## 共通条件)")),
+            (re.compile(r"## solo モードの条件\n"),
+             re.compile(r"- section は intro/news/outro のいずれか\n?\Z")),
+        ),
+        # 旧版の行内マーカー（同一行の1区間）。改名して SOLO_ONLY として扱う。
+        "inline": (("<!-- solo -->", "<!-- END_SOLO -->"),),
+    },
 }
 
 
-def _wrap_solo_only_sections(content: str, wraps) -> str:
-    if "<!-- SOLO_ONLY -->" in content:
-        return content
-    for pattern, replacement in wraps:
-        content = pattern.sub(replacement, content, count=1)
+def _find_solo_span(content: str, start_re, end_re) -> tuple[int, int] | None:
+    starts = list(start_re.finditer(content))
+    if len(starts) != 1:
+        return None
+    start = starts[0]
+    if end_re is None:
+        return start.start(), start.end()
+    end = end_re.search(content, start.end())
+    if end is None:
+        return None
+    return start.start(), end.end()
+
+
+def _wrap_solo_only_sections(content: str, spec: dict) -> str | None:
+    """Return *content* with solo-only sections marked, or None when the sections cannot be identified.
+
+    Returns the input unchanged when it already carries balanced markers (already migrated).
+    """
+    opens = content.count(_SOLO_OPEN)
+    closes = content.count(_SOLO_CLOSE)
+    if opens or closes:
+        return content if opens == closes and opens > 0 else None
+
+    legacy_open = content.count("<!-- solo -->")
+    legacy_close = content.count("<!-- END_SOLO -->")
+    inline_pairs = len(spec["inline"])
+    if legacy_open or legacy_close:
+        if inline_pairs != 1 or legacy_open != 1 or legacy_close != 1:
+            return None
+        content = content.replace("<!-- solo -->", _SOLO_OPEN).replace("<!-- END_SOLO -->", _SOLO_CLOSE)
+        inline_pairs = 1
+    else:
+        inline_pairs = 0
+
+    spans = []
+    for start_re, end_re in spec["blocks"]:
+        span = _find_solo_span(content, start_re, end_re)
+        if span is None:
+            return None
+        spans.append(span)
+    spans.sort()
+    for (_, prev_end), (next_start, _) in zip(spans, spans[1:]):
+        if next_start < prev_end:
+            return None
+
+    # 後ろから挿入して位置を崩さない。開始マーカーは区間の行頭、終了マーカーは行末の直後に置く。
+    insertions = []
+    for start, end in spans:
+        insertions.append((start, _SOLO_OPEN + "\n"))
+        insertions.append((end, _SOLO_CLOSE + "\n"))
+    for position, text in sorted(insertions, reverse=True):
+        content = content[:position] + text + content[position:]
+
+    if content.count(_SOLO_OPEN) != len(spans) + inline_pairs or content.count(_SOLO_CLOSE) != len(spans) + inline_pairs:
+        return None
     return content
 
 
 def _migrate_solo_only_prompt_sections(conn: sqlite3.Connection) -> None:
     """Mark solo-only instructions in existing active versions so dialogue prompts can drop them."""
-    for template_key, wraps in _SOLO_ONLY_WRAPS.items():
+    for template_key, spec in _SOLO_ONLY_BLOCKS.items():
         rows = conn.execute(
             "SELECT pv.id, pv.content FROM prompt_versions pv "
             "JOIN prompt_templates pt ON pt.id = pv.template_id "
@@ -471,7 +530,14 @@ def _migrate_solo_only_prompt_sections(conn: sqlite3.Connection) -> None:
             (template_key,),
         ).fetchall()
         for row in rows:
-            content = _wrap_solo_only_sections(row["content"], wraps)
+            content = _wrap_solo_only_sections(row["content"], spec)
+            if content is None:
+                logger.warning(
+                    "Skipping solo-only marker migration for prompt version id=%s key=%s: sections not identified",
+                    row["id"],
+                    template_key,
+                )
+                continue
             if content != row["content"]:
                 _replace_active_prompt_version(conn, row["id"], content)
 

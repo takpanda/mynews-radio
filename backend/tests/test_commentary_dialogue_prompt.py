@@ -249,3 +249,94 @@ def test_review_rejects_revision_that_drops_a_speaker(tmp_path):
     result, _ = _run_review(tmp_path, _review_source(style="dialogue"), single_speaker)
 
     assert result["revised"] is False
+
+
+def _version_rows(conn, template_key):
+    return conn.execute(
+        "SELECT pv.status FROM prompt_versions pv JOIN prompt_templates pt ON pt.id = pv.template_id "
+        "WHERE pt.template_key = ? AND pt.program_id IS NULL ORDER BY pv.version",
+        (template_key,),
+    ).fetchall()
+
+
+def _legacy_generate():
+    return (FIXTURES / "generate_commentary_script_pre_bee554.md").read_text(encoding="utf-8")
+
+
+def _current_generate():
+    return (PROMPTS / "generate_commentary_script.md").read_text(encoding="utf-8")
+
+
+def test_edited_text_inside_solo_section_is_migrated_and_keeps_edit():
+    conn = _migrated_conn()
+    edited_legacy = _legacy_generate().replace("語り口は落ち着いて知的", "語り口は明るく親しみやすく")
+    _set_legacy_active(conn, "generate_commentary_script", edited_legacy)
+
+    migrate_prompt_templates(conn)
+    active = _active_content(conn, "generate_commentary_script")
+    current_edited = _current_generate().replace("語り口は落ち着いて知的", "語り口は明るく親しみやすく")
+
+    assert "語り口は明るく親しみやすく" in active
+    assert _apply_style_sections(active, "dialogue") == _apply_style_sections(current_edited, "dialogue")
+    assert _apply_style_sections(active, "solo") == _apply_style_sections(current_edited, "solo")
+
+
+def test_changed_section_end_is_not_partially_migrated(caplog):
+    conn = _migrated_conn()
+    # 開始だけ一致する編集: 終了文言が変わると区間を特定できないため版を変えない
+    edited_legacy = _legacy_generate().replace(
+        "各 news ラインには最低1件以上の具体的な事実・数字を含める",
+        "各 news ラインには事実を1件以上含める",
+    )
+    _set_legacy_active(conn, "generate_commentary_script", edited_legacy)
+    versions_before = _version_rows(conn, "generate_commentary_script")
+
+    migrate_prompt_templates(conn)
+
+    assert _version_rows(conn, "generate_commentary_script") == versions_before
+    active = _active_content(conn, "generate_commentary_script")
+    assert "<!-- SOLO_ONLY -->" not in active
+    assert "Skipping solo-only marker migration" in caplog.text
+
+
+def test_changed_section_heading_is_not_partially_migrated():
+    conn = _migrated_conn()
+    edited_legacy = _legacy_generate().replace("## スタイル=solo（一人解説）の場合", "## 一人解説の場合")
+    _set_legacy_active(conn, "generate_commentary_script", edited_legacy)
+    versions_before = _version_rows(conn, "generate_commentary_script")
+
+    migrate_prompt_templates(conn)
+
+    assert _version_rows(conn, "generate_commentary_script") == versions_before
+    assert "<!-- SOLO_ONLY -->" not in _active_content(conn, "generate_commentary_script")
+
+
+def test_unbalanced_manual_markers_are_left_untouched():
+    conn = _migrated_conn()
+    broken = _legacy_generate().replace("## スタイル=solo（一人解説）の場合", "<!-- SOLO_ONLY -->\n## スタイル=solo（一人解説）の場合")
+    _set_legacy_active(conn, "generate_commentary_script", broken)
+    versions_before = _version_rows(conn, "generate_commentary_script")
+
+    migrate_prompt_templates(conn)
+
+    assert _version_rows(conn, "generate_commentary_script") == versions_before
+    assert _active_content(conn, "generate_commentary_script") == broken
+
+
+def test_legacy_solo_prompt_matches_after_marker_removal_for_generate():
+    legacy = _legacy_generate()
+    assert _apply_style_sections(legacy, "solo") == _apply_style_sections(_current_generate(), "solo")
+
+
+def test_review_solo_render_matches_legacy_and_keeps_line_breaks():
+    legacy = (FIXTURES / "review_synthesize_pre_bee554.md").read_text(encoding="utf-8")
+    current = (PROMPTS / "review_synthesize.md").read_text(encoding="utf-8")
+    solo = _apply_review_solo_policy(current, "solo")
+    dialogue = _apply_review_solo_policy(current, "dialogue")
+
+    # solo は旧版からマーカー行と行内マーカーの除去だけで一致する（行の連結なし）
+    assert solo == legacy.replace("<!-- solo -->", "").replace("<!-- END_SOLO -->", "")
+    assert "維持する4. " not in solo
+    assert "\n4. 元の台本の lines 数" in dialogue
+    assert "一人解説の語り口" not in dialogue
+    assert REVIEW_SOLO_TEMPLATE not in dialogue
