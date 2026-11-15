@@ -115,9 +115,18 @@ def _check_concrete_data(lines: list, style: str) -> None:
 def _load_prompt_template(style: str = "solo") -> str:
     prompt_path = Path(__file__).resolve().parents[1] / "prompts" / "generate_commentary_script.md"
     text = prompt_path.read_text(encoding="utf-8")
-    if style != "dialogue":
-        text = _strip_dialogue_only_sections(text)
-    return text
+    return _apply_style_sections(text, style)
+
+
+def _apply_style_sections(text: str, style: str) -> str:
+    """Keep only the prompt sections that match the style.
+
+    dialogue drops the solo-only sections so the single-speaker instructions never reach a two-person prompt.
+    """
+    if style == "dialogue":
+        return _strip_solo_only_sections(text)
+    text = _strip_dialogue_only_sections(text)
+    return _unwrap_solo_only_markers(text)
 
 
 def _strip_dialogue_only_sections(text: str) -> str:
@@ -128,6 +137,22 @@ def _strip_dialogue_only_sections(text: str) -> str:
         '',
         text,
     )
+
+
+def _strip_solo_only_sections(text: str) -> str:
+    """Remove sections marked with <!-- SOLO_ONLY -->...<!-- END_SOLO_ONLY -->."""
+    import re
+    return re.sub(
+        r'(?s)<!-- SOLO_ONLY -->.*?<!-- END_SOLO_ONLY -->\n?',
+        '',
+        text,
+    )
+
+
+def _unwrap_solo_only_markers(text: str) -> str:
+    """Drop the SOLO_ONLY markers while keeping the solo sections' content."""
+    import re
+    return re.sub(r'<!-- (?:END_)?SOLO_ONLY -->\n?', '', text)
 
 
 def generate_commentary_script(
@@ -200,8 +225,7 @@ def generate_commentary_script(
             program_id=prompt_program_id,
         )
         prompt = "\n\n".join((rendered.text, format_cast_personas(profile)))
-        if style != "dialogue":
-            prompt = _strip_dialogue_only_sections(prompt)
+        prompt = _apply_style_sections(prompt, style)
     else:
         rendered = None
         prompt = prompt_builder.build_profile_prompt(

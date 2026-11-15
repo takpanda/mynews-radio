@@ -10,6 +10,7 @@
 
 スタイルパラメータ: {style}
 
+<!-- SOLO_ONLY -->
 ## スタイル=solo（一人解説）の場合
 
 - 話者は "{mc_gender}" 1名のみ
@@ -28,6 +29,7 @@
 - モデル名・製品名・企業名・固有名詞を「ある企業」「ある製品」などに置き換えず、元の名称を保持する
 - 比較対象や検証条件（例：「〜との比較」「〜の環境で検証」）を具体的に記述する
 - 各 news ラインには最低1件以上の具体的な事実・数字を含める
+<!-- END_SOLO_ONLY -->
 
 <!-- DIALOGUE_ONLY -->
 ## スタイル=dialogue（二人対談）の場合
@@ -38,6 +40,7 @@
 
 # 出力フォーマット
 
+<!-- SOLO_ONLY -->
 **solo の場合（基本フォーマット）**:
 {{
   "title": "{article_title}",
@@ -49,6 +52,7 @@
     {{ "speaker": "{mc_gender}",   "text": "〔まとめ・締めくくり〕",        "article_id": null,         "section": "outro", "delivery": "warm" }}
   ]
 }}
+<!-- END_SOLO_ONLY -->
 
 <!-- DIALOGUE_ONLY -->
 **dialogue の場合（linesの例）**:
@@ -70,7 +74,9 @@
 - title は元記事タイトル「{article_title}」と完全一致させること
 - subtitle は内容を端的に表す15〜25文字の日本語
 - lines の各要素は speaker/text/article_id/section/delivery を必ず含める
+<!-- SOLO_ONLY -->
 - soloの場合: speaker は "{mc_gender}" のみ
+<!-- END_SOLO_ONLY -->
 - dialogueの場合: speaker は "male" または "female"
 - article_id は各lineに適切に設定する（intro/outroはnull）
 - section は intro/news/outro のいずれか
