@@ -27,6 +27,7 @@ from app.api.admin_auth import router as admin_auth_router
 from app.api.settings import router as settings_router
 from app.api.push import router as push_router
 from app.api.audit import router as audit_router
+from app.api.admin_dashboard import router as admin_dashboard_router
 from app.api.admin_script_review import router as admin_script_review_router
 from app.api.dictionary_sync import router as dictionary_sync_router
 from app.api.llm import router as llm_router
@@ -373,6 +374,7 @@ app.include_router(admin_auth_router)
 app.include_router(settings_router)
 app.include_router(push_router)
 app.include_router(audit_router)
+app.include_router(admin_dashboard_router)
 app.include_router(admin_script_review_router)
 app.include_router(dictionary_sync_router)
 app.include_router(llm_router)
