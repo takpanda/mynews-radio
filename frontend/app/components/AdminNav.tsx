@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { AWAITING_REVIEW_LIST_LIMIT, fetchAwaitingReviewEpisodesClient } from '../lib/admin-episodes'
 
 const NAV_LINKS: Array<{ href: string; label: string; badge?: boolean }> = [
+  { href: '/admin/dashboard', label: 'ダッシュボード' },
   { href: '/admin/episodes', label: '確認待ち一覧', badge: true },
   { href: '/admin/programs', label: '番組・MC管理' },
   { href: '/admin/prompts', label: 'プロンプト管理' },
