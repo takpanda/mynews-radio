@@ -13,6 +13,8 @@ router = APIRouter(tags=["admin-dashboard"])
 RANGE_DAYS = {"7d": 7, "30d": 30}
 RECENT_FAILURE_LIMIT = 20
 PHASES = ("synthesize", "wav_combine", "mp3_encode")
+# phase ログを残さず failed になったエピソード（台本保存・最終検証失敗など）用の理由コード。
+NO_PHASE_LOG_REASON = "no_phase_log"
 FAILURE_REASONS = (
     "script_missing",
     "tts_no_lines_succeeded",
@@ -85,6 +87,21 @@ def get_dashboard_stats(
             (since_text, RECENT_FAILURE_LIMIT),
         ).fetchall()
 
+        # 期間内に作成され failed だが、期間内の phase 失敗ログが1件もないエピソード。
+        no_phase_where = (
+            "FROM episodes AS e WHERE e.status = 'failed' AND e.created_at >= ? AND NOT EXISTS ("
+            "SELECT 1 FROM episode_generation_phase_logs AS p WHERE p.episode_id = e.id "
+            "AND p.failure_reason IS NOT NULL AND strftime('%Y-%m-%d %H:%M:%f', p.started_at) >= ?)"
+        )
+        no_phase_count = conn.execute(
+            f"SELECT COUNT(*) AS n {no_phase_where}", (since_text, since_text)
+        ).fetchone()["n"]
+        no_phase_failures = conn.execute(
+            f"SELECT e.updated_at, e.id AS episode_id {no_phase_where} "
+            "ORDER BY e.updated_at DESC, e.id DESC LIMIT ?",
+            (since_text, since_text, RECENT_FAILURE_LIMIT),
+        ).fetchall()
+
         llm_rows = conn.execute(
             "SELECT phase, status, COUNT(*) AS n, AVG(latency_ms) AS avg_ms, MAX(latency_ms) AS max_ms "
             "FROM llm_call_logs WHERE created_at >= ? GROUP BY phase, status",
@@ -116,6 +133,20 @@ def get_dashboard_stats(
             )
             phase_entry[row["status"]] += row["n"]
 
+    recent = [
+        {"occurred_at": _utc_iso(row["started_at"]), "episode_id": row["episode_id"],
+         "phase": row["phase"], "reason": row["failure_reason"]}
+        for row in recent_failures
+    ] + [
+        # メッセージ本文は返さず、日時は episodes.updated_at（failed へ更新した時刻）を使う。
+        {"occurred_at": _utc_iso(row["updated_at"]), "episode_id": row["episode_id"],
+         "phase": None, "reason": NO_PHASE_LOG_REASON}
+        for row in no_phase_failures
+    ]
+    # 両ソースを時刻の新しい順に統合（sort は安定。同時刻は phase ログを先に）。
+    recent.sort(key=lambda r: datetime.fromisoformat(r["occurred_at"]), reverse=True)
+    recent = recent[:RECENT_FAILURE_LIMIT]
+
     def _round(value: float | None) -> float | None:
         return None if value is None else round(value, 1)
 
@@ -141,15 +172,8 @@ def get_dashboard_stats(
         "failures": {
             "by_reason": {reason: reason_counts.get(reason, 0) for reason in FAILURE_REASONS},
             "llm_error_count": llm_error_count,
-            "recent": [
-                {
-                    "occurred_at": _utc_iso(row["started_at"]),
-                    "episode_id": row["episode_id"],
-                    "phase": row["phase"],
-                    "reason": row["failure_reason"],
-                }
-                for row in recent_failures
-            ],
+            "episodes_without_phase_log": no_phase_count,
+            "recent": recent,
         },
         "llm": {
             "latency_by_phase": [

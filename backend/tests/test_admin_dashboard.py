@@ -196,3 +196,27 @@ def test_dashboard_recent_failures_order_within_same_millisecond(client):
     _phase(ep, "mp3_encode", base, 1, failure_reason="mp3_encode_failed", attempt=1)
     recent = client.get("/admin/dashboard/stats").json()["failures"]["recent"]
     assert [r["phase"] for r in recent if r["episode_id"] == ep] == ["wav_combine", "mp3_encode"]
+
+
+def test_dashboard_includes_failed_episodes_without_phase_log(client):
+    no_log = _episode("failed", _ago(hours=2))
+    with_log = _episode("failed", _ago(hours=2))
+    old = _episode("failed", _ago(days=10))
+    with get_db_connection() as conn:
+        conn.execute("UPDATE episodes SET generation_message = '秘密の本文' WHERE id = ?", (no_log,))
+        conn.execute("UPDATE episodes SET updated_at = ? WHERE id = ?", (_plain(_ago(minutes=30)), no_log))
+    _phase(with_log, "synthesize", _ago(hours=1), 10, failure_reason="build_exception")
+
+    body = client.get("/admin/dashboard/stats").json()
+    assert body["episodes"]["failed"] == 2
+    assert body["failures"]["episodes_without_phase_log"] == 1
+    recent = body["failures"]["recent"]
+    assert [(r["episode_id"], r["reason"], r["phase"]) for r in recent] == [
+        (no_log, "no_phase_log", None), (with_log, "build_exception", "synthesize"),
+    ]
+    assert "秘密の本文" not in str(body)
+    assert old not in [r["episode_id"] for r in recent]
+    assert body["failures"]["by_reason"]["build_exception"] == 1  # by_reason は phase ログのみ
+
+    month = client.get("/admin/dashboard/stats", params={"range": "30d"}).json()
+    assert month["failures"]["episodes_without_phase_log"] == 2
