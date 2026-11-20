@@ -165,3 +165,25 @@ def test_dashboard_range_boundaries(client):
 
     for body in (week, month):
         assert body["pending"] == {"unapproved_misreading_reports": 1, "awaiting_review_episodes": 1}
+
+
+def test_dashboard_phase_log_boundary_and_same_second_order(client):
+    ep = _episode("failed", _ago(hours=1))
+    body = client.get("/admin/dashboard/stats").json()
+    since = datetime.fromisoformat(body["since"])
+    # 境界直前(0.5秒前)は除外、境界ちょうど・直後は含める
+    _phase(ep, "synthesize", since - timedelta(milliseconds=500), 1, failure_reason="script_missing", attempt=1)
+    _phase(ep, "synthesize", since, 1, failure_reason="build_exception", attempt=2)
+    _phase(ep, "synthesize", since + timedelta(milliseconds=500), 1, failure_reason="mp3_encode_failed", attempt=3)
+    reasons = client.get("/admin/dashboard/stats").json()["failures"]["by_reason"]
+    assert reasons["script_missing"] == 0
+    assert reasons["build_exception"] == 1 and reasons["mp3_encode_failed"] == 1
+
+    # 同一秒内は id 順ではなく時刻順(新しい順)。時刻の遅い行を先に挿入する。
+    base = _ago(minutes=5).replace(microsecond=0)
+    ep2 = _episode("failed", _ago(hours=1))
+    _phase(ep2, "wav_combine", base + timedelta(milliseconds=900), 1, failure_reason="wav_combine_failed", attempt=1)
+    _phase(ep2, "mp3_encode", base + timedelta(milliseconds=100), 1, failure_reason="mp3_encode_failed", attempt=1)
+    recent = client.get("/admin/dashboard/stats").json()["failures"]["recent"]
+    ours = [r["phase"] for r in recent if r["episode_id"] == ep2]
+    assert ours == ["wav_combine", "mp3_encode"]

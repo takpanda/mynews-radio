@@ -42,7 +42,8 @@ def get_dashboard_stats(
 ) -> dict:
     """直近 range の生成健全性指標を1回で返す（読み取り専用）。"""
     now = datetime.now(timezone.utc)
-    since = now - timedelta(days=RANGE_DAYS[range])
+    # 秒精度の created_at 列と揃えるため、返却する since も秒に丸める。
+    since = (now - timedelta(days=RANGE_DAYS[range])).replace(microsecond=0)
     since_text = since.strftime("%Y-%m-%d %H:%M:%S")
 
     with get_db_connection() as conn:
@@ -58,13 +59,13 @@ def get_dashboard_stats(
         failed = status_counts.get("failed", 0)
         finished = completed + failed
 
-        # phase logs の started_at は ISO 8601(オフセット付き)のため datetime() で UTC 正規化して比較する。
+        # phase logs の started_at は小数秒・オフセット付き ISO 8601。strftime(%f) でミリ秒精度の UTC 文字列へ正規化して比較する。
         duration_rows = {
             row["phase"]: row
             for row in conn.execute(
                 "SELECT phase, AVG(duration_ms) AS avg_ms, MAX(duration_ms) AS max_ms, COUNT(*) AS n "
                 "FROM episode_generation_phase_logs "
-                "WHERE datetime(started_at) >= ? AND duration_ms IS NOT NULL GROUP BY phase",
+                "WHERE strftime('%Y-%m-%d %H:%M:%f', started_at) >= ? AND duration_ms IS NOT NULL GROUP BY phase",
                 (since_text,),
             )
         }
@@ -72,14 +73,14 @@ def get_dashboard_stats(
             row["failure_reason"]: row["n"]
             for row in conn.execute(
                 "SELECT failure_reason, COUNT(*) AS n FROM episode_generation_phase_logs "
-                "WHERE datetime(started_at) >= ? AND failure_reason IS NOT NULL GROUP BY failure_reason",
+                "WHERE strftime('%Y-%m-%d %H:%M:%f', started_at) >= ? AND failure_reason IS NOT NULL GROUP BY failure_reason",
                 (since_text,),
             )
         }
         recent_failures = conn.execute(
             "SELECT started_at, episode_id, phase, failure_reason FROM episode_generation_phase_logs "
-            "WHERE datetime(started_at) >= ? AND failure_reason IS NOT NULL "
-            "ORDER BY datetime(started_at) DESC, id DESC LIMIT ?",
+            "WHERE strftime('%Y-%m-%d %H:%M:%f', started_at) >= ? AND failure_reason IS NOT NULL "
+            "ORDER BY strftime('%Y-%m-%d %H:%M:%f', started_at) DESC, id DESC LIMIT ?",
             (since_text, RECENT_FAILURE_LIMIT),
         ).fetchall()
 
