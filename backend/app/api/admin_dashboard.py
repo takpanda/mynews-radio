@@ -80,7 +80,8 @@ def get_dashboard_stats(
         recent_failures = conn.execute(
             "SELECT started_at, episode_id, phase, failure_reason FROM episode_generation_phase_logs "
             "WHERE strftime('%Y-%m-%d %H:%M:%f', started_at) >= ? AND failure_reason IS NOT NULL "
-            "ORDER BY strftime('%Y-%m-%d %H:%M:%f', started_at) DESC, id DESC LIMIT ?",
+            # 同一ミリ秒内は保存値(マイクロ秒、同一オフセットで辞書順=時刻順)で並べる。
+            "ORDER BY strftime('%Y-%m-%d %H:%M:%f', started_at) DESC, started_at DESC, id DESC LIMIT ?",
             (since_text, RECENT_FAILURE_LIMIT),
         ).fetchall()
 

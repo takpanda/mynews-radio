@@ -187,3 +187,12 @@ def test_dashboard_phase_log_boundary_and_same_second_order(client):
     recent = client.get("/admin/dashboard/stats").json()["failures"]["recent"]
     ours = [r["phase"] for r in recent if r["episode_id"] == ep2]
     assert ours == ["wav_combine", "mp3_encode"]
+
+
+def test_dashboard_recent_failures_order_within_same_millisecond(client):
+    base = _ago(minutes=5).replace(microsecond=100100)
+    ep = _episode("failed", _ago(hours=1))
+    _phase(ep, "wav_combine", base + timedelta(microseconds=100), 1, failure_reason="wav_combine_failed", attempt=1)
+    _phase(ep, "mp3_encode", base, 1, failure_reason="mp3_encode_failed", attempt=1)
+    recent = client.get("/admin/dashboard/stats").json()["failures"]["recent"]
+    assert [r["phase"] for r in recent if r["episode_id"] == ep] == ["wav_combine", "mp3_encode"]
