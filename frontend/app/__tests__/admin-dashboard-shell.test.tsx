@@ -126,4 +126,16 @@ describe('AdminDashboardShell', () => {
     expect(screen.getByText('66.7%')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '7日' })).toHaveAttribute('aria-pressed', 'true')
   })
+
+  it('対応待ちは期間に関係ない全件であることが明記され、期間切替後も件数が変わらない', async () => {
+    mockFetchClient.mockResolvedValueOnce({ ...baseStats, range: '30d' })
+    const user = userEvent.setup()
+    render(<AdminDashboardShell initialData={baseStats} />)
+    expect(screen.getByText(/「対応待ち」は期間に関係なく現在の全件/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '対応待ち（期間に関係なく全件）' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '30日' }))
+    await waitFor(() => expect(screen.getByText('直近30日の集計です', { exact: false })).toBeInTheDocument())
+    expect(screen.getByRole('link', { name: /未承認の読み間違い報告/ })).toHaveTextContent('5件')
+    expect(screen.getByRole('link', { name: /確認待ちの台本/ })).toHaveTextContent('2件')
+  })
 })

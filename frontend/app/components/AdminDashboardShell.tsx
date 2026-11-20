@@ -86,7 +86,7 @@ export default function AdminDashboardShell({ initialData }: { initialData: Dash
           ))}
         </div>
       </div>
-      <p className="mt-1 text-xs text-slate-500">直近{RANGE_LABELS[range]}の集計です。</p>
+      <p className="mt-1 text-xs text-slate-500">直近{RANGE_LABELS[range]}の集計です（「対応待ち」は期間に関係なく現在の全件です）。</p>
       {loading && <p className="mt-2 text-sm text-slate-500">読み込み中...</p>}
       {error && (
         <div role="alert" className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
@@ -106,7 +106,7 @@ export default function AdminDashboardShell({ initialData }: { initialData: Dash
         )}
       </Section>
 
-      <Section title="対応待ち">
+      <Section title="対応待ち（期間に関係なく全件）">
         <div className="grid gap-2 sm:grid-cols-2">
           <Link
             href="/admin/misreading-reports"
