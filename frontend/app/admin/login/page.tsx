@@ -18,7 +18,7 @@ export default function AdminLoginPage() {
       setError('ユーザー名またはパスワードが正しくありません')
       return
     }
-    router.push('/admin/dictionary')
+    router.push('/admin/dashboard')
     router.refresh()
   }
   return (
