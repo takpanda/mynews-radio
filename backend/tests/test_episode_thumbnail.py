@@ -146,3 +146,82 @@ def test_thumbnail_endpoint_rejects_invalid_episode_ids(client):
     assert client.get("/episodes/-1/thumbnail").status_code == 404
     assert client.get("/episodes/not-an-id/thumbnail").status_code == 422
     assert client.get("/episodes/../../etc/passwd/thumbnail").status_code in (404, 422)
+
+
+def _write_real_png(path, size=(1280, 720)):
+    from PIL import Image
+
+    # 写真に近い（PNGで圧縮しにくい）画像
+    Image.effect_noise(size, 40).convert("RGB").save(path, "PNG")
+
+
+def test_thumbnail_size_returns_webp_with_public_cache_header(client, tmp_path):
+    from app.services.episode_service import EpisodeService
+    from app.services.thumbnail_service import generate_thumbnail_variants
+
+    public_id, episode_dir = _create_thumbnail_episode(
+        EpisodeService(), tmp_path, "2099-12-25", status="completed", audio=True
+    )
+    _write_real_png(episode_dir / "thumbnail.png")
+    generate_thumbnail_variants(episode_dir / "thumbnail.png")
+    client.cookies.clear()
+
+    original = client.get(f"/episodes/{public_id}/thumbnail")
+    assert original.headers["content-type"] == "image/png"
+    assert "public" not in original.headers.get("cache-control", "")
+
+    for size, max_width in (("card", 640), ("detail", 1200)):
+        response = client.get(f"/episodes/{public_id}/thumbnail?size={size}")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/webp"
+        assert response.headers["cache-control"].startswith("public, max-age=")
+        assert response.content[:4] == b"RIFF" and response.content[8:12] == b"WEBP"
+        assert len(response.content) < len(original.content)
+        from io import BytesIO
+        from PIL import Image
+
+        assert Image.open(BytesIO(response.content)).width == max_width
+
+
+def test_thumbnail_size_falls_back_to_png_when_variant_missing(client, tmp_path):
+    from app.services.episode_service import EpisodeService
+
+    public_id, _ = _create_thumbnail_episode(
+        EpisodeService(), tmp_path, "2099-12-26", status="completed", audio=True
+    )
+    client.cookies.clear()
+
+    response = client.get(f"/episodes/{public_id}/thumbnail?size=card")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content == b"\x89PNG\r\n\x1a\nthumbnail"
+
+
+def test_thumbnail_size_private_episode_stays_private_and_hidden(client, tmp_path):
+    from app.services.episode_service import EpisodeService
+    from app.services.thumbnail_service import generate_thumbnail_variants
+
+    private_id, episode_dir = _create_thumbnail_episode(EpisodeService(), tmp_path, "2099-12-27")
+    _write_real_png(episode_dir / "thumbnail.png")
+    generate_thumbnail_variants(episode_dir / "thumbnail.png")
+    session_cookie = next(
+        cookie.value for cookie in client.cookies.jar if cookie.name == "admin_session"
+    )
+    client.cookies.clear()
+
+    assert client.get(f"/episodes/{private_id}/thumbnail?size=card").status_code == 404
+
+    client.cookies.set("admin_session", session_cookie)
+    response = client.get(f"/episodes/{private_id}/thumbnail?size=card")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/webp"
+    assert response.headers["cache-control"].startswith("private")
+
+
+def test_thumbnail_rejects_unknown_size(client, tmp_path):
+    from app.services.episode_service import EpisodeService
+
+    public_id, _ = _create_thumbnail_episode(
+        EpisodeService(), tmp_path, "2099-12-28", status="completed", audio=True
+    )
+    assert client.get(f"/episodes/{public_id}/thumbnail?size=huge").status_code == 422

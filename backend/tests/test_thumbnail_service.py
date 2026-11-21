@@ -461,3 +461,30 @@ def test_manual_cli_updates_only_requested_episode_without_regeneration_or_notif
     complete.assert_not_called()
     run_pipeline.assert_not_called()
     notify.assert_not_called()
+
+
+def test_generate_thumbnail_variants_writes_webp_smaller_than_png(tmp_path):
+    from PIL import Image
+
+    png = tmp_path / "thumbnail.png"
+    Image.effect_noise((1280, 720), 40).convert("RGB").save(png, "PNG")
+
+    written = thumbnail_service.generate_thumbnail_variants(png)
+
+    assert {os.path.basename(p) for p in written} == {"thumbnail-card.webp", "thumbnail-detail.webp"}
+    for name, width in (("thumbnail-card.webp", 640), ("thumbnail-detail.webp", 1200)):
+        out = tmp_path / name
+        assert Image.open(out).format == "WEBP"
+        assert Image.open(out).width == width
+        assert out.stat().st_size < png.stat().st_size
+
+
+def test_generate_thumbnail_variants_failure_removes_stale_variants(tmp_path):
+    png = tmp_path / "thumbnail.png"
+    png.write_bytes(b"not-an-image")
+    stale = tmp_path / "thumbnail-card.webp"
+    stale.write_bytes(b"old")
+
+    with pytest.raises(Exception):
+        thumbnail_service.generate_thumbnail_variants(png)
+    assert not stale.exists()

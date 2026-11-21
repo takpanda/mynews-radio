@@ -18,6 +18,13 @@ from app.services.episode_service import EpisodeService
 logger = logging.getLogger(__name__)
 _JOB_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
+# 表示サイズの約2倍（一覧カード: 高さ9.5rem、詳細: max-w-xl）。(ファイル名, 最大幅px)
+THUMBNAIL_VARIANTS: dict[str, tuple[str, int]] = {
+    "card": ("thumbnail-card.webp", 640),
+    "detail": ("thumbnail-detail.webp", 1200),
+}
+_WEBP_QUALITY = 80
+
 
 def _load_script(episode_id: int, episodes_dir: str | None = None) -> dict:
     root = episodes_dir or os.environ.get("EPISODES_DIR", "data/episodes")
@@ -119,6 +126,40 @@ def _resolve_source_articles(episode_id: int) -> list[dict]:
     return [{"id": row["id"], "title": row["title"]} for row in rows]
 
 
+def generate_thumbnail_variants(png_path: str | Path) -> list[str]:
+    """原寸PNGから縮小版WebPを生成する。失敗時は古い縮小版を残さず例外を送出する。"""
+    from PIL import Image
+
+    png_path = Path(png_path)
+    written: list[str] = []
+    try:
+        with Image.open(png_path) as src:
+            src.load()
+            for filename, max_width in THUMBNAIL_VARIANTS.values():
+                image = src.copy()
+                if image.width > max_width:
+                    image.thumbnail((max_width, image.height * max_width), Image.LANCZOS)
+                if image.mode not in ("RGB", "RGBA"):
+                    image = image.convert("RGBA" if "transparency" in image.info else "RGB")
+                target = png_path.with_name(filename)
+                fd, temp_name = tempfile.mkstemp(dir=target.parent, prefix=".thumbnail-", suffix=".tmp")
+                os.close(fd)
+                try:
+                    image.save(temp_name, "WEBP", quality=_WEBP_QUALITY, method=6)
+                    os.replace(temp_name, target)
+                    temp_name = None
+                finally:
+                    if temp_name and os.path.exists(temp_name):
+                        os.unlink(temp_name)
+                written.append(str(target))
+    except Exception:
+        # 原寸PNGと食い違う古い縮小版を配信し続けないよう削除する
+        for filename, _ in THUMBNAIL_VARIANTS.values():
+            png_path.with_name(filename).unlink(missing_ok=True)
+        raise
+    return written
+
+
 def generate_thumbnail(
     episode_id: int,
     *,
@@ -174,6 +215,11 @@ def generate_thumbnail(
     finally:
         if temp_path and os.path.exists(temp_path):
             os.unlink(temp_path)
+    # 縮小版は付加的な最適化のため、失敗しても原寸PNGでの配信にフォールバックする
+    try:
+        generate_thumbnail_variants(output)
+    except Exception:
+        logger.exception("thumbnail variant generation failed: episode_id=%d", episode_id)
     return str(output)
 
 

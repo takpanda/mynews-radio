@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { getAdminSessionCookie } from "../../../session-cookie"
 
 const API_BASE = process.env.API_BASE ?? "http://api:8010"
+const SIZES = new Set(["card", "detail"])
+const PRIVATE_NO_STORE = "private, no-store"
 
 export async function GET(
   request: NextRequest,
@@ -14,7 +16,9 @@ export async function GET(
     const cookie = getAdminSessionCookie(request)
     if (cookie) headers.Cookie = cookie
 
-    const upstream = await fetch(`${API_BASE}/episodes/${encodeURIComponent(id)}/thumbnail`, {
+    const size = request.nextUrl.searchParams.get("size")
+    const query = size && SIZES.has(size) ? `?size=${size}` : ""
+    const upstream = await fetch(`${API_BASE}/episodes/${encodeURIComponent(id)}/thumbnail${query}`, {
       cache: "no-store",
       headers,
     })
@@ -29,7 +33,8 @@ export async function GET(
       status: upstream.status,
       headers: {
         "Content-Type": upstream.headers.get("content-type") ?? "image/png",
-        "Cache-Control": "private, no-store",
+        // サイズ指定時は上流の Cache-Control（公開回 public / 非公開回 private）を転送する
+        "Cache-Control": upstream.headers.get("cache-control") ?? PRIVATE_NO_STORE,
       },
     })
   } catch {
