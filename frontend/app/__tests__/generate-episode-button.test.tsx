@@ -1134,3 +1134,32 @@ describe('GenerateEpisodeButton — 番組選択式の生成UI', () => {
     expect(screen.getByRole('button', { name: 'この設定で番組を生成する' })).toBeDisabled()
   })
 })
+
+describe('GenerateEpisodeButton — ログイン状態とLLM一覧取得', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockFetchPrograms.mockResolvedValue(PROGRAMS)
+  })
+
+  it('未ログイン時はLLM一覧を取得しない', () => {
+    render(<GenerateEpisodeButton isAuthenticated={false} />)
+    expect(mockFetchLlmProviders).not.toHaveBeenCalled()
+  })
+
+  it('未ログインで表示後にログイン済みになると、LLM一覧を取得して警告を出さない', async () => {
+    mockFetchLlmProviders.mockResolvedValue({ providers: [
+      { provider: 'ollama', models: ['qwen3:8b'], available: true },
+    ] })
+    const { rerender } = render(<GenerateEpisodeButton isAuthenticated={false} />)
+    rerender(<GenerateEpisodeButton isAuthenticated />)
+    await waitFor(() => expect(screen.getByLabelText('LLMプロバイダー')).toBeInTheDocument())
+    expect(mockFetchLlmProviders).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(/ログインが必要です/)).toBeNull()
+  })
+
+  it('ログイン済みでも401ならログイン警告を表示する', async () => {
+    mockFetchLlmProviders.mockRejectedValue(new Error('ログインが必要です。再度ログインしてください。'))
+    render(<GenerateEpisodeButton isAuthenticated />)
+    await waitFor(() => expect(screen.getByText(/ログインが必要です/)).toBeInTheDocument())
+  })
+})
