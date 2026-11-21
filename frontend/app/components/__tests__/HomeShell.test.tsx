@@ -80,11 +80,18 @@ describe('HomeShell archive category badges', () => {
 })
 
 describe('HomeShell archive thumbnail（配信サムネイル）', () => {
-  it('thumbnail_url がある回はその画像を lazy load で表示する', () => {
+  it('thumbnail_url がある先頭の回は一覧用サイズの画像を優先読み込みする', () => {
     const { container } = renderArchiveEpisodes([{ ...episode(), thumbnail_url: '/api/episodes/1/thumbnail' }])
     const img = container.querySelector('.archive-thumb img')
-    expect(img?.getAttribute('src')).toBe('/api/episodes/1/thumbnail')
-    expect(img?.getAttribute('loading')).toBe('lazy')
+    expect(img?.getAttribute('src')).toBe('/api/episodes/1/thumbnail?size=card')
+    expect(img?.getAttribute('loading')).toBe('eager')
+  })
+
+  it('4件目以降は lazy load のままにする', () => {
+    const eps = [1, 2, 3, 4].map((n) => ({ ...episode(), id: n, thumbnail_url: `/api/episodes/${n}/thumbnail` }))
+    const { container } = renderArchiveEpisodes(eps as never)
+    const imgs = Array.from(container.querySelectorAll('.archive-thumb img'))
+    expect(imgs.map((i) => i.getAttribute('loading'))).toEqual(['eager', 'eager', 'eager', 'lazy'])
   })
 
   it('thumbnail_url がある回の画像もトリミングせず全体を表示する(object-contain)', () => {
