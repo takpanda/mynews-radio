@@ -17,6 +17,17 @@ PROMPT_TEMPLATE_DEFINITIONS = {
             "style", "suggested_lines_count",
         ],
     },
+    "generate_digest_script": {
+        "file": "generate_digest_script.md",
+        "required_variables": [
+            "week_label", "article_count", "suggested_lines_count",
+            "target_chars_min", "target_chars_max", "summaries_json",
+        ],
+        "allowed_variables": [
+            "week_label", "article_count", "suggested_lines_count",
+            "target_chars_min", "target_chars_max", "summaries_json",
+        ],
+    },
     "generate_narrative_arc": {
         "file": "generate_narrative_arc.md",
         "required_variables": ["summaries_json"],

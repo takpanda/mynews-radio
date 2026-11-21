@@ -169,6 +169,33 @@ describe('HomeShell archive thumbnail', () => {
   })
 })
 
+describe('HomeShell ダイジェストフィルター', () => {
+  const episodes: EpisodeListItem[] = [
+    { ...episode(['テック・IT']), id: 1, title: 'テック通常回' },
+    { ...episode(['ビジネス']), id: 2, title: '一般通常回' },
+    { ...episode(), id: 3, title: '週末ダイジェスト回', type: 'digest' },
+  ]
+
+  it('「ダイジェスト」タブを選ぶとダイジェスト回だけが表示される', () => {
+    renderArchiveEpisodes(episodes)
+    fireEvent.click(screen.getByRole('button', { name: 'ダイジェスト' }))
+    expect(screen.getByText('週末ダイジェスト回')).toBeInTheDocument()
+    expect(screen.queryByText('テック通常回')).toBeNull()
+    expect(screen.queryByText('一般通常回')).toBeNull()
+  })
+
+  it.each(['テック', '一般'])('ダイジェスト回は「%s」フィルターに混入しない', (label) => {
+    renderArchiveEpisodes(episodes)
+    fireEvent.click(screen.getByRole('button', { name: label }))
+    expect(screen.queryByText('週末ダイジェスト回')).toBeNull()
+  })
+
+  it('カテゴリ未設定のダイジェスト回では、サムネイルに「ダイジェスト」を表示する', () => {
+    const { container } = renderArchiveEpisodes([{ ...episode(), id: 3, type: 'digest' }])
+    expect(container.querySelector('.archive-thumb-category')?.textContent).toBe('ダイジェスト')
+  })
+})
+
 describe('HomeShell archive card 情報の並び順', () => {
   it('日付・再生時間 → カテゴリ → タイトル → 副題 の順で表示される', () => {
     const { container } = renderArchiveEpisodes([

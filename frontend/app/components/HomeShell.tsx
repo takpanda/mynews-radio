@@ -35,13 +35,14 @@ interface Props {
   isAuthenticated?: boolean
 }
 
-type CategoryKey = 'all' | 'tech' | 'general' | 'commentary'
+type CategoryKey = 'all' | 'tech' | 'general' | 'commentary' | 'digest'
 
 const CATEGORY_TABS: Array<{ key: CategoryKey; label: string }> = [
   { key: 'all', label: 'すべて' },
   { key: 'tech', label: 'テック' },
   { key: 'general', label: '一般' },
   { key: 'commentary', label: '解説' },
+  { key: 'digest', label: 'ダイジェスト' },
 ]
 
 const PAGE_SIZE = 20
@@ -95,6 +96,7 @@ function cardCategoryKey(ep: EpisodeListItem): ThumbnailCategoryKey {
 function cardThumbnailLabel(ep: EpisodeListItem): string | null {
   if (ep.categories && ep.categories.length > 0) return ep.categories[0]
   if (ep.type === 'commentary') return '解説'
+  if (ep.type === 'digest') return 'ダイジェスト'
   return null
 }
 
