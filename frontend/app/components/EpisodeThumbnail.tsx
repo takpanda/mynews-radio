@@ -29,6 +29,8 @@ function withSize(src: string, size?: ThumbnailSize) {
 
 // サムネイルがある回はその画像、無い（null/404）・読み込み失敗時はフォールバック画像を表示する。
 // 読み込み完了までは親の背景色が無地で見えないよう、スケルトン（パルス）を重ねる。
+// スケルトンは画像の背面に置き、画像自体は常に表示状態にする（未読み込みの画像は透明なので背面のスケルトンが見える）。
+// 画像を opacity-0 で隠すと、ハイドレーションが遅れる／失敗した場合にSSR済みの画像が永続的に見えなくなるため。
 // 親要素側でアスペクト比／高さを固定し、画像は absolute で埋めるためレイアウトは崩れない。
 export default function EpisodeThumbnail({ src, fallbackSrc, size, priority = false, className = '' }: Props) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null)
@@ -64,14 +66,12 @@ export default function EpisodeThumbnail({ src, fallbackSrc, size, priority = fa
         width={dimensions.width}
         height={dimensions.height}
         loading={priority ? 'eager' : 'lazy'}
-        // React 18 では属性名が小文字の fetchpriority（camelCase だと警告）
-        {...(priority ? { fetchpriority: 'high' } : {})}
+        // Next 15 の App Router は React 19 で動くため camelCase（小文字の fetchpriority は Invalid DOM property になる）
+        fetchPriority={priority ? 'high' : undefined}
         decoding="async"
         onLoad={useThumbnail ? () => setLoadedSrc(src ?? null) : undefined}
         onError={useThumbnail ? () => setFailedSrc(src ?? null) : undefined}
-        className={`absolute inset-0 h-full w-full object-contain transition-opacity motion-reduce:transition-none ${
-          showSkeleton ? 'opacity-0' : 'opacity-100'
-        } ${className}`.trim()}
+        className={`absolute inset-0 h-full w-full object-contain ${className}`.trim()}
       />
     </>
   )
