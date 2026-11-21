@@ -1,6 +1,7 @@
 """Tests for _extract_key_points in radio_pipeline.py (LLM による要点生成)."""
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -129,8 +130,13 @@ def test_regeneration_failure_clears_previous_key_points(setup, tmp_path):
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
     service = _FakeService()
 
-    radio_pipeline._generate_and_save_key_points(service, 7, str(script_path), summaries_path, None)
+    llm = SimpleNamespace(name="p", model="m")
 
+    radio_pipeline._generate_and_save_key_points(service, 7, str(script_path), summaries_path, llm)
+
+    # FakeClient が実際に呼ばれ（実 Ollama には到達せず）、その失敗で空配列が保存される
+    assert len(holder["client"].prompts) == 1
+    assert (holder["provider"], holder["model"]) == ("p", "m")
     assert service.saved == (7, [])
 
 
