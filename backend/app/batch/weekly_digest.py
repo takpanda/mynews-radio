@@ -56,11 +56,11 @@ DIGEST_TARGET_CHARS_MIN = 3300
 DIGEST_TARGET_CHARS_MAX = 4000
 DIGEST_AVG_CHARS_PER_LINE = 80
 
-# 台本が短すぎる/長すぎる場合は1回だけ再生成し、それでも極端に短ければ失敗にする。
-DIGEST_LENGTH_TOLERANCE_LOW = 0.8
-DIGEST_LENGTH_TOLERANCE_HIGH = 1.2
-DIGEST_LENGTH_FAIL_RATIO = 0.5
-DIGEST_MAX_ATTEMPTS = 2
+# 公開してよい台本の範囲は、目標(10〜12分)の前後各1分程度(9〜13分 ≒ 2970〜4400字)。
+# 範囲外の台本は再生成し、全試行が範囲外なら生成失敗にして公開しない。
+DIGEST_LENGTH_TOLERANCE_LOW = 0.9
+DIGEST_LENGTH_TOLERANCE_HIGH = 1.1
+DIGEST_MAX_ATTEMPTS = 3
 
 _ALLOWED_SECTIONS = {"intro", "news", "outro"}
 
@@ -70,14 +70,14 @@ def target_chars_range(article_count: int) -> tuple[int, int]:
     return DIGEST_TARGET_CHARS_MIN, DIGEST_TARGET_CHARS_MAX
 
 
-def length_within_target(chars: int, article_count: int) -> bool:
+def acceptable_chars_range(article_count: int) -> tuple[int, int]:
     low, high = target_chars_range(article_count)
-    return low * DIGEST_LENGTH_TOLERANCE_LOW <= chars <= high * DIGEST_LENGTH_TOLERANCE_HIGH
+    return round(low * DIGEST_LENGTH_TOLERANCE_LOW), round(high * DIGEST_LENGTH_TOLERANCE_HIGH)
 
 
-def length_unacceptable(chars: int, article_count: int) -> bool:
-    """極端に短い(下限の半分未満)台本は公開しない。"""
-    return chars < target_chars_range(article_count)[0] * DIGEST_LENGTH_FAIL_RATIO
+def length_within_target(chars: int, article_count: int) -> bool:
+    low, high = acceptable_chars_range(article_count)
+    return low <= chars <= high
 
 
 # ---------------------------------------------------------------------------
@@ -103,14 +103,16 @@ def digest_today() -> date:
 
 
 def completion_window_utc(target: date, cutoff: datetime | None = None) -> tuple[str, str]:
-    """ISO週の月曜0:00 JST 〜 上限 を、DBのUTC時刻文字列で返す。
+    """ISO週の月曜0:00 JST 〜 上限(両端を含む) を、DBのUTC時刻文字列(秒精度)で返す。
 
-    上限は target日の翌0:00 JST と cutoff(ジョブ起動時刻)の早い方。キュー待機中に
+    上限は target日の末尾(23:59:59 JST)と cutoff(ジョブ起動時刻)の早い方。キュー待機中に
     完成した回(起動後の回)を含めないため、バッチは起動時刻を cutoff に渡す。
+    完成時刻(Outbox)は秒精度のため、起動と同じ秒に完成した回は取りこぼさないよう含める
+    (起動の同一秒内に完成した回が含まれることは許容する)。
     """
     monday, _ = iso_week_bounds(target)
     start = datetime.combine(monday, time.min, tzinfo=JST)
-    end = datetime.combine(target + timedelta(days=1), time.min, tzinfo=JST)
+    end = datetime.combine(target + timedelta(days=1), time.min, tzinfo=JST) - timedelta(seconds=1)
     if cutoff is not None:
         end = min(end, cutoff)
     fmt = "%Y-%m-%d %H:%M:%S"
@@ -187,7 +189,7 @@ def fetch_broadcast_articles(target: date, cutoff: datetime | None = None) -> li
             JOIN articles a ON a.id = i.article_id
             WHERE e.type = 'radio'
               AND e.status = 'completed'
-              AND done.completed_at >= ? AND done.completed_at < ?
+              AND done.completed_at >= ? AND done.completed_at <= ?
               AND a.summary IS NOT NULL AND TRIM(a.summary) != ''
             """,
             (window_start, window_end),
@@ -343,23 +345,16 @@ def generate_digest_script(
         chars = script_char_count(candidate)
         if not candidate["lines"]:
             continue
-        # 範囲内の台本を優先し、無ければより長い方(短すぎる台本を避ける)を残す。
-        if script is None or length_within_target(chars, len(summaries)) or chars > total_chars:
-            script, total_chars = candidate, chars
         if length_within_target(chars, len(summaries)):
+            script, total_chars = candidate, chars
             break
         logger.warning(
-            "digest script length is outside the target (attempt %d): chars=%d target=%s lines=%d",
-            attempt, chars, target_chars_range(len(summaries)), len(candidate["lines"]),
+            "digest script length is outside the acceptable range (attempt %d): chars=%d acceptable=%s lines=%d",
+            attempt, chars, acceptable_chars_range(len(summaries)), len(candidate["lines"]),
         )
 
     if script is None:
-        return 0
-    if length_unacceptable(total_chars, len(summaries)):
-        logger.error(
-            "digest script is too short to publish: chars=%d target=%s",
-            total_chars, target_chars_range(len(summaries)),
-        )
+        logger.error("digest script could not be generated within the acceptable length")
         return 0
 
     Path(output_path).write_text(

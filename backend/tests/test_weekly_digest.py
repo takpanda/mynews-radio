@@ -78,7 +78,7 @@ def test_iso_week_bounds_and_label():
 def test_completion_window_is_monday_midnight_jst_to_next_day_midnight_jst():
     start, end = weekly_digest.completion_window_utc(date(2026, 11, 22))
     assert start == "2026-11-15 15:00:00"  # 月曜 0:00 JST
-    assert end == "2026-11-22 15:00:00"  # 日曜の翌 0:00 JST
+    assert end == "2026-11-22 14:59:59"  # 日曜 23:59:59 JST(両端を含む)
 
 
 def test_completion_window_upper_bound_is_the_job_start_time():
@@ -87,9 +87,9 @@ def test_completion_window_upper_bound_is_the_job_start_time():
     cutoff = datetime(2026, 11, 21, 23, 0, tzinfo=timezone.utc)  # 日曜 8:00 JST
     _, end = weekly_digest.completion_window_utc(date(2026, 11, 22), cutoff)
     assert end == "2026-11-21 23:00:00"
-    # 起動時刻が対象日の翌0時より後でも、対象日の翌0:00 JSTを超えない
+    # 起動時刻が対象日の翌0時より後でも、対象日の末尾(23:59:59 JST)を超えない
     late = datetime(2026, 11, 30, tzinfo=timezone.utc)
-    assert weekly_digest.completion_window_utc(date(2026, 11, 22), late)[1] == "2026-11-22 15:00:00"
+    assert weekly_digest.completion_window_utc(date(2026, 11, 22), late)[1] == "2026-11-22 14:59:59"
 
 
 def test_find_week_digest_ignores_failed_and_other_weeks():
@@ -156,6 +156,21 @@ def test_completion_right_before_job_start_is_included_even_if_audit_is_recorded
     cutoff = datetime(2026, 11, 21, 23, 0, tzinfo=timezone.utc)
 
     assert [a["id"] for a in weekly_digest.fetch_broadcast_articles(date(2026, 11, 22), cutoff)] == [1]
+
+
+def test_completion_in_the_same_second_as_job_start_is_not_missed():
+    """Outboxは秒精度。起動時刻の小数秒を切り捨てても、同じ秒に完成した回は取りこぼさない。"""
+    from datetime import datetime, timezone
+
+    for i in (1, 2, 3):
+        _insert_article(i, f"記事{i}")
+    _insert_episode("radio", "completed", "2026-11-21 22:59:59", [1])  # 前の秒
+    _insert_episode("radio", "completed", "2026-11-21 23:00:00", [2])  # 起動と同じ秒(起動は 23:00:00.9)
+    _insert_episode("radio", "completed", "2026-11-21 23:00:01", [3])  # 次の秒(起動後)
+    cutoff = datetime(2026, 11, 21, 23, 0, 0, 900000, tzinfo=timezone.utc)
+
+    ids = sorted(a["id"] for a in weekly_digest.fetch_broadcast_articles(date(2026, 11, 22), cutoff))
+    assert ids == [1, 2]
 
 
 def test_episodes_completed_after_job_start_are_excluded():
@@ -236,11 +251,21 @@ def test_length_target_is_ten_to_twelve_minutes_of_speech_regardless_of_article_
         assert weekly_digest.suggested_lines_count(count) == 46
 
 
-def test_length_checks():
-    assert weekly_digest.length_within_target(3650, 12)
-    assert not weekly_digest.length_within_target(1000, 12)
-    assert weekly_digest.length_unacceptable(1000, 1)  # 少数記事でも下限(3300)の半分未満は不可
-    assert not weekly_digest.length_unacceptable(2000, 1)
+def test_acceptable_length_range_is_about_nine_to_thirteen_minutes():
+    assert weekly_digest.acceptable_chars_range(12) == (2970, 4400)
+    assert weekly_digest.acceptable_chars_range(1) == (2970, 4400)
+    assert 2970 / 330 == pytest.approx(9, abs=0.05) and 4400 / 330 == pytest.approx(13.3, abs=0.05)
+
+
+@pytest.mark.parametrize("chars,ok", [
+    (2000, False),   # 約6分
+    (2969, False), (2970, True),   # 下限の境界
+    (3650, True),
+    (4400, True), (4401, False),   # 上限の境界
+    (10000, False),  # 約30分
+])
+def test_length_within_target_boundaries(chars, ok):
+    assert weekly_digest.length_within_target(chars, 12) is ok
 
 
 class _FakeClient:
@@ -325,49 +350,31 @@ def _twelve_articles():
     return [_article(i, f"記事{i}") for i in range(1, 13)]
 
 
-def test_short_script_is_regenerated_once_and_the_in_range_result_is_used(monkeypatch, tmp_path):
-    _patch_seq(monkeypatch, [_script_response(800), _script_response(3600)])
+def test_out_of_range_scripts_are_regenerated_until_one_is_in_range(monkeypatch, tmp_path):
+    _patch_seq(monkeypatch, [_script_response(800), _script_response(10000), _script_response(3600)])
     out = tmp_path / "script.json"
     count = weekly_digest.generate_digest_script(str(out), _twelve_articles(), date(2026, 11, 22), llm_provider="x")
-    assert count == 10 and len(_FakeClient.prompts) == 2
-    script = json.loads(out.read_text(encoding="utf-8"))
-    assert weekly_digest.length_within_target(weekly_digest.script_char_count(script), 12)
+    assert count == 10 and len(_FakeClient.prompts) == 3
+    chars = weekly_digest.script_char_count(json.loads(out.read_text(encoding="utf-8")))
+    assert weekly_digest.length_within_target(chars, 12)
 
 
-@pytest.mark.parametrize("count", [1, 3, 6, 12])
-def test_prompt_and_result_keep_ten_to_twelve_minutes_for_any_article_count(monkeypatch, tmp_path, count):
-    _patch_seq(monkeypatch, [_script_response(3600)])
-    articles = [_article(i, f"記事{i}") for i in range(1, count + 1)]
-    out = tmp_path / "script.json"
-
-    assert weekly_digest.generate_digest_script(str(out), articles, date(2026, 11, 22), llm_provider="x") > 0
-
-    prompt = _FakeClient.prompts[0]
-    assert "3300〜4000 文字" in prompt and f"{count} 件" in prompt
-    script = json.loads(out.read_text(encoding="utf-8"))
-    chars = weekly_digest.script_char_count(script)
-    assert 3300 <= chars <= 4000 and chars / 330 == pytest.approx(11, abs=1.1)
-
-
-def test_a_single_article_week_still_has_to_reach_the_target_length(monkeypatch, tmp_path):
-    _patch_seq(monkeypatch, [_script_response(600), _script_response(700)])
-    out = tmp_path / "script.json"
-    assert weekly_digest.generate_digest_script(str(out), [_article(1, "A")], date(2026, 11, 22), llm_provider="x") == 0
-
-
-def test_extremely_short_script_fails_after_retry(monkeypatch, tmp_path):
-    _patch_seq(monkeypatch, [_script_response(800), _script_response(900)])
+@pytest.mark.parametrize("sizes", [
+    [800, 900, 2000],        # 全て短い
+    [10000, 9000, 12000],    # 全て長い
+    [2000, 10000, 2900],     # 短い・長いが混在(長い方を優先して採用しない)
+])
+def test_script_is_not_published_when_every_attempt_is_out_of_range(monkeypatch, tmp_path, sizes):
+    _patch_seq(monkeypatch, [_script_response(n) for n in sizes])
     out = tmp_path / "script.json"
     assert weekly_digest.generate_digest_script(str(out), _twelve_articles(), date(2026, 11, 22), llm_provider="x") == 0
     assert not out.exists()
 
 
-def test_slightly_short_script_is_kept_with_a_warning(monkeypatch, tmp_path):
-    # 下限(3300)の0.8未満だが、失敗ライン(1650)以上の台本は再試行後も採用する
-    _patch_seq(monkeypatch, [_script_response(2200), _script_response(2300)])
+def test_script_at_the_range_boundary_is_published(monkeypatch, tmp_path):
+    _patch_seq(monkeypatch, [_script_response(2970)])
     out = tmp_path / "script.json"
     assert weekly_digest.generate_digest_script(str(out), _twelve_articles(), date(2026, 11, 22), llm_provider="x") == 10
-    assert weekly_digest.script_char_count(json.loads(out.read_text(encoding="utf-8"))) == 2300
 
 
 def test_generate_digest_script_returns_zero_on_invalid_response(monkeypatch, tmp_path):
