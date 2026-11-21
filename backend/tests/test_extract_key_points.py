@@ -76,12 +76,12 @@ def test_generates_points_from_llm_and_passes_same_llm(setup):
 
 
 def test_limits_to_three_and_dedups(setup):
-    client = FakeClient({"key_points": ["A", "A", "B", "C", "D"]})
-    assert _run(setup, client) == ["A", "B", "C"]
+    client = FakeClient({"key_points": ["要点あ", "要点あ", "要点い", "要点う", "要点え"]})
+    assert _run(setup, client) == ["要点あ", "要点い", "要点う"]
 
 
 def test_points_equal_to_article_title_are_dropped(setup):
-    client = FakeClient({"key_points": ["NGINX CVE Analysis", "AI規制の最新動向", "脆弱性への備えが分かる"]})
+    client = FakeClient({"key_points": ["AI規制の最新動向", "脆弱性への備えが分かる"]})
     assert _run(setup, client) == ["脆弱性への備えが分かる"]
 
 
@@ -91,7 +91,16 @@ def test_llm_error_returns_empty(setup):
 
 @pytest.mark.parametrize(
     "response",
-    [None, {}, {"key_points": "文字列"}, {"key_points": [1, None, "  "]}, ["list"]],
+    [
+        None,
+        {},
+        {"key_points": "文字列"},
+        {"key_points": [1, None, "  "]},
+        {"key_points": ["有効な要点です", 123]},
+        {"key_points": ["Only English key point"]},
+        {"key_points": ["有効な要点です", "English only"]},
+        ["list"],
+    ],
 )
 def test_invalid_output_returns_empty(setup, response):
     assert _run(setup, FakeClient(response)) == []
@@ -102,3 +111,32 @@ def test_missing_summaries_file_returns_empty(setup):
     holder["client"] = FakeClient({"key_points": ["A"]})
     assert _extract_key_points(script, "/nonexistent/summaries.json") == []
     assert holder["client"].prompts == []
+
+
+class _FakeService:
+    def __init__(self):
+        self.saved = None
+
+    def update_episode_key_points(self, episode_id, key_points):
+        self.saved = (episode_id, key_points)
+
+
+def test_regeneration_failure_clears_previous_key_points(setup, tmp_path):
+    """再生成で LLM が失敗しても、前回の要点を空配列で上書きする。"""
+    script, summaries_path, holder = setup
+    holder["client"] = FakeClient(error=RuntimeError("boom"))
+    script_path = tmp_path / "script.json"
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    service = _FakeService()
+
+    radio_pipeline._generate_and_save_key_points(service, 7, str(script_path), summaries_path, None)
+
+    assert service.saved == (7, [])
+
+
+def test_missing_script_file_still_saves_empty(setup, tmp_path):
+    service = _FakeService()
+    radio_pipeline._generate_and_save_key_points(
+        service, 7, str(tmp_path / "none.json"), str(tmp_path / "s.json"), None
+    )
+    assert service.saved == (7, [])

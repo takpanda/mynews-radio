@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 from enum import Enum
 from pathlib import Path
@@ -47,6 +48,7 @@ from app.programs.profiles import ProgramProfile, profile_voice_overrides
 
 _KEY_POINTS_MAX = 3
 _KEY_POINT_MAX_CHARS = 60
+_JAPANESE_RE = re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")
 
 _KEY_POINTS_PROMPT = """あなたはラジオ番組の編集者です。以下の台本サブタイトルと記事要約をもとに、
 リスナーが「この回で分かること」として知れる要点を日本語で最大{max_points}点書いてください。
@@ -133,16 +135,19 @@ def _extract_key_points(
         logger.warning("key_points output invalid; leaving empty")
         return []
 
+    # 一部でも不正な要素（非文字列・日本語を含まない）があれば出力全体を不正として空にする。
+    cleaned = [point.strip() if isinstance(point, str) else None for point in raw_points]
+    if not cleaned or any(not point or not _JAPANESE_RE.search(point) for point in cleaned):
+        logger.warning("key_points output invalid (non-string or non-Japanese item); leaving empty")
+        return []
+
     # 解説ブロックに並ぶ記事タイトルと一致する項目は重複表示になるため除外する。
     titles = {
         str(summary.get("title", "")).strip() for summary in summaries_by_id.values()
     }
     key_points: list[str] = []
-    for point in raw_points:
-        if not isinstance(point, str):
-            continue
-        point = point.strip()
-        if point and point not in titles and point not in key_points:
+    for point in cleaned:
+        if point not in titles and point not in key_points:
             key_points.append(point)
     return key_points[:_KEY_POINTS_MAX]
 
@@ -151,6 +156,33 @@ logger = logging.getLogger(__name__)
 DEFAULT_EPISODES_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
 
 ProgressCallback = Optional[Callable[[str, str], None]]
+
+
+def _generate_and_save_key_points(
+    service, episode_id: int, script_path: str, summaries_path: str, content_llm
+) -> None:
+    """要点を生成して保存する（non-fatal）。
+
+    再生成時に前回の要点が残らないよう、失敗・空でも空配列を保存して上書きする。
+    """
+    key_points: list[str] = []
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            generated_script = json.load(f)
+        key_points = _extract_key_points(
+            generated_script,
+            summaries_path,
+            llm_provider=content_llm.name if content_llm else None,
+            llm_model=content_llm.model if content_llm else None,
+            episode_id=episode_id,
+        )
+    except Exception:
+        logger.warning("key_points extraction failed (non-fatal)", exc_info=True)
+    try:
+        service.update_episode_key_points(episode_id, key_points)
+        logger.info("key_points saved: %s", key_points)
+    except Exception:
+        logger.warning("key_points save failed (non-fatal)", exc_info=True)
 
 
 def _review_state(review_mode: str, passed: bool) -> str:
@@ -459,22 +491,9 @@ def run_radio_pipeline(
         logger.info("Title overridden: %s", build_radio_title(effective_program_name, episode_date, seq))
 
         # -- KEY POINTS --
-        try:
-            with open(script_path, "r", encoding="utf-8") as f:
-                generated_script = json.load(f)
-            summaries_path = os.path.join(base_dir, "summaries.json")
-            key_points = _extract_key_points(
-                generated_script,
-                summaries_path,
-                llm_provider=content_llm.name if content_llm else None,
-                llm_model=content_llm.model if content_llm else None,
-                episode_id=episode_id,
-            )
-            if key_points:
-                service.update_episode_key_points(episode_id, key_points)
-                logger.info("key_points saved: %s", key_points)
-        except Exception:
-            logger.warning("key_points extraction failed (non-fatal)", exc_info=True)
+        _generate_and_save_key_points(
+            service, episode_id, script_path, os.path.join(base_dir, "summaries.json"), content_llm
+        )
 
         # -- TTS SETUP --
         tts_config = _determine_tts_config(tts_engine)
