@@ -423,7 +423,17 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
   }, [isAuthenticated])
 
   useEffect(() => {
+    // 未ログイン時は取得しない。ヘッダーは画面遷移後も残るため、ログイン後に再取得して
+    // 未ログイン時の 401 エラーを引きずらないようにする。
+    if (!isAuthenticated) {
+      setLlmProviders([])
+      setLlmError(null)
+      setLlmLoading(false)
+      return
+    }
     let cancelled = false
+    setLlmLoading(true)
+    setLlmError(null)
     fetchLlmProviders().then(({ providers }) => {
       if (cancelled) return
       setLlmProviders(providers)
@@ -436,7 +446,7 @@ export default function GenerateEpisodeButton({ episodes, isAuthenticated = true
       if (!cancelled) setLlmLoading(false)
     })
     return () => { cancelled = true }
-  }, [])
+  }, [isAuthenticated])
 
   useEffect(() => {
     const checkAndResume = async () => {
