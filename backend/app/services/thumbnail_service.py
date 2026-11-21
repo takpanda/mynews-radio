@@ -228,21 +228,26 @@ def generate_thumbnail(
     # PNG差し替えと縮小版生成を同一ロックで行い、一括生成との競合で古いWebPを残さない
     with _episode_thumbnail_lock(output.parent):
         temp_path = None
+        replaced = False
         try:
             with tempfile.NamedTemporaryFile(dir=output.parent, prefix=".thumbnail-", suffix=".tmp", delete=False) as f:
                 temp_path = f.name
                 f.write(image)
             os.replace(temp_path, output)
             temp_path = None
+            replaced = True
             service.update_episode_thumbnail_path(episode_id, "thumbnail.png")
         finally:
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
-        # 縮小版は付加的な最適化のため、失敗しても原寸PNGでの配信にフォールバックする
-        try:
-            _write_thumbnail_variants(output)
-        except Exception:
-            logger.exception("thumbnail variant generation failed: episode_id=%d", episode_id)
+            if replaced:
+                # DB更新の成否に関わらず、差し替えた原寸PNGと縮小版を同じ世代にする。
+                # 縮小版は付加的な最適化のため、失敗しても原寸PNGへのフォールバックで配信できる
+                # （失敗時は古い縮小版を削除済み）
+                try:
+                    _write_thumbnail_variants(output)
+                except Exception:
+                    logger.exception("thumbnail variant generation failed: episode_id=%d", episode_id)
     return str(output)
 
 

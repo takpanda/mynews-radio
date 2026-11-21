@@ -527,3 +527,33 @@ def test_overwrite_replaces_variants_with_new_image(tmp_path, monkeypatch):
 
     pixel = Image.open(tmp_path / str(episode_id) / "thumbnail-card.webp").convert("RGB").getpixel((10, 10))
     assert pixel[2] > 200 and pixel[0] < 60
+
+
+def test_db_update_failure_after_png_replace_does_not_leave_stale_variants(tmp_path, monkeypatch):
+    import io
+
+    from PIL import Image
+
+    episode_id = _episode(tmp_path)
+
+    def png(color):
+        b = io.BytesIO()
+        Image.new("RGB", (1280, 720), color).save(b, "PNG")
+        return b.getvalue()
+
+    images = iter([png((255, 0, 0)), png((0, 0, 255))])
+    monkeypatch.setattr(thumbnail_service, "_get_image", lambda *a, **k: next(images))
+    thumbnail_service.generate_thumbnail(episode_id, episodes_dir=str(tmp_path))
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(thumbnail_service.EpisodeService, "update_episode_thumbnail_path", fail)
+    with pytest.raises(RuntimeError, match="db down"):
+        thumbnail_service.generate_thumbnail(episode_id, episodes_dir=str(tmp_path), overwrite=True)
+
+    card = tmp_path / str(episode_id) / "thumbnail-card.webp"
+    # 旧WebP（赤）が残らない：新PNGと同じ世代（青）に更新されているか、無ければ削除されている
+    if card.exists():
+        pixel = Image.open(card).convert("RGB").getpixel((10, 10))
+        assert pixel[2] > 200 and pixel[0] < 60
