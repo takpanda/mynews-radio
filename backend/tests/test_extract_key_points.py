@@ -1,181 +1,148 @@
-"""Tests for _extract_key_points in radio_pipeline.py."""
+"""Tests for _extract_key_points in radio_pipeline.py (LLM による要点生成)."""
 
 import json
-import os
+from types import SimpleNamespace
 
+import pytest
+
+from app.batch import radio_pipeline
 from app.batch.radio_pipeline import _extract_key_points
 
 
-class TestExtractKeyPoints:
-    """_extract_key_points の抽出ロジック単体テスト"""
+class FakeClient:
+    def __init__(self, response=None, error: Exception | None = None):
+        self.response = response
+        self.error = error
+        self.prompts: list[str] = []
 
-    def _make_script(self, lines: list[dict] | None = None, subtitle: str = "") -> dict:
-        return {
-            "title": "ニュースのとなり",
-            "subtitle": subtitle,
-            "lines": lines or [],
-        }
+    def __enter__(self):
+        return self
 
-    def test_article_titles_are_preferred_over_intro_lines(self, tmp_path):
-        """introの台本セリフではなく記事タイトルが要点になる"""
-        script = self._make_script(
-            lines=[
-                {"speaker": "male", "text": "今日のラインアップは、AI・セキュリティ・経済の3本です。", "section": "intro"},
-                {"speaker": "female", "text": "盛りだくさんですね。", "section": "intro"},
-                {"speaker": "male", "text": "記事の内容です。", "section": "news", "article_id": 1},
+    def __exit__(self, *args):
+        return None
+
+    def generate_json(self, prompt):
+        self.prompts.append(prompt)
+        if self.error:
+            raise self.error
+        return self.response
+
+
+@pytest.fixture
+def setup(tmp_path, monkeypatch):
+    """LLM クライアントと busy ゲートを差し替え、(script, summaries_path, holder) を返す。"""
+    holder: dict = {}
+
+    def fake_create(provider, model):
+        holder["provider"], holder["model"] = provider, model
+        return holder["client"]
+
+    monkeypatch.setattr("app.services.ollama_client.create_llm_client", fake_create)
+    monkeypatch.setattr(
+        radio_pipeline, "run_with_dgx_busy", lambda stage, op, *a, **k: op(*a, **k)
+    )
+    script = {
+        "subtitle": "ゼロデイ対策とAI規制",
+        "lines": [
+            {"text": "x", "article_id": 1},
+            {"text": "y", "article_id": 2},
+        ],
+    }
+    path = tmp_path / "summaries.json"
+    path.write_text(
+        json.dumps(
+            [
+                {"article_id": 1, "title": "NGINX CVE Analysis", "summary": "NGINXの脆弱性の解説"},
+                {"article_id": 2, "title": "AI規制の最新動向", "summary": "各国のAI規制の比較"},
             ],
-            subtitle="AI・セキュリティ・経済",
-        )
-        summaries_file = tmp_path / "summaries.json"
-        summaries_file.write_text(json.dumps([{"article_id": 1, "title": "AI規制の最新動向"}], ensure_ascii=False), encoding="utf-8")
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return script, str(path), holder
 
-        points = _extract_key_points(script, str(summaries_file))
-        assert points[0] == "AI規制の最新動向"
-        assert all("ラインアップ" not in point for point in points)
 
-    def test_fallback_to_subtitle(self, tmp_path):
-        """intro行に該当がない場合、subtitleから抽出される"""
-        script = self._make_script(
-            lines=[
-                {"speaker": "male", "text": "こんにちは。", "section": "intro"},
-            ],
-            subtitle="AIの最新動向と社会への影響",
-        )
-        summaries_file = tmp_path / "summaries.json"
-        summaries_file.write_text("[]", encoding="utf-8")
+def _run(setup, client):
+    script, path, holder = setup
+    holder["client"] = client
+    return _extract_key_points(script, path, llm_provider="p", llm_model="m")
 
-        points = _extract_key_points(script, str(summaries_file))
-        assert len(points) >= 1
-        assert points[0] == "AIの最新動向と社会への影響"
 
-    def test_fallback_to_article_titles(self, tmp_path):
-        """intro/subtitle不足時、記事タイトルで補完される"""
-        script = self._make_script(
-            lines=[
-                {"speaker": "male", "text": "こんにちは。", "section": "intro"},
-                {"speaker": "male", "text": "記事Aの内容です。", "section": "news", "article_id": 1},
-                {"speaker": "male", "text": "記事Bの内容です。", "section": "news", "article_id": 2},
-            ],
-            subtitle="",
-        )
-        summaries = [
-            {"article_id": 1, "title": "OpenAI新モデル発表", "summary": "..."},
-            {"article_id": 2, "title": "セキュリティ最新情報", "summary": "..."},
-        ]
-        summaries_file = tmp_path / "summaries.json"
-        summaries_file.write_text(json.dumps(summaries, ensure_ascii=False), encoding="utf-8")
+def test_generates_points_from_llm_and_passes_same_llm(setup):
+    client = FakeClient({"key_points": ["脆弱性の影響範囲が分かる", "AI規制の違いが分かる"]})
+    assert _run(setup, client) == ["脆弱性の影響範囲が分かる", "AI規制の違いが分かる"]
+    assert (setup[2]["provider"], setup[2]["model"]) == ("p", "m")
+    assert "NGINXの脆弱性の解説" in client.prompts[0]
+    assert "ゼロデイ対策とAI規制" in client.prompts[0]
 
-        points = _extract_key_points(script, str(summaries_file))
-        assert "OpenAI新モデル発表" in points
-        assert "セキュリティ最新情報" in points
 
-    def test_max_3_points(self, tmp_path):
-        """最大3件までで,4件目は含まれない"""
-        script = self._make_script(
-            lines=[
-                {"speaker": "male", "text": "今日のニュースはAとBとCとDです。", "section": "intro"},
-                {"speaker": "male", "text": "今日のトピックも盛りだくさん。", "section": "intro"},
-                {"speaker": "male", "text": "本日もよろしくお願いします。", "section": "intro"},
-                {"speaker": "male", "text": "ニュースをお届けします。", "section": "intro"},
-            ],
-            subtitle="",
-        )
-        summaries_file = tmp_path / "summaries.json"
-        summaries_file.write_text("[]", encoding="utf-8")
+def test_limits_to_three_and_dedups(setup):
+    client = FakeClient({"key_points": ["要点あ", "要点あ", "要点い", "要点う", "要点え"]})
+    assert _run(setup, client) == ["要点あ", "要点い", "要点う"]
 
-        points = _extract_key_points(script, str(summaries_file))
-        assert len(points) <= 3
 
-    def test_empty_script_returns_empty(self, tmp_path):
-        """空のスクリプトでは空リストが返る"""
-        script = self._make_script(lines=[], subtitle="")
-        summaries_file = tmp_path / "summaries.json"
-        summaries_file.write_text("[]", encoding="utf-8")
+def test_points_equal_to_article_title_are_dropped(setup):
+    client = FakeClient({"key_points": ["AI規制の最新動向", "脆弱性への備えが分かる"]})
+    assert _run(setup, client) == ["脆弱性への備えが分かる"]
 
-        points = _extract_key_points(script, str(summaries_file))
-        assert points == []
 
-    def test_no_intro_lines_returns_empty(self, tmp_path):
-        """該当するintro行がない場合も空リストが返る"""
-        script = self._make_script(
-            lines=[
-                {"speaker": "male", "text": "A", "section": "news"},
-            ],
-            subtitle="",
-        )
-        summaries_file = tmp_path / "summaries.json"
-        summaries_file.write_text("[]", encoding="utf-8")
+def test_llm_error_returns_empty(setup):
+    assert _run(setup, FakeClient(error=RuntimeError("boom"))) == []
 
-        points = _extract_key_points(script, str(summaries_file))
-        assert points == []
 
-    def test_summaries_file_not_found(self, tmp_path):
-        """summaries.jsonが存在しなくてもエラーにならない"""
-        script = self._make_script(
-            lines=[
-                {"speaker": "male", "text": "今日のラインアップをお届けします。", "section": "intro"},
-            ],
-            subtitle="テスト番組",
-        )
-        points = _extract_key_points(script, str(tmp_path / "nonexistent.json"))
-        assert len(points) >= 1
+@pytest.mark.parametrize(
+    "response",
+    [
+        None,
+        {},
+        {"key_points": "文字列"},
+        {"key_points": [1, None, "  "]},
+        {"key_points": ["有効な要点です", 123]},
+        {"key_points": ["Only English key point"]},
+        {"key_points": ["有効な要点です", "English only"]},
+        ["list"],
+    ],
+)
+def test_invalid_output_returns_empty(setup, response):
+    assert _run(setup, FakeClient(response)) == []
 
-    def test_article_title_fallback_order(self, tmp_path):
-        """記事タイトルはscript内のarticle_id登場順に追加される"""
-        script = self._make_script(
-            lines=[
-                {"speaker": "male", "text": "こんにちは。", "section": "intro"},
-                {"speaker": "male", "text": "記事B", "section": "news", "article_id": 2},
-                {"speaker": "male", "text": "記事A", "section": "news", "article_id": 1},
-            ],
-            subtitle="",
-        )
-        summaries = [
-            {"article_id": 1, "title": "タイトルA", "summary": ""},
-            {"article_id": 2, "title": "タイトルB", "summary": ""},
-        ]
-        summaries_file = tmp_path / "summaries.json"
-        summaries_file.write_text(json.dumps(summaries, ensure_ascii=False), encoding="utf-8")
 
-        points = _extract_key_points(script, str(summaries_file))
-        # introに該当がないのでsubtitle→空→記事タイトルへ
-        assert "タイトルB" in points
-        assert "タイトルA" in points
+def test_missing_summaries_file_returns_empty(setup):
+    script, _, holder = setup
+    holder["client"] = FakeClient({"key_points": ["A"]})
+    assert _extract_key_points(script, "/nonexistent/summaries.json") == []
+    assert holder["client"].prompts == []
 
-    def test_combined_sources(self, tmp_path):
-        """intro, subtitle, article_title の複合ソースを最大3件まで結合する"""
-        script = self._make_script(
-            lines=[
-                {"speaker": "male", "text": "今日のラインアップは3本です。", "section": "intro"},
-                {"speaker": "male", "text": "記事X", "section": "news", "article_id": 10},
-                {"speaker": "male", "text": "記事Y", "section": "news", "article_id": 20},
-            ],
-            subtitle="サブタイトル",
-        )
-        summaries = [
-            {"article_id": 10, "title": "タイトルX", "summary": ""},
-            {"article_id": 20, "title": "タイトルY", "summary": ""},
-        ]
-        summaries_file = tmp_path / "summaries.json"
-        summaries_file.write_text(json.dumps(summaries, ensure_ascii=False), encoding="utf-8")
 
-        points = _extract_key_points(script, str(summaries_file))
-        # 記事タイトルを優先し、不足分だけsubtitleで補完
-        assert len(points) <= 3
-        assert points[0] == "タイトルX"
-        assert points[1] == "タイトルY"
+class _FakeService:
+    def __init__(self):
+        self.saved = None
 
-    def test_subtitle_is_fallback_when_article_titles_are_unavailable(self, tmp_path):
-        """記事情報がない場合のみsubtitleを要点として使う"""
-        script = self._make_script(
-            lines=[
-                {"speaker": "male", "text": "今日のラインアップはAIの話題です。", "section": "intro"},
-            ],
-            subtitle="AIと社会の最新動向",
-        )
-        summaries_file = tmp_path / "summaries.json"
-        summaries_file.write_text("[]", encoding="utf-8")
+    def update_episode_key_points(self, episode_id, key_points):
+        self.saved = (episode_id, key_points)
 
-        points = _extract_key_points(script, str(summaries_file))
-        assert points == ["AIと社会の最新動向"]
-        assert all("ラインアップ" not in point for point in points)
+
+def test_regeneration_failure_clears_previous_key_points(setup, tmp_path):
+    """再生成で LLM が失敗しても、前回の要点を空配列で上書きする。"""
+    script, summaries_path, holder = setup
+    holder["client"] = FakeClient(error=RuntimeError("boom"))
+    script_path = tmp_path / "script.json"
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    service = _FakeService()
+
+    llm = SimpleNamespace(name="p", model="m")
+
+    radio_pipeline._generate_and_save_key_points(service, 7, str(script_path), summaries_path, llm)
+
+    # FakeClient が実際に呼ばれ（実 Ollama には到達せず）、その失敗で空配列が保存される
+    assert len(holder["client"].prompts) == 1
+    assert (holder["provider"], holder["model"]) == ("p", "m")
+    assert service.saved == (7, [])
+
+
+def test_missing_script_file_still_saves_empty(setup, tmp_path):
+    service = _FakeService()
+    radio_pipeline._generate_and_save_key_points(
+        service, 7, str(tmp_path / "none.json"), str(tmp_path / "s.json"), None
+    )
+    assert service.saved == (7, [])

@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 from enum import Enum
 from pathlib import Path
@@ -45,53 +46,143 @@ from app.services.script_review_service import move_episode_to_awaiting_review
 from app.programs.profiles import ProgramProfile, profile_voice_overrides
 
 
-def _extract_key_points(script: dict, summaries_path: str) -> list[str]:
-    """script.json と summaries.json から最大3件の要点を抽出する。
+_KEY_POINTS_MAX = 3
+_KEY_POINT_MAX_CHARS = 60
+_JAPANESE_RE = re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")
 
-    優先順:
-    1. 台本で参照されている記事の title を活用
-    2. 記事タイトルが不足する場合のみ script の subtitle を活用
+_KEY_POINTS_PROMPT = """あなたはラジオ番組の編集者です。以下の台本サブタイトルと記事要約をもとに、
+リスナーが「この回で分かること」として知れる要点を日本語で最大{max_points}点書いてください。
 
-    intro はナレーション／会話文であり、視聴者向けの要点ではないため、
-    key_points の抽出元には使用しない。
+# ルール
+- 各要点は{max_chars}文字以内の日本語の1文にする（学びや分かることを書く）
+- 記事タイトルをそのまま写さない。元記事が英語でも日本語で書く
+- 専門用語は一般の人にも伝わる言い方にする
+- 材料にない事実は書かない
+
+# 台本サブタイトル
+{subtitle}
+
+# 記事要約
+{articles}
+
+# 出力形式（JSONのみ）
+{{"key_points": ["要点1", "要点2", "要点3"]}}
+"""
+
+
+def _extract_key_points(
+    script: dict,
+    summaries_path: str,
+    llm_provider: str | None = None,
+    llm_model: str | None = None,
+    episode_id: int | None = None,
+) -> list[str]:
+    """台本のサブタイトルと記事要約から、LLMで最大3件の日本語の要点を生成する。
+
+    台本生成と同じ LLM（llm_provider / llm_model）を使う。記事タイトルのコピーは
+    詳細ページの解説ブロックと重複するため、失敗時も含めタイトルには戻さず、
+    LLM 呼び出し失敗・出力不正のときは空リストを返す（non-fatal）。
     """
-    key_points: list[str] = []
-
-    article_ids_in_script = []
-    for line in script.get("lines", []):
-        article_id = line.get("article_id")
-        if article_id is not None and article_id not in article_ids_in_script:
-            article_ids_in_script.append(article_id)
-
     try:
+        article_ids_in_script: list = []
+        for line in script.get("lines", []):
+            article_id = line.get("article_id")
+            if article_id is not None and article_id not in article_ids_in_script:
+                article_ids_in_script.append(article_id)
+
         with open(summaries_path, "r", encoding="utf-8") as f:
             summaries = json.load(f)
-        titles_by_article_id = {
-            summary.get("article_id"): str(summary.get("title", "")).strip()
+        summaries_by_id = {
+            summary.get("article_id"): summary
             for summary in summaries
-            if summary.get("article_id") is not None and summary.get("title")
+            if summary.get("article_id") is not None
         }
+        article_lines = []
         for article_id in article_ids_in_script:
-            title = titles_by_article_id.get(article_id, "")
-            if title and title not in key_points:
-                key_points.append(title)
-                if len(key_points) >= 3:
-                    break
-    except (FileNotFoundError, json.JSONDecodeError, TypeError):
-        pass
-
-    if len(key_points) < 3:
+            summary = summaries_by_id.get(article_id)
+            text = str((summary or {}).get("summary", "")).strip()
+            if text:
+                title = str(summary.get("title", "")).strip()
+                article_lines.append(f"- {title}: {text}" if title else f"- {text}")
         subtitle = str(script.get("subtitle", "")).strip()
-        if subtitle and subtitle not in key_points:
-            key_points.append(subtitle)
+        if not article_lines and not subtitle:
+            return []
 
-    return key_points[:3]
+        prompt = _KEY_POINTS_PROMPT.format(
+            max_points=_KEY_POINTS_MAX,
+            max_chars=_KEY_POINT_MAX_CHARS,
+            subtitle=subtitle or "（なし）",
+            articles="\n".join(article_lines) or "（なし）",
+        )
+
+        from app.services.llm_call_log_service import set_llm_context
+        from app.services.ollama_client import OllamaClient, create_llm_client
+
+        if llm_provider or llm_model:
+            client_cm = create_llm_client(llm_provider, llm_model)
+        else:
+            settings = get_settings()
+            client_cm = OllamaClient(settings.ollama_base_url, settings.ollama_model)
+        with client_cm as client:
+            set_llm_context(client, phase="key_points", episode_id=episode_id)
+            response = run_with_dgx_busy("key_points", client.generate_json, prompt)
+    except Exception:
+        logger.warning("key_points generation failed; leaving empty", exc_info=True)
+        return []
+
+    raw_points = response.get("key_points") if isinstance(response, dict) else None
+    if not isinstance(raw_points, list):
+        logger.warning("key_points output invalid; leaving empty")
+        return []
+
+    # 一部でも不正な要素（非文字列・日本語を含まない）があれば出力全体を不正として空にする。
+    cleaned = [point.strip() if isinstance(point, str) else None for point in raw_points]
+    if not cleaned or any(not point or not _JAPANESE_RE.search(point) for point in cleaned):
+        logger.warning("key_points output invalid (non-string or non-Japanese item); leaving empty")
+        return []
+
+    # 解説ブロックに並ぶ記事タイトルと一致する項目は重複表示になるため除外する。
+    titles = {
+        str(summary.get("title", "")).strip() for summary in summaries_by_id.values()
+    }
+    key_points: list[str] = []
+    for point in cleaned:
+        if point not in titles and point not in key_points:
+            key_points.append(point)
+    return key_points[:_KEY_POINTS_MAX]
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_EPISODES_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
 
 ProgressCallback = Optional[Callable[[str, str], None]]
+
+
+def _generate_and_save_key_points(
+    service, episode_id: int, script_path: str, summaries_path: str, content_llm
+) -> None:
+    """要点を生成して保存する（non-fatal）。
+
+    再生成時に前回の要点が残らないよう、失敗・空でも空配列を保存して上書きする。
+    """
+    key_points: list[str] = []
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            generated_script = json.load(f)
+        key_points = _extract_key_points(
+            generated_script,
+            summaries_path,
+            llm_provider=content_llm.name if content_llm else None,
+            llm_model=content_llm.model if content_llm else None,
+            episode_id=episode_id,
+        )
+    except Exception:
+        logger.warning("key_points extraction failed (non-fatal)", exc_info=True)
+    try:
+        service.update_episode_key_points(episode_id, key_points)
+        logger.info("key_points saved: %s", key_points)
+    except Exception:
+        logger.warning("key_points save failed (non-fatal)", exc_info=True)
 
 
 def _review_state(review_mode: str, passed: bool) -> str:
@@ -400,16 +491,9 @@ def run_radio_pipeline(
         logger.info("Title overridden: %s", build_radio_title(effective_program_name, episode_date, seq))
 
         # -- KEY POINTS --
-        try:
-            with open(script_path, "r", encoding="utf-8") as f:
-                generated_script = json.load(f)
-            summaries_path = os.path.join(base_dir, "summaries.json")
-            key_points = _extract_key_points(generated_script, summaries_path)
-            if key_points:
-                service.update_episode_key_points(episode_id, key_points)
-                logger.info("key_points saved: %s", key_points)
-        except Exception:
-            logger.warning("key_points extraction failed (non-fatal)", exc_info=True)
+        _generate_and_save_key_points(
+            service, episode_id, script_path, os.path.join(base_dir, "summaries.json"), content_llm
+        )
 
         # -- TTS SETUP --
         tts_config = _determine_tts_config(tts_engine)
