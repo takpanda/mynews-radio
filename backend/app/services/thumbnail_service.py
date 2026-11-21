@@ -1,5 +1,7 @@
 """Client and persistence for the asynchronous .102 thumbnail service."""
 
+import contextlib
+import fcntl
 import json
 import logging
 import os
@@ -17,6 +19,13 @@ from app.services.episode_service import EpisodeService
 
 logger = logging.getLogger(__name__)
 _JOB_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+# 表示サイズの約2倍（一覧カード: 高さ9.5rem、詳細: max-w-xl）。(ファイル名, 最大幅px)
+THUMBNAIL_VARIANTS: dict[str, tuple[str, int]] = {
+    "card": ("thumbnail-card.webp", 640),
+    "detail": ("thumbnail-detail.webp", 1200),
+}
+_WEBP_QUALITY = 80
 
 
 def _load_script(episode_id: int, episodes_dir: str | None = None) -> dict:
@@ -119,6 +128,59 @@ def _resolve_source_articles(episode_id: int) -> list[dict]:
     return [{"id": row["id"], "title": row["title"]} for row in rows]
 
 
+@contextlib.contextmanager
+def _episode_thumbnail_lock(directory: Path):
+    """同じ回のサムネイル書き込み（PNG差し替え＋縮小版生成）をプロセス間で直列化する。"""
+    with open(directory / ".thumbnail.lock", "a") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+def generate_thumbnail_variants(png_path: str | Path) -> list[str]:
+    """原寸PNGから縮小版WebPを生成する。失敗時は古い縮小版を残さず例外を送出する。
+
+    ロック内でPNGを読むため、並行する上書き再生成と競合しても旧PNG由来のWebPが後から残らない。
+    """
+    png_path = Path(png_path)
+    with _episode_thumbnail_lock(png_path.parent):
+        return _write_thumbnail_variants(png_path)
+
+
+def _write_thumbnail_variants(png_path: Path) -> list[str]:
+    from PIL import Image
+
+    written: list[str] = []
+    try:
+        with Image.open(png_path) as src:
+            src.load()
+            for filename, max_width in THUMBNAIL_VARIANTS.values():
+                image = src.copy()
+                if image.width > max_width:
+                    image.thumbnail((max_width, image.height * max_width), Image.LANCZOS)
+                if image.mode not in ("RGB", "RGBA"):
+                    image = image.convert("RGBA" if "transparency" in image.info else "RGB")
+                target = png_path.with_name(filename)
+                fd, temp_name = tempfile.mkstemp(dir=target.parent, prefix=".thumbnail-", suffix=".tmp")
+                os.close(fd)
+                try:
+                    image.save(temp_name, "WEBP", quality=_WEBP_QUALITY, method=6)
+                    os.replace(temp_name, target)
+                    temp_name = None
+                finally:
+                    if temp_name and os.path.exists(temp_name):
+                        os.unlink(temp_name)
+                written.append(str(target))
+    except Exception:
+        # 原寸PNGと食い違う古い縮小版を配信し続けないよう削除する
+        for filename, _ in THUMBNAIL_VARIANTS.values():
+            png_path.with_name(filename).unlink(missing_ok=True)
+        raise
+    return written
+
+
 def generate_thumbnail(
     episode_id: int,
     *,
@@ -163,17 +225,29 @@ def generate_thumbnail(
         key_points=key_points,
         source_articles=_resolve_source_articles(episode_id),
     )
-    temp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=output.parent, prefix=".thumbnail-", suffix=".tmp", delete=False) as f:
-            temp_path = f.name
-            f.write(image)
-        os.replace(temp_path, output)
+    # PNG差し替えと縮小版生成を同一ロックで行い、一括生成との競合で古いWebPを残さない
+    with _episode_thumbnail_lock(output.parent):
         temp_path = None
-        service.update_episode_thumbnail_path(episode_id, "thumbnail.png")
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            os.unlink(temp_path)
+        replaced = False
+        try:
+            with tempfile.NamedTemporaryFile(dir=output.parent, prefix=".thumbnail-", suffix=".tmp", delete=False) as f:
+                temp_path = f.name
+                f.write(image)
+            os.replace(temp_path, output)
+            temp_path = None
+            replaced = True
+            service.update_episode_thumbnail_path(episode_id, "thumbnail.png")
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
+            if replaced:
+                # DB更新の成否に関わらず、差し替えた原寸PNGと縮小版を同じ世代にする。
+                # 縮小版は付加的な最適化のため、失敗しても原寸PNGへのフォールバックで配信できる
+                # （失敗時は古い縮小版を削除済み）
+                try:
+                    _write_thumbnail_variants(output)
+                except Exception:
+                    logger.exception("thumbnail variant generation failed: episode_id=%d", episode_id)
     return str(output)
 
 

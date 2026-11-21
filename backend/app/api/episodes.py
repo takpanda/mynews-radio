@@ -5,7 +5,7 @@ import logging
 import os
 import sqlite3
 import urllib.parse
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 
 from fastapi import APIRouter, Cookie, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from app.api.mc_photos import build_mc_photo_url
 from app.db.connection import get_db_connection
 from app.services.episode_service import EpisodeService
+from app.services.thumbnail_service import THUMBNAIL_VARIANTS
 from app.services.episode_category_service import parse_episode_categories
 from app.services.settings_service import resolve_female_mc_display_name
 from app.auth import require_owner_session, has_owner_session
@@ -171,6 +172,15 @@ def _thumbnail_file_path(episode: dict) -> Optional[str]:
     if candidate == episodes_dir or not candidate.startswith(episodes_dir + os.sep):
         return None
     return candidate
+
+
+# 縮小版WebPのみ長めにキャッシュする。再生成で差し替わるため、反映の遅れは最大 max-age（1時間）。
+# FileResponse は条件付きGET(304)を処理しないため、期限後は本文を再取得する。
+_PUBLIC_THUMBNAIL_CACHE_CONTROL = "public, max-age=3600"
+_PRIVATE_THUMBNAIL_CACHE_CONTROL = "private, no-cache"
+# 縮小版が無いときの原寸PNG。後からWebPが生成されても次回の取得で切り替わるよう、
+# 常に再取得させる（公開回でも保存だけは許可）。
+_FALLBACK_THUMBNAIL_CACHE_CONTROL = "no-cache"
 
 
 def _build_thumbnail_url(episode: dict) -> Optional[str]:
@@ -511,16 +521,42 @@ def get_episode(episode_id: int, admin_session: Optional[str] = Cookie(None)) ->
 @router.get("/episodes/{episode_id}/thumbnail", summary="エピソードのサムネイル画像を取得")
 def get_episode_thumbnail(
     episode_id: int,
+    size: Optional[Literal["card", "detail"]] = Query(
+        None, description="縮小版WebPのサイズ。縮小版が無い場合は原寸PNGを返す"
+    ),
     admin_session: Optional[str] = Cookie(None),
 ) -> FileResponse:
-    """thumbnail_path が設定された回の thumbnail.png を配信する。"""
+    """thumbnail_path が設定された回のサムネイルを配信する。
+
+    size 未指定は従来どおり原寸PNG（追加ヘッダなし）。size 指定時のみ縮小版WebPと
+    キャッシュヘッダを返す。公開回のWebPは public、非公開（オーナー限定）回は private。
+    縮小版が無く原寸PNGにフォールバックする場合は no-cache（長期キャッシュさせない）。
+    """
     episode = _require_episode(episode_id)
-    if not has_owner_session(admin_session) and not _is_public_episode(episode):
+    is_public = _is_public_episode(episode)
+    if not has_owner_session(admin_session) and not is_public:
         raise HTTPException(status_code=404, detail="Episode not found")
     path = _thumbnail_file_path(episode)
     if not path or not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="Thumbnail not found")
-    return FileResponse(path, media_type="image/png")
+    if size is None:
+        return FileResponse(path, media_type="image/png")
+
+    cache_control = (
+        _PUBLIC_THUMBNAIL_CACHE_CONTROL if is_public else _PRIVATE_THUMBNAIL_CACHE_CONTROL
+    )
+    variant = os.path.join(os.path.dirname(path), THUMBNAIL_VARIANTS[size][0])
+    # 縮小版も原寸PNGと同様にエピソードディレクトリ外へのシンボリックリンクを拒否する
+    if os.path.isfile(variant) and os.path.realpath(variant) == variant:
+        return FileResponse(
+            variant, media_type="image/webp", headers={"Cache-Control": cache_control}
+        )
+    fallback_cache_control = (
+        _FALLBACK_THUMBNAIL_CACHE_CONTROL if is_public else _PRIVATE_THUMBNAIL_CACHE_CONTROL
+    )
+    return FileResponse(
+        path, media_type="image/png", headers={"Cache-Control": fallback_cache_control}
+    )
 
 
 @router.get("/episodes/{episode_id}/script", summary="エピソードの台本JSONを取得")
