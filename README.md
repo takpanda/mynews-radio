@@ -71,6 +71,7 @@
 | `DEFAULT_TTS_ENGINE` | `tts_engine` 未指定時に使う既定 TTS エンジン (`fishs2pro` / `aivispeech` / `voicevox`)。`POST /generate`・`POST /episodes/:id/synthesize` など手動生成系に適用 | `aivispeech` |
 | `BATCH_DEFAULT_TTS_ENGINE` | 定期ニュース生成（`run_daily.py`）でエンジン未指定時に使う既定 TTS エンジン (`fishs2pro` / `aivispeech` / `voicevox`) | `fishs2pro` |
 | `CRON_SCHEDULE` | バッチ実行スケジュール（cron 形式） | `0 6 * * *` |
+| `DIGEST_CRON_SCHEDULE` | 週末ダイジェスト（`run_weekly_digest.py`）の実行スケジュール（cron 形式、コンテナcronはUTC基準） | `0 23 * * 6`（日曜 8:00 JST） |
 | `EPISODE_RETENTION_DAYS` | エピソード保持日数 | `30` |
 | `MAX_SCRIPT_ARTICLES` | スクリプト生成に使用する最大記事数 | `10` |
 | `MIN_IMPORTANCE_SCORE` | 記事の最低重要度スコア | `3` |
@@ -220,6 +221,17 @@ import_articles
 │   └── generate_jingles.py    # ジングル生成ユーティリティ
 ├── docker-compose.yml
 └── README.md
+```
+
+## 週末ダイジェスト回
+
+毎週日曜 8:00 JST に、その週(月曜0:00 JST〜)に完成した通常回で放送済みの記事から重要トピックを選び、総集編（`episodes.type='digest'`）を生成します。既存の `articles.summary` を再利用し、記事の再取得・再要約は行いません。通常回と同じ生成ジョブキューに登録されるため、通常回・API起点の生成とは同時実行されません。同一ISO週に失敗していないダイジェストがあれば生成をスキップします。
+
+ローカルでの手動実行（`BATCH_DATE` で対象日(JST)を指定可。省略時は今日）:
+
+```bash
+cd backend
+BATCH_DATE=2026-11-22 python3 -m app.batch.run_weekly_digest
 ```
 
 ## TTS エンジン切替

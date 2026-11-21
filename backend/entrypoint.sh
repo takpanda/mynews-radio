@@ -45,6 +45,9 @@ for _var in OLLAMA_BASE_URL OLLAMA_MODEL OLLAMA_NUM_CTX DGX_HOST \
 done
 
 echo "$SCHEDULE cd /app && python3 /app/app/batch/run_daily.py >> /app/data/logs/crontab.log 2>&1" >> /etc/cron.d/mynews-batch
+# 週末ダイジェスト: 毎週日曜 8:00 JST（cronはUTC基準のため土曜 23:00）。DIGEST_CRON_SCHEDULE で上書き可。
+DIGEST_SCHEDULE="${DIGEST_CRON_SCHEDULE:-0 23 * * 6}"
+echo "$DIGEST_SCHEDULE cd /app && python3 /app/app/batch/run_weekly_digest.py >> /app/data/logs/crontab.log 2>&1" >> /etc/cron.d/mynews-batch
 # 配信は常駐ワーカーではなく、短周期cronでOutboxを処理する。
 echo "* * * * * cd /app && python3 /app/app/batch/deliver_notifications.py >> /app/data/logs/crontab.log 2>&1" >> /etc/cron.d/mynews-batch
 chmod 0644 /etc/cron.d/mynews-batch

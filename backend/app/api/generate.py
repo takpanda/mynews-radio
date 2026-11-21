@@ -930,6 +930,26 @@ def execute_queued_job(job, *, dispatch: bool = True) -> JobClaim | None:
                 success = False
             promoted = _finish_generation_job(job_id, success, dispatch=dispatch)
         return promoted
+    if operation == "weekly_digest":
+        from app.batch.weekly_digest import run_digest_job
+        success = False
+        try:
+            success = bool(run_digest_job(job))
+        except Exception:
+            logger.exception("weekly digest job failed: job_id=%d", job_id)
+            if episode_id is not None:
+                try:
+                    EpisodeService().update_episode_status(episode_id, "failed")
+                except Exception:
+                    logger.exception("failed to mark digest episode as failed: episode_id=%d", episode_id)
+        finally:
+            try:
+                finalize_audit_log(job_id, "success" if success else "failure", episode_id)
+            except Exception:
+                logger.exception("failed to finalize audit log for digest job %d", job_id)
+                success = False
+            promoted = _finish_generation_job(job_id, success, dispatch=dispatch)
+        return promoted
     raise ValueError(f"unsupported generation operation: {operation}")
 
 

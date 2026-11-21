@@ -201,6 +201,11 @@ def _episode_variables(episode_id: int, template_key: str, required: list[str]) 
             "section_details": _build_section_details(suggested_lines, style),
             "suggested_lines_count": suggested_lines,
         })
+    elif template_key == "generate_digest_script":
+        # ダイジェスト生成時に保存した入力変数で再現する。
+        if not isinstance(prompt_context, dict):
+            raise HTTPException(status_code=422, detail="Missing required episode input: prompt_context.json")
+        variables.update(prompt_context)
     elif template_key.startswith("review_"):
         if not isinstance(script, dict):
             raise HTTPException(status_code=422, detail="Missing required episode input: script.json")

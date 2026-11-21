@@ -23,6 +23,14 @@ def retry_on_busy(max_retries: int = 5, initial_delay: float = 0.1):
         return wrapper
     return decorator
 
+# 完成時にPush通知(Outbox)を登録するエピソード種別 -> (event_type, 通知本文)。
+# 通常回のイベントは変更せず、ダイジェストは専用イベントで配信する。
+COMPLETION_NOTIFICATIONS = {
+    "radio": ("daily_radio_completed", "番組の生成が完了しました"),
+    "digest": ("weekly_digest_completed", "今週のダイジェストが完成しました"),
+}
+
+
 class EpisodeService:
     @retry_on_busy()
     def create_episode(
@@ -105,7 +113,7 @@ class EpisodeService:
     def complete_radio_episode_with_notification(self, episode_id: int) -> bool:
         """エピソードを完成確定する。
 
-        通常番組の場合は通知Outbox登録まで同一トランザクションで行う。
+        通常番組・週末ダイジェストの場合は通知Outbox登録まで同一トランザクションで行う。
         Outboxの一意制約と INSERT OR IGNORE で再実行時の重複イベントを防止する。
         """
         with get_db_connection() as conn:
@@ -119,8 +127,10 @@ class EpisodeService:
                 "UPDATE episodes SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (episode_id,),
             )
-            if row["type"] != "radio":
+            notification = COMPLETION_NOTIFICATIONS.get(row["type"])
+            if notification is None:
                 return True
+            event_type, body = notification
 
             conn.execute(
                 """
@@ -129,9 +139,9 @@ class EpisodeService:
                 VALUES (?, ?, ?)
                 """,
                 (
-                    "daily_radio_completed",
+                    event_type,
                     episode_id,
-                    json.dumps({"url": f"/episodes/{episode_id}", "body": "番組の生成が完了しました"}, ensure_ascii=False),
+                    json.dumps({"url": f"/episodes/{episode_id}", "body": body}, ensure_ascii=False),
                 ),
             )
             conn.execute(
@@ -143,10 +153,10 @@ class EpisodeService:
                 JOIN push_subscriptions s ON s.is_active = 1
                 LEFT JOIN notification_deliveries d
                   ON d.outbox_id = o.id AND d.subscription_id = s.id
-                WHERE o.event_type = 'daily_radio_completed'
+                WHERE o.event_type = ?
                   AND o.episode_id = ? AND d.id IS NULL
                 """,
-                (episode_id,),
+                (event_type, episode_id),
             )
             return True
 

@@ -268,7 +268,10 @@ def _matches_public_category(entry: dict, category: str | None) -> bool:
         return True
     if category == "commentary":
         return entry.get("type") == "commentary"
-    if entry.get("type") == "commentary":
+    if category == "digest":
+        return entry.get("type") == "digest"
+    # 解説回・ダイジェスト回は通常回向けのテック/一般フィルターに混ぜない。
+    if entry.get("type") in {"commentary", "digest"}:
         return False
     categories = set(parse_episode_categories(entry.get("categories")))
     if category == "tech":
@@ -282,7 +285,7 @@ def _matches_public_category(entry: dict, category: str | None) -> bool:
 def list_episodes(
     limit: Optional[int] = Query(None, ge=1, description="取得件数"),
     offset: int = Query(0, ge=0, description="取得開始位置"),
-    category: Optional[str] = Query(None, pattern="^(all|tech|general|commentary)$"),
+    category: Optional[str] = Query(None, pattern="^(all|tech|general|commentary|digest)$"),
     include_failed: bool = Query(
         False,
         description="管理画面用: 失敗エピソードを含めて全件取得",

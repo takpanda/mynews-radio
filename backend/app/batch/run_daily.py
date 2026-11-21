@@ -30,6 +30,17 @@ logger = logging.getLogger(__name__)
 _TTS_ENGINES = {"voicevox", "aivispeech", "fishs2pro"}
 
 
+def resolve_batch_tts_engine() -> str:
+    """定期バッチ(通常回・週末ダイジェスト)が使うTTSエンジンを返す。"""
+    settings = get_settings()
+    return (
+        settings.batch_default_tts_engine
+        if settings.batch_default_tts_engine in _TTS_ENGINES
+        and settings.batch_default_tts_engine not in DISABLED_TTS_ENGINES
+        else resolve_default_tts_engine(settings.default_tts_engine)
+    )
+
+
 def main() -> None:
     setup_daily_logging(__name__, level=logging.INFO)
     logger.info("=== daily batch start (run_daily.py) ===")
@@ -53,13 +64,7 @@ def main() -> None:
 
     # 定期ニュース生成はエンジン未指定時、API/UIとは別に batch_default_tts_engine
     # (既定 fishs2pro) を使う。
-    settings = get_settings()
-    batch_tts_engine = (
-        settings.batch_default_tts_engine
-        if settings.batch_default_tts_engine in _TTS_ENGINES
-        and settings.batch_default_tts_engine not in DISABLED_TTS_ENGINES
-        else resolve_default_tts_engine(settings.default_tts_engine)
-    )
+    batch_tts_engine = resolve_batch_tts_engine()
 
     with get_db_connection() as conn:
         owner_id = ensure_generation_system_owner(conn)
@@ -80,6 +85,11 @@ def main() -> None:
     if claim.duplicate or claim.status != "active":
         return
 
+    run_claimed_jobs(claim)
+
+
+def run_claimed_jobs(claim: JobClaim) -> None:
+    """activeになったジョブと、完了時に昇格した待機ジョブをcronプロセス内で順に実行する。"""
     current_job_id: int | None = claim.job_id
     current_episode_id: int | None = claim.episode_id
     while current_job_id is not None:
