@@ -1,5 +1,7 @@
 """Client and persistence for the asynchronous .102 thumbnail service."""
 
+import contextlib
+import fcntl
 import json
 import logging
 import os
@@ -126,11 +128,30 @@ def _resolve_source_articles(episode_id: int) -> list[dict]:
     return [{"id": row["id"], "title": row["title"]} for row in rows]
 
 
+@contextlib.contextmanager
+def _episode_thumbnail_lock(directory: Path):
+    """同じ回のサムネイル書き込み（PNG差し替え＋縮小版生成）をプロセス間で直列化する。"""
+    with open(directory / ".thumbnail.lock", "a") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
 def generate_thumbnail_variants(png_path: str | Path) -> list[str]:
-    """原寸PNGから縮小版WebPを生成する。失敗時は古い縮小版を残さず例外を送出する。"""
+    """原寸PNGから縮小版WebPを生成する。失敗時は古い縮小版を残さず例外を送出する。
+
+    ロック内でPNGを読むため、並行する上書き再生成と競合しても旧PNG由来のWebPが後から残らない。
+    """
+    png_path = Path(png_path)
+    with _episode_thumbnail_lock(png_path.parent):
+        return _write_thumbnail_variants(png_path)
+
+
+def _write_thumbnail_variants(png_path: Path) -> list[str]:
     from PIL import Image
 
-    png_path = Path(png_path)
     written: list[str] = []
     try:
         with Image.open(png_path) as src:
@@ -204,22 +225,24 @@ def generate_thumbnail(
         key_points=key_points,
         source_articles=_resolve_source_articles(episode_id),
     )
-    temp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=output.parent, prefix=".thumbnail-", suffix=".tmp", delete=False) as f:
-            temp_path = f.name
-            f.write(image)
-        os.replace(temp_path, output)
+    # PNG差し替えと縮小版生成を同一ロックで行い、一括生成との競合で古いWebPを残さない
+    with _episode_thumbnail_lock(output.parent):
         temp_path = None
-        service.update_episode_thumbnail_path(episode_id, "thumbnail.png")
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            os.unlink(temp_path)
-    # 縮小版は付加的な最適化のため、失敗しても原寸PNGでの配信にフォールバックする
-    try:
-        generate_thumbnail_variants(output)
-    except Exception:
-        logger.exception("thumbnail variant generation failed: episode_id=%d", episode_id)
+        try:
+            with tempfile.NamedTemporaryFile(dir=output.parent, prefix=".thumbnail-", suffix=".tmp", delete=False) as f:
+                temp_path = f.name
+                f.write(image)
+            os.replace(temp_path, output)
+            temp_path = None
+            service.update_episode_thumbnail_path(episode_id, "thumbnail.png")
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
+        # 縮小版は付加的な最適化のため、失敗しても原寸PNGでの配信にフォールバックする
+        try:
+            _write_thumbnail_variants(output)
+        except Exception:
+            logger.exception("thumbnail variant generation failed: episode_id=%d", episode_id)
     return str(output)
 
 

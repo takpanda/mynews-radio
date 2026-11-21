@@ -195,6 +195,8 @@ def test_thumbnail_size_falls_back_to_png_when_variant_missing(client, tmp_path)
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/png"
     assert response.content == b"\x89PNG\r\n\x1a\nthumbnail"
+    # 後からWebPが生成されても切り替わるよう、長期キャッシュさせない
+    assert response.headers["cache-control"] == "no-cache"
 
 
 def test_thumbnail_size_private_episode_stays_private_and_hidden(client, tmp_path):

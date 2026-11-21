@@ -174,9 +174,13 @@ def _thumbnail_file_path(episode: dict) -> Optional[str]:
     return candidate
 
 
-# 公開回の縮小版サムネイル。再生成で差し替わるため長くしすぎず、ETag/Last-Modified で再検証させる。
-_PUBLIC_THUMBNAIL_CACHE_CONTROL = "public, max-age=3600, stale-while-revalidate=86400"
+# 縮小版WebPのみ長めにキャッシュする。再生成で差し替わるため、反映の遅れは最大 max-age（1時間）。
+# FileResponse は条件付きGET(304)を処理しないため、期限後は本文を再取得する。
+_PUBLIC_THUMBNAIL_CACHE_CONTROL = "public, max-age=3600"
 _PRIVATE_THUMBNAIL_CACHE_CONTROL = "private, no-cache"
+# 縮小版が無いときの原寸PNG。後からWebPが生成されても次回の取得で切り替わるよう、
+# 常に再取得させる（公開回でも保存だけは許可）。
+_FALLBACK_THUMBNAIL_CACHE_CONTROL = "no-cache"
 
 
 def _build_thumbnail_url(episode: dict) -> Optional[str]:
@@ -525,7 +529,8 @@ def get_episode_thumbnail(
     """thumbnail_path が設定された回のサムネイルを配信する。
 
     size 未指定は従来どおり原寸PNG（追加ヘッダなし）。size 指定時のみ縮小版WebPと
-    キャッシュヘッダを返す。公開回は public、非公開（オーナー限定）回は private。
+    キャッシュヘッダを返す。公開回のWebPは public、非公開（オーナー限定）回は private。
+    縮小版が無く原寸PNGにフォールバックする場合は no-cache（長期キャッシュさせない）。
     """
     episode = _require_episode(episode_id)
     is_public = _is_public_episode(episode)
@@ -546,8 +551,11 @@ def get_episode_thumbnail(
         return FileResponse(
             variant, media_type="image/webp", headers={"Cache-Control": cache_control}
         )
+    fallback_cache_control = (
+        _FALLBACK_THUMBNAIL_CACHE_CONTROL if is_public else _PRIVATE_THUMBNAIL_CACHE_CONTROL
+    )
     return FileResponse(
-        path, media_type="image/png", headers={"Cache-Control": cache_control}
+        path, media_type="image/png", headers={"Cache-Control": fallback_cache_control}
     )
 
 

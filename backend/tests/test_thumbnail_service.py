@@ -488,3 +488,42 @@ def test_generate_thumbnail_variants_failure_removes_stale_variants(tmp_path):
     with pytest.raises(Exception):
         thumbnail_service.generate_thumbnail_variants(png)
     assert not stale.exists()
+
+
+def test_generate_thumbnail_saves_png_and_both_webp_variants(tmp_path, monkeypatch):
+    import io
+
+    from PIL import Image
+
+    episode_id = _episode(tmp_path)
+    buf = io.BytesIO()
+    Image.effect_noise((1280, 720), 40).convert("RGB").save(buf, "PNG")
+    monkeypatch.setattr(thumbnail_service, "_get_image", lambda *a, **k: buf.getvalue())
+
+    path = thumbnail_service.generate_thumbnail(episode_id, episodes_dir=str(tmp_path))
+
+    directory = tmp_path / str(episode_id)
+    assert open(path, "rb").read() == buf.getvalue()
+    assert (directory / "thumbnail-card.webp").stat().st_size < len(buf.getvalue())
+    assert Image.open(directory / "thumbnail-detail.webp").format == "WEBP"
+
+
+def test_overwrite_replaces_variants_with_new_image(tmp_path, monkeypatch):
+    import io
+
+    from PIL import Image
+
+    episode_id = _episode(tmp_path)
+
+    def png(color):
+        b = io.BytesIO()
+        Image.new("RGB", (1280, 720), color).save(b, "PNG")
+        return b.getvalue()
+
+    images = iter([png((255, 0, 0)), png((0, 0, 255))])
+    monkeypatch.setattr(thumbnail_service, "_get_image", lambda *a, **k: next(images))
+    thumbnail_service.generate_thumbnail(episode_id, episodes_dir=str(tmp_path))
+    thumbnail_service.generate_thumbnail(episode_id, episodes_dir=str(tmp_path), overwrite=True)
+
+    pixel = Image.open(tmp_path / str(episode_id) / "thumbnail-card.webp").convert("RGB").getpixel((10, 10))
+    assert pixel[2] > 200 and pixel[0] < 60

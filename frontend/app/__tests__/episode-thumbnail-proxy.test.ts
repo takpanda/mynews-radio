@@ -57,4 +57,45 @@ describe('エピソードサムネイル中継', () => {
     expect(response.status).toBe(404)
     expect(response.headers.get('cache-control')).toBe('private, no-store')
   })
+
+  it('size を上流へ渡し、上流の Cache-Control を転送する', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      new Response(new Uint8Array([82, 73, 70, 70]), {
+        status: 200,
+        headers: { 'Content-Type': 'image/webp', 'Cache-Control': 'public, max-age=3600' },
+      }),
+    )
+
+    const response = await thumbnailRoute.GET(
+      request('http://localhost/api/episodes/12/thumbnail?size=card'),
+      { params: Promise.resolve({ id: '12' }) },
+    )
+
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).toMatch(/\/episodes\/12\/thumbnail\?size=card$/)
+    expect(response.headers.get('content-type')).toBe('image/webp')
+    expect(response.headers.get('cache-control')).toBe('public, max-age=3600')
+  })
+
+  it.each([['private, no-cache'], ['no-cache']])('フォールバック/非公開の上流ヘッダ %s をそのまま転送する', async (cc) => {
+    global.fetch = jest.fn().mockResolvedValue(
+      new Response(new Uint8Array([137, 80]), {
+        status: 200,
+        headers: { 'Content-Type': 'image/png', 'Cache-Control': cc },
+      }),
+    )
+    const response = await thumbnailRoute.GET(
+      request('http://localhost/api/episodes/12/thumbnail?size=detail'),
+      { params: Promise.resolve({ id: '12' }) },
+    )
+    expect(response.headers.get('cache-control')).toBe(cc)
+  })
+
+  it.each(['huge', '', 'card&x=1'])('不正な size=%j は上流へ送らず422を返す', async (size) => {
+    const response = await thumbnailRoute.GET(
+      request(`http://localhost/api/episodes/12/thumbnail?size=${encodeURIComponent(size)}`),
+      { params: Promise.resolve({ id: '12' }) },
+    )
+    expect(response.status).toBe(422)
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
 })

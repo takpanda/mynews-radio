@@ -11,13 +11,18 @@ export async function GET(
 ) {
   const { id } = await params
 
+  const size = request.nextUrl.searchParams.get("size")
+  if (size !== null && !SIZES.has(size)) {
+    // 上流APIと同様に、未知のsizeは原寸PNGへ黙って切り替えず422で拒否する
+    return new Response(null, { status: 422, headers: { "Cache-Control": PRIVATE_NO_STORE } })
+  }
+
   try {
     const headers: Record<string, string> = {}
     const cookie = getAdminSessionCookie(request)
     if (cookie) headers.Cookie = cookie
 
-    const size = request.nextUrl.searchParams.get("size")
-    const query = size && SIZES.has(size) ? `?size=${size}` : ""
+    const query = size ? `?size=${size}` : ""
     const upstream = await fetch(`${API_BASE}/episodes/${encodeURIComponent(id)}/thumbnail${query}`, {
       cache: "no-store",
       headers,
