@@ -17,7 +17,7 @@ from app.batch.run_daily import resolve_batch_tts_engine, run_claimed_jobs  # no
 from app.batch.weekly_digest import (  # noqa: E402
     DIGEST_EPISODE_TYPE,
     WEEKLY_DIGEST_OPERATION,
-    count_failed_week_digests,
+    digest_idempotency_key,
     digest_today,
     find_week_digest,
     iso_week_label,
@@ -48,16 +48,16 @@ def main() -> None:
 
     with get_db_connection() as conn:
         owner_id = ensure_generation_system_owner(conn)
-    # 失敗した回の再実行を、冪等キーが同一のまま重複扱いにしないよう試行回数をキーに含める。
-    attempt = count_failed_week_digests(target)
-    idempotency_key = f"weekly-digest-{week}" + (f"-r{attempt}" if attempt else "")
+    # 対象記事の完成時刻の上限。キュー待機中に完成した通常回を含めないよう起動時刻で固定する。
+    started_at = dt.datetime.now(dt.timezone.utc)
     payload = {
         "date": target.isoformat(),
         "iso_week": week,
+        "cutoff": started_at.isoformat(),
         "tts_engine": resolve_batch_tts_engine(),
     }
     claim = enqueue_job(
-        owner_id, WEEKLY_DIGEST_OPERATION, idempotency_key, payload,
+        owner_id, WEEKLY_DIGEST_OPERATION, digest_idempotency_key(target), payload,
         episode_date=target.isoformat(), episode_type=DIGEST_EPISODE_TYPE,
         # cronプロセスはenqueue後に終了するため、active claimはこのプロセス内で
         # 同期実行し、waitingの場合だけ永続キューに残す（run_daily.py と同じ方針）。

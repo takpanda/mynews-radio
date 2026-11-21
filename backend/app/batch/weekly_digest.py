@@ -46,7 +46,7 @@ DIGEST_TITLE_LABEL = "週末ダイジェスト"
 
 # 選定: 1回で扱う記事数と、単一カテゴリの上限(max_articles に対する割合)。
 DIGEST_MAX_ARTICLES = 12
-DIGEST_MIN_ARTICLES = 3
+DIGEST_MIN_ARTICLES = 1
 DIGEST_CATEGORY_MAX_RATIO = 0.4
 # カテゴリ上限で候補が足りなくなる場合に、上限を緩めてでも確保する最低件数。
 DIGEST_CATEGORY_RELAX_MIN = 6
@@ -56,7 +56,29 @@ DIGEST_TARGET_CHARS_MIN = 3300
 DIGEST_TARGET_CHARS_MAX = 4000
 DIGEST_AVG_CHARS_PER_LINE = 80
 
+# 台本が短すぎる/長すぎる場合は1回だけ再生成し、それでも極端に短ければ失敗にする。
+# 記事が少ない週は短くて当然なので、下限は記事数(満量=DIGEST_CATEGORY_RELAX_MIN件)で按分する。
+DIGEST_LENGTH_TOLERANCE_LOW = 0.8
+DIGEST_LENGTH_TOLERANCE_HIGH = 1.2
+DIGEST_LENGTH_FAIL_RATIO = 0.5
+DIGEST_MAX_ATTEMPTS = 2
+
 _ALLOWED_SECTIONS = {"intro", "news", "outro"}
+
+
+def target_chars_range(article_count: int) -> tuple[int, int]:
+    factor = min(1.0, article_count / DIGEST_CATEGORY_RELAX_MIN)
+    return round(DIGEST_TARGET_CHARS_MIN * factor), round(DIGEST_TARGET_CHARS_MAX * factor)
+
+
+def length_within_target(chars: int, article_count: int) -> bool:
+    low, high = target_chars_range(article_count)
+    return low * DIGEST_LENGTH_TOLERANCE_LOW <= chars <= high * DIGEST_LENGTH_TOLERANCE_HIGH
+
+
+def length_unacceptable(chars: int, article_count: int) -> bool:
+    """極端に短い(下限の半分未満)台本は公開しない。"""
+    return chars < target_chars_range(article_count)[0] * DIGEST_LENGTH_FAIL_RATIO
 
 
 # ---------------------------------------------------------------------------
@@ -81,15 +103,17 @@ def digest_today() -> date:
     return datetime.now(JST).date()
 
 
-def completion_window_utc(target: date) -> tuple[str, str]:
-    """ISO週の月曜0:00 JST 〜 target日の翌0:00 JST を、DBのUTC時刻文字列で返す。
+def completion_window_utc(target: date, cutoff: datetime | None = None) -> tuple[str, str]:
+    """ISO週の月曜0:00 JST 〜 上限 を、DBのUTC時刻文字列で返す。
 
-    通常回のepisode_dateは実行環境TZの日付で付くため、日付ではなく完成時刻(updated_at)で
-    「その週に放送済み」を判定する。月曜朝の通常回も、その週の総集編に含まれる。
+    上限は target日の翌0:00 JST と cutoff(ジョブ起動時刻)の早い方。キュー待機中に
+    完成した回(起動後の回)を含めないため、バッチは起動時刻を cutoff に渡す。
     """
     monday, _ = iso_week_bounds(target)
     start = datetime.combine(monday, time.min, tzinfo=JST)
     end = datetime.combine(target + timedelta(days=1), time.min, tzinfo=JST)
+    if cutoff is not None:
+        end = min(end, cutoff)
     fmt = "%Y-%m-%d %H:%M:%S"
     return start.astimezone(timezone.utc).strftime(fmt), end.astimezone(timezone.utc).strftime(fmt)
 
@@ -110,15 +134,22 @@ def find_week_digest(target: date) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def count_failed_week_digests(target: date) -> int:
-    monday, sunday = iso_week_bounds(target)
+def digest_idempotency_key(target: date) -> str:
+    """週ごとの冪等キー。終了済み(成功・失敗)の試行ごとに枝番を進め、再実行を許可する。
+
+    実行中・待機中のジョブがある間は同じキーになり、同時起動は重複として弾かれる。
+    ダイジェストが既にある週は find_week_digest で先にスキップされる。
+    """
+    base = f"weekly-digest-{iso_week_label(target)}"
     with get_db_connection() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM episodes "
-            "WHERE type = ? AND episode_date BETWEEN ? AND ? AND status = 'failed'",
-            (DIGEST_EPISODE_TYPE, monday.isoformat(), sunday.isoformat()),
+            "SELECT COUNT(*) AS cnt FROM generation_jobs "
+            "WHERE operation = ? AND status IN ('completed', 'failed') "
+            "AND (idempotency_key = ? OR idempotency_key LIKE ?)",
+            (WEEKLY_DIGEST_OPERATION, base, f"{base}-r%"),
         ).fetchone()
-    return int(row["cnt"]) if row else 0
+    attempt = int(row["cnt"]) if row else 0
+    return f"{base}-r{attempt}" if attempt else base
 
 
 def build_digest_title(target: date) -> str:
@@ -130,24 +161,34 @@ def build_digest_title(target: date) -> str:
 # ---------------------------------------------------------------------------
 
 
-def fetch_broadcast_articles(target: date) -> list[dict[str, Any]]:
+def fetch_broadcast_articles(target: date, cutoff: datetime | None = None) -> list[dict[str, Any]]:
     """target を含むISO週に完成した通常回(type='radio')で放送された記事を重複なく返す。
 
     未完成・失敗した回、解説回(commentary)の記事は含めない。要約が無い記事は
     再要約せず除外する。
+
+    完成時刻は、episodes.updated_at(サムネイル更新等で変わる)ではなく、生成成功時に
+    一度だけ記録される監査ログ(audit_logs result='success')の時刻を使う。
     """
-    window_start, window_end = completion_window_utc(target)
+    window_start, window_end = completion_window_utc(target, cutoff)
     with get_db_connection() as conn:
         rows = conn.execute(
             """
             SELECT DISTINCT a.id, a.title, a.source, a.url, a.summary, a.category,
                    a.importance_score
             FROM episodes e
+            JOIN (
+                SELECT episode_id, MIN(datetime(executed_at)) AS completed_at
+                FROM audit_logs
+                WHERE result = 'success' AND operation IN ('daily', 'generate')
+                  AND episode_id IS NOT NULL
+                GROUP BY episode_id
+            ) done ON done.episode_id = e.id
             JOIN episode_items i ON i.episode_id = e.id
             JOIN articles a ON a.id = i.article_id
             WHERE e.type = 'radio'
               AND e.status = 'completed'
-              AND e.updated_at >= ? AND e.updated_at < ?
+              AND done.completed_at >= ? AND done.completed_at < ?
               AND a.summary IS NOT NULL AND TRIM(a.summary) != ''
             """,
             (window_start, window_end),
@@ -210,9 +251,9 @@ def pick_digest_articles(
 
 
 def select_digest_articles(
-    target: date, *, max_articles: int = DIGEST_MAX_ARTICLES
+    target: date, cutoff: datetime | None = None, *, max_articles: int = DIGEST_MAX_ARTICLES
 ) -> list[dict[str, Any]]:
-    return pick_digest_articles(fetch_broadcast_articles(target), max_articles=max_articles)
+    return pick_digest_articles(fetch_broadcast_articles(target, cutoff), max_articles=max_articles)
 
 
 # ---------------------------------------------------------------------------
@@ -220,9 +261,9 @@ def select_digest_articles(
 # ---------------------------------------------------------------------------
 
 
-def suggested_lines_count() -> int:
-    target_mid = (DIGEST_TARGET_CHARS_MIN + DIGEST_TARGET_CHARS_MAX) // 2
-    return round(target_mid / DIGEST_AVG_CHARS_PER_LINE)
+def suggested_lines_count(article_count: int = DIGEST_CATEGORY_RELAX_MIN) -> int:
+    low, high = target_chars_range(article_count)
+    return max(1, round((low + high) / 2 / DIGEST_AVG_CHARS_PER_LINE))
 
 
 def script_char_count(script: dict[str, Any]) -> int:
@@ -262,9 +303,9 @@ def generate_digest_script(
     variables = {
         "week_label": iso_week_label(target_date),
         "article_count": len(summaries),
-        "suggested_lines_count": suggested_lines_count(),
-        "target_chars_min": DIGEST_TARGET_CHARS_MIN,
-        "target_chars_max": DIGEST_TARGET_CHARS_MAX,
+        "suggested_lines_count": suggested_lines_count(len(summaries)),
+        "target_chars_min": target_chars_range(len(summaries))[0],
+        "target_chars_max": target_chars_range(len(summaries))[1],
         "summaries_json": json.dumps(summaries, ensure_ascii=False, indent=2),
     }
     rendered = render_prompt(
@@ -288,16 +329,54 @@ def generate_digest_script(
         if (llm_provider or llm_model)
         else (lambda: OllamaClient(settings.ollama_base_url, settings.ollama_model))
     )
-    with client_factory() as client:
-        set_llm_context(
-            client, phase="script", episode_id=episode_id, prompt_version_id=rendered.version_id
+    script: dict[str, Any] | None = None
+    total_chars = 0
+    for attempt in range(1, DIGEST_MAX_ATTEMPTS + 1):
+        with client_factory() as client:
+            set_llm_context(
+                client, phase="script", episode_id=episode_id, prompt_version_id=rendered.version_id
+            )
+            response = client.generate_json(prompt)
+        if response is None or not isinstance(response.get("lines"), list):
+            logger.error("Invalid digest script JSON generated (attempt %d)", attempt)
+            continue
+        candidate = _build_script(response, target_date, profile, speaker_keys, article_ids)
+        chars = script_char_count(candidate)
+        if not candidate["lines"]:
+            continue
+        # 範囲内の台本を優先し、無ければより長い方(短すぎる台本を避ける)を残す。
+        if script is None or length_within_target(chars, len(summaries)) or chars > total_chars:
+            script, total_chars = candidate, chars
+        if length_within_target(chars, len(summaries)):
+            break
+        logger.warning(
+            "digest script length is outside the target (attempt %d): chars=%d target=%s lines=%d",
+            attempt, chars, target_chars_range(len(summaries)), len(candidate["lines"]),
         )
-        response = client.generate_json(prompt)
 
-    if response is None or not isinstance(response.get("lines"), list):
-        logger.error("Invalid digest script JSON generated")
+    if script is None:
+        return 0
+    if length_unacceptable(total_chars, len(summaries)):
+        logger.error(
+            "digest script is too short to publish: chars=%d target=%s",
+            total_chars, target_chars_range(len(summaries)),
+        )
         return 0
 
+    Path(output_path).write_text(
+        json.dumps(script, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    logger.info(
+        "digest script generated: lines=%d chars=%d output=%s",
+        len(script["lines"]), total_chars, output_path,
+    )
+    return len(script["lines"])
+
+
+def _build_script(
+    response: dict[str, Any], target_date: date, profile: ProgramProfile,
+    speaker_keys: tuple[str, ...], article_ids: set[int],
+) -> dict[str, Any]:
     script: dict[str, Any] = {
         "date": target_date.isoformat(),
         "title": build_digest_title(target_date),
@@ -328,22 +407,7 @@ def generate_digest_script(
             "section": section,
             "delivery": line.get("delivery", "neutral"),
         })
-
-    total_chars = script_char_count(script)
-    if not DIGEST_TARGET_CHARS_MIN * 0.8 <= total_chars <= DIGEST_TARGET_CHARS_MAX * 1.2:
-        logger.warning(
-            "digest script length is outside the target: chars=%d target=%d-%d lines=%d",
-            total_chars, DIGEST_TARGET_CHARS_MIN, DIGEST_TARGET_CHARS_MAX, len(script["lines"]),
-        )
-
-    Path(output_path).write_text(
-        json.dumps(script, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    logger.info(
-        "digest script generated: lines=%d chars=%d output=%s",
-        len(script["lines"]), total_chars, output_path,
-    )
-    return len(script["lines"])
+    return script
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +421,7 @@ def run_digest_pipeline(
     episode_date: str,
     tts_engine: str | None = None,
     default_episodes_dir: str | None = None,
+    cutoff: datetime | None = None,
 ) -> dict[str, Any] | PipelineResult | None:
     """ダイジェスト回を生成する。成功時はmetadata、記事不足時は NO_CONTENT、失敗時は None。"""
     service = EpisodeService()
@@ -383,7 +448,7 @@ def run_digest_pipeline(
 
         # -- SELECT --
         service.update_episode_phase(episode_id, "select_articles", "放送済み記事を選定しています…")
-        articles = select_digest_articles(target_date)
+        articles = select_digest_articles(target_date, cutoff)
         logger.info(
             "[%d] digest articles selected: %d (%s)",
             episode_id, len(articles), iso_week_label(target_date),
@@ -528,5 +593,6 @@ def run_digest_job(job) -> bool:
         job["episode_id"],
         episode_date=payload["date"],
         tts_engine=payload.get("tts_engine"),
+        cutoff=datetime.fromisoformat(payload["cutoff"]) if payload.get("cutoff") else None,
     )
     return result is not None

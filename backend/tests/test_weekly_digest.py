@@ -30,18 +30,23 @@ def _insert_article(article_id, title, *, category="technology", score=5, summar
         )
 
 
-def _insert_episode(episode_type, status, updated_at, article_ids, episode_date="2026-11-17"):
-    """updated_at(UTC)を明示して、完成時刻ベースの週判定を再現する。"""
+def _insert_episode(episode_type, status, completed_at, article_ids, episode_date="2026-11-17",
+                    updated_at=None, operation="daily"):
+    """completed_at(UTC)は生成成功の監査ログ時刻。updated_at は完成後の更新(サムネイル等)を再現するため別指定できる。"""
     with get_db_connection() as conn:
         episode_id = conn.execute(
             "INSERT INTO episodes(episode_date, status, type, updated_at) VALUES (?, ?, ?, ?)",
-            (episode_date, status, episode_type, updated_at),
+            (episode_date, status, episode_type, updated_at or completed_at),
         ).lastrowid
         for order, article_id in enumerate(article_ids, start=1):
             conn.execute(
                 "INSERT INTO episode_items(episode_id, article_id, item_order, segment_text) VALUES (?, ?, ?, 't')",
                 (episode_id, article_id, order),
             )
+        conn.execute(
+            "INSERT INTO audit_logs(operation, executed_at, result, episode_id) VALUES (?, ?, 'success', ?)",
+            (operation, completed_at.replace(" ", "T") + "+00:00", episode_id),
+        )
     return episode_id
 
 
@@ -65,13 +70,23 @@ def test_completion_window_is_monday_midnight_jst_to_next_day_midnight_jst():
     assert end == "2026-11-22 15:00:00"  # 日曜の翌 0:00 JST
 
 
+def test_completion_window_upper_bound_is_the_job_start_time():
+    from datetime import datetime, timezone
+
+    cutoff = datetime(2026, 11, 21, 23, 0, tzinfo=timezone.utc)  # 日曜 8:00 JST
+    _, end = weekly_digest.completion_window_utc(date(2026, 11, 22), cutoff)
+    assert end == "2026-11-21 23:00:00"
+    # 起動時刻が対象日の翌0時より後でも、対象日の翌0:00 JSTを超えない
+    late = datetime(2026, 11, 30, tzinfo=timezone.utc)
+    assert weekly_digest.completion_window_utc(date(2026, 11, 22), late)[1] == "2026-11-22 15:00:00"
+
+
 def test_find_week_digest_ignores_failed_and_other_weeks():
     svc = EpisodeService()
     svc.create_episode("2026-11-15", type="digest", status="completed")  # 前週
     svc.create_episode("2026-11-18", type="digest", status="failed")  # 今週だが失敗
     svc.create_episode("2026-11-19", type="radio", status="completed")  # 通常回
     assert weekly_digest.find_week_digest(date(2026, 11, 22)) is None
-    assert weekly_digest.count_failed_week_digests(date(2026, 11, 22)) == 1
     digest_id = svc.create_episode("2026-11-22", type="digest", status="generating")
     assert weekly_digest.find_week_digest(date(2026, 11, 20))["id"] == digest_id
 
@@ -99,6 +114,39 @@ def test_fetch_broadcast_articles_only_includes_completed_radio_in_the_week():
 
     ids = sorted(a["id"] for a in weekly_digest.fetch_broadcast_articles(date(2026, 11, 22)))
     assert ids == [1, 2]
+
+
+def test_completion_time_is_not_affected_by_later_episode_updates():
+    """完成後のサムネイル更新等で updated_at が週をまたいでも、完成時刻(監査ログ)で判定する。"""
+    _insert_article(1, "今週完成・翌週に更新")
+    _insert_article(2, "前週完成・今週に更新")
+    # 今週(日曜 15:00 UTC 以降)に完成し、updated_at だけが翌週に進んだ回 → 含む
+    _insert_episode("radio", "completed", "2026-11-20 22:00:00", [1], updated_at="2026-11-30 01:00:00")
+    # 前週に完成し、updated_at だけが今週に進んだ回 → 含まない
+    _insert_episode("radio", "completed", "2026-11-15 14:00:00", [2], updated_at="2026-11-18 01:00:00")
+
+    assert [a["id"] for a in weekly_digest.fetch_broadcast_articles(date(2026, 11, 22))] == [1]
+
+
+def test_episodes_completed_after_job_start_are_excluded():
+    from datetime import datetime, timezone
+
+    for i in (1, 2):
+        _insert_article(i, f"記事{i}")
+    _insert_episode("radio", "completed", "2026-11-21 22:30:00", [1])  # 起動(23:00 UTC)前に完成
+    _insert_episode("radio", "completed", "2026-11-21 23:30:00", [2])  # キュー待機中に完成
+    cutoff = datetime(2026, 11, 21, 23, 0, tzinfo=timezone.utc)
+
+    ids = [a["id"] for a in weekly_digest.fetch_broadcast_articles(date(2026, 11, 22), cutoff)]
+    assert ids == [1]
+
+
+def test_manual_generate_jobs_count_but_synthesize_jobs_do_not():
+    _insert_article(1, "手動生成")
+    _insert_article(2, "再合成のみ")
+    _insert_episode("radio", "completed", "2026-11-18 10:00:00", [1], operation="generate")
+    _insert_episode("radio", "completed", "2026-11-18 10:00:00", [2], operation="synthesize")
+    assert [a["id"] for a in weekly_digest.fetch_broadcast_articles(date(2026, 11, 22))] == [1]
 
 
 def test_pick_orders_by_importance_and_caps_max_articles():
@@ -161,8 +209,18 @@ def test_length_target_is_ten_to_twelve_minutes_of_speech():
     chars_per_minute = 330
     assert weekly_digest.DIGEST_TARGET_CHARS_MIN / chars_per_minute == pytest.approx(10, abs=0.1)
     assert weekly_digest.DIGEST_TARGET_CHARS_MAX / chars_per_minute == pytest.approx(12, abs=0.2)
-    lines = weekly_digest.suggested_lines_count()
-    assert weekly_digest.DIGEST_TARGET_CHARS_MIN <= lines * weekly_digest.DIGEST_AVG_CHARS_PER_LINE <= weekly_digest.DIGEST_TARGET_CHARS_MAX
+    assert weekly_digest.target_chars_range(12) == (3300, 4000)
+    # 記事が少ない週は目標を按分する
+    assert weekly_digest.target_chars_range(3) == (1650, 2000)
+    assert weekly_digest.suggested_lines_count(12) == 46
+
+
+def test_length_checks():
+    assert weekly_digest.length_within_target(3650, 12)
+    assert not weekly_digest.length_within_target(1000, 12)
+    assert weekly_digest.length_unacceptable(1000, 12)  # 下限の半分(1650)未満
+    assert not weekly_digest.length_unacceptable(2000, 12)
+    assert not weekly_digest.length_unacceptable(500, 1)  # 1件なら 550 の半分以上
 
 
 class _FakeClient:
@@ -190,11 +248,12 @@ def _patch_llm(monkeypatch, response):
 
 def test_generate_digest_script_builds_two_mc_script_from_summaries(monkeypatch, tmp_path):
     articles = [_article(1, "記事A", summary="Aの要約"), _article(2, "記事B", summary="Bの要約")]
+    filler = "あ" * 1200  # 2件分の目標(約1100〜1330字)に収める
     response = {
         "subtitle": "今週の振り返り",
         "lines": [
             {"speaker": "male", "text": "今週の総集編です。", "article_id": None, "section": "intro"},
-            {"speaker": "female", "text": "記事Aの話。", "article_id": 1, "section": "news", "delivery": "warm"},
+            {"speaker": "female", "text": "記事Aの話。" + filler, "article_id": 1, "section": "news", "delivery": "warm"},
             {"speaker": "unknown", "text": "話者は補正される。", "article_id": 999, "section": "weird"},
             {"speaker": "male", "text": "   ", "article_id": 2, "section": "news"},
             "not-a-dict",
@@ -217,6 +276,57 @@ def test_generate_digest_script_builds_two_mc_script_from_summaries(monkeypatch,
     assert "2026-W47" in _FakeClient.prompts[0]
     context = json.loads((tmp_path / "7" / "prompt_context.json").read_text(encoding="utf-8"))
     assert context["article_count"] == 2
+
+
+class _SeqClient(_FakeClient):
+    responses: list = []
+
+    def generate_json(self, prompt):
+        _FakeClient.prompts.append(prompt)
+        return _SeqClient.responses.pop(0)
+
+
+def _script_response(total_chars, lines=10):
+    each = total_chars // lines
+    return {"subtitle": "s", "lines": [
+        {"speaker": "male" if i % 2 == 0 else "female", "text": "あ" * each, "article_id": None, "section": "news"}
+        for i in range(lines)
+    ]}
+
+
+def _patch_seq(monkeypatch, responses):
+    _FakeClient.prompts = []
+    _SeqClient.responses = list(responses)
+    monkeypatch.setattr(weekly_digest, "create_llm_client", lambda *_a, **_k: _SeqClient(None))
+    monkeypatch.setattr(weekly_digest, "set_llm_context", lambda *_a, **_k: None)
+
+
+def _twelve_articles():
+    return [_article(i, f"記事{i}") for i in range(1, 13)]
+
+
+def test_short_script_is_regenerated_once_and_the_in_range_result_is_used(monkeypatch, tmp_path):
+    _patch_seq(monkeypatch, [_script_response(800), _script_response(3600)])
+    out = tmp_path / "script.json"
+    count = weekly_digest.generate_digest_script(str(out), _twelve_articles(), date(2026, 11, 22), llm_provider="x")
+    assert count == 10 and len(_FakeClient.prompts) == 2
+    script = json.loads(out.read_text(encoding="utf-8"))
+    assert weekly_digest.length_within_target(weekly_digest.script_char_count(script), 12)
+
+
+def test_extremely_short_script_fails_after_retry(monkeypatch, tmp_path):
+    _patch_seq(monkeypatch, [_script_response(800), _script_response(900)])
+    out = tmp_path / "script.json"
+    assert weekly_digest.generate_digest_script(str(out), _twelve_articles(), date(2026, 11, 22), llm_provider="x") == 0
+    assert not out.exists()
+
+
+def test_slightly_short_script_is_kept_with_a_warning(monkeypatch, tmp_path):
+    # 下限(3300)の0.8未満だが、失敗ライン(1650)以上の台本は再試行後も採用する
+    _patch_seq(monkeypatch, [_script_response(2200), _script_response(2300)])
+    out = tmp_path / "script.json"
+    assert weekly_digest.generate_digest_script(str(out), _twelve_articles(), date(2026, 11, 22), llm_provider="x") == 10
+    assert weekly_digest.script_char_count(json.loads(out.read_text(encoding="utf-8"))) == 2300
 
 
 def test_generate_digest_script_returns_zero_on_invalid_response(monkeypatch, tmp_path):
@@ -418,15 +528,26 @@ def test_pipeline_creates_completed_digest_with_two_mc_fishs2pro(monkeypatch, tm
     assert [r["event_type"] for r in outbox] == ["weekly_digest_completed"]
 
 
-def test_pipeline_skips_without_enough_broadcast_articles(monkeypatch):
-    _insert_article(1, "記事1")
-    _insert_episode("radio", "completed", "2026-11-17 22:00:00", [1])
+def test_pipeline_skips_only_when_no_broadcast_articles():
     episode_id = EpisodeService().create_episode("2026-11-22", status="generating", type="digest")
 
     result = weekly_digest.run_digest_pipeline(episode_id, episode_date="2026-11-22")
 
     assert result is weekly_digest.PipelineResult.NO_CONTENT
     assert EpisodeService().get_episode(episode_id) is None
+
+
+def test_pipeline_generates_even_with_a_single_broadcast_article(monkeypatch, tmp_path):
+    _insert_article(1, "唯一の記事")
+    _insert_episode("radio", "completed", "2026-11-17 22:00:00", [1])
+    _fake_llm_selection(monkeypatch)
+    calls: dict = {}
+    _patch_pipeline_parts(monkeypatch, tmp_path, calls)
+    episode_id = EpisodeService().create_episode("2026-11-22", status="generating", type="digest")
+
+    assert isinstance(weekly_digest.run_digest_pipeline(episode_id, episode_date="2026-11-22"), dict)
+    assert calls["articles"] == [1]
+    assert EpisodeService().get_episode(episode_id)["status"] == "completed"
 
 
 def test_pipeline_marks_failed_when_synthesis_fails(monkeypatch, tmp_path):
@@ -570,3 +691,39 @@ def test_admin_can_render_digest_prompt_from_saved_episode_input(client, monkeyp
     assert rendered.status_code == 200, rendered.text
     assert "保存済み要約" in rendered.json()["prompt"]
     assert "2026-W47" in rendered.json()["prompt"]
+
+
+def test_rerun_after_a_no_content_week_can_generate_once_articles_exist(monkeypatch):
+    """記事が無く生成しなかった週でも、後から記事が増えれば同じ週に再実行できる。"""
+    _fake_llm_selection(monkeypatch)
+    calls: dict = {}
+    _patch_pipeline_parts(monkeypatch, None, calls)
+    monkeypatch.setattr(weekly_digest, "run_digest_pipeline", weekly_digest.run_digest_pipeline)
+
+    _run_batch(monkeypatch)  # 対象記事なし → エピソードは作られない
+    assert _digests() == []
+    _insert_article(1, "あとから放送された記事")
+    _insert_episode("radio", "completed", "2026-11-17 22:00:00", [1])
+
+    _run_batch(monkeypatch)
+    _run_batch(monkeypatch)  # 3回目は既存ダイジェストがあるためスキップ
+
+    digests = _digests()
+    assert len(digests) == 1 and digests[0]["status"] == "completed"
+    assert calls["articles"] == [1]
+
+
+def test_job_payload_pins_the_job_start_time_as_cutoff(monkeypatch):
+    seen = {}
+
+    def fake_pipeline(episode_id, *, episode_date, tts_engine=None, cutoff=None, **_kw):
+        seen["cutoff"] = cutoff
+        EpisodeService().complete_radio_episode_with_notification(episode_id)
+        return {"title": "ok"}
+
+    monkeypatch.setattr(weekly_digest, "run_digest_pipeline", fake_pipeline)
+    from datetime import datetime, timezone
+
+    before = datetime.now(timezone.utc)
+    _run_batch(monkeypatch)
+    assert before <= seen["cutoff"] <= datetime.now(timezone.utc)
