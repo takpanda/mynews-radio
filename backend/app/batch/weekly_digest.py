@@ -57,7 +57,6 @@ DIGEST_TARGET_CHARS_MAX = 4000
 DIGEST_AVG_CHARS_PER_LINE = 80
 
 # 台本が短すぎる/長すぎる場合は1回だけ再生成し、それでも極端に短ければ失敗にする。
-# 記事が少ない週は短くて当然なので、下限は記事数(満量=DIGEST_CATEGORY_RELAX_MIN件)で按分する。
 DIGEST_LENGTH_TOLERANCE_LOW = 0.8
 DIGEST_LENGTH_TOLERANCE_HIGH = 1.2
 DIGEST_LENGTH_FAIL_RATIO = 0.5
@@ -67,8 +66,8 @@ _ALLOWED_SECTIONS = {"intro", "news", "outro"}
 
 
 def target_chars_range(article_count: int) -> tuple[int, int]:
-    factor = min(1.0, article_count / DIGEST_CATEGORY_RELAX_MIN)
-    return round(DIGEST_TARGET_CHARS_MIN * factor), round(DIGEST_TARGET_CHARS_MAX * factor)
+    """目標文字数(10〜12分)。記事が少ない週も短縮せず、各記事を掘り下げて尺を保つ。"""
+    return DIGEST_TARGET_CHARS_MIN, DIGEST_TARGET_CHARS_MAX
 
 
 def length_within_target(chars: int, article_count: int) -> bool:
@@ -135,20 +134,21 @@ def find_week_digest(target: date) -> dict[str, Any] | None:
 
 
 def digest_idempotency_key(target: date) -> str:
-    """週ごとの冪等キー。終了済み(成功・失敗)の試行ごとに枝番を進め、再実行を許可する。
+    """週ごとの冪等キー。生成しなかった/失敗した試行ごとに枝番を進め、再実行を許可する。
 
+    試行数は24時間で削除される生成ジョブではなく、エピソード(failed)の件数で数える。
     実行中・待機中のジョブがある間は同じキーになり、同時起動は重複として弾かれる。
     ダイジェストが既にある週は find_week_digest で先にスキップされる。
     """
-    base = f"weekly-digest-{iso_week_label(target)}"
+    monday, sunday = iso_week_bounds(target)
     with get_db_connection() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM generation_jobs "
-            "WHERE operation = ? AND status IN ('completed', 'failed') "
-            "AND (idempotency_key = ? OR idempotency_key LIKE ?)",
-            (WEEKLY_DIGEST_OPERATION, base, f"{base}-r%"),
+            "SELECT COUNT(*) AS cnt FROM episodes "
+            "WHERE type = ? AND episode_date BETWEEN ? AND ? AND status = 'failed'",
+            (DIGEST_EPISODE_TYPE, monday.isoformat(), sunday.isoformat()),
         ).fetchone()
     attempt = int(row["cnt"]) if row else 0
+    base = f"weekly-digest-{iso_week_label(target)}"
     return f"{base}-r{attempt}" if attempt else base
 
 
@@ -167,8 +167,9 @@ def fetch_broadcast_articles(target: date, cutoff: datetime | None = None) -> li
     未完成・失敗した回、解説回(commentary)の記事は含めない。要約が無い記事は
     再要約せず除外する。
 
-    完成時刻は、episodes.updated_at(サムネイル更新等で変わる)ではなく、生成成功時に
-    一度だけ記録される監査ログ(audit_logs result='success')の時刻を使う。
+    完成時刻は、episodes.updated_at(サムネイル更新等で変わる)や生成ジョブの監査ログ
+    (レビュー待ちでも成功扱いで記録される)ではなく、完成確定と同一トランザクションで
+    一度だけ登録される通知Outbox(daily_radio_completed)の作成時刻を使う。
     """
     window_start, window_end = completion_window_utc(target, cutoff)
     with get_db_connection() as conn:
@@ -178,11 +179,9 @@ def fetch_broadcast_articles(target: date, cutoff: datetime | None = None) -> li
                    a.importance_score
             FROM episodes e
             JOIN (
-                SELECT episode_id, MIN(datetime(executed_at)) AS completed_at
-                FROM audit_logs
-                WHERE result = 'success' AND operation IN ('daily', 'generate')
-                  AND episode_id IS NOT NULL
-                GROUP BY episode_id
+                SELECT episode_id, datetime(created_at) AS completed_at
+                FROM notification_outbox
+                WHERE event_type = 'daily_radio_completed'
             ) done ON done.episode_id = e.id
             JOIN episode_items i ON i.episode_id = e.id
             JOIN articles a ON a.id = i.article_id
@@ -454,8 +453,10 @@ def run_digest_pipeline(
             episode_id, len(articles), iso_week_label(target_date),
         )
         if len(articles) < DIGEST_MIN_ARTICLES:
-            logger.info("[%d] digest skipped: not enough broadcast articles", episode_id)
-            service.delete_episode(episode_id)
+            logger.info("[%d] digest skipped: no broadcast articles", episode_id)
+            # 試行の記録として failed のまま残す(公開されない。再実行の枝番に使う)。通知はしない。
+            service.update_episode_status(episode_id, "failed")
+            service.update_episode_phase(episode_id, "no_content", "対象となる放送済み記事がありませんでした")
             return PipelineResult.NO_CONTENT
 
         # -- GENERATE SCRIPT --

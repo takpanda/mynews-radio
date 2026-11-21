@@ -25,7 +25,7 @@ from app.batch.weekly_digest import (  # noqa: E402
 from app.db.connection import get_db_connection  # noqa: E402
 from app.db.migration import ensure_generation_system_owner  # noqa: E402
 from app.logging_config import setup_daily_logging  # noqa: E402
-from app.services.generation_control import enqueue_job  # noqa: E402
+from app.services.generation_control import GenerationControlError, enqueue_job  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +56,20 @@ def main() -> None:
         "cutoff": started_at.isoformat(),
         "tts_engine": resolve_batch_tts_engine(),
     }
-    claim = enqueue_job(
-        owner_id, WEEKLY_DIGEST_OPERATION, digest_idempotency_key(target), payload,
-        episode_date=target.isoformat(), episode_type=DIGEST_EPISODE_TYPE,
-        # cronプロセスはenqueue後に終了するため、active claimはこのプロセス内で
-        # 同期実行し、waitingの場合だけ永続キューに残す（run_daily.py と同じ方針）。
-        client_ip="cron", dispatch=False,
-    )
+    try:
+        claim = enqueue_job(
+            owner_id, WEEKLY_DIGEST_OPERATION, digest_idempotency_key(target), payload,
+            episode_date=target.isoformat(), episode_type=DIGEST_EPISODE_TYPE,
+            # cronプロセスはenqueue後に終了するため、active claimはこのプロセス内で
+            # 同期実行し、waitingの場合だけ永続キューに残す（run_daily.py と同じ方針）。
+            client_ip="cron", dispatch=False,
+        )
+    except GenerationControlError as exc:
+        # 同時起動した別プロセスが同じ試行キーで先にキューへ登録済み(起動時刻が違うため入力不一致になる)。
+        if exc.status_code == 409:
+            logger.info("Weekly digest for %s is already queued by another process; skipping", week)
+            return
+        raise
     logger.info("Weekly digest queued: job_id=%d status=%s", claim.job_id, claim.status)
     if claim.duplicate or claim.status != "active":
         return
