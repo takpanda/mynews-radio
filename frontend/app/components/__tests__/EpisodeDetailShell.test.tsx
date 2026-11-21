@@ -61,11 +61,12 @@ describe('EpisodeDetailShell サムネイル表示', () => {
   const renderShell = (ep: DetailEpisode) =>
     render(<EpisodeDetailShell episode={ep} script={null} articles={[]} episodeItems={[]} summary={null} />)
 
-  it('thumbnailUrl がある場合はその画像を lazy load で表示する', () => {
+  it('thumbnailUrl がある場合は詳細用サイズの画像をファーストビュー向けに優先読み込みする', () => {
     const { container } = renderShell(episode({ thumbnailUrl: '/api/episodes/1/thumbnail' }))
     const img = container.querySelector('[data-testid="episode-thumbnail"] img')
-    expect(img?.getAttribute('src')).toBe('/api/episodes/1/thumbnail')
-    expect(img?.getAttribute('loading')).toBe('lazy')
+    expect(img?.getAttribute('src')).toBe('/api/episodes/1/thumbnail?size=detail')
+    expect(img?.getAttribute('loading')).toBe('eager')
+    expect(img?.getAttribute('fetchpriority')).toBe('high')
   })
 
   it('thumbnailUrl が null の場合はカテゴリ別のデフォルト画像を表示する', () => {

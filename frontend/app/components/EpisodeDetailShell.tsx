@@ -128,6 +128,8 @@ export default function EpisodeDetailShell({ episode, script, articles, episodeI
         <div className="relative mb-4 aspect-video w-full max-w-xl overflow-hidden rounded-xl bg-slate-900" data-testid="episode-thumbnail">
           <EpisodeThumbnail
             src={episode.thumbnailUrl}
+            size="detail"
+            priority
             fallbackSrc={CATEGORY_THUMBNAIL_IMAGE[thumbnailCategoryKey({ type: episode.isCommentary ? 'commentary' : undefined, categories: episode.categories })]}
           />
         </div>

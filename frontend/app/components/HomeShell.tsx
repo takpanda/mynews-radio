@@ -150,6 +150,9 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
     return groups
   }, [filteredEpisodes])
 
+  // ファーストビューに入る先頭3件（lg の1行分）は lazy をやめて優先読み込みする
+  const priorityIds = useMemo(() => new Set(filteredEpisodes.slice(0, 3).map((ep) => ep.id)), [filteredEpisodes])
+
   const loadAllRemaining = useCallback(async (currentItems: EpisodeListItem[], currentHasNext: boolean) => {
     if (!currentHasNext || searchLoadRef.current) return
     searchLoadRef.current = true
@@ -376,7 +379,12 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
                         className="block h-full"
                       >
                         <div className="archive-thumb">
-                          <EpisodeThumbnail src={ep.thumbnail_url} fallbackSrc={thumbnailImage} />
+                          <EpisodeThumbnail
+                            src={ep.thumbnail_url}
+                            fallbackSrc={thumbnailImage}
+                            size="card"
+                            priority={priorityIds.has(ep.id)}
+                          />
                           <span className="archive-thumb-date">{dayLabel(ep.date)}</span>
                           {thumbnailLabel && (
                             <span className="archive-thumb-category">{thumbnailLabel}</span>
