@@ -98,10 +98,35 @@ def test_stream_synthesize_persists_items_and_is_idempotent():
     episode_id = service.create_episode("2099-09-03", status="completed", type="radio")
     _write_script(Path(os.environ["EPISODES_DIR"]) / str(episode_id) / "script.json")
 
+    for _ in range(2):
+        _run_stream_synthesize(episode_id)
+        _assert_items(episode_id)
+        assert service.get_episode(episode_id)["status"] == "completed"
+    with get_db_connection() as conn:
+        outbox = conn.execute(
+            "SELECT COUNT(*) AS c FROM notification_outbox "
+            "WHERE event_type = 'daily_radio_completed' AND episode_id = ?",
+            (episode_id,),
+        ).fetchone()["c"]
+    assert outbox == 1
+
+
+def test_stream_synthesize_keeps_items_of_commentary_episode():
+    _insert_articles()
+    service = EpisodeService()
+    episode_id = service.create_episode("2099-09-05", status="completed", type="commentary")
+    service.add_episode_item(episode_id, 1, 1, "既存", "orig-seg1")
+    with get_db_connection() as conn:
+        before = [dict(r) for r in conn.execute(
+            "SELECT * FROM episode_items WHERE episode_id = ?", (episode_id,)).fetchall()]
+    _write_script(Path(os.environ["EPISODES_DIR"]) / str(episode_id) / "script.json")
+
     _run_stream_synthesize(episode_id)
-    _assert_items(episode_id)
-    _run_stream_synthesize(episode_id)
-    _assert_items(episode_id)
+
+    with get_db_connection() as conn:
+        after = [dict(r) for r in conn.execute(
+            "SELECT * FROM episode_items WHERE episode_id = ?", (episode_id,)).fetchall()]
+    assert after == before
 
 
 def test_stream_synthesize_fails_episode_when_items_cannot_be_saved():
@@ -148,5 +173,14 @@ def test_orchestrate_run_persists_items_and_digest_can_fetch_articles(tmp_path):
         assert conn.execute("SELECT status FROM episodes WHERE id = ?", (episode_id,)).fetchone()["status"] == "completed"
     _assert_items(episode_id)
 
-    articles = weekly_digest.fetch_broadcast_articles(date.today())
+    # ダイジェストの週境界は JST のため、完成通知の時刻を固定して実行日時に依存しないようにする
+    with get_db_connection() as conn:
+        updated = conn.execute(
+            "UPDATE notification_outbox SET created_at = '2026-11-18 03:00:00' "
+            "WHERE event_type = 'daily_radio_completed' AND episode_id = ?",
+            (episode_id,),
+        ).rowcount
+    assert updated == 1
+
+    articles = weekly_digest.fetch_broadcast_articles(date(2026, 11, 18))
     assert {a["id"] for a in articles} >= {1, 2}
