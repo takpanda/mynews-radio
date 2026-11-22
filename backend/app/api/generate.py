@@ -1048,6 +1048,14 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
         return
 
     service.update_episode_audio_path(episode_id, ep_metadata.get("audio_path") or "")
+    # 週次ダイジェストが放送済み記事を拾えるよう、完成確定の前に紐付けを保存する
+    try:
+        service.replace_episode_items_from_script(episode_id, script_path)
+    except Exception:
+        logger.exception("[%d] failed to persist episode_items", episode_id)
+        service.update_episode_status(episode_id, "failed")
+        yield _format_sse("error", _build_error_payload("番組データの保存に失敗しました", status="persist_error"))
+        return
     service.complete_radio_episode_with_notification(episode_id)
     notification_title = None
     try:

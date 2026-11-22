@@ -363,6 +363,37 @@ class EpisodeService:
             )
 
     @retry_on_busy()
+    def replace_episode_items_from_script(self, episode_id: int, script_path: str) -> int:
+        """script.json の lines から episode_items を作り直す（冪等）。
+
+        既存行の削除と挿入を同一トランザクションで行うため、再合成・再完了しても
+        行は重複せず、途中で失敗した場合は元の行が残る。article_id が無い行は NULL。
+        戻り値は保存した行数。
+        """
+        import json as _json
+        with open(script_path, "r", encoding="utf-8") as f:
+            script = _json.load(f)
+        lines = script.get("lines", [])
+        with get_db_connection() as conn:
+            conn.execute("DELETE FROM episode_items WHERE episode_id = ?", (episode_id,))
+            for idx, line in enumerate(lines, start=1):
+                aid = line.get("article_id")
+                conn.execute(
+                    """
+                    INSERT INTO episode_items (episode_id, article_id, item_order, segment_text, audio_generation_id)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        episode_id,
+                        int(aid) if aid is not None else None,
+                        idx,
+                        line.get("text", ""),
+                        f"ep{episode_id}-seg{idx}",
+                    ),
+                )
+        return len(lines)
+
+    @retry_on_busy()
     def update_episode_key_points(self, episode_id: int, key_points: list[str]) -> None:
         """エピソードの要点（最大3件）をJSON文字列として保存する"""
         import json as _json

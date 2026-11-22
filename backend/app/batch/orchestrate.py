@@ -257,6 +257,8 @@ def run(date_str: str | None = None, news_source: str = "hatena_bookmark") -> No
             raise RuntimeError("build_episode returned empty metadata")
 
         _update_episode_audio(episode_id, "episode.mp3")
+        # 週次ダイジェストが放送済み記事を拾えるよう、完成確定の前に紐付けを保存する
+        ep_service.replace_episode_items_from_script(episode_id, script_path)
         ep_service.complete_radio_episode_with_notification(episode_id)
         try:
             notify_success(
