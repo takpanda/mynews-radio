@@ -6,7 +6,6 @@ import EpisodeThumbnail from '../EpisodeThumbnail'
 
 // react-dom/server は jsdom に無い TextEncoder を要求するため、import 前に補う
 Object.assign(globalThis, { TextEncoder })
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { renderToString } = require('react-dom/server') as typeof import('react-dom/server')
 
 const FALLBACK = '/images/categories/general.png'
