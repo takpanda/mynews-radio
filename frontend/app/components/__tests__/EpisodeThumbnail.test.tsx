@@ -1,7 +1,12 @@
 import '@testing-library/jest-dom'
 
 import { fireEvent, render } from '@testing-library/react'
+import { TextEncoder } from 'util'
 import EpisodeThumbnail from '../EpisodeThumbnail'
+
+// react-dom/server は jsdom に無い TextEncoder を要求するため、import 前に補う
+Object.assign(globalThis, { TextEncoder })
+const { renderToString } = require('react-dom/server') as typeof import('react-dom/server')
 
 const FALLBACK = '/images/categories/general.png'
 const SRC = '/api/episodes/1/thumbnail'
@@ -43,11 +48,11 @@ describe('EpisodeThumbnail スケルトン表示と軽量版URL', () => {
   afterEach(() => jest.restoreAllMocks())
   const skeleton = (c: HTMLElement) => c.querySelector('[data-testid="thumbnail-skeleton"]')
 
-  it('読み込み中はスケルトンを表示し、画像は透明にする', () => {
+  it('読み込み中はスケルトンを表示する（画像自体は opacity-0 で隠さない）', () => {
     mockImageState(false, 0)
     const { container } = render(<EpisodeThumbnail src={SRC} fallbackSrc={FALLBACK} />)
     expect(skeleton(container)).toBeInTheDocument()
-    expect(container.querySelector('img')?.className).toContain('opacity-0')
+    expect(container.querySelector('img')?.className).not.toContain('opacity-0')
   })
 
   it('onLoad でスケルトンが消え画像が表示される', () => {
@@ -55,7 +60,7 @@ describe('EpisodeThumbnail スケルトン表示と軽量版URL', () => {
     const { container } = render(<EpisodeThumbnail src={SRC} fallbackSrc={FALLBACK} />)
     fireEvent.load(container.querySelector('img') as HTMLImageElement)
     expect(skeleton(container)).not.toBeInTheDocument()
-    expect(container.querySelector('img')?.className).toContain('opacity-100')
+    expect(container.querySelector('img')?.className).not.toContain('opacity-0')
   })
 
   it('SSR済みで読み込み完了済み（complete=true, naturalWidth>0）ならスケルトンを出さない', () => {
@@ -109,5 +114,13 @@ describe('EpisodeThumbnail スケルトン表示と軽量版URL', () => {
     mockImageState(false, 0)
     const { container } = render(<EpisodeThumbnail src={SRC} fallbackSrc={FALLBACK} />)
     expect(skeleton(container)?.className).toContain('motion-reduce:animate-none')
+  })
+})
+
+describe('EpisodeThumbnail SSR 出力（ハイドレーション前の状態）', () => {
+  it('SSR時点の画像は opacity-0 で隠れず、JSが動かなくても表示される', () => {
+    const html = renderToString(<EpisodeThumbnail src={SRC} fallbackSrc={FALLBACK} size="card" />)
+    expect(html).toContain('<img')
+    expect(html).not.toContain('opacity-0')
   })
 })
