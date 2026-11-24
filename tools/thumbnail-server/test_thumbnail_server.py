@@ -341,6 +341,53 @@ def test_comfyui_recovery_keeps_busy_claimed_until_connection_returns(monkeypatc
     thumbnail_server.jobs.pop(job_id)
 
 
+class _FakeRequest:
+    def __init__(self, disconnected=False):
+        self.disconnected = disconnected
+
+    async def is_disconnected(self):
+        return self.disconnected
+
+
+def test_busy_up_stops_waiting_and_does_not_claim_when_client_disconnects():
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy = 1
+    try:
+        response = asyncio.run(thumbnail_server.busy_up_ep(_FakeRequest(disconnected=True)))
+        assert response.status_code == 499
+        assert thumbnail_server.busy_count() == 1
+    finally:
+        with thumbnail_server._busy_lock:
+            thumbnail_server._busy = 0
+
+
+def test_busy_up_releases_claim_if_client_disconnected_after_claim():
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy = 0
+    response = asyncio.run(thumbnail_server.busy_up_ep(_FakeRequest(disconnected=True)))
+    assert response.status_code == 499
+    assert thumbnail_server.busy_count() == 0
+
+
+def test_comfyui_recovery_releases_busy_when_connection_refused(monkeypatch, tmp_path):
+    state_path = tmp_path / "active.json"
+    state_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_STATE_PATH", state_path)
+    monkeypatch.setattr(thumbnail_server.time, "sleep", lambda _s: None)
+
+    def refused(_state):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(thumbnail_server, "_cleanup_comfyui_state", refused)
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy = 1
+
+    thumbnail_server._recover_comfyui_state({"prompt_id": "p", "submitted": True})
+
+    assert thumbnail_server.busy_count() == 0
+    assert not state_path.exists()
+
+
 def test_comfyui_lost_prompt_response_recovers_with_default_quiet_period(
     monkeypatch, tmp_path
 ):
@@ -879,7 +926,7 @@ def test_thumbnail_claim_blocks_busy_up_until_thumbnail_releases(monkeypatch):
     assert thumbnail_server.busy_count() == 1
 
     def acquire_llm_gate():
-        asyncio.run(thumbnail_server.busy_up_ep())
+        asyncio.run(thumbnail_server.busy_up_ep(_FakeRequest()))
         up_acquired.set()
 
     llm_worker = threading.Thread(target=acquire_llm_gate)
@@ -920,7 +967,7 @@ def test_busy_claim_keeps_thumbnail_job_queued_until_llm_releases(monkeypatch):
     with thumbnail_server._busy_lock:
         thumbnail_server._busy = 0
 
-    asyncio.run(thumbnail_server.busy_up_ep())
+    asyncio.run(thumbnail_server.busy_up_ep(_FakeRequest()))
     assert thumbnail_server.busy_count() == 1
     thumbnail_worker = threading.Thread(target=thumbnail_server.process_job, args=(job_id,))
     thumbnail_worker.start()

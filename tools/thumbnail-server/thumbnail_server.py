@@ -14,7 +14,7 @@ import os, re, json, time, uuid, queue, threading, logging, tempfile, asyncio, s
 from io import BytesIO
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 import httpx
@@ -584,6 +584,14 @@ def _recover_comfyui_state(state):
             log.info("ComfyUI job is confirmed inactive; releasing shared busy gate")
             busy_down()
             return
+        except httpx.ConnectError as exc:
+            # Connection refused: ComfyUI is down, so its in-memory queue is
+            # gone and no job can be running. Do not hold the gate forever.
+            log.warning("ComfyUI is unreachable; treating job as inactive and "
+                        "releasing shared busy gate: %s", exc)
+            _clear_comfyui_state()
+            busy_down()
+            return
         except Exception as exc:
             log.warning("ComfyUI recovery is waiting for service availability: %s", exc)
             time.sleep(COMFYUI_RECOVERY_RETRY)
@@ -842,11 +850,18 @@ _resume_comfyui_recovery()
 threading.Thread(target=worker_loop, daemon=True).start()
 
 @app.post("/busy/up")
-async def busy_up_ep():
+async def busy_up_ep(request: Request):
     # Keep waiting requests on the event loop so they cannot consume Starlette's
     # finite sync-endpoint thread pool needed by /busy/down.
+    # If the client gave up (its wait timeout), stop waiting: the caller will
+    # not send /busy/down, so claiming the gate now would leak it forever.
     while not try_claim_busy():
+        if await request.is_disconnected():
+            return Response(status_code=499)
         await asyncio.sleep(0.05)
+    if await request.is_disconnected():
+        busy_down()
+        return Response(status_code=499)
     return {"busy": busy_count()}
 @app.post("/busy/down")
 def busy_down_ep():

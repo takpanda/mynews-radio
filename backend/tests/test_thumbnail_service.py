@@ -254,7 +254,7 @@ def test_overwrite_failure_preserves_existing_image_and_path(tmp_path, monkeypat
     assert output.read_bytes() == b"previous"
 
 
-def test_busy_gate_does_not_run_operation_when_acquisition_fails(monkeypatch, caplog, real_dgx_busy):
+def test_busy_gate_continues_without_gate_when_connection_fails(monkeypatch, caplog, real_dgx_busy):
     endpoints = []
     operation = Mock(return_value=42)
 
@@ -264,16 +264,53 @@ def test_busy_gate_does_not_run_operation_when_acquisition_fails(monkeypatch, ca
 
     monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
     with caplog.at_level(logging.WARNING):
-        with pytest.raises(RuntimeError, match="Failed to acquire"):
-            dgx_busy.run_with_dgx_busy("script", operation)
+        assert dgx_busy.run_with_dgx_busy("script", operation) == 42
 
+    # No /busy/down: the gate was never acquired.
     assert endpoints == ["up"]
-    operation.assert_not_called()
+    operation.assert_called_once_with()
     assert "busy/up request failed" in caplog.text
+    assert "continuing without it" in caplog.text
     assert "offline" not in caplog.text
 
 
-def test_busy_gate_wait_request_has_no_client_timeout(monkeypatch, real_dgx_busy):
+def test_busy_gate_continues_without_gate_when_up_times_out(monkeypatch, caplog, real_dgx_busy):
+    endpoints = []
+
+    def busy_call(url, **_kwargs):
+        endpoints.append(url.rsplit("/", 1)[-1])
+        raise httpx.ReadTimeout("gate held")
+
+    monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
+    with caplog.at_level(logging.WARNING):
+        assert dgx_busy.run_with_dgx_busy("script", lambda: 7) == 7
+
+    assert endpoints == ["up"]
+    assert "continuing without it" in caplog.text
+
+
+def test_busy_gate_down_still_called_when_operation_raises(monkeypatch, real_dgx_busy):
+    endpoints = []
+
+    class _OkResponse:
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(
+        dgx_busy.httpx,
+        "post",
+        lambda url, **_kwargs: (endpoints.append(url.rsplit("/", 1)[-1]) or _OkResponse()),
+    )
+
+    def boom():
+        raise ValueError("x")
+
+    with pytest.raises(ValueError):
+        dgx_busy.run_with_dgx_busy("tts", boom)
+    assert endpoints == ["up", "down"]
+
+
+def test_busy_gate_wait_request_is_bounded_by_setting(monkeypatch, real_dgx_busy):
     calls = []
 
     class _OkResponse:
@@ -286,7 +323,7 @@ def test_busy_gate_wait_request_has_no_client_timeout(monkeypatch, real_dgx_busy
 
     monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
     assert dgx_busy.run_with_dgx_busy("tts", lambda: 42) == 42
-    assert calls == [("up", None), ("down", 10.0)]
+    assert calls == [("up", 300.0), ("down", 10.0)]
 
 
 def test_busy_gate_returns_operation_result_and_brackets_success(monkeypatch, real_dgx_busy):
