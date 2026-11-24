@@ -989,3 +989,45 @@ def test_approval_without_stored_llm_uses_current_default(client):
     default = resolve_pipeline_llm_selection()
     assert select.call_args.kwargs["llm_provider"] == default.content_provider
     assert select.call_args.kwargs["llm_model"] == default.content_model
+
+
+def test_pipeline_persists_content_llm_and_approval_uses_it_after_job_deleted(client, tmp_path):
+    """レビュー待ち中に元の生成ジョブが削除されても、承認後は元の content LLM で選定する。"""
+    import os
+    from types import SimpleNamespace
+    from app.batch import radio_pipeline
+    from app.db.connection import get_db_connection
+    from app.services.episode_service import EpisodeService
+
+    service = EpisodeService()
+    episode_id, _ = service.create_radio_episode("2099-10-01")
+    with get_db_connection() as conn:
+        conn.execute("UPDATE episodes SET review_mode='always' WHERE id=?", (episode_id,))
+
+    def write_script(path, **kwargs):
+        p = Path(os.environ["EPISODES_DIR"]) / str(episode_id) / "script.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"lines": [{"article_id": None, "text": "本文"}]}), encoding="utf-8")
+        return 1
+
+    with patch.object(radio_pipeline, "import_articles_by_source", return_value=(1, 0)), \
+         patch.object(radio_pipeline, "summarize_articles", return_value=1), \
+         patch.object(radio_pipeline, "generate_script", side_effect=write_script), \
+         patch.object(radio_pipeline, "review_script", return_value={"revised": False, "review_count": 0}), \
+         patch.object(radio_pipeline, "notify_review_needed"), \
+         patch("app.services.llm_provider.validate_provider_model",
+               side_effect=lambda provider, model: SimpleNamespace(name=provider or "codex", model=model or "m")), \
+         patch.object(radio_pipeline, "select_episode_categories", return_value=[]):
+        result = radio_pipeline.run_radio_pipeline(
+            episode_id, episode_date="2099-10-01",
+            default_episodes_dir=os.environ["EPISODES_DIR"],
+            content_provider="lm_studio", content_model="local-model",
+        )
+    assert result == radio_pipeline.PipelineResult.REVIEW_REQUIRED
+    # 元の生成ジョブは存在しない（期限削除後）状態で承認する
+    with get_db_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM generation_jobs WHERE episode_id=?", (episode_id,)).fetchone()[0] == 0
+
+    select = _synthesize_approved(client, episode_id, lambda *a, **k: ["テック・IT"])
+    assert select.call_args.kwargs["llm_provider"] == "lm_studio"
+    assert select.call_args.kwargs["llm_model"] == "local-model"

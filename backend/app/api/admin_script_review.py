@@ -265,9 +265,18 @@ def validate_script(episode_id: int, user_id: Annotated[int, Depends(require_adm
 def _original_category_llm(conn, episode_id: int) -> dict:
     """元の生成ジョブで選ばれた content LLM を、承認後のカテゴリ選定へ引き継ぐ。
 
-    保持していない（生成ジョブが無い/解決できない）既存回は provider/model を空にし、
+    保持していない（保存ファイルも生成ジョブも無い/解決できない）既存回は provider/model を空にし、
     合成時に現在の既定 content LLM を使う。
     """
+    # 生成ジョブは期限削除され得るため、まずパイプラインがエピソード側へ保存した選択を使う。
+    try:
+        from app.batch.radio_pipeline import CONTENT_LLM_SELECTION_FILE
+
+        saved = json.loads((_script_path(episode_id).parent / CONTENT_LLM_SELECTION_FILE).read_text(encoding="utf-8"))
+        if isinstance(saved, dict) and (saved.get("provider") or saved.get("model")):
+            return {"provider": saved.get("provider"), "model": saved.get("model")}
+    except (OSError, ValueError):
+        pass
     row = conn.execute(
         "SELECT payload FROM generation_jobs WHERE episode_id=? AND operation IN ('daily', 'generate') "
         "ORDER BY id DESC LIMIT 1",
