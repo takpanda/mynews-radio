@@ -265,8 +265,8 @@ def validate_script(episode_id: int, user_id: Annotated[int, Depends(require_adm
 def _original_category_llm(conn, episode_id: int) -> dict:
     """元の生成ジョブで選ばれた content LLM を、承認後のカテゴリ選定へ引き継ぐ。
 
-    保持していない（保存ファイルも生成ジョブも無い/解決できない）既存回は provider/model を空にし、
-    合成時に現在の既定 content LLM を使う。
+    保持していない（保存ファイルも生成ジョブも無い/解決できない）回は unavailable とし、
+    承認後のカテゴリ選定をスキップする（ローカルLLMの台本を既定の外部LLMへ送らないため。音声合成は継続）。
     """
     # 生成ジョブは期限削除され得るため、まずパイプラインがエピソード側へ保存した選択を使う。
     try:
@@ -282,8 +282,12 @@ def _original_category_llm(conn, episode_id: int) -> dict:
         "ORDER BY id DESC LIMIT 1",
         (episode_id,),
     ).fetchone()
+    if row is None:
+        # 元の選択を確認できない。既定の外部LLMへ台本を送らないよう、承認後のカテゴリ選定は行わない。
+        logger.warning("original content LLM is unknown for episode %s; category selection is skipped", episode_id)
+        return {"unavailable": True}
     try:
-        source = json.loads(row["payload"] or "{}") if row else {}
+        source = json.loads(row["payload"] or "{}")
         if not isinstance(source, dict):
             source = {}
         from app.services.llm_provider import resolve_pipeline_llm_selection
@@ -297,7 +301,7 @@ def _original_category_llm(conn, episode_id: int) -> dict:
         return {"provider": selection.content_provider, "model": selection.content_model}
     except Exception:
         logger.warning("could not resolve original content LLM for episode %s", episode_id, exc_info=True)
-        return {"provider": None, "model": None}
+        return {"unavailable": True}
 
 
 @router.post("/admin/episodes/{episode_id}/approve")

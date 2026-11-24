@@ -863,9 +863,18 @@ def test_approved_synthesize_job_falls_back_to_global_voices_for_missing_or_inva
     assert (kwargs["speaker_male"], kwargs["speaker_female"]) == resolve_tts_speakers(kwargs["tts_engine"])
 
 
-def _synthesize_approved(client, episode_id, categories):
+def _synthesize_approved(client, episode_id, categories, *, source_job=True):
     from app.api import generate as generate_api
     from app.db.connection import get_db_connection
+
+    if source_job:  # 元の生成ジョブが残っている通常ケース（無い場合は source_job=False）
+        with get_db_connection() as conn:
+            if not conn.execute("SELECT 1 FROM generation_jobs WHERE episode_id=?", (episode_id,)).fetchone():
+                conn.execute(
+                    "INSERT INTO generation_jobs(owner_user_id, operation, idempotency_key, input_hash, client_ip_hash, episode_id, payload, status) "
+                    "VALUES (-1, 'generate', ?, 'h', 'ip', ?, '{}', 'completed')",
+                    (f"k-default-{episode_id}", episode_id),
+                )
 
     with patch("app.api.admin_script_review._validate_episode_script", return_value={"can_approve": True, "results": []}), \
          patch("app.api.admin_script_review.dispatch_job"):
@@ -981,14 +990,63 @@ def test_approval_carries_original_content_llm_to_category_selection(client):
     assert select.call_args.kwargs["llm_model"] == "local-model"
 
 
-def test_approval_without_stored_llm_uses_current_default(client):
-    from app.services.llm_provider import resolve_pipeline_llm_selection
+def test_approval_without_any_stored_llm_skips_category_selection_but_synthesizes(client):
+    from app.services.episode_service import EpisodeService
 
     episode_id, _ = _episode_with_script()
-    select = _synthesize_approved(client, episode_id, lambda *a, **k: ["テック・IT"])
-    default = resolve_pipeline_llm_selection()
-    assert select.call_args.kwargs["llm_provider"] == default.content_provider
-    assert select.call_args.kwargs["llm_model"] == default.content_model
+    select = _synthesize_approved(client, episode_id, lambda *a, **k: ["テック・IT"], source_job=False)
+    select.assert_not_called()  # 既定の外部LLMへ台本を送らない
+    assert _saved_categories(episode_id) == []
+    assert EpisodeService().get_episode(episode_id)["audio_path"] == "episode.mp3"
+
+
+def test_selection_file_write_failure_and_missing_job_skips_category_selection(client):
+    """設定ファイル書込失敗と元ジョブ不在が重なっても、別プロバイダーへ台本を送らない。"""
+    import os
+    from types import SimpleNamespace
+    from app.batch import radio_pipeline
+    from app.db.connection import get_db_connection
+    from app.services.episode_service import EpisodeService
+
+    service = EpisodeService()
+    episode_id, _ = service.create_radio_episode("2099-10-02")
+    with get_db_connection() as conn:
+        conn.execute("UPDATE episodes SET review_mode='always' WHERE id=?", (episode_id,))
+
+    def write_script(path, **kwargs):
+        p = Path(os.environ["EPISODES_DIR"]) / str(episode_id) / "script.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"lines": [{"article_id": None, "text": "本文"}]}), encoding="utf-8")
+        return 1
+
+    real_open = open
+
+    def failing_open(file, *a, **k):
+        if str(file).endswith(radio_pipeline.CONTENT_LLM_SELECTION_FILE):
+            raise OSError("disk full")
+        return real_open(file, *a, **k)
+
+    with patch.object(radio_pipeline, "import_articles_by_source", return_value=(1, 0)), \
+         patch.object(radio_pipeline, "summarize_articles", return_value=1), \
+         patch.object(radio_pipeline, "generate_script", side_effect=write_script), \
+         patch.object(radio_pipeline, "review_script", return_value={"revised": False, "review_count": 0}), \
+         patch.object(radio_pipeline, "notify_review_needed"), \
+         patch("builtins.open", side_effect=failing_open), \
+         patch("app.services.llm_provider.validate_provider_model",
+               side_effect=lambda provider, model: SimpleNamespace(name=provider or "codex", model=model or "m")):
+        result = radio_pipeline.run_radio_pipeline(
+            episode_id, episode_date="2099-10-02",
+            default_episodes_dir=os.environ["EPISODES_DIR"],
+            content_provider="lm_studio", content_model="local-model",
+        )
+    assert result == radio_pipeline.PipelineResult.REVIEW_REQUIRED
+    assert not (Path(os.environ["EPISODES_DIR"]) / str(episode_id) / radio_pipeline.CONTENT_LLM_SELECTION_FILE).exists()
+    with get_db_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM generation_jobs WHERE episode_id=?", (episode_id,)).fetchone()[0] == 0
+
+    select = _synthesize_approved(client, episode_id, lambda *a, **k: ["テック・IT"], source_job=False)
+    select.assert_not_called()
+    assert EpisodeService().get_episode(episode_id)["audio_path"] == "episode.mp3"
 
 
 def test_pipeline_persists_content_llm_and_approval_uses_it_after_job_deleted(client, tmp_path):
