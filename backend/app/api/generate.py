@@ -958,6 +958,25 @@ class SynthesizeRequest(BaseModel):
     tts_engine: str | None = Field(default=None, description="TTSエンジン (fishs2pro)。未指定時はFish S2 Proを使用")
 
 
+def _persist_episode_categories(service: EpisodeService, episode_id: int, script_path: str, summaries_path: str) -> None:
+    try:
+        from app.services.episode_category_service import select_episode_categories
+        from app.services.llm_provider import resolve_pipeline_llm_selection
+
+        selection = resolve_pipeline_llm_selection()
+        categories = select_episode_categories(
+            script_path,
+            summaries_path,
+            llm_provider=selection.content_provider,
+            llm_model=selection.content_model,
+            episode_id=episode_id,
+        )
+        if categories:
+            service.update_episode_categories(episode_id, categories)
+    except Exception:
+        logger.warning("[%d] episode category persistence failed (non-fatal)", episode_id, exc_info=True)
+
+
 def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[bytes, None, None]:
     service = EpisodeService()
     episode = service.get_episode(episode_id)
@@ -999,6 +1018,11 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
         tts_speaker_female = speaker_overrides.get("female", tts_speaker_female)
 
     service.update_episode_status(episode_id, "synthesizing")
+
+    # 管理者レビューを経由した回は run_radio_pipeline のカテゴリ選定より前で中断するため、
+    # 承認後の合成でも（編集後の台本で）選定する。失敗しても合成は継続し、既存値は空で上書きしない。
+    if episode.get("type") == "radio":
+        _persist_episode_categories(service, episode_id, script_path, os.path.join(base_dir, "summaries.json"))
 
     yield _format_sse("progress", _build_progress_payload("synthesize", f"音声を合成しています... ({tts_engine_label})", engine=tts_engine))
     job_id = _active_generation_job_id(episode_id)

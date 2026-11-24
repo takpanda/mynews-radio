@@ -861,3 +861,91 @@ def test_approved_synthesize_job_falls_back_to_global_voices_for_missing_or_inva
 
     assert not kwargs["speaker_overrides"]
     assert (kwargs["speaker_male"], kwargs["speaker_female"]) == resolve_tts_speakers(kwargs["tts_engine"])
+
+
+def _synthesize_approved(client, episode_id, categories):
+    from app.api import generate as generate_api
+    from app.db.connection import get_db_connection
+
+    with patch("app.api.admin_script_review._validate_episode_script", return_value={"can_approve": True, "results": []}), \
+         patch("app.api.admin_script_review.dispatch_job"):
+        response = client.post(f"/admin/episodes/{episode_id}/approve")
+    assert response.status_code == 200
+    with get_db_connection() as conn:
+        job = conn.execute("SELECT * FROM generation_jobs WHERE id=?", (response.json()["job_id"],)).fetchone()
+    with patch.object(generate_api, "DEFAULT_EPISODES_DIR", str(Path(__import__("os").environ["EPISODES_DIR"]))), \
+         patch("app.services.episode_category_service.select_episode_categories", side_effect=categories) as select, \
+         patch.object(generate_api, "synthesize_episode", return_value=1), \
+         patch.object(generate_api, "build_episode", return_value={"audio_path": "episode.mp3"}), \
+         patch.object(generate_api, "_finalize_synthesis_job"):
+        generate_api.execute_queued_job(job, dispatch=False)
+    return select
+
+
+def _saved_categories(episode_id):
+    from app.services.episode_service import EpisodeService
+    return json.loads(EpisodeService().get_episode(episode_id)["categories"])
+
+
+def test_approved_synthesis_persists_categories(client):
+    episode_id, _ = _episode_with_script()
+    select = _synthesize_approved(client, episode_id, lambda *a, **k: ["テック・IT"])
+    assert _saved_categories(episode_id) == ["テック・IT"]
+    assert select.call_args.kwargs["episode_id"] == episode_id
+
+
+def test_approved_synthesis_continues_and_keeps_categories_when_selection_fails(client):
+    from app.services.episode_service import EpisodeService
+
+    episode_id, _ = _episode_with_script()
+    EpisodeService().update_episode_categories(episode_id, ["国際"])
+    _synthesize_approved(client, episode_id, RuntimeError("llm down"))
+    assert _saved_categories(episode_id) == ["国際"]
+    assert EpisodeService().get_episode(episode_id)["audio_path"] == "episode.mp3"
+
+    other_id, _ = _episode_with_script()
+    _synthesize_approved(client, other_id, lambda *a, **k: [])  # 空結果は保存しない
+    assert _saved_categories(other_id) == []
+
+
+@pytest.mark.parametrize("mode", ["always", "validation_blocked"])
+def test_review_route_pipeline_then_approval_saves_categories(client, tmp_path, mode):
+    """レビュー待ちで中断する2経路（review_mode=always / can_synthesize=False）から承認後に完成するとcategoriesが保存される。"""
+    from app.batch import radio_pipeline
+    from app.db.connection import get_db_connection
+    from app.services.episode_service import EpisodeService
+
+    service = EpisodeService()
+    episode_id, _ = service.create_radio_episode("2099-09-01")
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE episodes SET review_mode=? WHERE id=?",
+            ("always" if mode == "always" else "on_failure", episode_id),
+        )
+
+    def write_script(path, **kwargs):
+        p = Path(__import__("os").environ["EPISODES_DIR"]) / str(episode_id) / "script.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"lines": [{"article_id": None, "text": "本文"}]}), encoding="utf-8")
+        return 1
+
+    blocked = {"can_synthesize": False, "warnings": [], "errors": [{"message": "x"}]}
+    with patch.object(radio_pipeline, "import_articles_by_source", return_value=(1, 0)), \
+         patch.object(radio_pipeline, "summarize_articles", return_value=1), \
+         patch.object(radio_pipeline, "generate_script", side_effect=write_script), \
+         patch.object(radio_pipeline, "review_script", return_value={"revised": False, "review_count": 0}), \
+         patch.object(radio_pipeline, "should_run_final_validation", return_value=mode != "always"), \
+         patch.object(radio_pipeline, "validate_final_script_file", return_value=blocked if mode != "always" else {"can_synthesize": True, "warnings": []}), \
+         patch.object(radio_pipeline, "human_review_message", return_value="要確認"), \
+         patch.object(radio_pipeline, "notify_review_needed"), \
+         patch.object(radio_pipeline, "select_episode_categories", return_value=[]):
+        result = radio_pipeline.run_radio_pipeline(
+            episode_id, episode_date="2099-09-01",
+            default_episodes_dir=str(Path(__import__("os").environ["EPISODES_DIR"])),
+        )
+    assert result == radio_pipeline.PipelineResult.REVIEW_REQUIRED
+    assert service.get_episode(episode_id)["status"] == "awaiting_review"
+    assert _saved_categories(episode_id) == []
+
+    _synthesize_approved(client, episode_id, lambda *a, **k: ["AI・先端技術"])
+    assert _saved_categories(episode_id) == ["AI・先端技術"]
