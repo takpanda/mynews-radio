@@ -612,7 +612,12 @@ def run_radio_pipeline(
         # 台本（レビュー後の最終版）を優先し、失敗しても生成本体は継続する。
         categories: list[str] = []
         try:
-            categories = select_episode_categories(script_path, summaries_path)
+            categories = select_episode_categories(
+                script_path,
+                summaries_path,
+                llm_provider=content_llm.name if content_llm else None,
+                llm_model=content_llm.model if content_llm else None,
+            )
             service.update_episode_categories(episode_id, categories)
         except Exception:
             logger.warning("episode category persistence failed (non-fatal)", exc_info=True)

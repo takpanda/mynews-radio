@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from app.config import get_settings
 from app.db.connection import get_db_connection
-from app.services.ollama_client import OllamaClient
+from app.services.ollama_client import OllamaClient, create_llm_client
 from app.services.llm_call_log_service import infer_episode_id, set_llm_context
 from app.prompts.service import program_id_for_episode, render_prompt
 
@@ -80,9 +80,16 @@ def select_episode_categories(
     script_path: str,
     summaries_path: str,
     *,
-    client_factory: Callable[..., OllamaClient] = OllamaClient,
+    client_factory: Callable[..., Any] | None = None,
+    llm_provider: str | None = None,
+    llm_model: str | None = None,
 ) -> list[str]:
-    """台本を優先してLLMで選定する。全ての失敗は空配列として扱う。"""
+    """台本を優先してLLMで選定する。全ての失敗は空配列として扱う。
+
+    llm_provider / llm_model を指定した場合は台本生成と同じLLMを使う。
+    未指定時のみ従来どおり既定のOllamaを使う（本番は content LLM が codex 等のため、
+    Ollama固定だと接続失敗→空配列になり全回が「一般」へ落ちていた）。
+    """
     source = _load_category_source(script_path, summaries_path)
     if not source:
         return []
@@ -96,7 +103,13 @@ def select_episode_categories(
     try:
         # OllamaClient の既定タイムアウト（推論用の十分な時間）を利用する。
         # カテゴリ処理の失敗は下記で吸収するが、正常な推論を1秒で打ち切らない。
-        with client_factory(settings.ollama_base_url, settings.ollama_model, max_retries=0) as client:
+        if client_factory is not None:
+            client_cm = client_factory(settings.ollama_base_url, settings.ollama_model, max_retries=0)
+        elif llm_provider or llm_model:
+            client_cm = create_llm_client(llm_provider, llm_model)
+        else:
+            client_cm = OllamaClient(settings.ollama_base_url, settings.ollama_model, max_retries=0)
+        with client_cm as client:
             set_llm_context(
                 client,
                 phase="category",
