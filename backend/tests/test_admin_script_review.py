@@ -949,3 +949,43 @@ def test_review_route_pipeline_then_approval_saves_categories(client, tmp_path, 
 
     _synthesize_approved(client, episode_id, lambda *a, **k: ["AI・先端技術"])
     assert _saved_categories(episode_id) == ["AI・先端技術"]
+
+
+def test_manual_resynthesis_does_not_touch_categories(client):
+    from app.api import generate as generate_api
+    from app.services.episode_service import EpisodeService
+
+    episode_id, _ = _episode_with_script(status="completed")
+    EpisodeService().update_episode_categories(episode_id, ["社会・暮らし"])
+    with patch.object(generate_api, "DEFAULT_EPISODES_DIR", str(Path(__import__("os").environ["EPISODES_DIR"]))), \
+         patch("app.services.episode_category_service.select_episode_categories") as select, \
+         patch.object(generate_api, "synthesize_episode", return_value=1), \
+         patch.object(generate_api, "build_episode", return_value={"audio_path": "episode.mp3"}):
+        list(generate_api._stream_synthesize(episode_id, generate_api.SynthesizeRequest()))
+    select.assert_not_called()
+    assert _saved_categories(episode_id) == ["社会・暮らし"]
+
+
+def test_approval_carries_original_content_llm_to_category_selection(client):
+    from app.db.connection import get_db_connection
+
+    episode_id, _ = _episode_with_script()
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO generation_jobs(owner_user_id, operation, idempotency_key, input_hash, client_ip_hash, episode_id, payload, status) "
+            "VALUES (-1, 'generate', 'k-orig', 'h', 'ip', ?, ?, 'completed')",
+            (episode_id, json.dumps({"content_provider": "lm_studio", "content_model": "local-model"})),
+        )
+    select = _synthesize_approved(client, episode_id, lambda *a, **k: ["テック・IT"])
+    assert select.call_args.kwargs["llm_provider"] == "lm_studio"
+    assert select.call_args.kwargs["llm_model"] == "local-model"
+
+
+def test_approval_without_stored_llm_uses_current_default(client):
+    from app.services.llm_provider import resolve_pipeline_llm_selection
+
+    episode_id, _ = _episode_with_script()
+    select = _synthesize_approved(client, episode_id, lambda *a, **k: ["テック・IT"])
+    default = resolve_pipeline_llm_selection()
+    assert select.call_args.kwargs["llm_provider"] == default.content_provider
+    assert select.call_args.kwargs["llm_model"] == default.content_model

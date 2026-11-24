@@ -262,6 +262,35 @@ def validate_script(episode_id: int, user_id: Annotated[int, Depends(require_adm
     return result
 
 
+def _original_category_llm(conn, episode_id: int) -> dict:
+    """元の生成ジョブで選ばれた content LLM を、承認後のカテゴリ選定へ引き継ぐ。
+
+    保持していない（生成ジョブが無い/解決できない）既存回は provider/model を空にし、
+    合成時に現在の既定 content LLM を使う。
+    """
+    row = conn.execute(
+        "SELECT payload FROM generation_jobs WHERE episode_id=? AND operation IN ('daily', 'generate') "
+        "ORDER BY id DESC LIMIT 1",
+        (episode_id,),
+    ).fetchone()
+    try:
+        source = json.loads(row["payload"] or "{}") if row else {}
+        if not isinstance(source, dict):
+            source = {}
+        from app.services.llm_provider import resolve_pipeline_llm_selection
+
+        selection = resolve_pipeline_llm_selection(
+            llm_provider=source.get("llm_provider"),
+            llm_model=source.get("llm_model"),
+            content_provider=source.get("content_provider", source.get("content_llm_provider")),
+            content_model=source.get("content_model", source.get("content_llm_model")),
+        )
+        return {"provider": selection.content_provider, "model": selection.content_model}
+    except Exception:
+        logger.warning("could not resolve original content LLM for episode %s", episode_id, exc_info=True)
+        return {"provider": None, "model": None}
+
+
 @router.post("/admin/episodes/{episode_id}/approve")
 def approve_script(
     episode_id: int,
@@ -290,7 +319,8 @@ def approve_script(
         script_path = _script_path(episode_id)
         script_path.parent.mkdir(parents=True, exist_ok=True)
         script_path.write_text(json.dumps(script, ensure_ascii=False, indent=2), encoding="utf-8")
-        job_id, job_status = _enqueue_episode_job(conn, user_id=user_id, operation="synthesize", episode_id=episode_id, payload={})
+        payload = {"category_llm": _original_category_llm(conn, episode_id)}
+        job_id, job_status = _enqueue_episode_job(conn, user_id=user_id, operation="synthesize", episode_id=episode_id, payload=payload)
         conn.execute("UPDATE episodes SET status='synthesizing', phase='synthesize', updated_at=CURRENT_TIMESTAMP WHERE id=?", (episode_id,))
         audit_payload = {"revision": row["revision"]}
         audit_operation = "script_approve"

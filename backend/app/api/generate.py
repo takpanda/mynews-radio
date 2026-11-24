@@ -907,7 +907,7 @@ def execute_queued_job(job, *, dispatch: bool = True) -> JobClaim | None:
     if operation == "synthesize":
         body_payload = payload.get("body", payload)
         body = SynthesizeRequest(**body_payload)
-        for _ in _stream_synthesize(episode_id, body):
+        for _ in _stream_synthesize(episode_id, body, category_llm=payload.get("category_llm")):
             pass
         return _finalize_synthesis_job(job_id, episode_id, dispatch=dispatch)
     if operation == "daily":
@@ -958,17 +958,24 @@ class SynthesizeRequest(BaseModel):
     tts_engine: str | None = Field(default=None, description="TTSエンジン (fishs2pro)。未指定時はFish S2 Proを使用")
 
 
-def _persist_episode_categories(service: EpisodeService, episode_id: int, script_path: str, summaries_path: str) -> None:
+def _persist_episode_categories(
+    service: EpisodeService, episode_id: int, script_path: str, summaries_path: str, category_llm: dict[str, Any],
+) -> None:
     try:
         from app.services.episode_category_service import select_episode_categories
         from app.services.llm_provider import resolve_pipeline_llm_selection
 
-        selection = resolve_pipeline_llm_selection()
+        provider = category_llm.get("provider")
+        model = category_llm.get("model")
+        if not (provider or model):
+            # 元の選択を保持していない既存回は、現在の既定 content LLM を使う。
+            selection = resolve_pipeline_llm_selection()
+            provider, model = selection.content_provider, selection.content_model
         categories = select_episode_categories(
             script_path,
             summaries_path,
-            llm_provider=selection.content_provider,
-            llm_model=selection.content_model,
+            llm_provider=provider,
+            llm_model=model,
             episode_id=episode_id,
         )
         if categories:
@@ -977,7 +984,10 @@ def _persist_episode_categories(service: EpisodeService, episode_id: int, script
         logger.warning("[%d] episode category persistence failed (non-fatal)", episode_id, exc_info=True)
 
 
-def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[bytes, None, None]:
+def _stream_synthesize(
+    episode_id: int, body: SynthesizeRequest, *, category_llm: dict[str, Any] | None = None,
+) -> Generator[bytes, None, None]:
+    """category_llm は管理者レビュー承認ジョブからのみ渡す。None（手動再合成）ではカテゴリを変更しない。"""
     service = EpisodeService()
     episode = service.get_episode(episode_id)
     if episode is None:
@@ -1021,8 +1031,11 @@ def _stream_synthesize(episode_id: int, body: SynthesizeRequest) -> Generator[by
 
     # 管理者レビューを経由した回は run_radio_pipeline のカテゴリ選定より前で中断するため、
     # 承認後の合成でも（編集後の台本で）選定する。失敗しても合成は継続し、既存値は空で上書きしない。
-    if episode.get("type") == "radio":
-        _persist_episode_categories(service, episode_id, script_path, os.path.join(base_dir, "summaries.json"))
+    # 手動の再合成（category_llm=None）は音声のみの操作なので、台本をLLMへ送らず既存カテゴリを維持する。
+    if category_llm is not None and episode.get("type") == "radio":
+        _persist_episode_categories(
+            service, episode_id, script_path, os.path.join(base_dir, "summaries.json"), category_llm,
+        )
 
     yield _format_sse("progress", _build_progress_payload("synthesize", f"音声を合成しています... ({tts_engine_label})", engine=tts_engine))
     job_id = _active_generation_job_id(episode_id)
