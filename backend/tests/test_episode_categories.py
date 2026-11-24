@@ -114,3 +114,65 @@ class TestEpisodeCategories:
 
         assert result is not None
         assert service.get_episode(episode_id)["status"] == "completed"
+
+
+class TestCategoryLlmSelection:
+    def _files(self, tmp_path):
+        script = tmp_path / "script.json"
+        summaries = tmp_path / "summaries.json"
+        script.write_text(json.dumps({"lines": [{"text": "新しいスマホの話"}]}), encoding="utf-8")
+        summaries.write_text("[]", encoding="utf-8")
+        return str(script), str(summaries)
+
+    def test_uses_content_llm_when_specified(self, tmp_path):
+        from app.services import episode_category_service as svc
+
+        class FakeClient:
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def generate_json(self, prompt): return {"categories": ["テック・IT"]}
+
+        script, summaries = self._files(tmp_path)
+        with patch.object(svc, "create_llm_client", return_value=FakeClient()) as factory, \
+             patch.object(svc, "OllamaClient", side_effect=AssertionError("Ollama固定にしない")):
+            result = svc.select_episode_categories(
+                script, summaries, llm_provider="codex", llm_model="m"
+            )
+        assert result == ["テック・IT"]
+        factory.assert_called_once_with("codex", "m")
+
+    def test_pipeline_passes_content_llm_to_category_selection(self, client, tmp_path):
+        from app.batch import radio_pipeline
+        from app.services.episode_service import EpisodeService
+
+        service = EpisodeService()
+        episode_id, _ = service.create_radio_episode("2099-01-04")
+
+        def write_script(path, **kwargs):
+            p = tmp_path / "episodes" / str(episode_id) / "script.json"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps({"lines": [{"article_id": None, "text": "本文"}]}), encoding="utf-8")
+            return 1
+
+        captured = {}
+
+        def fake_select(script_path, summaries_path, **kwargs):
+            captured.update(kwargs)
+            return ["テック・IT"]
+
+        with patch.object(radio_pipeline, "import_articles_by_source", return_value=(1, 0)), \
+             patch.object(radio_pipeline, "summarize_articles", return_value=1), \
+             patch.object(radio_pipeline, "generate_script", side_effect=write_script), \
+             patch.object(radio_pipeline, "review_script", return_value={"revised": False, "review_count": 0}), \
+             patch.object(radio_pipeline, "select_episode_categories", side_effect=fake_select), \
+             patch.object(radio_pipeline, "synthesize_episode", return_value=1), \
+             patch.object(radio_pipeline, "build_episode", return_value={"audio_path": "episode.mp3"}):
+            radio_pipeline.run_radio_pipeline(
+                episode_id, episode_date="2099-01-04",
+                default_episodes_dir=str(tmp_path / "episodes"),
+                content_provider="codex", content_model="m",
+            )
+
+        assert captured["llm_provider"] == "codex"
+        assert captured["llm_model"] == "m"
+        assert json.loads(service.get_episode(episode_id)["categories"]) == ["テック・IT"]

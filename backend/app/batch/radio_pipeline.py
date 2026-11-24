@@ -153,6 +153,9 @@ def _extract_key_points(
 
 logger = logging.getLogger(__name__)
 
+# レビュー待ち→承認後のカテゴリ選定へ content LLM の選択を引き継ぐファイル（エピソードのディレクトリ内）
+CONTENT_LLM_SELECTION_FILE = "content_llm.json"
+
 DEFAULT_EPISODES_DIR = os.environ.get("EPISODES_DIR", "data/episodes")
 
 ProgressCallback = Optional[Callable[[str, str], None]]
@@ -581,6 +584,20 @@ def run_radio_pipeline(
             _notify_failure_once("script_revision", "生成台本の保存に失敗しました")
             return None
 
+        # レビュー待ちの間に生成ジョブが期限削除されても、承認後のカテゴリ選定で
+        # 同じ content LLM を使えるよう、エピソードのディレクトリへ選択を保存する。
+        try:
+            with open(os.path.join(base_dir, CONTENT_LLM_SELECTION_FILE), "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "provider": content_llm.name if content_llm else None,
+                        "model": content_llm.model if content_llm else None,
+                    },
+                    f,
+                )
+        except Exception:
+            logger.warning("[%d] could not persist content LLM selection (non-fatal)", episode_id, exc_info=True)
+
         has_validation_errors = bool(final_validation and not final_validation["can_synthesize"])
         next_review_state = _review_state(review_mode, not has_validation_errors)
         if next_review_state == "awaiting_review":
@@ -612,7 +629,12 @@ def run_radio_pipeline(
         # 台本（レビュー後の最終版）を優先し、失敗しても生成本体は継続する。
         categories: list[str] = []
         try:
-            categories = select_episode_categories(script_path, summaries_path)
+            categories = select_episode_categories(
+                script_path,
+                summaries_path,
+                llm_provider=content_llm.name if content_llm else None,
+                llm_model=content_llm.model if content_llm else None,
+            )
             service.update_episode_categories(episode_id, categories)
         except Exception:
             logger.warning("episode category persistence failed (non-fatal)", exc_info=True)

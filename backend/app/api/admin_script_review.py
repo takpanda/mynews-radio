@@ -262,6 +262,45 @@ def validate_script(episode_id: int, user_id: Annotated[int, Depends(require_adm
     return result
 
 
+def _original_category_llm(conn, episode_id: int) -> dict:
+    """元の生成ジョブで選ばれた content LLM を、承認後のカテゴリ選定へ引き継ぐ。
+
+    保持していない（保存ファイルも生成ジョブも無い/解決できない）回は unavailable とし、
+    承認後のカテゴリ選定をスキップする（ローカルLLMの台本を既定の外部LLMへ送らないため。音声合成は継続）。
+    """
+    # 生成ジョブは期限削除され得るため、まずパイプラインがエピソード側へ保存した選択を使う。
+    try:
+        from app.batch.radio_pipeline import CONTENT_LLM_SELECTION_FILE
+
+        saved = json.loads((_script_path(episode_id).parent / CONTENT_LLM_SELECTION_FILE).read_text(encoding="utf-8"))
+        if isinstance(saved, dict) and saved.get("provider"):
+            return {"provider": saved.get("provider"), "model": saved.get("model")}
+    except (OSError, ValueError):
+        pass
+    row = conn.execute(
+        "SELECT payload FROM generation_jobs WHERE episode_id=? AND operation IN ('daily', 'generate') "
+        "ORDER BY id DESC LIMIT 1",
+        (episode_id,),
+    ).fetchone()
+    if row is None:
+        # 元の選択を確認できない。既定の外部LLMへ台本を送らないよう、承認後のカテゴリ選定は行わない。
+        logger.warning("original content LLM is unknown for episode %s; category selection is skipped", episode_id)
+        return {"unavailable": True}
+    try:
+        source = json.loads(row["payload"] or "{}")
+        if not isinstance(source, dict):
+            source = {}
+        # provider が明記されている場合だけ元の選択とみなす（未記録は現在の既定値では代用しない）。
+        provider = source.get("content_provider") or source.get("content_llm_provider") or source.get("llm_provider")
+        if isinstance(provider, str) and provider.strip():
+            model = source.get("content_model") or source.get("content_llm_model") or source.get("llm_model")
+            return {"provider": provider.strip(), "model": model if isinstance(model, str) and model.strip() else None}
+    except (TypeError, ValueError):
+        logger.warning("could not parse original generation payload for episode %s", episode_id, exc_info=True)
+    logger.warning("original content LLM is not recorded for episode %s; category selection is skipped", episode_id)
+    return {"unavailable": True}
+
+
 @router.post("/admin/episodes/{episode_id}/approve")
 def approve_script(
     episode_id: int,
@@ -290,7 +329,8 @@ def approve_script(
         script_path = _script_path(episode_id)
         script_path.parent.mkdir(parents=True, exist_ok=True)
         script_path.write_text(json.dumps(script, ensure_ascii=False, indent=2), encoding="utf-8")
-        job_id, job_status = _enqueue_episode_job(conn, user_id=user_id, operation="synthesize", episode_id=episode_id, payload={})
+        payload = {"category_llm": _original_category_llm(conn, episode_id)}
+        job_id, job_status = _enqueue_episode_job(conn, user_id=user_id, operation="synthesize", episode_id=episode_id, payload=payload)
         conn.execute("UPDATE episodes SET status='synthesizing', phase='synthesize', updated_at=CURRENT_TIMESTAMP WHERE id=?", (episode_id,))
         audit_payload = {"revision": row["revision"]}
         audit_operation = "script_approve"

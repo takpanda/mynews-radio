@@ -796,7 +796,7 @@ def test_bearer_approved_synthesize_job_is_processed_by_existing_worker(client, 
 
     synthesized = []
     finalized = []
-    monkeypatch.setattr(generate_api, "_stream_synthesize", lambda ep_id, _body: synthesized.append(ep_id) or iter(()))
+    monkeypatch.setattr(generate_api, "_stream_synthesize", lambda ep_id, _body, **_kw: synthesized.append(ep_id) or iter(()))
     monkeypatch.setattr(generate_api, "_finalize_synthesis_job", lambda jid, ep_id, **_kwargs: finalized.append((jid, ep_id)))
     with get_db_connection() as conn:
         job = conn.execute("SELECT * FROM generation_jobs WHERE id=?", (job_id,)).fetchone()
@@ -861,3 +861,250 @@ def test_approved_synthesize_job_falls_back_to_global_voices_for_missing_or_inva
 
     assert not kwargs["speaker_overrides"]
     assert (kwargs["speaker_male"], kwargs["speaker_female"]) == resolve_tts_speakers(kwargs["tts_engine"])
+
+
+def _synthesize_approved(client, episode_id, categories, *, source_job=True):
+    from app.api import generate as generate_api
+    from app.db.connection import get_db_connection
+
+    if source_job:  # 元の生成ジョブが残っている通常ケース（無い場合は source_job=False）
+        with get_db_connection() as conn:
+            if not conn.execute("SELECT 1 FROM generation_jobs WHERE episode_id=?", (episode_id,)).fetchone():
+                conn.execute(
+                    "INSERT INTO generation_jobs(owner_user_id, operation, idempotency_key, input_hash, client_ip_hash, episode_id, payload, status) "
+                    "VALUES (-1, 'generate', ?, 'h', 'ip', ?, ?, 'completed')",
+                    (f"k-default-{episode_id}", episode_id, json.dumps({"content_provider": "codex"})),
+                )
+
+    with patch("app.api.admin_script_review._validate_episode_script", return_value={"can_approve": True, "results": []}), \
+         patch("app.api.admin_script_review.dispatch_job"):
+        response = client.post(f"/admin/episodes/{episode_id}/approve")
+    assert response.status_code == 200
+    with get_db_connection() as conn:
+        job = conn.execute("SELECT * FROM generation_jobs WHERE id=?", (response.json()["job_id"],)).fetchone()
+    with patch.object(generate_api, "DEFAULT_EPISODES_DIR", str(Path(__import__("os").environ["EPISODES_DIR"]))), \
+         patch("app.services.episode_category_service.select_episode_categories", side_effect=categories) as select, \
+         patch.object(generate_api, "synthesize_episode", return_value=1), \
+         patch.object(generate_api, "build_episode", return_value={"audio_path": "episode.mp3"}), \
+         patch.object(generate_api, "_finalize_synthesis_job"):
+        generate_api.execute_queued_job(job, dispatch=False)
+    return select
+
+
+def _saved_categories(episode_id):
+    from app.services.episode_service import EpisodeService
+    return json.loads(EpisodeService().get_episode(episode_id)["categories"])
+
+
+def test_approved_synthesis_persists_categories(client):
+    episode_id, _ = _episode_with_script()
+    select = _synthesize_approved(client, episode_id, lambda *a, **k: ["テック・IT"])
+    assert _saved_categories(episode_id) == ["テック・IT"]
+    assert select.call_args.kwargs["episode_id"] == episode_id
+
+
+def test_approved_synthesis_continues_and_keeps_categories_when_selection_fails(client):
+    from app.services.episode_service import EpisodeService
+
+    episode_id, _ = _episode_with_script()
+    EpisodeService().update_episode_categories(episode_id, ["国際"])
+    _synthesize_approved(client, episode_id, RuntimeError("llm down"))
+    assert _saved_categories(episode_id) == ["国際"]
+    assert EpisodeService().get_episode(episode_id)["audio_path"] == "episode.mp3"
+
+    other_id, _ = _episode_with_script()
+    _synthesize_approved(client, other_id, lambda *a, **k: [])  # 空結果は保存しない
+    assert _saved_categories(other_id) == []
+
+
+@pytest.mark.parametrize("mode", ["always", "validation_blocked"])
+def test_review_route_pipeline_then_approval_saves_categories(client, tmp_path, mode):
+    """レビュー待ちで中断する2経路（review_mode=always / can_synthesize=False）から承認後に完成するとcategoriesが保存される。"""
+    from app.batch import radio_pipeline
+    from app.db.connection import get_db_connection
+    from app.services.episode_service import EpisodeService
+
+    service = EpisodeService()
+    episode_id, _ = service.create_radio_episode("2099-09-01")
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE episodes SET review_mode=? WHERE id=?",
+            ("always" if mode == "always" else "on_failure", episode_id),
+        )
+
+    def write_script(path, **kwargs):
+        p = Path(__import__("os").environ["EPISODES_DIR"]) / str(episode_id) / "script.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"lines": [{"article_id": None, "text": "本文"}]}), encoding="utf-8")
+        return 1
+
+    blocked = {"can_synthesize": False, "warnings": [], "errors": [{"message": "x"}]}
+    with patch.object(radio_pipeline, "import_articles_by_source", return_value=(1, 0)), \
+         patch.object(radio_pipeline, "summarize_articles", return_value=1), \
+         patch.object(radio_pipeline, "generate_script", side_effect=write_script), \
+         patch.object(radio_pipeline, "review_script", return_value={"revised": False, "review_count": 0}), \
+         patch.object(radio_pipeline, "should_run_final_validation", return_value=mode != "always"), \
+         patch.object(radio_pipeline, "validate_final_script_file", return_value=blocked if mode != "always" else {"can_synthesize": True, "warnings": []}), \
+         patch.object(radio_pipeline, "human_review_message", return_value="要確認"), \
+         patch.object(radio_pipeline, "notify_review_needed"), \
+         patch.object(radio_pipeline, "select_episode_categories", return_value=[]):
+        result = radio_pipeline.run_radio_pipeline(
+            episode_id, episode_date="2099-09-01",
+            default_episodes_dir=str(Path(__import__("os").environ["EPISODES_DIR"])),
+        )
+    assert result == radio_pipeline.PipelineResult.REVIEW_REQUIRED
+    assert service.get_episode(episode_id)["status"] == "awaiting_review"
+    assert _saved_categories(episode_id) == []
+
+    _synthesize_approved(client, episode_id, lambda *a, **k: ["AI・先端技術"])
+    assert _saved_categories(episode_id) == ["AI・先端技術"]
+
+
+def test_manual_resynthesis_does_not_touch_categories(client):
+    from app.api import generate as generate_api
+    from app.services.episode_service import EpisodeService
+
+    episode_id, _ = _episode_with_script(status="completed")
+    EpisodeService().update_episode_categories(episode_id, ["社会・暮らし"])
+    with patch.object(generate_api, "DEFAULT_EPISODES_DIR", str(Path(__import__("os").environ["EPISODES_DIR"]))), \
+         patch("app.services.episode_category_service.select_episode_categories") as select, \
+         patch.object(generate_api, "synthesize_episode", return_value=1), \
+         patch.object(generate_api, "build_episode", return_value={"audio_path": "episode.mp3"}):
+        list(generate_api._stream_synthesize(episode_id, generate_api.SynthesizeRequest()))
+    select.assert_not_called()
+    assert _saved_categories(episode_id) == ["社会・暮らし"]
+
+
+def test_approval_carries_original_content_llm_to_category_selection(client):
+    from app.db.connection import get_db_connection
+
+    episode_id, _ = _episode_with_script()
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO generation_jobs(owner_user_id, operation, idempotency_key, input_hash, client_ip_hash, episode_id, payload, status) "
+            "VALUES (-1, 'generate', 'k-orig', 'h', 'ip', ?, ?, 'completed')",
+            (episode_id, json.dumps({"content_provider": "lm_studio", "content_model": "local-model"})),
+        )
+    select = _synthesize_approved(client, episode_id, lambda *a, **k: ["テック・IT"])
+    assert select.call_args.kwargs["llm_provider"] == "lm_studio"
+    assert select.call_args.kwargs["llm_model"] == "local-model"
+
+
+def test_approval_without_any_stored_llm_skips_category_selection_but_synthesizes(client):
+    from app.services.episode_service import EpisodeService
+
+    episode_id, _ = _episode_with_script()
+    select = _synthesize_approved(client, episode_id, lambda *a, **k: ["テック・IT"], source_job=False)
+    select.assert_not_called()  # 既定の外部LLMへ台本を送らない
+    assert _saved_categories(episode_id) == []
+    assert EpisodeService().get_episode(episode_id)["audio_path"] == "episode.mp3"
+
+
+def test_selection_file_write_failure_and_missing_job_skips_category_selection(client):
+    """設定ファイル書込失敗と元ジョブ不在が重なっても、別プロバイダーへ台本を送らない。"""
+    import os
+    from types import SimpleNamespace
+    from app.batch import radio_pipeline
+    from app.db.connection import get_db_connection
+    from app.services.episode_service import EpisodeService
+
+    service = EpisodeService()
+    episode_id, _ = service.create_radio_episode("2099-10-02")
+    with get_db_connection() as conn:
+        conn.execute("UPDATE episodes SET review_mode='always' WHERE id=?", (episode_id,))
+
+    def write_script(path, **kwargs):
+        p = Path(os.environ["EPISODES_DIR"]) / str(episode_id) / "script.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"lines": [{"article_id": None, "text": "本文"}]}), encoding="utf-8")
+        return 1
+
+    real_open = open
+
+    def failing_open(file, *a, **k):
+        if str(file).endswith(radio_pipeline.CONTENT_LLM_SELECTION_FILE):
+            raise OSError("disk full")
+        return real_open(file, *a, **k)
+
+    with patch.object(radio_pipeline, "import_articles_by_source", return_value=(1, 0)), \
+         patch.object(radio_pipeline, "summarize_articles", return_value=1), \
+         patch.object(radio_pipeline, "generate_script", side_effect=write_script), \
+         patch.object(radio_pipeline, "review_script", return_value={"revised": False, "review_count": 0}), \
+         patch.object(radio_pipeline, "notify_review_needed"), \
+         patch("builtins.open", side_effect=failing_open), \
+         patch("app.services.llm_provider.validate_provider_model",
+               side_effect=lambda provider, model: SimpleNamespace(name=provider or "codex", model=model or "m")):
+        result = radio_pipeline.run_radio_pipeline(
+            episode_id, episode_date="2099-10-02",
+            default_episodes_dir=os.environ["EPISODES_DIR"],
+            content_provider="lm_studio", content_model="local-model",
+        )
+    assert result == radio_pipeline.PipelineResult.REVIEW_REQUIRED
+    assert not (Path(os.environ["EPISODES_DIR"]) / str(episode_id) / radio_pipeline.CONTENT_LLM_SELECTION_FILE).exists()
+    with get_db_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM generation_jobs WHERE episode_id=?", (episode_id,)).fetchone()[0] == 0
+
+    select = _synthesize_approved(client, episode_id, lambda *a, **k: ["テック・IT"], source_job=False)
+    select.assert_not_called()
+    assert EpisodeService().get_episode(episode_id)["audio_path"] == "episode.mp3"
+
+
+def test_pipeline_persists_content_llm_and_approval_uses_it_after_job_deleted(client, tmp_path):
+    """レビュー待ち中に元の生成ジョブが削除されても、承認後は元の content LLM で選定する。"""
+    import os
+    from types import SimpleNamespace
+    from app.batch import radio_pipeline
+    from app.db.connection import get_db_connection
+    from app.services.episode_service import EpisodeService
+
+    service = EpisodeService()
+    episode_id, _ = service.create_radio_episode("2099-10-01")
+    with get_db_connection() as conn:
+        conn.execute("UPDATE episodes SET review_mode='always' WHERE id=?", (episode_id,))
+
+    def write_script(path, **kwargs):
+        p = Path(os.environ["EPISODES_DIR"]) / str(episode_id) / "script.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"lines": [{"article_id": None, "text": "本文"}]}), encoding="utf-8")
+        return 1
+
+    with patch.object(radio_pipeline, "import_articles_by_source", return_value=(1, 0)), \
+         patch.object(radio_pipeline, "summarize_articles", return_value=1), \
+         patch.object(radio_pipeline, "generate_script", side_effect=write_script), \
+         patch.object(radio_pipeline, "review_script", return_value={"revised": False, "review_count": 0}), \
+         patch.object(radio_pipeline, "notify_review_needed"), \
+         patch("app.services.llm_provider.validate_provider_model",
+               side_effect=lambda provider, model: SimpleNamespace(name=provider or "codex", model=model or "m")), \
+         patch.object(radio_pipeline, "select_episode_categories", return_value=[]):
+        result = radio_pipeline.run_radio_pipeline(
+            episode_id, episode_date="2099-10-01",
+            default_episodes_dir=os.environ["EPISODES_DIR"],
+            content_provider="lm_studio", content_model="local-model",
+        )
+    assert result == radio_pipeline.PipelineResult.REVIEW_REQUIRED
+    # 元の生成ジョブは存在しない（期限削除後）状態で承認する
+    with get_db_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM generation_jobs WHERE episode_id=?", (episode_id,)).fetchone()[0] == 0
+
+    select = _synthesize_approved(client, episode_id, lambda *a, **k: ["テック・IT"])
+    assert select.call_args.kwargs["llm_provider"] == "lm_studio"
+    assert select.call_args.kwargs["llm_model"] == "local-model"
+
+
+@pytest.mark.parametrize("payload", ["{}", "[]", '"text"', "not-json", "null", '{"content_model": "m"}'])
+def test_remaining_job_without_recorded_provider_skips_category_selection(client, payload):
+    """元ジョブが残っていても provider が記録されていなければ、既定値で代用せず選定しない。"""
+    from app.db.connection import get_db_connection
+    from app.services.episode_service import EpisodeService
+
+    episode_id, _ = _episode_with_script()
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO generation_jobs(owner_user_id, operation, idempotency_key, input_hash, client_ip_hash, episode_id, payload, status) "
+            "VALUES (-1, 'generate', 'k-empty', 'h', 'ip', ?, ?, 'completed')",
+            (episode_id, payload),
+        )
+    select = _synthesize_approved(client, episode_id, lambda *a, **k: ["テック・IT"])
+    select.assert_not_called()
+    assert _saved_categories(episode_id) == []
+    assert EpisodeService().get_episode(episode_id)["audio_path"] == "episode.mp3"
