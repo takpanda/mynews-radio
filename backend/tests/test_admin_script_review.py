@@ -796,7 +796,7 @@ def test_bearer_approved_synthesize_job_is_processed_by_existing_worker(client, 
 
     synthesized = []
     finalized = []
-    monkeypatch.setattr(generate_api, "_stream_synthesize", lambda ep_id, _body: synthesized.append(ep_id) or iter(()))
+    monkeypatch.setattr(generate_api, "_stream_synthesize", lambda ep_id, _body, **_kw: synthesized.append(ep_id) or iter(()))
     monkeypatch.setattr(generate_api, "_finalize_synthesis_job", lambda jid, ep_id, **_kwargs: finalized.append((jid, ep_id)))
     with get_db_connection() as conn:
         job = conn.execute("SELECT * FROM generation_jobs WHERE id=?", (job_id,)).fetchone()
