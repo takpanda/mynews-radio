@@ -1,7 +1,8 @@
 """公開済み通常回のカテゴリ（episodes.categories）を再選定する。
 
 既定は dry-run: DBは読み取り専用で開き、LLM呼び出しログ（llm_call_logs / JSONL）も
-書き込まない。--apply 指定時のみ更新する。
+書き込まない。--apply 指定時のみ更新する。content LLM が Codex 等（認証状態を更新し得る）の場合、
+dry-run は推論せず対象一覧のみ表示する。
 対象は公開API（/api/episodes）と同じ判定で公開される通常回（completed かつ音声ファイルあり、
 解説・ダイジェスト除く）のうち categories が空の回。台本は公開APIと同じ規則
 （ID ディレクトリ→旧形式の日付ディレクトリ）で解決する。
@@ -15,7 +16,7 @@
 
 ロールバック: --apply は更新直前の生の値（DBに入っていた文字列そのまま）を
 ``--backup-file``（既定 categories_backup_<日時>.jsonl、1行1件 {"id":..,"categories":..}）へ
-更新前に書き出す。--restore <file> でパラメーター化した UPDATE により元の値へ戻す。
+更新前に書き出す（既存ファイルは拒否。実行ごとに新規ファイルを指定）。--restore <file> でパラメーター化した UPDATE により元の値へ戻す。
 """
 
 import argparse
@@ -38,7 +39,7 @@ from app.services.episode_category_service import (  # noqa: E402
     select_episode_categories,
 )
 from app.services.episode_service import EpisodeService  # noqa: E402
-from app.services.llm_provider import resolve_pipeline_llm_selection  # noqa: E402
+from app.services.llm_provider import resolve_pipeline_llm_selection, validate_provider_model  # noqa: E402
 
 
 @contextmanager
@@ -102,6 +103,7 @@ def _select(row: dict, selection) -> list[str]:
         os.path.join(episode_dir, "summaries.json"),
         llm_provider=selection.content_provider,
         llm_model=selection.content_model,
+        episode_id=row["id"],
     )
 
 
@@ -120,7 +122,22 @@ def main() -> int:
     selection = resolve_pipeline_llm_selection()
     service = EpisodeService()
     failed = 0
-    backup_path = args.backup_file or f"categories_backup_{datetime.now():%Y%m%d_%H%M%S}.jsonl"
+    backup_path = args.backup_file or f"categories_backup_{datetime.now():%Y%m%d_%H%M%S_%f}.jsonl"
+    if args.apply and os.path.exists(backup_path):
+        # 追記すると復元時に古い行が先に適用され、初回更新前へ戻せなくなる。
+        print(f"バックアップ先が既に存在します: {backup_path}（実行ごとに新規ファイルを指定してください）", file=sys.stderr)
+        return 2
+
+    # Codex等の認証状態を持つクライアントは、初期化・更新でトークン/ロックファイルへ書き込むため
+    # dry-run では推論せず、対象の一覧だけを表示する。
+    infer_in_dry_run = True
+    if not args.apply:
+        try:
+            infer_in_dry_run = not validate_provider_model(
+                selection.content_provider, selection.content_model
+            ).responses_api
+        except Exception:
+            infer_in_dry_run = False
 
     # dry-run は DB を読み取り専用にし、LLM呼び出しログも書かない。
     patches = []
@@ -135,6 +152,15 @@ def main() -> int:
     try:
         targets = _targets(args.episode_id, args.all, _readonly_db_connection if not args.apply else get_db_connection)
         print(f"対象 {len(targets)} 件 ({'apply' if args.apply else 'dry-run'})")
+        if not args.apply and not infer_in_dry_run:
+            for row in targets:
+                print(f"id={row['id']} date={row.get('episode_date')} before={json.dumps(parse_episode_categories(row.get('categories')), ensure_ascii=False)}")
+            print(
+                "content LLM が認証状態（トークンファイル）を更新し得るため、dry-run では推論しません。"
+                "選定結果の確認は --apply 時のバックアップ付き実行で行ってください。"
+            )
+            return 0
+        first_written = False
         for row in targets:
             categories = _select(row, selection)
             before = json.dumps(parse_episode_categories(row.get("categories")), ensure_ascii=False)
@@ -145,10 +171,11 @@ def main() -> int:
                 continue
             if args.apply:
                 raw = _fetch_raw_categories(row["id"])  # 更新直前の生の値
-                with open(backup_path, "a", encoding="utf-8") as handle:
+                with open(backup_path, "a" if first_written else "x", encoding="utf-8") as handle:
                     handle.write(json.dumps({"id": row["id"], "categories": raw}, ensure_ascii=False) + "\n")
                     handle.flush()
                     os.fsync(handle.fileno())
+                first_written = True
                 service.update_episode_categories(row["id"], categories)
     finally:
         for p in patches:

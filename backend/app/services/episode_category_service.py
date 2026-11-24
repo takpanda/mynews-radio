@@ -83,6 +83,7 @@ def select_episode_categories(
     client_factory: Callable[..., Any] | None = None,
     llm_provider: str | None = None,
     llm_model: str | None = None,
+    episode_id: int | None = None,
 ) -> list[str]:
     """台本を優先してLLMで選定する。全ての失敗は空配列として扱う。
 
@@ -94,7 +95,9 @@ def select_episode_categories(
     if not source:
         return []
     settings = get_settings()
-    episode_id = infer_episode_id(script_path)
+    # パスから推定できない旧形式（日付ディレクトリ）の回では呼び出し側が明示する。
+    if episode_id is None:
+        episode_id = infer_episode_id(script_path)
     rendered = render_prompt(
         "category",
         {"categories": ", ".join(EPISODE_CATEGORIES), "source": source},

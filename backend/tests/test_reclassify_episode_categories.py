@@ -40,9 +40,11 @@ def _raw(episode_id):
         return conn.execute("SELECT categories FROM episodes WHERE id = ?", (episode_id,)).fetchone()[0]
 
 
-def _run(module, argv, selector):
+def _run(module, argv, selector, responses_api=False):
     with patch.object(module, "select_episode_categories", side_effect=selector), \
+         patch.object(module, "validate_provider_model") as v, \
          patch("sys.argv", ["x", *argv]):
+        v.return_value.responses_api = responses_api
         return module.main()
 
 
@@ -103,3 +105,45 @@ def test_empty_selection_does_not_overwrite(client, tmp_path):
     episode_id = _episode("2099-05-01")
     assert _run(module, ["--apply", "--backup-file", str(tmp_path / "b.jsonl")], lambda *a, **k: []) == 1
     assert _raw(episode_id) == "[]"
+
+
+def test_backup_file_is_never_reused(client, tmp_path):
+    module = _load()
+    episode_id = _episode("2099-06-01", raw_categories='["旧"')
+    backup = tmp_path / "b.jsonl"
+    assert _run(module, ["--apply", "--backup-file", str(backup)], lambda *a, **k: ["テック・IT"]) == 0
+    first = backup.read_text(encoding="utf-8")
+    # 同じバックアップ先での再実行は更新前に拒否され、ファイル・DBとも変わらない
+    assert _run(module, ["--apply", "--all", "--backup-file", str(backup)], lambda *a, **k: ["国際"]) == 2
+    assert backup.read_text(encoding="utf-8") == first
+    assert json.loads(_raw(episode_id)) == ["テック・IT"]
+    _run(module, ["--restore", str(backup)], lambda *a, **k: [])
+    assert _raw(episode_id) == '["旧"'
+
+
+def test_dry_run_skips_inference_for_auth_stateful_provider(client):
+    module = _load()
+    _episode("2099-07-01")
+    called = []
+    rc = _run(module, [], lambda *a, **k: called.append(1) or ["テック・IT"], responses_api=True)
+    assert rc == 0 and not called
+
+
+def test_legacy_date_dir_passes_episode_id_for_program_prompt(client):
+    module = _load()
+    episode_id = _episode("2099-08-01", audio=False, dir_name="2099-08-01")
+    with get_db_connection() as conn:
+        conn.execute("UPDATE episodes SET program_id='radio_tech_news' WHERE id=?", (episode_id,))
+    Path(os.environ["EPISODES_DIR"], "2099-08-01", "a.mp3").write_bytes(b"x")
+    kwargs_seen = {}
+    _run(module, [], lambda *a, **k: kwargs_seen.update(k) or ["テック・IT"])
+    assert kwargs_seen["episode_id"] == episode_id
+
+    # カテゴリ選定側: 明示IDで番組別プロンプトを選ぶ（パスからは推定できない）
+    from app.services import episode_category_service as svc
+    seen = {}
+    script = Path(os.environ["EPISODES_DIR"], "2099-08-01", "script.json")
+    with patch.object(svc, "program_id_for_episode", side_effect=lambda i: seen.setdefault("id", i)), \
+         patch.object(svc, "create_llm_client", side_effect=RuntimeError("stop")):
+        svc.select_episode_categories(str(script), "x", llm_provider="p", episode_id=episode_id)
+    assert seen["id"] == episode_id
