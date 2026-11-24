@@ -1500,3 +1500,27 @@ class TestEpisodeLlmInfo:
         assert data["applied_settings"] == {"tts_engine": "voicevox"}
         assert data["llm_provider"] == "ollama"
         assert data["llm_model"] == "gpt-oss:20b"
+
+
+class TestPublicCategoryFilterBothTechLabels:
+    def test_both_tech_labels_in_tech_and_excluded_from_general(self, client):
+        import os as _os
+        from app.services.episode_service import EpisodeService
+
+        svc = EpisodeService()
+        ep_dir = _os.environ.get("EPISODES_DIR", "data/episodes")
+        ids = {}
+        for key, date, labels in [
+            ("tech_it", "2099-11-03", ["テック・IT"]),
+            ("ai", "2099-11-02", ["AI・先端技術"]),
+            ("general", "2099-11-01", ["社会・暮らし"]),
+        ]:
+            ids[key] = svc.create_episode(episode_date=date, audio_path=f"{key}.mp3", status="completed")
+            svc.update_episode_categories(ids[key], labels)
+            _write_audio_file(ep_dir, ids[key], f"{key}.mp3")
+
+        tech = {e["id"] for e in client.get("/episodes?category=tech").json()}
+        general = {e["id"] for e in client.get("/episodes?category=general").json()}
+
+        assert tech == {ids["tech_it"], ids["ai"]}
+        assert general == {ids["general"]}
