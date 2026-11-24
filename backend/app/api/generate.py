@@ -963,16 +963,15 @@ def _persist_episode_categories(
 ) -> None:
     try:
         from app.services.episode_category_service import select_episode_categories
-        from app.services.llm_provider import resolve_pipeline_llm_selection
-
         if category_llm.get("unavailable"):
             logger.warning("[%d] original content LLM is unknown; category selection skipped", episode_id)
             return
         provider = category_llm.get("provider")
         model = category_llm.get("model")
-        if not (provider or model):
-            selection = resolve_pipeline_llm_selection()
-            provider, model = selection.content_provider, selection.content_model
+        if not provider:
+            # 元のプロバイダーを特定できない場合は、既定値で代用せず選定しない。
+            logger.warning("[%d] original content LLM provider is unknown; category selection skipped", episode_id)
+            return
         categories = select_episode_categories(
             script_path,
             summaries_path,

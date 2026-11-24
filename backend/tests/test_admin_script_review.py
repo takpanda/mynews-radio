@@ -872,8 +872,8 @@ def _synthesize_approved(client, episode_id, categories, *, source_job=True):
             if not conn.execute("SELECT 1 FROM generation_jobs WHERE episode_id=?", (episode_id,)).fetchone():
                 conn.execute(
                     "INSERT INTO generation_jobs(owner_user_id, operation, idempotency_key, input_hash, client_ip_hash, episode_id, payload, status) "
-                    "VALUES (-1, 'generate', ?, 'h', 'ip', ?, '{}', 'completed')",
-                    (f"k-default-{episode_id}", episode_id),
+                    "VALUES (-1, 'generate', ?, 'h', 'ip', ?, ?, 'completed')",
+                    (f"k-default-{episode_id}", episode_id, json.dumps({"content_provider": "codex"})),
                 )
 
     with patch("app.api.admin_script_review._validate_episode_script", return_value={"can_approve": True, "results": []}), \
@@ -1089,3 +1089,22 @@ def test_pipeline_persists_content_llm_and_approval_uses_it_after_job_deleted(cl
     select = _synthesize_approved(client, episode_id, lambda *a, **k: ["テック・IT"])
     assert select.call_args.kwargs["llm_provider"] == "lm_studio"
     assert select.call_args.kwargs["llm_model"] == "local-model"
+
+
+@pytest.mark.parametrize("payload", ["{}", "[]", '"text"', "not-json", "null", '{"content_model": "m"}'])
+def test_remaining_job_without_recorded_provider_skips_category_selection(client, payload):
+    """元ジョブが残っていても provider が記録されていなければ、既定値で代用せず選定しない。"""
+    from app.db.connection import get_db_connection
+    from app.services.episode_service import EpisodeService
+
+    episode_id, _ = _episode_with_script()
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO generation_jobs(owner_user_id, operation, idempotency_key, input_hash, client_ip_hash, episode_id, payload, status) "
+            "VALUES (-1, 'generate', 'k-empty', 'h', 'ip', ?, ?, 'completed')",
+            (episode_id, payload),
+        )
+    select = _synthesize_approved(client, episode_id, lambda *a, **k: ["テック・IT"])
+    select.assert_not_called()
+    assert _saved_categories(episode_id) == []
+    assert EpisodeService().get_episode(episode_id)["audio_path"] == "episode.mp3"

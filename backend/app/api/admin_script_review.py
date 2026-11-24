@@ -273,7 +273,7 @@ def _original_category_llm(conn, episode_id: int) -> dict:
         from app.batch.radio_pipeline import CONTENT_LLM_SELECTION_FILE
 
         saved = json.loads((_script_path(episode_id).parent / CONTENT_LLM_SELECTION_FILE).read_text(encoding="utf-8"))
-        if isinstance(saved, dict) and (saved.get("provider") or saved.get("model")):
+        if isinstance(saved, dict) and saved.get("provider"):
             return {"provider": saved.get("provider"), "model": saved.get("model")}
     except (OSError, ValueError):
         pass
@@ -290,18 +290,15 @@ def _original_category_llm(conn, episode_id: int) -> dict:
         source = json.loads(row["payload"] or "{}")
         if not isinstance(source, dict):
             source = {}
-        from app.services.llm_provider import resolve_pipeline_llm_selection
-
-        selection = resolve_pipeline_llm_selection(
-            llm_provider=source.get("llm_provider"),
-            llm_model=source.get("llm_model"),
-            content_provider=source.get("content_provider", source.get("content_llm_provider")),
-            content_model=source.get("content_model", source.get("content_llm_model")),
-        )
-        return {"provider": selection.content_provider, "model": selection.content_model}
-    except Exception:
-        logger.warning("could not resolve original content LLM for episode %s", episode_id, exc_info=True)
-        return {"unavailable": True}
+        # provider が明記されている場合だけ元の選択とみなす（未記録は現在の既定値では代用しない）。
+        provider = source.get("content_provider") or source.get("content_llm_provider") or source.get("llm_provider")
+        if isinstance(provider, str) and provider.strip():
+            model = source.get("content_model") or source.get("content_llm_model") or source.get("llm_model")
+            return {"provider": provider.strip(), "model": model if isinstance(model, str) and model.strip() else None}
+    except (TypeError, ValueError):
+        logger.warning("could not parse original generation payload for episode %s", episode_id, exc_info=True)
+    logger.warning("original content LLM is not recorded for episode %s; category selection is skipped", episode_id)
+    return {"unavailable": True}
 
 
 @router.post("/admin/episodes/{episode_id}/approve")
