@@ -12,24 +12,52 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
-def _set_busy(endpoint: str, stage: str) -> bool:
+def _post_busy(endpoint: str, timeout: float, token: str | None = None):
+    settings = get_settings()
+    response = httpx.post(
+        f"{settings.thumbnail_service_url.rstrip('/')}/busy/{endpoint}",
+        params={"token": token} if token else None,
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    return response
+
+
+def _acquire_busy(stage: str) -> tuple[bool, str | None]:
+    """Acquire the gate; returns (acquired, token).
+
+    The server holds a claim as pending until /busy/confirm, and reclaims it if
+    the confirmation never arrives, so a lost /busy/up response cannot leak the
+    gate. Servers that return no token (older versions) skip the confirmation.
+    """
+    token = None
     try:
         settings = get_settings()
-        response = httpx.post(
-            f"{settings.thumbnail_service_url.rstrip('/')}/busy/{endpoint}",
-            # /busy/up waits until the shared gate is available, which can exceed
-            # the normal per-request timeout while a thumbnail renders. Bound it
-            # so a stuck gate never hangs the batch.
-            timeout=(
-                settings.dgx_busy_wait_timeout
-                if endpoint == "up"
-                else settings.thumbnail_http_timeout
-            ),
-        )
-        response.raise_for_status()
+        # /busy/up waits until the shared gate is available, which can exceed
+        # the normal per-request timeout while a thumbnail renders. Bound it
+        # so a stuck gate never hangs the batch.
+        response = _post_busy("up", settings.dgx_busy_wait_timeout)
+        try:
+            token = response.json().get("token")
+        except Exception:
+            token = None
+        if token:
+            _post_busy("confirm", settings.thumbnail_http_timeout, token)
+        return True, token
+    except Exception:
+        logger.warning(".102 busy/up request failed (stage=%s)", stage)
+        if token:
+            # Claim may exist server-side; release it by token (idempotent).
+            _release_busy(stage, token)
+        return False, None
+
+
+def _release_busy(stage: str, token: str | None) -> bool:
+    try:
+        _post_busy("down", get_settings().thumbnail_http_timeout, token)
         return True
     except Exception:
-        logger.warning(".102 busy/%s request failed (stage=%s)", endpoint, stage)
+        logger.warning(".102 busy/down request failed (stage=%s)", stage)
         return False
 
 
@@ -40,7 +68,8 @@ def run_with_dgx_busy(stage: str, operation: Callable[..., T], *args, **kwargs) 
     without it, and /busy/down is NOT called so another holder's counter is
     left untouched.
     """
-    if not _set_busy("up", stage):
+    acquired, token = _acquire_busy(stage)
+    if not acquired:
         logger.warning(
             ".102 busy gate unavailable; continuing without it (stage=%s)", stage
         )
@@ -48,4 +77,4 @@ def run_with_dgx_busy(stage: str, operation: Callable[..., T], *args, **kwargs) 
     try:
         return operation(*args, **kwargs)
     finally:
-        _set_busy("down", stage)
+        _release_busy(stage, token)

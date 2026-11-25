@@ -1,4 +1,5 @@
 import asyncio
+import errno
 import importlib.util
 import io
 import json
@@ -369,6 +370,71 @@ def test_busy_up_releases_claim_if_client_disconnected_after_claim():
     assert thumbnail_server.busy_count() == 0
 
 
+def _claim_with_token():
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy = 0
+        thumbnail_server._busy_tokens.clear()
+    body = asyncio.run(thumbnail_server.busy_up_ep(_FakeRequest()))
+    return body["token"]
+
+
+def test_unconfirmed_busy_claim_is_reclaimed_after_timeout(monkeypatch):
+    token = _claim_with_token()
+    assert thumbnail_server.busy_count() == 1
+    thumbnail_server._reap_unconfirmed_busy()
+    assert thumbnail_server.busy_count() == 1  # still within confirm window
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy_tokens[token] = time.monotonic() - 1
+    thumbnail_server._reap_unconfirmed_busy()
+    assert thumbnail_server.busy_count() == 0
+    with pytest.raises(thumbnail_server.HTTPException) as exc:
+        thumbnail_server.busy_confirm_ep(token)
+    assert exc.value.status_code == 409
+
+
+def test_confirmed_busy_claim_is_held_until_down_and_down_is_idempotent():
+    token = _claim_with_token()
+    thumbnail_server.busy_confirm_ep(token)
+    thumbnail_server._reap_unconfirmed_busy()
+    assert thumbnail_server.busy_count() == 1
+    thumbnail_server.busy_down_ep(token)
+    assert thumbnail_server.busy_count() == 0
+    # Another holder's claim is not decremented by a duplicate down.
+    assert thumbnail_server.try_claim_busy() is True
+    thumbnail_server.busy_down_ep(token)
+    assert thumbnail_server.busy_count() == 1
+    thumbnail_server.busy_down()
+
+
+def test_comfyui_recovery_keeps_busy_when_connect_error_is_not_refusal(monkeypatch, tmp_path):
+    state_path = tmp_path / "active.json"
+    state_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(thumbnail_server, "COMFYUI_STATE_PATH", state_path)
+    calls = {"n": 0}
+
+    def unreachable(_state):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            err = httpx.ConnectError("no route to host")
+            err.__cause__ = OSError(errno.EHOSTUNREACH, "no route")
+            raise err
+        raise KeyboardInterrupt  # stop the retry loop
+
+    def sleep(_s):
+        assert thumbnail_server.busy_count() == 1
+        assert state_path.exists()
+
+    monkeypatch.setattr(thumbnail_server, "_cleanup_comfyui_state", unreachable)
+    monkeypatch.setattr(thumbnail_server.time, "sleep", sleep)
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy = 1
+    with pytest.raises(KeyboardInterrupt):
+        thumbnail_server._recover_comfyui_state({"prompt_id": "p", "submitted": True})
+    assert thumbnail_server.busy_count() == 1
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy = 0
+
+
 def test_comfyui_recovery_releases_busy_when_connection_refused(monkeypatch, tmp_path):
     state_path = tmp_path / "active.json"
     state_path.write_text("{}", encoding="utf-8")
@@ -376,7 +442,9 @@ def test_comfyui_recovery_releases_busy_when_connection_refused(monkeypatch, tmp
     monkeypatch.setattr(thumbnail_server.time, "sleep", lambda _s: None)
 
     def refused(_state):
-        raise httpx.ConnectError("connection refused")
+        err = httpx.ConnectError("connection refused")
+        err.__cause__ = ConnectionRefusedError(errno.ECONNREFUSED, "refused")
+        raise err
 
     monkeypatch.setattr(thumbnail_server, "_cleanup_comfyui_state", refused)
     with thumbnail_server._busy_lock:
@@ -1004,7 +1072,7 @@ async def test_busy_up_waiters_do_not_starve_http_thread_pool(monkeypatch):
     async with httpx.AsyncClient(transport=transport, base_url="http://thumbnail.test") as client:
         first = await client.post("/busy/up")
         assert first.status_code == 200
-        assert first.json() == {"busy": 1}
+        assert first.json()["busy"] == 1
 
         waiters = [asyncio.create_task(client.post("/busy/up")) for _ in range(waiter_count)]
         try:
@@ -1024,7 +1092,7 @@ async def test_busy_up_waiters_do_not_starve_http_thread_pool(monkeypatch):
             assert done, "no waiting /busy/up request acquired the released gate"
             response = done.pop().result()
             assert response.status_code == 200
-            assert response.json() == {"busy": 1}
+            assert response.json()["busy"] == 1
         finally:
             for waiter in waiters:
                 if not waiter.done():

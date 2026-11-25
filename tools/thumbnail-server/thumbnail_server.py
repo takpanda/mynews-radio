@@ -10,7 +10,7 @@ Endpoints:
   GET  /thumbnail/{job_id}               -> {status, ...} (poll)
   GET  /files/{job_id}.png               -> the rendered PNG (when done)
 """
-import os, re, json, time, uuid, queue, threading, logging, tempfile, asyncio, secrets, unicodedata
+import errno, os, re, json, time, uuid, queue, threading, logging, tempfile, asyncio, secrets, unicodedata
 from io import BytesIO
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
@@ -576,6 +576,21 @@ def _cleanup_comfyui_state(state):
         _wait_until_comfyui_idle()
 
 
+def _is_connection_refused(exc):
+    """True only if the cause chain holds ECONNREFUSED (service is down).
+
+    Other connect failures (route loss, DNS, timeouts) say nothing about whether
+    a ComfyUI job is still running, so they must keep the gate held.
+    """
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, ConnectionRefusedError) or getattr(exc, "errno", None) == errno.ECONNREFUSED:
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
 def _recover_comfyui_state(state):
     while True:
         try:
@@ -585,6 +600,10 @@ def _recover_comfyui_state(state):
             busy_down()
             return
         except httpx.ConnectError as exc:
+            if not _is_connection_refused(exc):
+                log.warning("ComfyUI recovery is waiting for service availability: %s", exc)
+                time.sleep(COMFYUI_RECOVERY_RETRY)
+                continue
             # Connection refused: ComfyUI is down, so its in-memory queue is
             # gone and no job can be running. Do not hold the gate forever.
             log.warning("ComfyUI is unreachable; treating job as inactive and "
@@ -849,6 +868,29 @@ def _resume_comfyui_recovery():
 _resume_comfyui_recovery()
 threading.Thread(target=worker_loop, daemon=True).start()
 
+# Claims made by /busy/up stay "pending" until the caller confirms receipt via
+# /busy/confirm. A claim whose response was lost never gets confirmed, so it is
+# reclaimed after BUSY_CONFIRM_TIMEOUT instead of leaking the gate. Confirmed
+# claims are held until /busy/down (no lease), keeping exclusion for the phase.
+BUSY_CONFIRM_TIMEOUT = float(os.environ.get("BUSY_CONFIRM_TIMEOUT", "30"))
+_busy_tokens = {}  # token -> pending deadline (monotonic) or None if confirmed
+
+def _reap_unconfirmed_busy():
+    now = time.monotonic()
+    with _busy_lock:
+        expired = [t for t, d in _busy_tokens.items() if d is not None and now >= d]
+        for token in expired:
+            del _busy_tokens[token]
+            log.warning("busy/up claim was never confirmed; releasing shared busy gate")
+            busy_down()
+
+def _busy_reaper_loop():
+    while True:
+        time.sleep(1)
+        _reap_unconfirmed_busy()
+
+threading.Thread(target=_busy_reaper_loop, daemon=True).start()
+
 @app.post("/busy/up")
 async def busy_up_ep(request: Request):
     # Keep waiting requests on the event loop so they cannot consume Starlette's
@@ -859,13 +901,37 @@ async def busy_up_ep(request: Request):
         if await request.is_disconnected():
             return Response(status_code=499)
         await asyncio.sleep(0.05)
+    token = uuid.uuid4().hex
+    with _busy_lock:
+        _busy_tokens[token] = time.monotonic() + BUSY_CONFIRM_TIMEOUT
     if await request.is_disconnected():
-        busy_down()
+        _release_busy_token(token)
         return Response(status_code=499)
+    return {"busy": busy_count(), "token": token}
+
+def _release_busy_token(token):
+    """Release the claim for token once; unknown/duplicate tokens are no-ops."""
+    with _busy_lock:
+        if token in _busy_tokens:
+            del _busy_tokens[token]
+            busy_down()
+
+@app.post("/busy/confirm")
+def busy_confirm_ep(token: str):
+    _reap_unconfirmed_busy()
+    with _busy_lock:
+        if token not in _busy_tokens:
+            raise HTTPException(status_code=409, detail="busy claim expired")
+        _busy_tokens[token] = None
     return {"busy": busy_count()}
+
 @app.post("/busy/down")
-def busy_down_ep():
-    busy_down(); return {"busy": busy_count()}
+def busy_down_ep(token: str | None = None):
+    if token is None:
+        busy_down()  # legacy callers without a token
+    else:
+        _release_busy_token(token)
+    return {"busy": busy_count()}
 @app.get("/busy")
 def busy_get():
     return {"busy": busy_count()}
