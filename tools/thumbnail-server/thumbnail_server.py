@@ -868,42 +868,55 @@ def _resume_comfyui_recovery():
 _resume_comfyui_recovery()
 threading.Thread(target=worker_loop, daemon=True).start()
 
-# Claims made by /busy/up stay "pending" until the caller confirms receipt via
-# /busy/confirm. A claim whose response was lost never gets confirmed, so it is
-# reclaimed after BUSY_CONFIRM_TIMEOUT instead of leaking the gate. Confirmed
-# claims are held until /busy/down (no lease), keeping exclusion for the phase.
+# Leased claims (opt-in via /busy/up?lease=true). A claim stays "pending" until
+# the caller confirms receipt via /busy/confirm; one whose response was lost is
+# reclaimed after BUSY_CONFIRM_TIMEOUT. A confirmed claim is held until
+# /busy/down?token=..., with BUSY_MAX_HOLD only as a backstop for a caller that
+# can never release (crash / network loss). Callers that do not opt in (older
+# backends) keep the original semantics: no expiry, released by a token-less down.
 BUSY_CONFIRM_TIMEOUT = float(os.environ.get("BUSY_CONFIRM_TIMEOUT", "30"))
-_busy_tokens = {}  # token -> pending deadline (monotonic) or None if confirmed
+BUSY_MAX_HOLD = float(os.environ.get("BUSY_MAX_HOLD", str(3 * 3600)))
+_busy_tokens = {}  # token -> [deadline (monotonic), confirmed]
+_legacy_holds = 0
 
-def _reap_unconfirmed_busy():
+def _reap_expired_busy():
     now = time.monotonic()
     with _busy_lock:
-        expired = [t for t, d in _busy_tokens.items() if d is not None and now >= d]
+        expired = [t for t, (d, _c) in _busy_tokens.items() if now >= d]
         for token in expired:
-            del _busy_tokens[token]
-            log.warning("busy/up claim was never confirmed; releasing shared busy gate")
+            _deadline, confirmed = _busy_tokens.pop(token)
+            log.warning("busy claim %s expired; releasing shared busy gate",
+                        "hold exceeded BUSY_MAX_HOLD" if confirmed else "was never confirmed")
             busy_down()
 
 def _busy_reaper_loop():
     while True:
         time.sleep(1)
-        _reap_unconfirmed_busy()
+        _reap_expired_busy()
 
 threading.Thread(target=_busy_reaper_loop, daemon=True).start()
 
 @app.post("/busy/up")
-async def busy_up_ep(request: Request):
+async def busy_up_ep(request: Request, lease: bool = False):
     # Keep waiting requests on the event loop so they cannot consume Starlette's
     # finite sync-endpoint thread pool needed by /busy/down.
     # If the client gave up (its wait timeout), stop waiting: the caller will
     # not send /busy/down, so claiming the gate now would leak it forever.
+    global _legacy_holds
     while not try_claim_busy():
         if await request.is_disconnected():
             return Response(status_code=499)
         await asyncio.sleep(0.05)
+    if not lease:
+        if await request.is_disconnected():
+            busy_down()
+            return Response(status_code=499)
+        with _busy_lock:
+            _legacy_holds += 1
+        return {"busy": busy_count()}
     token = uuid.uuid4().hex
     with _busy_lock:
-        _busy_tokens[token] = time.monotonic() + BUSY_CONFIRM_TIMEOUT
+        _busy_tokens[token] = [time.monotonic() + BUSY_CONFIRM_TIMEOUT, False]
     if await request.is_disconnected():
         _release_busy_token(token)
         return Response(status_code=499)
@@ -912,25 +925,32 @@ async def busy_up_ep(request: Request):
 def _release_busy_token(token):
     """Release the claim for token once; unknown/duplicate tokens are no-ops."""
     with _busy_lock:
-        if token in _busy_tokens:
-            del _busy_tokens[token]
+        if _busy_tokens.pop(token, None) is not None:
             busy_down()
 
 @app.post("/busy/confirm")
 def busy_confirm_ep(token: str):
-    _reap_unconfirmed_busy()
+    _reap_expired_busy()
     with _busy_lock:
-        if token not in _busy_tokens:
+        entry = _busy_tokens.get(token)
+        if entry is None:
             raise HTTPException(status_code=409, detail="busy claim expired")
-        _busy_tokens[token] = None
+        if not entry[1]:  # idempotent for retried confirms
+            entry[:] = [time.monotonic() + BUSY_MAX_HOLD, True]
     return {"busy": busy_count()}
 
 @app.post("/busy/down")
 def busy_down_ep(token: str | None = None):
-    if token is None:
-        busy_down()  # legacy callers without a token
-    else:
+    global _legacy_holds
+    if token is not None:
         _release_busy_token(token)
+    else:
+        # Token-less down only releases holds taken the legacy way, so an older
+        # backend can never release a leased holder's gate.
+        with _busy_lock:
+            if _legacy_holds > 0:
+                _legacy_holds -= 1
+                busy_down()
     return {"busy": busy_count()}
 @app.get("/busy")
 def busy_get():

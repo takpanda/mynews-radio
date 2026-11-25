@@ -359,7 +359,7 @@ def test_busy_gate_confirms_claim_and_releases_by_token(monkeypatch, real_dgx_bu
     monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
     assert dgx_busy.run_with_dgx_busy("tts", lambda: 1) == 1
     assert calls == [
-        ("up", None),
+        ("up", {"lease": "true"}),
         ("confirm", {"token": "tok1"}),
         ("down", {"token": "tok1"}),
     ]
@@ -386,6 +386,31 @@ def test_busy_gate_releases_token_and_continues_when_confirm_fails(monkeypatch, 
     assert dgx_busy.run_with_dgx_busy("tts", lambda: 1) == 1
     # Token-scoped release is idempotent server-side, so no miscount.
     assert calls == ["up", "confirm", "down"]
+
+
+def test_busy_gate_retries_token_down_when_confirm_and_first_down_are_lost(
+    monkeypatch, real_dgx_busy
+):
+    calls = []
+    monkeypatch.setattr(dgx_busy.time, "sleep", lambda _s: None)
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"token": "tok1"}
+
+    def busy_call(url, **kwargs):
+        endpoint = url.rsplit("/", 1)[-1]
+        calls.append(endpoint)
+        if endpoint == "confirm" or calls.count("down") == 1 and endpoint == "down":
+            raise httpx.ReadTimeout("lost")
+        return _Resp()
+
+    monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
+    assert dgx_busy.run_with_dgx_busy("tts", lambda: 1) == 1
+    assert calls == ["up", "confirm", "down", "down"]
 
 
 def test_async_thumbnail_start_does_not_wait_for_worker(monkeypatch):

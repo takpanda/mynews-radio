@@ -374,18 +374,18 @@ def _claim_with_token():
     with thumbnail_server._busy_lock:
         thumbnail_server._busy = 0
         thumbnail_server._busy_tokens.clear()
-    body = asyncio.run(thumbnail_server.busy_up_ep(_FakeRequest()))
+    body = asyncio.run(thumbnail_server.busy_up_ep(_FakeRequest(), lease=True))
     return body["token"]
 
 
 def test_unconfirmed_busy_claim_is_reclaimed_after_timeout(monkeypatch):
     token = _claim_with_token()
     assert thumbnail_server.busy_count() == 1
-    thumbnail_server._reap_unconfirmed_busy()
+    thumbnail_server._reap_expired_busy()
     assert thumbnail_server.busy_count() == 1  # still within confirm window
     with thumbnail_server._busy_lock:
-        thumbnail_server._busy_tokens[token] = time.monotonic() - 1
-    thumbnail_server._reap_unconfirmed_busy()
+        thumbnail_server._busy_tokens[token][0] = time.monotonic() - 1
+    thumbnail_server._reap_expired_busy()
     assert thumbnail_server.busy_count() == 0
     with pytest.raises(thumbnail_server.HTTPException) as exc:
         thumbnail_server.busy_confirm_ep(token)
@@ -395,7 +395,7 @@ def test_unconfirmed_busy_claim_is_reclaimed_after_timeout(monkeypatch):
 def test_confirmed_busy_claim_is_held_until_down_and_down_is_idempotent():
     token = _claim_with_token()
     thumbnail_server.busy_confirm_ep(token)
-    thumbnail_server._reap_unconfirmed_busy()
+    thumbnail_server._reap_expired_busy()
     assert thumbnail_server.busy_count() == 1
     thumbnail_server.busy_down_ep(token)
     assert thumbnail_server.busy_count() == 0
@@ -404,6 +404,43 @@ def test_confirmed_busy_claim_is_held_until_down_and_down_is_idempotent():
     thumbnail_server.busy_down_ep(token)
     assert thumbnail_server.busy_count() == 1
     thumbnail_server.busy_down()
+
+
+def test_legacy_backend_hold_is_not_expired_and_old_down_cannot_release_leased_hold():
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy = 0
+        thumbnail_server._busy_tokens.clear()
+        thumbnail_server._legacy_holds = 0
+    # Old backend: no lease opt-in, no token, no expiry however long the phase.
+    body = asyncio.run(thumbnail_server.busy_up_ep(_FakeRequest()))
+    assert "token" not in body
+    thumbnail_server._reap_expired_busy()
+    assert thumbnail_server.busy_count() == 1
+    thumbnail_server.busy_down_ep()
+    assert thumbnail_server.busy_count() == 0
+    # A token-less down must not release a leased holder's gate.
+    token = _claim_with_token()
+    thumbnail_server.busy_confirm_ep(token)
+    thumbnail_server.busy_down_ep()
+    assert thumbnail_server.busy_count() == 1
+    thumbnail_server.busy_down_ep(token)
+    assert thumbnail_server.busy_count() == 0
+
+
+def test_confirmed_claim_is_recovered_by_retried_down_and_backstop_expiry():
+    token = _claim_with_token()
+    thumbnail_server.busy_confirm_ep(token)
+    thumbnail_server.busy_confirm_ep(token)  # retried confirm is idempotent
+    # Confirm response and first down were lost; a retried token down recovers.
+    thumbnail_server.busy_down_ep(token)
+    assert thumbnail_server.busy_count() == 0
+    # If nothing ever releases it, the max-hold backstop reclaims the gate.
+    token = _claim_with_token()
+    thumbnail_server.busy_confirm_ep(token)
+    with thumbnail_server._busy_lock:
+        thumbnail_server._busy_tokens[token][0] = time.monotonic() - 1
+    thumbnail_server._reap_expired_busy()
+    assert thumbnail_server.busy_count() == 0
 
 
 def test_comfyui_recovery_keeps_busy_when_connect_error_is_not_refusal(monkeypatch, tmp_path):
