@@ -461,6 +461,34 @@ def test_busy_gate_total_wait_is_hard_bounded_even_if_each_read_succeeds(
     assert "confirm" not in calls or calls.index("confirm") < calls.index("down")
 
 
+def test_busy_gate_releases_legacy_tokenless_hold_obtained_after_wait_budget(
+    monkeypatch, real_dgx_busy
+):
+    _short_wait_budget(monkeypatch, 0.1)
+    calls = []
+
+    class _LegacyResp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"busy": 1}  # old server: no token
+
+    def busy_call(url, **kwargs):
+        endpoint = url.rsplit("/", 1)[-1]
+        calls.append((endpoint, kwargs.get("params")))
+        if endpoint == "up":
+            time.sleep(0.4)
+        return _LegacyResp()
+
+    monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
+    assert dgx_busy.run_with_dgx_busy("tts", lambda: 1) == 1
+    assert _wait_for(lambda: [c[0] for c in calls] == ["up", "down"])
+    assert calls[1][1] is None  # legacy down carries no token
+    time.sleep(0.05)
+    assert [c[0] for c in calls] == ["up", "down"]  # released exactly once
+
+
 def test_busy_gate_heartbeat_renews_while_phase_runs_and_stops_after(monkeypatch, real_dgx_busy):
     monkeypatch.setattr(dgx_busy, "_HEARTBEAT_INTERVAL", 0.01)
     calls = []

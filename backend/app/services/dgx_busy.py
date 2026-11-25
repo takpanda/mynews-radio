@@ -57,9 +57,11 @@ def _acquire_sequence(stage: str, result: dict, lock: threading.Lock, done: thre
         else:
             result["value"] = (False, None)
         done.set()
-    if token and (abandoned or not acquired):
+    if (acquired and abandoned) or (token and not acquired):
         # Not handed to the caller (failed, or the caller already gave up):
-        # release by token (idempotent) independently of the phase.
+        # release independently of the phase. By token when there is one
+        # (idempotent); a token-less (legacy server) hold is released once the
+        # legacy way, which only frees legacy holds on the server.
         _release_busy(stage, token)
 
 
