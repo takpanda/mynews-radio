@@ -427,20 +427,46 @@ def test_legacy_backend_hold_is_not_expired_and_old_down_cannot_release_leased_h
     assert thumbnail_server.busy_count() == 0
 
 
-def test_confirmed_claim_is_recovered_by_retried_down_and_backstop_expiry():
+def test_confirmed_claim_is_recovered_by_retried_down():
     token = _claim_with_token()
     thumbnail_server.busy_confirm_ep(token)
     thumbnail_server.busy_confirm_ep(token)  # retried confirm is idempotent
     # Confirm response and first down were lost; a retried token down recovers.
     thumbnail_server.busy_down_ep(token)
     assert thumbnail_server.busy_count() == 0
-    # If nothing ever releases it, the max-hold backstop reclaims the gate.
+
+
+def test_live_holder_keeps_gate_across_lease_boundary_by_renewing(monkeypatch):
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(thumbnail_server.time, "monotonic", lambda: clock["now"])
     token = _claim_with_token()
     thumbnail_server.busy_confirm_ep(token)
-    with thumbnail_server._busy_lock:
-        thumbnail_server._busy_tokens[token][0] = time.monotonic() - 1
+    lease = thumbnail_server.BUSY_HOLD_LEASE
+    # Phase runs for many leases; heartbeat renews well within each one.
+    for _ in range(10):
+        clock["now"] += lease * 0.5
+        thumbnail_server.busy_renew_ep(token)
+        thumbnail_server._reap_expired_busy()
+        assert thumbnail_server.busy_count() == 1
+    assert clock["now"] - 1000.0 > lease * 4
+    thumbnail_server.busy_down_ep(token)
+    assert thumbnail_server.busy_count() == 0
+
+
+def test_vanished_holder_is_reclaimed_when_renewals_stop(monkeypatch):
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(thumbnail_server.time, "monotonic", lambda: clock["now"])
+    token = _claim_with_token()
+    thumbnail_server.busy_confirm_ep(token)
+    clock["now"] += thumbnail_server.BUSY_HOLD_LEASE * 0.9
+    thumbnail_server._reap_expired_busy()
+    assert thumbnail_server.busy_count() == 1
+    clock["now"] += thumbnail_server.BUSY_HOLD_LEASE * 0.2
     thumbnail_server._reap_expired_busy()
     assert thumbnail_server.busy_count() == 0
+    with pytest.raises(thumbnail_server.HTTPException) as exc:
+        thumbnail_server.busy_renew_ep(token)
+    assert exc.value.status_code == 409
 
 
 def test_comfyui_recovery_keeps_busy_when_connect_error_is_not_refusal(monkeypatch, tmp_path):

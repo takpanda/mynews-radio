@@ -870,12 +870,14 @@ threading.Thread(target=worker_loop, daemon=True).start()
 
 # Leased claims (opt-in via /busy/up?lease=true). A claim stays "pending" until
 # the caller confirms receipt via /busy/confirm; one whose response was lost is
-# reclaimed after BUSY_CONFIRM_TIMEOUT. A confirmed claim is held until
-# /busy/down?token=..., with BUSY_MAX_HOLD only as a backstop for a caller that
-# can never release (crash / network loss). Callers that do not opt in (older
+# reclaimed after BUSY_CONFIRM_TIMEOUT. A confirmed claim is held for as long
+# as its holder keeps renewing it (/busy/renew?token=..., heartbeat) or until
+# /busy/down?token=...; with no renewal for BUSY_HOLD_LEASE (holder crashed or
+# unreachable) it is reclaimed. A live holder is never cut off by elapsed time
+# alone, however long its phase runs. Callers that do not opt in (older
 # backends) keep the original semantics: no expiry, released by a token-less down.
 BUSY_CONFIRM_TIMEOUT = float(os.environ.get("BUSY_CONFIRM_TIMEOUT", "30"))
-BUSY_MAX_HOLD = float(os.environ.get("BUSY_MAX_HOLD", str(3 * 3600)))
+BUSY_HOLD_LEASE = float(os.environ.get("BUSY_HOLD_LEASE", "120"))
 _busy_tokens = {}  # token -> [deadline (monotonic), confirmed]
 _legacy_holds = 0
 
@@ -886,7 +888,7 @@ def _reap_expired_busy():
         for token in expired:
             _deadline, confirmed = _busy_tokens.pop(token)
             log.warning("busy claim %s expired; releasing shared busy gate",
-                        "hold exceeded BUSY_MAX_HOLD" if confirmed else "was never confirmed")
+                        "holder stopped renewing" if confirmed else "was never confirmed")
             busy_down()
 
 def _busy_reaper_loop():
@@ -936,7 +938,18 @@ def busy_confirm_ep(token: str):
         if entry is None:
             raise HTTPException(status_code=409, detail="busy claim expired")
         if not entry[1]:  # idempotent for retried confirms
-            entry[:] = [time.monotonic() + BUSY_MAX_HOLD, True]
+            entry[:] = [time.monotonic() + BUSY_HOLD_LEASE, True]
+    return {"busy": busy_count()}
+
+@app.post("/busy/renew")
+def busy_renew_ep(token: str):
+    """Heartbeat from a live holder: extend its confirmed claim."""
+    _reap_expired_busy()
+    with _busy_lock:
+        entry = _busy_tokens.get(token)
+        if entry is None or not entry[1]:
+            raise HTTPException(status_code=409, detail="busy claim is not held")
+        entry[0] = time.monotonic() + BUSY_HOLD_LEASE
     return {"busy": busy_count()}
 
 @app.post("/busy/down")
