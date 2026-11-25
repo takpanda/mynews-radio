@@ -10,11 +10,11 @@ Endpoints:
   GET  /thumbnail/{job_id}               -> {status, ...} (poll)
   GET  /files/{job_id}.png               -> the rendered PNG (when done)
 """
-import os, re, json, time, uuid, queue, threading, logging, tempfile, asyncio, secrets, unicodedata
+import errno, os, re, json, time, uuid, queue, threading, logging, tempfile, asyncio, secrets, unicodedata
 from io import BytesIO
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 import httpx
@@ -576,12 +576,39 @@ def _cleanup_comfyui_state(state):
         _wait_until_comfyui_idle()
 
 
+def _is_connection_refused(exc):
+    """True only if the cause chain holds ECONNREFUSED (service is down).
+
+    Other connect failures (route loss, DNS, timeouts) say nothing about whether
+    a ComfyUI job is still running, so they must keep the gate held.
+    """
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, ConnectionRefusedError) or getattr(exc, "errno", None) == errno.ECONNREFUSED:
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
 def _recover_comfyui_state(state):
     while True:
         try:
             _cleanup_comfyui_state(state)
             _clear_comfyui_state()
             log.info("ComfyUI job is confirmed inactive; releasing shared busy gate")
+            busy_down()
+            return
+        except httpx.ConnectError as exc:
+            if not _is_connection_refused(exc):
+                log.warning("ComfyUI recovery is waiting for service availability: %s", exc)
+                time.sleep(COMFYUI_RECOVERY_RETRY)
+                continue
+            # Connection refused: ComfyUI is down, so its in-memory queue is
+            # gone and no job can be running. Do not hold the gate forever.
+            log.warning("ComfyUI is unreachable; treating job as inactive and "
+                        "releasing shared busy gate: %s", exc)
+            _clear_comfyui_state()
             busy_down()
             return
         except Exception as exc:
@@ -841,16 +868,110 @@ def _resume_comfyui_recovery():
 _resume_comfyui_recovery()
 threading.Thread(target=worker_loop, daemon=True).start()
 
+# Leased claims (opt-in via /busy/up?lease=true). A claim stays "pending" until
+# the caller confirms receipt via /busy/confirm; one whose response was lost is
+# reclaimed after BUSY_CONFIRM_TIMEOUT. A confirmed claim is held for as long
+# as its holder keeps renewing it (/busy/renew?token=..., heartbeat) or until
+# /busy/down?token=...; with no renewal for BUSY_HOLD_LEASE (holder crashed or
+# unreachable) it is reclaimed. A live holder is never cut off by elapsed time
+# alone, however long its phase runs. Callers that do not opt in (older
+# backends) keep the original semantics: no expiry, released by a token-less down.
+BUSY_CONFIRM_TIMEOUT = float(os.environ.get("BUSY_CONFIRM_TIMEOUT", "30"))
+# The backend renews every 30s; keep at least 3 intervals of slack so a healthy
+# holder is never reclaimed before its first renewal.
+BUSY_MIN_HOLD_LEASE = 90.0
+
+def _hold_lease(raw):
+    return max(float(raw), BUSY_MIN_HOLD_LEASE)
+
+BUSY_HOLD_LEASE = _hold_lease(os.environ.get("BUSY_HOLD_LEASE", "120"))
+_busy_tokens = {}  # token -> [deadline (monotonic), confirmed]
+_legacy_holds = 0
+
+def _reap_expired_busy():
+    now = time.monotonic()
+    with _busy_lock:
+        expired = [t for t, (d, _c) in _busy_tokens.items() if now >= d]
+        for token in expired:
+            _deadline, confirmed = _busy_tokens.pop(token)
+            log.warning("busy claim %s expired; releasing shared busy gate",
+                        "holder stopped renewing" if confirmed else "was never confirmed")
+            busy_down()
+
+def _busy_reaper_loop():
+    while True:
+        time.sleep(1)
+        _reap_expired_busy()
+
+threading.Thread(target=_busy_reaper_loop, daemon=True).start()
+
 @app.post("/busy/up")
-async def busy_up_ep():
+async def busy_up_ep(request: Request, lease: bool = False):
     # Keep waiting requests on the event loop so they cannot consume Starlette's
     # finite sync-endpoint thread pool needed by /busy/down.
+    # If the client gave up (its wait timeout), stop waiting: the caller will
+    # not send /busy/down, so claiming the gate now would leak it forever.
+    global _legacy_holds
     while not try_claim_busy():
+        if await request.is_disconnected():
+            return Response(status_code=499)
         await asyncio.sleep(0.05)
+    if not lease:
+        if await request.is_disconnected():
+            busy_down()
+            return Response(status_code=499)
+        with _busy_lock:
+            _legacy_holds += 1
+        return {"busy": busy_count()}
+    token = uuid.uuid4().hex
+    with _busy_lock:
+        _busy_tokens[token] = [time.monotonic() + BUSY_CONFIRM_TIMEOUT, False]
+    if await request.is_disconnected():
+        _release_busy_token(token)
+        return Response(status_code=499)
+    return {"busy": busy_count(), "token": token}
+
+def _release_busy_token(token):
+    """Release the claim for token once; unknown/duplicate tokens are no-ops."""
+    with _busy_lock:
+        if _busy_tokens.pop(token, None) is not None:
+            busy_down()
+
+@app.post("/busy/confirm")
+def busy_confirm_ep(token: str):
+    _reap_expired_busy()
+    with _busy_lock:
+        entry = _busy_tokens.get(token)
+        if entry is None:
+            raise HTTPException(status_code=409, detail="busy claim expired")
+        if not entry[1]:  # idempotent for retried confirms
+            entry[:] = [time.monotonic() + BUSY_HOLD_LEASE, True]
     return {"busy": busy_count()}
+
+@app.post("/busy/renew")
+def busy_renew_ep(token: str):
+    """Heartbeat from a live holder: extend its confirmed claim."""
+    _reap_expired_busy()
+    with _busy_lock:
+        entry = _busy_tokens.get(token)
+        if entry is None or not entry[1]:
+            raise HTTPException(status_code=409, detail="busy claim is not held")
+        entry[0] = time.monotonic() + BUSY_HOLD_LEASE
+    return {"busy": busy_count()}
+
 @app.post("/busy/down")
-def busy_down_ep():
-    busy_down(); return {"busy": busy_count()}
+def busy_down_ep(token: str | None = None):
+    global _legacy_holds
+    if token is not None:
+        _release_busy_token(token)
+    else:
+        # Token-less down only releases holds taken the legacy way, so an older
+        # backend can never release a leased holder's gate.
+        with _busy_lock:
+            if _legacy_holds > 0:
+                _legacy_holds -= 1
+                busy_down()
+    return {"busy": busy_count()}
 @app.get("/busy")
 def busy_get():
     return {"busy": busy_count()}

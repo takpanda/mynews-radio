@@ -64,6 +64,8 @@ class Settings(BaseSettings):
     thumbnail_enqueue_timeout: float = Field(default=120.0, gt=0)
     thumbnail_poll_interval: float = Field(default=5.0, gt=0)
     thumbnail_job_timeout: float = Field(default=900.0, gt=0)
+    # Max wait for the shared .102 busy gate; on expiry the phase runs without it.
+    dgx_busy_wait_timeout: float = Field(default=300.0, gt=0)
     mc_photos_dir: str = "/app/data/mc-photos"
     api_key: str = ""
     proxy_client_ip_hmac_secret: str = ""

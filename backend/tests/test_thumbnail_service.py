@@ -3,6 +3,8 @@ import logging
 import os
 import sys
 import threading
+import time
+import types
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -254,7 +256,7 @@ def test_overwrite_failure_preserves_existing_image_and_path(tmp_path, monkeypat
     assert output.read_bytes() == b"previous"
 
 
-def test_busy_gate_does_not_run_operation_when_acquisition_fails(monkeypatch, caplog, real_dgx_busy):
+def test_busy_gate_continues_without_gate_when_connection_fails(monkeypatch, caplog, real_dgx_busy):
     endpoints = []
     operation = Mock(return_value=42)
 
@@ -264,16 +266,53 @@ def test_busy_gate_does_not_run_operation_when_acquisition_fails(monkeypatch, ca
 
     monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
     with caplog.at_level(logging.WARNING):
-        with pytest.raises(RuntimeError, match="Failed to acquire"):
-            dgx_busy.run_with_dgx_busy("script", operation)
+        assert dgx_busy.run_with_dgx_busy("script", operation) == 42
 
+    # No /busy/down: the gate was never acquired.
     assert endpoints == ["up"]
-    operation.assert_not_called()
+    operation.assert_called_once_with()
     assert "busy/up request failed" in caplog.text
+    assert "continuing without it" in caplog.text
     assert "offline" not in caplog.text
 
 
-def test_busy_gate_wait_request_has_no_client_timeout(monkeypatch, real_dgx_busy):
+def test_busy_gate_continues_without_gate_when_up_times_out(monkeypatch, caplog, real_dgx_busy):
+    endpoints = []
+
+    def busy_call(url, **_kwargs):
+        endpoints.append(url.rsplit("/", 1)[-1])
+        raise httpx.ReadTimeout("gate held")
+
+    monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
+    with caplog.at_level(logging.WARNING):
+        assert dgx_busy.run_with_dgx_busy("script", lambda: 7) == 7
+
+    assert endpoints == ["up"]
+    assert "continuing without it" in caplog.text
+
+
+def test_busy_gate_down_still_called_when_operation_raises(monkeypatch, real_dgx_busy):
+    endpoints = []
+
+    class _OkResponse:
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(
+        dgx_busy.httpx,
+        "post",
+        lambda url, **_kwargs: (endpoints.append(url.rsplit("/", 1)[-1]) or _OkResponse()),
+    )
+
+    def boom():
+        raise ValueError("x")
+
+    with pytest.raises(ValueError):
+        dgx_busy.run_with_dgx_busy("tts", boom)
+    assert endpoints == ["up", "down"]
+
+
+def test_busy_gate_wait_request_is_bounded_by_setting(monkeypatch, real_dgx_busy):
     calls = []
 
     class _OkResponse:
@@ -286,7 +325,7 @@ def test_busy_gate_wait_request_has_no_client_timeout(monkeypatch, real_dgx_busy
 
     monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
     assert dgx_busy.run_with_dgx_busy("tts", lambda: 42) == 42
-    assert calls == [("up", None), ("down", 10.0)]
+    assert calls == [("up", 300.0), ("down", 10.0)]
 
 
 def test_busy_gate_returns_operation_result_and_brackets_success(monkeypatch, real_dgx_busy):
@@ -303,6 +342,181 @@ def test_busy_gate_returns_operation_result_and_brackets_success(monkeypatch, re
     )
     assert dgx_busy.run_with_dgx_busy("tts", lambda: 42) == 42
     assert endpoints == ["up", "down"]
+
+
+def test_busy_gate_confirms_claim_and_releases_by_token(monkeypatch, real_dgx_busy):
+    calls = []
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"busy": 1, "token": "tok1"}
+
+    def busy_call(url, **kwargs):
+        calls.append((url.rsplit("/", 1)[-1], kwargs.get("params")))
+        return _Resp()
+
+    monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
+    assert dgx_busy.run_with_dgx_busy("tts", lambda: 1) == 1
+    assert calls == [
+        ("up", {"lease": "true"}),
+        ("confirm", {"token": "tok1"}),
+        ("down", {"token": "tok1"}),
+    ]
+
+
+def test_busy_gate_releases_token_and_continues_when_confirm_fails(monkeypatch, real_dgx_busy):
+    calls = []
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"token": "tok1"}
+
+    def busy_call(url, **kwargs):
+        endpoint = url.rsplit("/", 1)[-1]
+        calls.append(endpoint)
+        if endpoint == "confirm":
+            raise httpx.ReadTimeout("lost")
+        return _Resp()
+
+    monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
+    assert dgx_busy.run_with_dgx_busy("tts", lambda: 1) == 1
+    # Token-scoped release is idempotent server-side, so no miscount.
+    assert _wait_for(lambda: calls == ["up", "confirm", "down"])
+
+
+def test_busy_gate_retries_token_down_when_confirm_and_first_down_are_lost(
+    monkeypatch, real_dgx_busy
+):
+    calls = []
+    monkeypatch.setattr(dgx_busy.time, "sleep", lambda _s: None)
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"token": "tok1"}
+
+    def busy_call(url, **kwargs):
+        endpoint = url.rsplit("/", 1)[-1]
+        calls.append(endpoint)
+        if endpoint == "confirm" or calls.count("down") == 1 and endpoint == "down":
+            raise httpx.ReadTimeout("lost")
+        return _Resp()
+
+    monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
+    assert dgx_busy.run_with_dgx_busy("tts", lambda: 1) == 1
+    assert _wait_for(lambda: calls == ["up", "confirm", "down", "down"])
+
+
+def _wait_for(predicate, timeout=2.0):
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return predicate()
+
+
+def _short_wait_budget(monkeypatch, seconds):
+    from app import config as cfg_mod
+
+    monkeypatch.setenv("DGX_BUSY_WAIT_TIMEOUT", str(seconds))
+    cfg_mod.get_settings.cache_clear()
+
+
+def test_busy_gate_total_wait_is_hard_bounded_even_if_each_read_succeeds(
+    monkeypatch, caplog, real_dgx_busy
+):
+    """A dribbling /busy/up response (no single read times out) must not exceed the budget."""
+    _short_wait_budget(monkeypatch, 0.1)
+    calls = []
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"token": "tok1"}
+
+    def busy_call(url, **kwargs):
+        endpoint = url.rsplit("/", 1)[-1]
+        calls.append(endpoint)
+        if endpoint == "up":
+            time.sleep(0.4)  # slow response delivered in pieces; no read timeout
+        return _Resp()
+
+    monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
+    started = time.monotonic()
+    with caplog.at_level(logging.WARNING):
+        assert dgx_busy.run_with_dgx_busy("tts", lambda: time.monotonic() - started) < 0.3
+    assert "exceeded the wait budget" in caplog.text
+    assert "continuing without it" in caplog.text
+    # The claim obtained after giving up is released by token, independently.
+    assert _wait_for(lambda: "down" in calls)
+    assert "confirm" not in calls or calls.index("confirm") < calls.index("down")
+
+
+def test_busy_gate_releases_legacy_tokenless_hold_obtained_after_wait_budget(
+    monkeypatch, real_dgx_busy
+):
+    _short_wait_budget(monkeypatch, 0.1)
+    calls = []
+
+    class _LegacyResp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"busy": 1}  # old server: no token
+
+    def busy_call(url, **kwargs):
+        endpoint = url.rsplit("/", 1)[-1]
+        calls.append((endpoint, kwargs.get("params")))
+        if endpoint == "up":
+            time.sleep(0.4)
+        return _LegacyResp()
+
+    monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
+    assert dgx_busy.run_with_dgx_busy("tts", lambda: 1) == 1
+    assert _wait_for(lambda: [c[0] for c in calls] == ["up", "down"])
+    assert calls[1][1] is None  # legacy down carries no token
+    time.sleep(0.05)
+    assert [c[0] for c in calls] == ["up", "down"]  # released exactly once
+
+
+def test_busy_gate_heartbeat_renews_while_phase_runs_and_stops_after(monkeypatch, real_dgx_busy):
+    monkeypatch.setattr(dgx_busy, "_HEARTBEAT_INTERVAL", 0.01)
+    calls = []
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"token": "tok1"}
+
+    monkeypatch.setattr(
+        dgx_busy.httpx, "post",
+        lambda url, **kw: (calls.append(url.rsplit("/", 1)[-1]) or _Resp()),
+    )
+
+    def phase():
+        deadline = time.monotonic() + 2
+        while calls.count("renew") < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        return 1
+
+    assert dgx_busy.run_with_dgx_busy("tts", phase) == 1
+    assert calls.count("renew") >= 2
+    assert calls[:2] == ["up", "confirm"] and calls[-1] == "down"
+    renewed = calls.count("renew")
+    time.sleep(0.05)
+    assert calls.count("renew") == renewed
 
 
 def test_async_thumbnail_start_does_not_wait_for_worker(monkeypatch):

@@ -118,7 +118,8 @@ def isolate_dgx_busy(request, monkeypatch, test_env):
 
     from app.services import dgx_busy
 
-    monkeypatch.setattr(dgx_busy, "_set_busy", lambda _endpoint, _stage: True)
+    monkeypatch.setattr(dgx_busy, "_acquire_busy", lambda _stage: (True, None))
+    monkeypatch.setattr(dgx_busy, "_release_busy", lambda _stage, _token: True)
 
 
 def _join_thread_group(threads, timeout):
