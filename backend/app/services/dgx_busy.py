@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 _DOWN_ATTEMPTS = 3
 _DOWN_RETRY_DELAY = 1.0
-# Must stay well under the server's BUSY_HOLD_LEASE (default 120s).
+# Server enforces BUSY_HOLD_LEASE >= 90s (3 intervals of slack).
 _HEARTBEAT_INTERVAL = 30.0
 
 
@@ -32,43 +32,61 @@ def _post_busy(endpoint: str, timeout: float, token: str | None = None):
     return response
 
 
-def _acquire_busy(stage: str) -> tuple[bool, str | None]:
-    """Acquire the gate; returns (acquired, token).
-
-    The whole acquisition (up + confirm) is bounded by one deadline of
-    dgx_busy_wait_timeout. The server holds a claim as pending until
-    /busy/confirm and reclaims it if the confirmation never arrives, so a lost
-    /busy/up response cannot leak the gate. Servers that return no token (older
-    versions) skip the confirmation.
-    """
+def _acquire_sequence(stage: str, result: dict, lock: threading.Lock, done: threading.Event) -> None:
+    """Worker: up + confirm. Publishes the outcome unless the caller gave up."""
     token = None
+    acquired = False
     try:
         settings = get_settings()
-        deadline = time.monotonic() + settings.dgx_busy_wait_timeout
         # /busy/up waits until the shared gate is available, which can exceed
-        # the normal per-request timeout while a thumbnail renders. Bound it
-        # so a stuck gate never hangs the batch.
+        # the normal per-request timeout while a thumbnail renders.
         response = _post_busy("up", settings.dgx_busy_wait_timeout)
         try:
             token = response.json().get("token")
         except Exception:
             token = None
         if token:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError("busy gate wait budget exhausted")
-            _post_busy("confirm", min(settings.thumbnail_http_timeout, remaining), token)
-        return True, token
+            _post_busy("confirm", settings.thumbnail_http_timeout, token)
+        acquired = True
     except Exception:
         logger.warning(".102 busy/up request failed (stage=%s)", stage)
-        if token:
-            # The claim may exist server-side. Release it by token (idempotent)
-            # in the background so the phase is not delayed past the deadline.
-            threading.Thread(
-                target=_release_busy, args=(stage, token),
-                name="dgx-busy-release", daemon=True,
-            ).start()
-        return False, None
+    with lock:
+        abandoned = result.get("abandoned", False)
+        if acquired and not abandoned:
+            result["value"] = (True, token)
+        else:
+            result["value"] = (False, None)
+        done.set()
+    if token and (abandoned or not acquired):
+        # Not handed to the caller (failed, or the caller already gave up):
+        # release by token (idempotent) independently of the phase.
+        _release_busy(stage, token)
+
+
+def _acquire_busy(stage: str) -> tuple[bool, str | None]:
+    """Acquire the gate within one hard deadline (dgx_busy_wait_timeout).
+
+    httpx timeouts apply per read, so a slowly dribbling response could exceed
+    them; the whole acquisition therefore runs in a worker and the caller stops
+    waiting at the deadline. A claim the worker obtains after that is released
+    by the worker. The server also reclaims unconfirmed claims, so a lost
+    /busy/up response cannot leak the gate. Servers that return no token (older
+    versions) skip the confirmation.
+    """
+    result: dict = {}
+    lock = threading.Lock()
+    done = threading.Event()
+    threading.Thread(
+        target=_acquire_sequence, args=(stage, result, lock, done),
+        name="dgx-busy-acquire", daemon=True,
+    ).start()
+    done.wait(get_settings().dgx_busy_wait_timeout)
+    with lock:
+        if "value" not in result:
+            result["abandoned"] = True
+            logger.warning(".102 busy/up exceeded the wait budget (stage=%s)", stage)
+            return False, None
+        return result["value"]
 
 
 def _release_busy(stage: str, token: str | None) -> bool:

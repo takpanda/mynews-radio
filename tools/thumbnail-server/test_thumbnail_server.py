@@ -436,6 +436,12 @@ def test_confirmed_claim_is_recovered_by_retried_down():
     assert thumbnail_server.busy_count() == 0
 
 
+def test_hold_lease_has_a_safe_floor_above_backend_heartbeat_interval():
+    assert thumbnail_server._hold_lease("20") == thumbnail_server.BUSY_MIN_HOLD_LEASE
+    assert thumbnail_server._hold_lease("300") == 300.0
+    assert thumbnail_server.BUSY_MIN_HOLD_LEASE >= 3 * 30  # backend heartbeat is 30s
+
+
 def test_live_holder_keeps_gate_across_lease_boundary_by_renewing(monkeypatch):
     clock = {"now": 1000.0}
     monkeypatch.setattr(thumbnail_server.time, "monotonic", lambda: clock["now"])

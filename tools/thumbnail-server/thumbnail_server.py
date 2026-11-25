@@ -877,7 +877,14 @@ threading.Thread(target=worker_loop, daemon=True).start()
 # alone, however long its phase runs. Callers that do not opt in (older
 # backends) keep the original semantics: no expiry, released by a token-less down.
 BUSY_CONFIRM_TIMEOUT = float(os.environ.get("BUSY_CONFIRM_TIMEOUT", "30"))
-BUSY_HOLD_LEASE = float(os.environ.get("BUSY_HOLD_LEASE", "120"))
+# The backend renews every 30s; keep at least 3 intervals of slack so a healthy
+# holder is never reclaimed before its first renewal.
+BUSY_MIN_HOLD_LEASE = 90.0
+
+def _hold_lease(raw):
+    return max(float(raw), BUSY_MIN_HOLD_LEASE)
+
+BUSY_HOLD_LEASE = _hold_lease(os.environ.get("BUSY_HOLD_LEASE", "120"))
 _busy_tokens = {}  # token -> [deadline (monotonic), confirmed]
 _legacy_holds = 0
 

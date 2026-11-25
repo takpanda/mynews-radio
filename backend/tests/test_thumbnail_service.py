@@ -384,14 +384,10 @@ def test_busy_gate_releases_token_and_continues_when_confirm_fails(monkeypatch, 
             raise httpx.ReadTimeout("lost")
         return _Resp()
 
-    monkeypatch.setattr(
-        dgx_busy, "threading",
-        types.SimpleNamespace(Thread=_InlineReleaseThread, Event=threading.Event),
-    )
     monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
     assert dgx_busy.run_with_dgx_busy("tts", lambda: 1) == 1
     # Token-scoped release is idempotent server-side, so no miscount.
-    assert calls == ["up", "confirm", "down"]
+    assert _wait_for(lambda: calls == ["up", "confirm", "down"])
 
 
 def test_busy_gate_retries_token_down_when_confirm_and_first_down_are_lost(
@@ -414,36 +410,30 @@ def test_busy_gate_retries_token_down_when_confirm_and_first_down_are_lost(
             raise httpx.ReadTimeout("lost")
         return _Resp()
 
-    monkeypatch.setattr(
-        dgx_busy, "threading",
-        types.SimpleNamespace(Thread=_InlineReleaseThread, Event=threading.Event),
-    )
     monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
     assert dgx_busy.run_with_dgx_busy("tts", lambda: 1) == 1
-    assert calls == ["up", "confirm", "down", "down"]
+    assert _wait_for(lambda: calls == ["up", "confirm", "down", "down"])
 
 
-class _InlineReleaseThread:
-    """Run the background release inline; skip the heartbeat thread."""
-
-    def __init__(self, target=None, args=(), name="", daemon=None):
-        self._target, self._args, self._name = target, args, name
-
-    def start(self):
-        if self._name == "dgx-busy-release":
-            self._target(*self._args)
+def _wait_for(predicate, timeout=2.0):
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return predicate()
 
 
-def test_busy_gate_acquire_stays_within_wait_budget_when_up_succeeds_near_deadline(
-    monkeypatch, real_dgx_busy
+def _short_wait_budget(monkeypatch, seconds):
+    from app import config as cfg_mod
+
+    monkeypatch.setenv("DGX_BUSY_WAIT_TIMEOUT", str(seconds))
+    cfg_mod.get_settings.cache_clear()
+
+
+def test_busy_gate_total_wait_is_hard_bounded_even_if_each_read_succeeds(
+    monkeypatch, caplog, real_dgx_busy
 ):
-    clock = {"now": 1000.0}
-    monkeypatch.setattr(dgx_busy.time, "monotonic", lambda: clock["now"])
-    monkeypatch.setattr(dgx_busy.time, "sleep", lambda _s: None)
-    monkeypatch.setattr(
-        dgx_busy, "threading",
-        types.SimpleNamespace(Thread=_InlineReleaseThread, Event=threading.Event),
-    )
+    """A dribbling /busy/up response (no single read times out) must not exceed the budget."""
+    _short_wait_budget(monkeypatch, 0.1)
     calls = []
 
     class _Resp:
@@ -455,48 +445,20 @@ def test_busy_gate_acquire_stays_within_wait_budget_when_up_succeeds_near_deadli
 
     def busy_call(url, **kwargs):
         endpoint = url.rsplit("/", 1)[-1]
-        calls.append((endpoint, kwargs["timeout"]))
+        calls.append(endpoint)
         if endpoint == "up":
-            clock["now"] += 296.0  # succeeds 4s before the 300s budget ends
-            return _Resp()
-        raise httpx.ReadTimeout("lost")
-
-    monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
-    started = []
-    assert dgx_busy.run_with_dgx_busy("tts", lambda: started.append(clock["now"]) or 1) == 1
-    # confirm only gets the remaining budget, and the phase starts without
-    # waiting for down retries (they run in the background).
-    assert calls[1] == ("confirm", pytest.approx(4.0))
-    assert started == [1000.0 + 296.0]
-    assert [c[0] for c in calls] == ["up", "confirm", "down", "down", "down"]
-
-
-def test_busy_gate_skips_confirm_when_wait_budget_is_exhausted(monkeypatch, real_dgx_busy):
-    clock = {"now": 0.0}
-    monkeypatch.setattr(dgx_busy.time, "monotonic", lambda: clock["now"])
-    monkeypatch.setattr(dgx_busy.time, "sleep", lambda _s: None)
-    monkeypatch.setattr(
-        dgx_busy, "threading",
-        types.SimpleNamespace(Thread=_InlineReleaseThread, Event=threading.Event),
-    )
-    calls = []
-
-    class _Resp:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"token": "tok1"}
-
-    def busy_call(url, **kwargs):
-        calls.append(url.rsplit("/", 1)[-1])
-        if calls[-1] == "up":
-            clock["now"] += 300.0
+            time.sleep(0.4)  # slow response delivered in pieces; no read timeout
         return _Resp()
 
     monkeypatch.setattr(dgx_busy.httpx, "post", busy_call)
-    assert dgx_busy.run_with_dgx_busy("tts", lambda: 1) == 1
-    assert calls == ["up", "down"]
+    started = time.monotonic()
+    with caplog.at_level(logging.WARNING):
+        assert dgx_busy.run_with_dgx_busy("tts", lambda: time.monotonic() - started) < 0.3
+    assert "exceeded the wait budget" in caplog.text
+    assert "continuing without it" in caplog.text
+    # The claim obtained after giving up is released by token, independently.
+    assert _wait_for(lambda: "down" in calls)
+    assert "confirm" not in calls or calls.index("confirm") < calls.index("down")
 
 
 def test_busy_gate_heartbeat_renews_while_phase_runs_and_stops_after(monkeypatch, real_dgx_busy):
