@@ -32,6 +32,9 @@ interface Props {
   chapters: Chapter[]
   initialEpisodes: EpisodeListItem[]
   initialHasNext: boolean
+  /** 公開済みダイジェスト回（category=digest の先頭ページ）。空の場合は「ダイジェスト」タブを表示しない */
+  initialDigestEpisodes?: EpisodeListItem[]
+  initialDigestHasNext?: boolean
   isAuthenticated?: boolean
 }
 
@@ -113,20 +116,35 @@ function heroTopics(latest: HeroEpisode | null): string[] {
   return []
 }
 
-export default function HomeShell({ latest, chapters, initialEpisodes, initialHasNext, isAuthenticated = false }: Props) {
+export default function HomeShell({
+  latest,
+  chapters,
+  initialEpisodes,
+  initialHasNext,
+  initialDigestEpisodes,
+  initialDigestHasNext = false,
+  isAuthenticated = false,
+}: Props) {
   const [category, setCategory] = useState<CategoryKey>('all')
   const [query, setQuery] = useState('')
   const [items, setItems] = useState<EpisodeListItem[]>(initialEpisodes)
   const [hasNext, setHasNext] = useState(initialHasNext)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [digestItems, setDigestItems] = useState<EpisodeListItem[]>(initialDigestEpisodes ?? [])
+  const [digestHasNext, setDigestHasNext] = useState(initialDigestHasNext)
+  const hasDigest = (initialDigestEpisodes?.length ?? 0) > 0
+  const tabs = useMemo(() => CATEGORY_TABS.filter((tab) => tab.key !== 'digest' || hasDigest), [hasDigest])
+  const isDigest = category === 'digest'
+  const shownItems = isDigest ? digestItems : items
+  const shownHasNext = isDigest ? digestHasNext : hasNext
   const abortRef = useRef<AbortController | null>(null)
   const searchLoadRef = useRef<boolean>(false)
   const heroTopicItems = useMemo(() => heroTopics(latest), [latest])
 
   const filteredEpisodes = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return items.filter((ep) => {
+    return shownItems.filter((ep) => {
       if (category !== 'all' && categorize(ep) !== category) return false
       if (!q) return true
       return (
@@ -134,7 +152,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
         (ep.subtitle || '').toLowerCase().includes(q)
       )
     })
-  }, [items, category, query])
+  }, [shownItems, category, query])
 
   const groupedByMonth = useMemo(() => {
     const groups: Array<{ month: string; items: EpisodeListItem[] }> = []
@@ -153,7 +171,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
   // ファーストビューに入る先頭3件（lg の1行分）は lazy をやめて優先読み込みする
   const priorityIds = useMemo(() => new Set(filteredEpisodes.slice(0, 3).map((ep) => ep.id)), [filteredEpisodes])
 
-  const loadAllRemaining = useCallback(async (currentItems: EpisodeListItem[], currentHasNext: boolean) => {
+  const loadAllRemaining = useCallback(async (currentItems: EpisodeListItem[], currentHasNext: boolean, digest: boolean) => {
     if (!currentHasNext || searchLoadRef.current) return
     searchLoadRef.current = true
     setLoading(true)
@@ -165,7 +183,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
       const ctrl = new AbortController()
       abortRef.current = ctrl
       try {
-        const data = await fetchEpisodes(PAGE_SIZE, offset, ctrl.signal) as PaginatedEpisodesResponse
+        const data = await fetchEpisodes(PAGE_SIZE, offset, ctrl.signal, digest ? 'digest' : undefined) as PaginatedEpisodesResponse
         if (ctrl.signal.aborted) { setLoading(false); searchLoadRef.current = false; return }
         allItems = [...allItems, ...data.items]
         offset += data.items.length
@@ -178,8 +196,13 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
         return
       }
     }
-    setItems(allItems)
-    setHasNext(false)
+    if (digest) {
+      setDigestItems(allItems)
+      setDigestHasNext(false)
+    } else {
+      setItems(allItems)
+      setHasNext(false)
+    }
     setLoading(false)
     searchLoadRef.current = false
   }, [])
@@ -191,17 +214,22 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
     setLoading(true)
     setLoadError(null)
     try {
-      const data = await fetchEpisodes(PAGE_SIZE, items.length, ctrl.signal) as PaginatedEpisodesResponse
+      const data = await fetchEpisodes(PAGE_SIZE, shownItems.length, ctrl.signal, isDigest ? 'digest' : undefined) as PaginatedEpisodesResponse
       if (ctrl.signal.aborted) return
-      setItems(prev => [...prev, ...data.items])
-      setHasNext(data.has_next)
+      if (isDigest) {
+        setDigestItems(prev => [...prev, ...data.items])
+        setDigestHasNext(data.has_next)
+      } else {
+        setItems(prev => [...prev, ...data.items])
+        setHasNext(data.has_next)
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
       setLoadError('読み込みに失敗しました')
     } finally {
       setLoading(false)
     }
-  }, [items.length])
+  }, [shownItems.length, isDigest])
 
   const handleCategoryChange = (key: CategoryKey) => {
     abortRef.current?.abort()
@@ -210,12 +238,14 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
     setCategory(key)
     setItems(initialEpisodes)
     setHasNext(initialHasNext)
+    setDigestItems(initialDigestEpisodes ?? [])
+    setDigestHasNext(initialDigestHasNext)
     setLoadError(null)
   }
 
   const handleSearchChange = (value: string) => {
     setQuery(value)
-    loadAllRemaining(items, hasNext)
+    loadAllRemaining(shownItems, shownHasNext, isDigest)
   }
 
   return (
@@ -319,7 +349,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
             <p className="mt-1 text-xs text-slate-500">気になる回を選んで、いつでも再生できます。</p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            {CATEGORY_TABS.map((tab) => (
+            {tabs.map((tab) => (
               <button
                 key={tab.key}
                 type="button"
@@ -440,7 +470,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
               <p className="mt-3 text-center text-xs text-red-600">{loadError}</p>
             )}
 
-            {hasNext && !loadError && (
+            {shownHasNext && !loadError && (
               <button
                 type="button"
                 onClick={handleLoadMore}
@@ -451,7 +481,7 @@ export default function HomeShell({ latest, chapters, initialEpisodes, initialHa
               </button>
             )}
 
-            {!hasNext && items.length > 0 && (
+            {!shownHasNext && shownItems.length > 0 && (
               <p className="mt-5 text-center text-xs text-slate-500">
                 これ以上ありません
               </p>
