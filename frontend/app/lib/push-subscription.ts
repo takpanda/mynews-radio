@@ -62,7 +62,9 @@ export async function getSubscriptionState(): Promise<SubscriptionState> {
         return { status: 'subscribed', subscriptionId: storedId }
       }
     } catch {
-      return { status: 'subscribed', subscriptionId: storedId }
+      // 実際の PushSubscription を確認できないため subscribed とは判定しない。
+      // 保存済み ID は購読の実在が不明なので消さずに残す。
+      return { status: Notification.permission === 'granted' ? 'granted' : 'prompt', subscriptionId: null }
     }
     clearStoredSubscriptionId()
   }
@@ -74,8 +76,12 @@ export async function registerPushSubscription(): Promise<SubscriptionState> {
   if (!isPushSupported()) return { status: 'unsupported', subscriptionId: null }
 
   const permission = await Notification.requestPermission()
-  if (permission !== 'granted') {
+  if (permission === 'denied') {
     return { status: 'denied', subscriptionId: null }
+  }
+  if (permission !== 'granted') {
+    // ダイアログを閉じただけ（default）の場合はブロック扱いにせず、再度押せる状態に戻す
+    return { status: 'prompt', subscriptionId: null }
   }
 
   const registration = await navigator.serviceWorker.ready
