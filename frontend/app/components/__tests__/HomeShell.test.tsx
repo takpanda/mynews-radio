@@ -238,6 +238,20 @@ describe('HomeShell ダイジェストフィルター', () => {
     expect(fetchEpisodes).toHaveBeenCalledWith(20, 1, expect.anything(), 'digest')
   })
 
+  it('ダイジェストタブの検索は category=digest で続きを自動取得し、次ページだけに一致する回も表示する', async () => {
+    ;(fetchEpisodes as jest.Mock).mockResolvedValue({
+      items: [{ ...digest, id: 4, title: '来週のスペシャルダイジェスト' }],
+      total: 2,
+      has_next: false,
+    })
+    renderWithDigest([digest], episodes, true)
+    fireEvent.click(screen.getByRole('button', { name: 'ダイジェスト' }))
+    fireEvent.change(screen.getByLabelText('エピソードを検索'), { target: { value: 'スペシャル' } })
+    await waitFor(() => expect(screen.getByText('来週のスペシャルダイジェスト')).toBeInTheDocument())
+    expect(fetchEpisodes).toHaveBeenCalledWith(20, 1, expect.anything(), 'digest')
+    expect(screen.queryByText('週末ダイジェスト回')).toBeNull()
+  })
+
   it.each(['テック', '一般'])('ダイジェスト回は「%s」フィルターに混入しない', (label) => {
     renderWithDigest([digest], [...episodes, digest])
     fireEvent.click(screen.getByRole('button', { name: label }))

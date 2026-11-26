@@ -171,7 +171,7 @@ export default function HomeShell({
   // ファーストビューに入る先頭3件（lg の1行分）は lazy をやめて優先読み込みする
   const priorityIds = useMemo(() => new Set(filteredEpisodes.slice(0, 3).map((ep) => ep.id)), [filteredEpisodes])
 
-  const loadAllRemaining = useCallback(async (currentItems: EpisodeListItem[], currentHasNext: boolean) => {
+  const loadAllRemaining = useCallback(async (currentItems: EpisodeListItem[], currentHasNext: boolean, digest: boolean) => {
     if (!currentHasNext || searchLoadRef.current) return
     searchLoadRef.current = true
     setLoading(true)
@@ -183,7 +183,7 @@ export default function HomeShell({
       const ctrl = new AbortController()
       abortRef.current = ctrl
       try {
-        const data = await fetchEpisodes(PAGE_SIZE, offset, ctrl.signal) as PaginatedEpisodesResponse
+        const data = await fetchEpisodes(PAGE_SIZE, offset, ctrl.signal, digest ? 'digest' : undefined) as PaginatedEpisodesResponse
         if (ctrl.signal.aborted) { setLoading(false); searchLoadRef.current = false; return }
         allItems = [...allItems, ...data.items]
         offset += data.items.length
@@ -196,8 +196,13 @@ export default function HomeShell({
         return
       }
     }
-    setItems(allItems)
-    setHasNext(false)
+    if (digest) {
+      setDigestItems(allItems)
+      setDigestHasNext(false)
+    } else {
+      setItems(allItems)
+      setHasNext(false)
+    }
     setLoading(false)
     searchLoadRef.current = false
   }, [])
@@ -240,7 +245,7 @@ export default function HomeShell({
 
   const handleSearchChange = (value: string) => {
     setQuery(value)
-    loadAllRemaining(items, hasNext)
+    loadAllRemaining(shownItems, shownHasNext, isDigest)
   }
 
   return (

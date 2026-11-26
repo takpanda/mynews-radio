@@ -30,11 +30,23 @@ function toHeroEpisode(episode: Episode): HeroEpisode {
 }
 
 const PAGE_SIZE = 20
+// ダイジェスト取得が遅くても通常一覧の表示を待たせない上限（超過時はタブ非表示）
+const DIGEST_TIMEOUT_MS = 3000
+
+function fetchDigestEpisodes(): Promise<PaginatedEpisodesResponse | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), DIGEST_TIMEOUT_MS) })
+  const request = (fetchEpisodes(PAGE_SIZE, 0, undefined, 'digest') as Promise<PaginatedEpisodesResponse>).catch(() => null)
+  return Promise.race([request, timeout]).finally(() => clearTimeout(timer))
+}
 
 export default async function Home() {
   let latestEpisode: Episode | null = null
   let initialData: PaginatedEpisodesResponse | null = null
   let error: string | null = null
+
+  // 公開済みダイジェスト回（「ダイジェスト」タブの表示判定と一覧に使う）。失敗・遅延時はタブを出さないだけにする
+  const digestPromise = fetchDigestEpisodes()
 
   try {
     ;[latestEpisode, initialData] = await Promise.all([
@@ -54,15 +66,7 @@ export default async function Home() {
     }
   }
 
-  // 公開済みダイジェスト回（「ダイジェスト」タブの表示判定と一覧に使う）。失敗してもタブを出さないだけにする
-  let digestData: PaginatedEpisodesResponse | null = null
-  if (!error) {
-    try {
-      digestData = (await fetchEpisodes(PAGE_SIZE, 0, undefined, 'digest')) as PaginatedEpisodesResponse
-    } catch {
-      digestData = null
-    }
-  }
+  const digestData = error ? null : await digestPromise
 
   const isAuthenticated = await hasValidAdminSession()
 
