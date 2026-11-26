@@ -168,6 +168,36 @@ describe('getSubscriptionState', () => {
     expect(localStorage.getItem('push_subscription_id')).toBeNull()
   })
 
+  it('does not return subscribed when service worker lookup fails', async () => {
+    localStorage.setItem('push_subscription_id', 'test-id-123')
+    mockNotification('granted')
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { ready: Promise.reject(new Error('sw failed')), register: jest.fn() } as unknown as ServiceWorkerContainer,
+      writable: true,
+      configurable: true,
+    })
+
+    const state = await getSubscriptionState()
+    expect(state.status).not.toBe('subscribed')
+    expect(state.subscriptionId).toBeNull()
+  })
+
+  it('does not return subscribed when getSubscription throws', async () => {
+    localStorage.setItem('push_subscription_id', 'test-id-123')
+    mockNotification('granted')
+    const mockRegistration = {
+      pushManager: { getSubscription: jest.fn().mockRejectedValue(new Error('boom')) },
+    }
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { ready: Promise.resolve(mockRegistration), register: jest.fn() } as unknown as ServiceWorkerContainer,
+      writable: true,
+      configurable: true,
+    })
+
+    const state = await getSubscriptionState()
+    expect(state.status).toBe('granted')
+  })
+
   it('returns prompt when no stored ID and permission is default', async () => {
     mockNotification('default')
     const state = await getSubscriptionState()
@@ -195,10 +225,16 @@ describe('registerPushSubscription', () => {
     })
   })
 
-  it('returns denied when permission is not granted', async () => {
-    mockNotification('denied')
+  it('returns denied when permission is blocked', async () => {
+    mockNotification('default', 'denied')
     const state = await registerPushSubscription()
     expect(state.status).toBe('denied')
+  })
+
+  it('returns prompt (not denied) when the dialog is dismissed', async () => {
+    mockNotification('default', 'default')
+    const state = await registerPushSubscription()
+    expect(state.status).toBe('prompt')
   })
 
   it('throws when VAPID key endpoint fails', async () => {

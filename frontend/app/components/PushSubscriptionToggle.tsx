@@ -10,6 +10,8 @@ import {
   type SubscriptionState,
 } from '../lib/push-subscription'
 
+const DENIED_GUIDE = 'ブラウザで通知が許可されていません。アドレスバーの鍵アイコン → 通知 → 許可 に変更し、ページを再読み込みしてください'
+
 export default function PushSubscriptionToggle() {
   const [state, setState] = useState<SubscriptionState | null>(null)
   const [loading, setLoading] = useState(false)
@@ -43,7 +45,7 @@ export default function PushSubscriptionToggle() {
     if (!isPushSupported()) return
 
     if (state.status === 'denied') {
-      toast('ブラウザの設定で通知を有効にしてください', { icon: 'ℹ️' })
+      toast(DENIED_GUIDE, { icon: 'ℹ️', duration: 8000 })
       return
     }
 
@@ -53,6 +55,8 @@ export default function PushSubscriptionToggle() {
       setState(newState)
       if (newState.status === 'subscribed') {
         toast.success('通知をオンにしました')
+      } else if (newState.status === 'denied') {
+        toast.error(`通知がブロックされています。${DENIED_GUIDE}`, { duration: 8000 })
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : '通知の登録に失敗しました'
@@ -90,13 +94,13 @@ export default function PushSubscriptionToggle() {
         isOn
           ? 'bg-sky-100 text-sky-800 hover:bg-sky-200'
           : isDenied
-            ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+            ? 'bg-amber-50 text-amber-800 hover:bg-amber-100'
             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
       }`}
       aria-pressed={isOn}
       title={
         isDenied
-          ? 'ブラウザの設定で通知を有効にしてください'
+          ? DENIED_GUIDE
           : isOn
             ? '通知をオフにする'
             : '毎朝、完成を通知'
@@ -120,9 +124,9 @@ export default function PushSubscriptionToggle() {
           処理中...
         </span>
       ) : isOn ? (
-        '通知ON'
+        '通知オン（毎朝お知らせします）'
       ) : isDenied ? (
-        '通知オフ'
+        '通知がブロックされています'
       ) : (
         '毎朝、完成を通知'
       )}
