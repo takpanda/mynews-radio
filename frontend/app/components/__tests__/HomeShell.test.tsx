@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import HomeShell, { type HeroEpisode } from '../HomeShell'
 import type { EpisodeListItem } from '../../lib/api'
+import { fetchEpisodes } from '../../lib/api'
 
 jest.mock('next/link', () => ({
   __esModule: true,
@@ -177,22 +178,68 @@ describe('HomeShell archive thumbnail', () => {
 })
 
 describe('HomeShell ダイジェストフィルター', () => {
+  const digest: EpisodeListItem = { ...episode(), id: 3, title: '週末ダイジェスト回', type: 'digest' }
   const episodes: EpisodeListItem[] = [
     { ...episode(['テック・IT']), id: 1, title: 'テック通常回' },
     { ...episode(['ビジネス']), id: 2, title: '一般通常回' },
-    { ...episode(), id: 3, title: '週末ダイジェスト回', type: 'digest' },
   ]
 
-  it('「ダイジェスト」タブを選ぶとダイジェスト回だけが表示される', () => {
+  function renderWithDigest(digests: EpisodeListItem[], initial = episodes, digestHasNext = false) {
+    return render(
+      <HomeShell
+        latest={null}
+        chapters={[]}
+        initialEpisodes={initial}
+        initialHasNext={false}
+        initialDigestEpisodes={digests}
+        initialDigestHasNext={digestHasNext}
+      />,
+    )
+  }
+
+  beforeEach(() => {
+    ;(fetchEpisodes as jest.Mock).mockReset()
+  })
+
+  it('公開済みダイジェスト回が0件のとき「ダイジェスト」タブを表示しない', () => {
+    renderWithDigest([])
+    expect(screen.queryByRole('button', { name: 'ダイジェスト' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'テック' })).toBeInTheDocument()
+  })
+
+  it('ダイジェスト件数が未取得（props未指定）のときもタブを表示しない', () => {
     renderArchiveEpisodes(episodes)
+    expect(screen.queryByRole('button', { name: 'ダイジェスト' })).toBeNull()
+  })
+
+  it('公開済みダイジェスト回が1件以上あるとき「ダイジェスト」タブを表示する', () => {
+    renderWithDigest([digest])
+    expect(screen.getByRole('button', { name: 'ダイジェスト' })).toBeInTheDocument()
+  })
+
+  it('一覧の先頭ページに含まれないダイジェスト回も、タブ選択で表示され通常回は表示されない', () => {
+    renderWithDigest([digest])
     fireEvent.click(screen.getByRole('button', { name: 'ダイジェスト' }))
     expect(screen.getByText('週末ダイジェスト回')).toBeInTheDocument()
     expect(screen.queryByText('テック通常回')).toBeNull()
     expect(screen.queryByText('一般通常回')).toBeNull()
   })
 
+  it('ダイジェストタブの「もっと見る」は category=digest で続きを取得する', async () => {
+    ;(fetchEpisodes as jest.Mock).mockResolvedValue({
+      items: [{ ...digest, id: 4, title: '先週のダイジェスト回' }],
+      total: 2,
+      has_next: false,
+    })
+    renderWithDigest([digest], episodes, true)
+    fireEvent.click(screen.getByRole('button', { name: 'ダイジェスト' }))
+    fireEvent.click(screen.getByRole('button', { name: 'もっと見る' }))
+    await waitFor(() => expect(screen.getByText('先週のダイジェスト回')).toBeInTheDocument())
+    expect(fetchEpisodes).toHaveBeenCalledWith(20, 1, expect.anything(), 'digest')
+  })
+
   it.each(['テック', '一般'])('ダイジェスト回は「%s」フィルターに混入しない', (label) => {
-    renderArchiveEpisodes(episodes)
+    renderWithDigest([digest], [...episodes, digest])
     fireEvent.click(screen.getByRole('button', { name: label }))
     expect(screen.queryByText('週末ダイジェスト回')).toBeNull()
   })

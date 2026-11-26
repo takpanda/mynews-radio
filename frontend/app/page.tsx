@@ -54,6 +54,16 @@ export default async function Home() {
     }
   }
 
+  // 公開済みダイジェスト回（「ダイジェスト」タブの表示判定と一覧に使う）。失敗してもタブを出さないだけにする
+  let digestData: PaginatedEpisodesResponse | null = null
+  if (!error) {
+    try {
+      digestData = (await fetchEpisodes(PAGE_SIZE, 0, undefined, 'digest')) as PaginatedEpisodesResponse
+    } catch {
+      digestData = null
+    }
+  }
+
   const isAuthenticated = await hasValidAdminSession()
 
   return (
@@ -68,6 +78,8 @@ export default async function Home() {
           chapters={chapters}
           initialEpisodes={initialData!.items}
           initialHasNext={initialData!.has_next}
+          initialDigestEpisodes={digestData?.items ?? []}
+          initialDigestHasNext={digestData?.has_next ?? false}
           isAuthenticated={isAuthenticated}
         />
       )}

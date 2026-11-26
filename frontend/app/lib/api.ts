@@ -363,11 +363,12 @@ export interface PaginatedEpisodesResponse {
 }
 
 export async function fetchEpisodes(): Promise<EpisodeListItem[]>
-export async function fetchEpisodes(limit: number, offset: number, signal?: AbortSignal): Promise<PaginatedEpisodesResponse>
-export async function fetchEpisodes(limit?: number, offset?: number, signal?: AbortSignal): Promise<EpisodeListItem[] | PaginatedEpisodesResponse> {
+export async function fetchEpisodes(limit: number, offset: number, signal?: AbortSignal, category?: string): Promise<PaginatedEpisodesResponse>
+export async function fetchEpisodes(limit?: number, offset?: number, signal?: AbortSignal, category?: string): Promise<EpisodeListItem[] | PaginatedEpisodesResponse> {
   let url = `${getApiBase()}/episodes`
   if (limit !== undefined && offset !== undefined) {
     url += `?limit=${limit}&offset=${offset}`
+    if (category) url += `&category=${encodeURIComponent(category)}`
   }
   const res = await fetch(url, { cache: 'no-store', signal })
   if (!res.ok) throw new Error(`Failed to fetch episodes: ${res.status}`)
